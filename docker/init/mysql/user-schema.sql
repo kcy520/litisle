@@ -8,7 +8,11 @@
 -- # 说明：在现有 user-schema.sql 基础上补充角色与扩展资料
 -- # ============================================================
 
-use litisleuser;
+CREATE DATABASE IF NOT EXISTS litisleuser
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE litisleuser;
 
 # 1. sys_user 表字段补齐
 alter table `sys_user`
@@ -97,3 +101,72 @@ default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，�
 -- - **审计**：所有删除操作通过 `litisle-common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
 -- - **app_id 预留**：唯一索引 `(provider, app_id, open_id)` 预留 `app_id` 字段，默认值 `'default'`。当前单应用无影响，未来接入多个微信/QQ 应用时，同一 provider 下不同 app 的 openId 不会冲突。
 
+#初始化语句
+-- 角色用户示例数据（每个角色各一名，密码统一为 bcrypt 加密的 123）
+-- 哈希：$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2
+-- 注意：请根据实际 sys_user 表结构调整 id 值，确保与现有数据不冲突
+# ============================================================
+# 初始化示例用户数据（手机号明文，暂不加密，无邮箱）
+# 密码统一为 bcrypt 加密的 123
+# 哈希：$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2
+# ============================================================
+
+-- 1. READER 读者
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1001, 'reader_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010001', '热爱阅读的普通用户', 1, 0, NOW());
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1001, `id` FROM `sys_role` WHERE `role_code` = 'READER';
+
+INSERT INTO `sys_user_profile` (`user_id`, `avatar_color`)
+VALUES (1001, 0);
+
+-- 2. AUTHOR 作家
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1002, 'author_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010002', '专注科幻小说创作', 1, 0, NOW());
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1002, `id` FROM `sys_role` WHERE `role_code` = 'AUTHOR';
+
+INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`, `avatar_color`)
+VALUES (1002, '红袖添香', '科幻 / 奇幻', '《星海归途》系列', 1);
+
+-- 3. LEGACY_AUTHOR 纪念作家
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1003, 'legacy_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010003', '已故文学巨匠，作品永久珍藏', 1, 0, NOW());
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1003, `id` FROM `sys_role` WHERE `role_code` = 'LEGACY_AUTHOR';
+
+INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`, `avatar_color`)
+VALUES (1003, '老舍', '现实主义文学', '《骆驼祥子》《茶馆》', 2);
+
+-- 4. REVIEWER 审核员
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1004, 'reviewer_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010004', '内容安全审核专员', 1, 0, NOW());
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1004, `id` FROM `sys_role` WHERE `role_code` = 'REVIEWER';
+
+INSERT INTO `sys_user_profile` (`user_id`, `avatar_color`)
+VALUES (1004, 0);
+
+-- 5. ADMIN 管理员
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1005, 'admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010005', '负责平台日常运营管理', 1, 0, NOW());
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1005, `id` FROM `sys_role` WHERE `role_code` = 'ADMIN';
+
+INSERT INTO `sys_user_profile` (`user_id`, `avatar_color`)
+VALUES (1005, 0);
+
+-- 6. SUPER_ADMIN 超级管理员
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1006, 'super_admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010006', '系统最高权限拥有者', 1, 0, NOW());
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1006, `id` FROM `sys_role` WHERE `role_code` = 'SUPER_ADMIN';
+
+INSERT INTO `sys_user_profile` (`user_id`, `avatar_color`)
+VALUES (1006, 0);

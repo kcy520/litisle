@@ -3,10 +3,10 @@ server:
 
 spring:
   application:
-    name: litisle-social
+    name: litisle-user
 
   profiles:
-    active: local-native
+    active: local
 
   main:
     allow-circular-references: true
@@ -14,7 +14,7 @@ spring:
 
 
   # ================================
-  # MySQL ?????
+  #  MySQL 数据源配置
   # ================================
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -23,7 +23,7 @@ spring:
     password: ${litisle.db.password:123}
 
   # ================================
-  # Redis ??????
+  # Redis 单机配置
   # ================================
   data:
     redis:
@@ -42,7 +42,7 @@ spring:
 
 
   # ================================
-  # Redis ????????????
+  # Redis 集群配置
   # ================================
   # data:
   #   redis:
@@ -68,10 +68,10 @@ spring:
 # ================================
 mybatis:
   mapper-locations: classpath:mapper/*.xml
-  type-aliases-package: com.example.entity
+  type-aliases-package: com.litisle.user.entity
 
 # ================================
-# MyBatis-Plus ??
+# MyBatis-Plus 配置
 # ================================
 mybatis-plus:
   configuration:
@@ -82,23 +82,28 @@ mybatis-plus:
       id-type: auto
 
 # ================================
-# ????
+# 日志配置
 # ================================
 logging:
   level:
-    com.demo: debug
+    com.litisle.user: debug
   pattern:
     dateformat: HH:mm:ss:SSS
   file:
     path: "logs/${spring.application.name}"
 
 # ================================
-# Knife4j API ????
+# Knife4j API 文档配置
 # ================================
 knife4j:
   enable: true
   openapi:
-    title: user??
+    title: litisle-user 接口文档
     description: "Litisle-user"
     version: v1.0.0
     group:
+      default:
+        group-name: default
+        api-rule: package
+        api-rule-resources:
+          - com.litisle.user.controller

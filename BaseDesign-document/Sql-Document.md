@@ -19,41 +19,79 @@ SQL
 角色编码	全大写下划线 SUPER_ADMIN
 关于 4.2 中间件落地矩阵：已按你要求仅保留 SeaweedFS，其余（Sentinel Dashboard / Zipkin / Prometheus / SkyWalking）从矩阵移除，后续不再展开。
 
-一、litisle-user 模块（数据库：litisleuser）
-现状说明：现有 sys_role 仅初始化了 SUPER_ADMIN/ADMIN/USER 三个角色，与设计文档定义的 6 角色体系（READER/AUTHOR/LEGACY_AUTHOR/REVIEWER/ADMIN/SUPER_ADMIN）不完全匹配；sys_user 也缺 phone、bio、vip_expire_time 等字段。下面用 ALTER 补齐 + 新增扩展表，不破坏现有结构。
+## 一、litisle-user 模块（数据库：litisleuser）
 
+```sql
 # ============================================================
 # 模块：litisle-user
 # 数据库：litisleuser
-# 说明：在现有 user-schema.sql 基础上补充角色与扩展资料
+# 说明：用户 / 角色 / 用户资料扩展 / OAuth 绑定 / 短信验证码
 # ============================================================
-​
+
+create database if not exists litisleuser
+    character set utf8mb4
+    collate utf8mb4_unicode_ci;
+
 use litisleuser;
-​
-# 1. sys_user 表字段补齐
-alter table `sys_user`
-add column `phone`          varchar(20)  null comment '手机号（加密存储）' after `email`,
-add column `bio`            varchar(200) null comment '个人简介' after `avatar`,
-add column `vip_expire_time` datetime    null comment 'VIP 到期时间' after `bio`,
-add column `frozen_until`   datetime     null comment '封禁截止时间（null=未封禁）' after `vip_expire_time`,
-add column `cancel_time`    datetime     null comment '注销时间（用于手机号冷却期计算，null=未注销过）' after `frozen_until`,
-add unique key `uk_phone_del` (`phone`, `del_flag`);
-​
-# 2. 补充角色数据（前台业务角色）
-insert into `sys_role` (`role_code`, `role_name`, `role_type`)
-values
-('READER',        '读者',     2),
-('AUTHOR',        '作家',     2),
-('LEGACY_AUTHOR', '纪念作家', 2),
-('REVIEWER',      '审核员',   2);
-​
--- 补充系统内置角色（role_type = 1）
-insert into `sys_role` (`role_code`, `role_name`, `role_type`) values
-('SUPER_ADMIN', '超级管理员', 1),
-('ADMIN',       '管理员',     1);
-​
-# 3. 用户资料扩展表（删除状态以主表 sys_user.del_flag 为准）
-create table `sys_user_profile`
+
+# 1. 用户表
+create table if not exists `sys_user`
+(
+    `id`              bigint unsigned not null auto_increment primary key comment '用户ID',
+    `username`        varchar(32)     not null comment '用户名',
+    `password`        varchar(128)    not null comment '密码（BCrypt）',
+    `email`           varchar(64)     null comment '邮箱',
+    `phone`           varchar(20)     not null comment '手机号（加密存储）',
+    `avatar`          varchar(255)    not null default 'default-avatar-url' comment '头像URL',
+    `bio`             varchar(200)    null comment '个人简介',
+    `vip_expire_time` datetime        null comment 'VIP 到期时间',
+    `frozen_until`    datetime        null comment '封禁截止时间（null=未封禁）',
+    `cancel_time`     datetime        null comment '注销时间（用于手机号冷却期计算，null=未注销过）',
+    `status`          tinyint         not null default 1 comment '状态：0-禁用 1-正常 2-注销',
+    `del_flag`        tinyint         not null default 0 comment '删除标志：0-未删除 1-已删除',
+    `version`         int             not null default 0 comment '乐观锁版本号',
+    `create_time`     datetime        not null default current_timestamp comment '创建时间',
+    `update_time`     datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    unique key `uk_phone_del` (`phone`, `del_flag`),
+    index `idx_username` (`username`),
+    index `idx_email` (`email`),
+    index `idx_create_time` (`create_time`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '用户表';
+
+# 2. 角色表
+create table if not exists `sys_role`
+(
+    `id`          bigint unsigned not null auto_increment primary key comment '角色ID',
+    `role_code`   varchar(32)     not null comment '角色编码',
+    `role_name`   varchar(32)     not null comment '角色名称',
+    `role_type`   tinyint         not null default 2 comment '角色类型：1-系统内置 2-业务角色',
+    `create_time` datetime        not null default current_timestamp comment '创建时间',
+    unique key `uk_role_code` (`role_code`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '角色表';
+
+# 3. 用户-角色关联表
+create table if not exists `sys_user_role`
+(
+    `user_id` bigint unsigned not null comment '用户ID',
+    `role_id` bigint unsigned not null comment '角色ID',
+    primary key (`user_id`, `role_id`),
+    index `idx_role_id` (`role_id`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '用户-角色关联表';
+
+# 4. 角色初始化数据
+insert ignore into `sys_role` (`role_code`, `role_name`, `role_type`) values
+('SUPER_ADMIN',   '超级管理员', 1),
+('ADMIN',         '管理员',     1),
+('READER',        '读者',       2),
+('AUTHOR',        '作家',       2),
+('LEGACY_AUTHOR', '纪念作家',   2),
+('REVIEWER',      '审核员',     2);
+
+# 5. 用户资料扩展表（删除状态以主表 sys_user.del_flag 为唯一真相源）
+create table if not exists `sys_user_profile`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '主键ID',
 `user_id`       bigint unsigned not null unique comment '用户ID（关联 sys_user.id）',
@@ -67,9 +105,9 @@ create table `sys_user_profile`
 index `idx_user_id` (`user_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '用户资料扩展表（删除状态以主表 sys_user.del_flag 为唯一真相源，本表不设 del_flag）';
-​
-# 4. 第三方 OAuth 绑定表（物理删除 + @AuditLog 审计 + app_id 预留）
-create table `sys_oauth_binding`
+
+# 6. 第三方 OAuth 绑定表（物理删除 + @AuditLog 审计 + app_id 预留）
+create table if not exists `sys_oauth_binding`
 (
 `id`          bigint unsigned not null auto_increment primary key comment '主键ID',
 `user_id`     bigint unsigned not null comment '用户ID',
@@ -83,7 +121,8 @@ unique key `uk_provider_app_open` (`provider`, `app_id`, `open_id`),
 index `idx_user_id` (`user_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
-
+```
+```
 
 **设计原因**：
 
@@ -117,18 +156,20 @@ default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，�
 - **审计**：所有删除操作通过 `litisle-common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
 - **app_id 预留**：唯一索引 `(provider, app_id, open_id)` 预留 `app_id` 字段，默认值 `'default'`。当前单应用无影响，未来接入多个微信/QQ 应用时，同一 provider 下不同 app 的 openId 不会冲突。
 
-二、litisle-content 模块（数据库：litislecontent）
+## 二、litisle-content 模块（数据库：litislecontent）
+
 （草稿上的图片也能暂存在数据库中）
 
 发布时可以选择文章是否公开，可以在之后几章同时发布，或者先暂时存着（后续可以多选发布-即修改公开状态）
 作者写好了一批内容（几篇文章、几个章节），暂时不对外公开，等攒够了/准备好了，一次性把它们一起发布出去。
 
+```sql
 # ============================================================
 # 模块：litisle-content
 # 数据库：litislecontent
 # 说明：文章 / 草稿 / 书籍 / 章节 / 图片 / 阅读进度
 # ============================================================
-​
+
 create database if not exists litislecontent
 character set utf8mb4
 collate utf8mb4_unicode_ci;
@@ -136,7 +177,7 @@ collate utf8mb4_unicode_ci;
 use litislecontent;
 ​
 # 1. 文章主表
-create table `article`
+create table if not exists `article`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '文章ID',
 `author_id`     bigint unsigned not null comment '作者用户ID',
@@ -162,7 +203,7 @@ index `idx_create_time` (`create_time`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '文章表';
 # 2. 文章图片表（记录插入位置与对齐方式）
-create table `article_image`
+create table if not exists `article_image`
 (
 `id`              bigint unsigned not null auto_increment primary key comment '主键ID',
 `article_id`      bigint unsigned not null comment '文章ID（正式文章时有值）',
@@ -180,8 +221,8 @@ default charset = utf8mb4 comment = '文章图片表';
 
 
 
-# 4. 书籍/合集表
-create table `book`
+# 3. 书籍/合集表
+create table if not exists `book`
 (
 `id`           bigint unsigned not null auto_increment primary key comment '书籍ID',
 `author_id`    bigint unsigned not null comment '作者ID',
@@ -198,8 +239,8 @@ index `idx_author_id` (`author_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '书籍/合集表';
 ​
-# 5. 章节表（文章作为章节挂到书籍）
-create table `book_chapter`
+# 4. 章节表（文章作为章节挂到书籍）
+create table if not exists `book_chapter`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '章节ID',
 `book_id`    bigint unsigned not null comment '书籍ID',
@@ -212,8 +253,8 @@ index `idx_article_id` (`article_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '书籍章节表';
 ​
-# 6. 阅读进度表
-create table `reading_progress`
+# 5. 阅读进度表
+create table if not exists `reading_progress`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '主键ID',
 `user_id`    bigint unsigned not null comment '读者ID',
@@ -225,6 +266,8 @@ create table `reading_progress`
     index `idx_book_id` (`book_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '阅读进度表';
+```
+
 设计原因：
 
 article 计数字段冗余（view_cnt/like_cnt）：避免每次列表查询都 join 聚合，配合 Redis 异步刷新。
@@ -237,13 +280,15 @@ book_chapter 用 (book_id, chapter_no) 唯一索引：保证章节序号不重�
 
 content_html 用 longtext：支持大篇幅切片前的完整正文。
 
-三、litisle-social 模块（数据库：litislesocial）
+## 三、litisle-social 模块（数据库：litislesocial）
+
+```sql
 # ============================================================
 # 模块：litisle-social
 # 数据库：litislesocial
 # 说明：关注 / 点赞 / 评论 / 收藏 / 佳句 / 私信
 # ============================================================
-​
+
 create database if not exists litislesocial
 character set utf8mb4
 collate utf8mb4_unicode_ci;
@@ -251,7 +296,7 @@ collate utf8mb4_unicode_ci;
 use litislesocial;
 ​
 # 1. 关注表
-create table `follow`
+create table if not exists `follow`
 (
 `follower_id` bigint unsigned not null comment '关注者ID',
 `followee_id` bigint unsigned not null comment '被关注者ID',
@@ -262,7 +307,7 @@ index `idx_followee_id` (`followee_id`)
 default charset = utf8mb4 comment = '关注关系表';
 ​
 # 2. 点赞表
-create table `like_record`
+create table if not exists `like_record`
 (
 `user_id`     bigint unsigned not null comment '点赞用户ID',
 `target_type` tinyint         not null comment '目标类型：1-文章 2-评论 3-佳句',
@@ -274,7 +319,7 @@ index `idx_target` (`target_type`, `target_id`)
 default charset = utf8mb4 comment = '点赞记录表';
 ​
 # 3. 评论表（三级折叠：root_id 支持整棵子树拉取）
-create table `comment`
+create table if not exists `comment`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '评论ID',
 `article_id` bigint unsigned not null comment '文章ID',
@@ -296,7 +341,7 @@ index `idx_user_id` (`user_id`)
 default charset = utf8mb4 comment = '评论表';
 ​
 # 4. 收藏夹表
-create table `favorite_folder`
+create table if not exists `favorite_folder`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '收藏夹ID',
 `user_id`    bigint unsigned not null comment '用户ID',
@@ -309,7 +354,7 @@ index `idx_user_id` (`user_id`)
 default charset = utf8mb4 comment = '收藏夹表';
 ​
 # 5. 收藏项表
-create table `favorite_item`
+create table if not exists `favorite_item`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '收藏项ID',
 `folder_id`  bigint unsigned not null comment '收藏夹ID',
@@ -323,7 +368,7 @@ index `idx_folder_id` (`folder_id`)
 default charset = utf8mb4 comment = '收藏项表';
 ​
 # 6. 佳句收藏表（带出处 + 备注）
-create table `quote_favorite`
+create table if not exists `quote_favorite`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '佳句ID',
 `user_id`       bigint unsigned not null comment '收藏用户ID',
@@ -342,7 +387,7 @@ index `idx_article_id` (`article_id`)
 default charset = utf8mb4 comment = '佳句佳段收藏表';
 ​
 # 7. 对话表（承载陌生人3条限制 + 确认机制）
-create table `conversation`
+create table if not exists `conversation`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '对话ID',
 `user_a`        bigint unsigned not null comment '发起方ID',
@@ -357,7 +402,7 @@ index `idx_user_b` (`user_b`)
 default charset = utf8mb4 comment = '私信对话表';
 ​
 # 8. 消息表
-create table `message`
+create table if not exists `message`
 (
 `id`             bigint unsigned not null auto_increment primary key comment '消息ID',
 `conversation_id` bigint unsigned not null comment '对话ID',
@@ -371,7 +416,7 @@ index `idx_sender_id` (`sender_id`)
 default charset = utf8mb4 comment = '私信消息表';
 ​
 # 9. 私信黑名单表
-create table `message_blacklist`
+create table if not exists `message_blacklist`
 (
 `user_id`    bigint unsigned not null comment '拉黑者ID',
 `blocked_id` bigint unsigned not null comment '被拉黑者ID',
@@ -382,7 +427,7 @@ index `idx_blocked_id` (`blocked_id`)
 default charset = utf8mb4 comment = '私信黑名单表';
 ​
 # 10. 私信设置表
-create table `message_setting`
+create table if not exists `message_setting`
 (
 `user_id`          bigint unsigned not null primary key comment '用户ID',
 `accept_stranger`  tinyint         not null default 1 comment '接受陌生人私信：0-关 1-开',
@@ -390,6 +435,8 @@ create table `message_setting`
 `update_time`      datetime        not null default current_timestamp on update current_timestamp comment '更新时间'
 ) engine = InnoDB
 default charset = utf8mb4 comment = '私信设置表';
+```
+
 设计原因：
 
 follow / like_record / message_blacklist 用联合主键 + 无通用字段：纯关系表，跟随 sys_user_role 风格，写入快、查询走覆盖索引。
@@ -402,13 +449,15 @@ quote_favorite 冗余 source_title / source_author：佳句需展示出处，冗
 
 favorite_item 加 user_id 冗余 + 唯一索引：防止同一用户重复收藏同一目标，权限校验也无需 join folder。
 
-四、litisle-review 模块（数据库：litislereview）
+## 四、litisle-review 模块（数据库：litislereview）
+
+```sql
 # ============================================================
 # 模块：litisle-review
 # 数据库：litislereview
 # 说明：审核任务 / 举报 / 申诉 / 违规分 / 敏感词库
 # ============================================================
-​
+
 create database if not exists litislereview
 character set utf8mb4
 collate utf8mb4_unicode_ci;
@@ -416,7 +465,7 @@ collate utf8mb4_unicode_ci;
 use litislereview;
 ​
 # 1. 审核任务表（状态机核心，append-only 不可改不可删）
-create table `review_task`
+create table if not exists `review_task`
 (
 `id`           bigint unsigned not null auto_increment primary key comment '任务ID',
 `biz_type`     tinyint         not null comment '业务类型：1-文章 2-评论 3-用户名 4-作家申请',
@@ -437,7 +486,7 @@ index `idx_assignee` (`assignee`)
 default charset = utf8mb4 comment = '审核任务表';
 ​
 # 2. 举报表
-create table `report`
+create table if not exists `report`
 (
 `id`               bigint unsigned not null auto_increment primary key comment '举报ID',
 `reporter_id`      bigint unsigned not null comment '举报人ID',
@@ -456,7 +505,7 @@ index `idx_status` (`status`)
 default charset = utf8mb4 comment = '举报表';
 ​
 # 3. 申诉表
-create table `appeal`
+create table if not exists `appeal`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '申诉ID',
 `report_id`     bigint unsigned null comment '关联举报ID',
@@ -474,7 +523,7 @@ index `idx_status` (`status`)
 default charset = utf8mb4 comment = '申诉表';
 ​
 # 4. 违规分累积表
-create table `violation_score`
+create table if not exists `violation_score`
 (
 `user_id`            bigint unsigned not null primary key comment '用户ID',
 `score`              int             not null default 0 comment '违规分累计',
@@ -485,7 +534,7 @@ create table `violation_score`
 default charset = utf8mb4 comment = '违规分累积表';
 ​
 # 5. 敏感词库表（DFA 热更新数据源）
-create table `sensitive_word_library`
+create table if not exists `sensitive_word_library`
 (
 `id`           bigint unsigned not null auto_increment primary key comment '词ID',
 `word`         varchar(64)     not null comment '敏感词',
@@ -503,7 +552,7 @@ index `idx_word` (`word`)
 default charset = utf8mb4 comment = '敏感词库表';
 ​
 # 6. 作家申请表
-create table `author_apply`
+create table if not exists `author_apply`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '申请ID',
 `user_id`       bigint unsigned not null comment '申请人ID',
@@ -519,6 +568,8 @@ index `idx_user_id` (`user_id`),
 index `idx_status` (`status`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '作家申请表';
+```
+
 设计原因：
 
 review_task 不加 del_flag：审核记录不可删除（设计文档审计规范），所有变更走 status 流转。
@@ -529,10 +580,11 @@ violation_score 用 user_id 作主键：一用户一行，分数累加用乐观�
 
 author_apply 独立于 sys_user：申请记录需保留历史，多次申请形成流水。
 
-五、litisle-ai 模块（数据库：litisleai）
+## 五、litisle-ai 模块（数据库：litisleai）
+
 redis+mysql结合处理token相关。定时任务清理之前的token记录数据
 
--
+```sql
 # ============================================================
 # 模块：litisle-ai
 # 数据库：litisleai
@@ -546,7 +598,7 @@ collate utf8mb4_unicode_ci;
 use litisleai;
 ​
 # 1. AI 会话表（暂存区 LRU 淘汰）
-create table `ai_session`
+create table if not exists `ai_session`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '会话ID',
 `user_id`    bigint unsigned not null comment '用户ID',
@@ -563,7 +615,7 @@ index `idx_user_lru` (`user_id`, `is_lru`, `last_active_time`)
 default charset = utf8mb4 comment = 'AI 会话表';
 ​
 # 2. AI 消息表
-create table `ai_message`
+create table if not exists `ai_message`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '消息ID',
 `session_id` bigint unsigned not null comment '会话ID',
@@ -577,7 +629,7 @@ index `idx_session_id` (`session_id`)
 default charset = utf8mb4 comment = 'AI 消息表';
 ​
 # 3. Token 用量统计表（VIP 不限 / 普通计数）
-create table `ai_token_usage`
+create table if not exists `ai_token_usage`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '主键ID',
 `user_id`    bigint unsigned not null comment '用户ID',
@@ -589,6 +641,8 @@ unique key `uk_user_date` (`user_id`, `usage_date`),
 index `idx_usage_date` (`usage_date`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = 'AI Token 用量表';
+```
+
 设计原因：
 
 ai_session 用 is_lru + last_active_time 联合索引：直接支持 LRU 淘汰查询（order by last_active_time limit 1）。
@@ -597,7 +651,9 @@ ai_message 不加 del_flag：消息跟随会话级联清理，避免冗余字段
 
 ai_token_usage 按 (user_id, usage_date) 唯一键：每日一行，支持 upsert 累加，便于限额校验。
 
-六、litisle-payment 模块（数据库：litislepayment）
+## 六、litisle-payment 模块（数据库：litislepayment）
+
+```sql
 # ============================================================
 # 模块：litisle-payment
 # 数据库：litislepayment
@@ -611,7 +667,7 @@ collate utf8mb4_unicode_ci;
 use litislepayment;
 ​
 # 1. VIP 订单表
-create table `vip_order`
+create table if not exists `vip_order`
 (
 `id`           bigint unsigned not null auto_increment primary key comment '订单ID',
 `user_id`      bigint unsigned not null comment '用户ID',
@@ -629,7 +685,7 @@ index `idx_status` (`status`)
 default charset = utf8mb4 comment = 'VIP 订单表';
 ​
 # 2. 小硬币账户表（BIGINT 微币防精度丢失）
-create table `coin_account`
+create table if not exists `coin_account`
 (
 `user_id`        bigint unsigned not null primary key comment '用户ID',
 `balance_micro`  bigint          not null default 0 comment '微币余额（1小硬币=100微币，BIGINT 防精度）',
@@ -639,7 +695,7 @@ create table `coin_account`
 default charset = utf8mb4 comment = '小硬币账户表';
 ​
 # 3. 流水表（append-only 不可改）
-create table `coin_transaction`
+create table if not exists `coin_transaction`
 (
 `id`          bigint unsigned not null auto_increment primary key comment '流水ID',
 `user_id`     bigint unsigned not null comment '用户ID',
@@ -654,7 +710,7 @@ index `idx_related` (`tx_type`, `related_id`)
 default charset = utf8mb4 comment = '小硬币流水表';
 ​
 # 4. 赞赏记录表
-create table `reward_record`
+create table if not exists `reward_record`
 (
 `id`                bigint unsigned not null auto_increment primary key comment '赞赏ID',
 `from_user_id`      bigint unsigned not null comment '赞赏者ID',
@@ -670,7 +726,7 @@ index `idx_target` (`target_type`, `target_id`)
 default charset = utf8mb4 comment = '赞赏记录表';
 ​
 # 5. 提现申请表
-create table `withdraw_request`
+create table if not exists `withdraw_request`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '提现单ID',
 `user_id`       bigint unsigned not null comment '申请人ID',
@@ -686,7 +742,7 @@ index `idx_status` (`status`)
 default charset = utf8mb4 comment = '提现申请表';
 ​
 # 6. Seata AT 模式 undo_log 表（必须，Seata 规范要求）
-create table `undo_log`
+create table if not exists `undo_log`
 (
 `branch_id`     bigint unsigned not null comment '分支事务ID',
 `xid`           varchar(128)    not null comment '全局事务ID',
@@ -698,6 +754,8 @@ create table `undo_log`
 unique key `ux_undo_log` (`xid`, `branch_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = 'Seata AT 模式 undo_log 表';
+```
+
 设计原因：
 
 coin_account.balance_micro 用 BIGINT：设计文档明确"内部微币 BIGINT 防精度"，展示层 BigDecimal/100 转小硬币。
@@ -708,8 +766,9 @@ reward_record 拆 amount_micro 与 platform_fee_micro：赞赏 10% 抽成透明�
 
 undo_log 表：Seata AT 模式硬性要求，每个参与全局事务的库都要有。
 
-七、litisle-notification 模块（数据库：litislenotification）
-notification
+## 七、litisle-notification 模块（数据库：litislenotification）
+
+```sql
 # ============================================================
 # 模块：litisle-notification
 # 数据库：litislenotification
@@ -723,7 +782,7 @@ collate utf8mb4_unicode_ci;
 use litislenotification;
 ​
 # 1. 通知表
-create table `notification`
+create table if not exists `notification`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '通知ID',
 `user_id`    bigint unsigned not null comment '接收人ID',
@@ -740,7 +799,7 @@ index `idx_create_time` (`create_time`)
 default charset = utf8mb4 comment = '通知表';
 ​
 # 2. 通知设置表
-create table `notification_setting`
+create table if not exists `notification_setting`
 (
 `user_id`        bigint unsigned not null primary key comment '用户ID',
 `social_notify`  tinyint         not null default 1 comment '社交通知：0-关 1-开',
@@ -750,13 +809,17 @@ create table `notification_setting`
 `update_time`    datetime        not null default current_timestamp on update current_timestamp comment '更新时间'
 ) engine = InnoDB
 default charset = utf8mb4 comment = '通知设置表';
+```
+
 设计原因：
 
 notification 用 (user_id, is_read) 联合索引：高频查询"未读列表"，索引覆盖直接命中。
 
 notification_setting 用 user_id 作主键：一用户一行，按需 upsert。
 
-八、litisle-file 模块（数据库：litislefile）
+## 八、litisle-file 模块（数据库：litislefile）
+
+```sql
 # ============================================================
 # 模块：litisle-file
 # 数据库：litislefile
@@ -770,7 +833,7 @@ collate utf8mb4_unicode_ci;
 use litislefile;
 ​
 # 1. 文件元数据表
-create table `file_meta`
+create table if not exists `file_meta`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '主键ID',
 `file_id`    varchar(64)     not null unique comment 'SeaweedFS 文件ID（业务主键）',
@@ -792,6 +855,8 @@ index `idx_owner_biz` (`owner_id`, `biz_type`),
 index `idx_sha256` (`sha256`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '文件元数据表';
+```
+
 设计原因：
 
 file_id 业务主键 + 唯一索引：业务层只持有 fileId，与 SeaweedFS 解耦。
@@ -802,18 +867,19 @@ access 区分公开/私有：公开文件走 CDN 直链，私有文件走预签�
 
 align 放此表为冗余可选：实际对齐信息以 article_image 为准，此处冗余便于文件维度查询。
 
-九、litisle-search 模块
+## 九、litisle-search 模块
+
 该模块不建 MySQL 表，数据全部落 Elasticsearch：
 
-article_idx（标题^4 / 标签^3 / 摘要^2 / 正文 / dense_vector 向量字段）
-
-book_idx（书名 / 简介 / 章节标题）
-
-user_idx（笔名 / 简介 / 作品标签聚合）
+- `article_idx`（标题^4 / 标签^3 / 摘要^2 / 正文 / dense_vector 向量字段）
+- `book_idx`（书名 / 简介 / 章节标题）
+- `user_idx`（笔名 / 简介 / 作品标签聚合）
 
 索引由 MQ 事件（content.published / social.liked）异步增量同步，无需关系表。
 
-商城模块
+## 十、litisle-shop 模块（数据库：litisleshop）
+
+```sql
 -- =============================================
 -- litisle_shop 库：积分商城 + 订单 + 运单
 -- =============================================
@@ -824,7 +890,7 @@ default collate utf8mb4_unicode_ci;
 use litisle_shop;
 ​
 -- 1. 商品表
-create table shop_product
+create table if not exists shop_product
 (
 id              bigint          not null auto_increment comment '商品ID',
 name            varchar(100)    not null comment '商品名称',
@@ -845,7 +911,7 @@ key idx_status (status, sale_start_time, sale_end_time)
 ) engine=innodb default charset=utf8mb4 comment='积分商城商品表';
 ​
 -- 2. 订单表
-create table shop_order
+create table if not exists shop_order
 (
 id              bigint          not null auto_increment comment '订单ID',
 order_no        varchar(32)     not null comment '订单号（唯一）',
@@ -867,7 +933,7 @@ key idx_status (status, create_time)
 ) engine=innodb default charset=utf8mb4 comment='积分商城订单表';
 ​
 -- 3. 运单表
-create table shipping
+create table if not exists shipping
 (
 id               bigint         not null auto_increment comment '运单ID',
 order_id         bigint         not null comment '订单ID',
@@ -885,3 +951,5 @@ primary key (id),
 unique key uk_order_id (order_id),
 key idx_express (express_company, express_no)
 ) engine=innodb default charset=utf8mb4 comment='运单表';
+```
+```
