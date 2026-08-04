@@ -1,19 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>3.5.15</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
+
     <groupId>com.litisle</groupId>
-    <artifactId>LitIsle</artifactId>
+    <artifactId>Litisle</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>LitIsle</name>
     <description>LitIsle</description>
 
+    <!-- 关键：声明为 pom 打包类型 -->
+    <packaging>pom</packaging>
 
     <modules>
         <module>litisle-auth</module>
@@ -26,11 +31,112 @@
         <module>litisle-user</module>
         <module>litisle-ai</module>
         <module>litisle-api</module>
+        <module>litisle-review</module>
+        <module>litisle-file</module>
+        <module>litisle-notification</module>
+        <module>litisle-shop</module>
     </modules>
 
     <properties>
+
+        <!-- 基础  -->
         <java.version>25</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <!--  Spring  -->
+        <spring-boot.version>3.5.15</spring-boot.version>
+        <!-- Spring Boot 3.5.x ↔ Spring Cloud 2025.0.x (Northfields) -->
+        <spring-cloud.version>2025.0.3</spring-cloud.version>
+        <!-- Spring Cloud Alibaba 2025.0.0.0 ↔ Spring Cloud 2025.0.x ↔ Boot 3.5.x -->
+        <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
+
+        <!--  中间件  -->
+        <!-- MyBatis-Plus Boot3 Starter（必须用它，不能用旧版） -->
+        <mybatis-plus.version>3.5.7</mybatis-plus.version>
+        <!-- MySQL Connector/J 8.3+ 或 8.4 均兼容 Boot 3 + JDK 25 -->
+        <mysql.version>8.0.33</mysql.version>
+        <hutool.version>5.8.20</hutool.version>
+        <elasticsearch.version>8.18.8</elasticsearch.version>
+
+        <!-- ========== 工具 ========== -->
+        <org.projectlombok.version>1.18.38</org.projectlombok.version>
+
+        <!--其他后续添加-->
+        <!--knife4j-->
+        <knife4j>4.5.0</knife4j>
+        <!--redission-->
+        <redisson.version>3.52.0</redisson.version>
+
     </properties>
+
+
+
+    <!-- 对依赖包进行管理 -->
+    <dependencyManagement>
+        <dependencies>
+            <!--spring cloud-->
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!--spring cloud alibaba-->
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>${spring-cloud-alibaba.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!--API 文档 (Knife4j)-->
+            <dependency>
+                <groupId>com.github.xiaoymin</groupId>
+                <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+                <version>${knife4j}</version>
+            </dependency>
+
+            <!-- 数据库驱动包管理 -->
+            <dependency>
+                <groupId>mysql</groupId>
+                <artifactId>mysql-connector-java</artifactId>
+                <version>${mysql.version}</version>
+            </dependency>
+            <!-- mybatis plus 管理 -->
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+                <version>${mybatis-plus.version}</version>
+            </dependency>
+            <!--hutool工具包-->
+            <dependency>
+                <groupId>cn.hutool</groupId>
+                <artifactId>hutool-all</artifactId>
+                <version>${hutool.version}</version>
+            </dependency>
+
+            <!--Elasticsearch Java Client（由 Spring Boot 管理版本，与 Spring Data Elasticsearch 兼容）-->
+            <dependency>
+                <groupId>co.elastic.clients</groupId>
+                <artifactId>elasticsearch-java</artifactId>
+                <version>${elasticsearch.version}</version>
+            </dependency>
+
+            <!--redission-->
+            <dependency>
+                <groupId>org.redisson</groupId>
+                <artifactId>redisson</artifactId>
+                <version>${redisson.version}</version>
+            </dependency>
+
+        </dependencies>
+    </dependencyManagement>
+
 
 
     <dependencies>
@@ -47,12 +153,23 @@
     </dependencies>
 
     <build>
-        <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
+        <pluginManagement>
+            <plugins>
+                <!-- 统一管理的 Spring Boot Maven 插件（子模块按需引用，不用自己写版本） -->
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <configuration>
+                        <excludes>
+                            <exclude>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                            </exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
     </build>
 
 </project>

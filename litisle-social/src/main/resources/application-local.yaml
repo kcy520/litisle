@@ -1,0 +1,23 @@
+#ms:
+#  demo:
+#    # ================================
+#    # MySQL 配置（IDEA 本地运行：连宿主机映射端口）
+#    # 注意：compose.yaml 中业务数据库端口是 3308
+#    # ================================
+#    db:
+#      host: localhost
+#      port: 3308
+#      database: microservices_demo_test
+#      username: test_k.1
+#      # ✅ 与 docker-compose/.env 中 COMPOSE_MYSQL_PASSWORD 保持一致
+#      password: ${COMPOSE_MYSQL_PASSWORD:123}
+#
+#
+#    # ================================
+#    # Redis 配置（IDEA 本地运行：使用宿主机映射端口）
+#    # ================================
+#    redis:
+#      host: localhost
+#      port: 6379
+#      password: ${COMPOSE_REDIS_PASSWORD:123}
+#

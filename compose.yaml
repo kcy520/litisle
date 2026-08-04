@@ -1,0 +1,331 @@
+# ============================================================================
+# Litisle 项目 Docker Compose 配置
+# ============================================================================
+# 包含：MySQL、Redis
+# 使用方法：docker-compose up -d
+# 停止服务：docker-compose down
+# 查看日志：docker-compose logs -f [服务名]
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # MySQL - 业务数据库
+  # 宿主机端口：3307 → 容器端口：3306
+  # 连接示例：
+  #   jdbc:mysql://localhost:3309/litisle_db
+  #   root / verysecret
+  #   test_k.1 / 123
+  # --------------------------------------------------------------------------
+  litisle-mysql:
+    image: mysql:8.0
+    container_name: litisle-mysql
+    networks:
+      - litisle-network
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${COMPOSE_MYSQL_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Redis - 缓存服务
+  # 宿主机端口：6380 → 容器端口：6379
+  # 连接示例：
+  #   redis://localhost:6380
+  #   密码：123
+  # --------------------------------------------------------------------------
+  litisle-redis:
+    image: redis:7-alpine
+    container_name: litisle-redis
+    networks:
+      - litisle-network
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-data:/data
+    command: >
+      redis-server
+      --requirepass ${COMPOSE_REDIS_PASSWORD}
+      --appendonly yes
+    restart: unless-stopped
+
+# ============================================================================
+# 网络配置
+# ============================================================================
+networks:
+  litisle-network:
+    driver: bridge
+
+# ============================================================================
+# 数据卷配置（持久化）
+# ============================================================================
+volumes:
+  mysql-data:
+  redis-data:
+
+
+# ============================================================================
+## 微服务项目 Docker Compose 配置
+## ============================================================================
+## 包含：业务 MySQL、Nacos MySQL、Nacos、Redis
+## 使用方法：docker-compose up -d
+## 停止服务：docker-compose down
+## 查看日志：docker-compose logs -f [服务名]
+## ============================================================================
+#
+#services:
+#  # --------------------------------------------------------------------------
+#  # 业务数据库 - 存储 user-service、test-service 等微服务的业务数据
+#  # 连接信息：localhost:3308（宿主机端口 3308，容器内端口 3306）
+#  #   root 用户：root / verysecret
+#  #   普通用户：test_k.1 / 123（推荐应用使用）
+#  #   数据库：microservices_demo_user
+#  # --------------------------------------------------------------------------
+#  mysql:
+#    image: 'mysql:8.0'
+#    container_name: ms-demo-mysql
+#    networks:
+#      - ms-demo-network
+#    environment:
+#      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-verysecret}
+#      MYSQL_DATABASE: ${MYSQL_DATABASE:-microservices_demo_user}
+#      MYSQL_USER: ${MYSQL_USER:-test_k.1}
+#      MYSQL_PASSWORD: ${COMPOSE_MYSQL_PASSWORD:-123}
+#    ports:
+#      - '3308:3306'
+#    volumes:
+#      - mysql-data:/var/lib/mysql
+#      - ./docker/init/mysql:/docker-entrypoint-initdb.d
+#    command:
+#      - --character-set-server=utf8mb4
+#      - --collation-server=utf8mb4_unicode_ci
+#      - --default-authentication-plugin=mysql_native_password
+#    healthcheck:
+#      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+#      interval: 10s
+#      timeout: 5s
+#      retries: 10
+#    restart: unless-stopped
+#
+#  # --------------------------------------------------------------------------
+#  # Nacos 专用数据库 - 存储 Nacos 的配置和服务注册信息
+#  # 连接信息：localhost:3307
+#  #   root 用户：root / nacos_root
+#  #   普通用户：nacos / nacos_pass
+#  #   数据库：nacos_config
+#  # 注意：端口是 3307，不是 3306！
+#  # --------------------------------------------------------------------------
+#  nacos-mysql:
+#    image: 'mysql:8.0'
+#    container_name: nacos-mysql
+#    networks:
+#      - ms-demo-network
+#    environment:
+#      MYSQL_ROOT_PASSWORD: ${NACOS_MYSQL_ROOT_PASSWORD:-nacos_root}
+#      MYSQL_DATABASE: nacos_config
+#      MYSQL_USER: nacos
+#      MYSQL_PASSWORD: ${NACOS_MYSQL_PASSWORD:-nacos_pass}
+#    ports:
+#      - '3307:3306'
+#    volumes:
+#      - nacos-mysql-data:/var/lib/mysql
+#      - ./docker/nacos/mysql-schema.sql:/docker-entrypoint-initdb.d/01-nacos-schema.sql
+#    command:
+#      - --character-set-server=utf8mb4
+#      - --collation-server=utf8mb4_unicode_ci
+#      - --default-authentication-plugin=mysql_native_password
+#    healthcheck:
+#      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+#      interval: 10s
+#      timeout: 5s
+#      retries: 10
+#    restart: unless-stopped
+#
+#  # --------------------------------------------------------------------------
+#  # Nacos 服务 - 服务注册与配置中心
+#  # 控制台地址：http://localhost:8848/nacos
+#  # 默认账号：nacos/nacos
+#  # --------------------------------------------------------------------------
+#  nacos:
+#    image: 'nacos/nacos-server:v2.3.2'
+#    container_name: ms-demo-nacos
+#    networks:
+#      - ms-demo-network
+#    environment:
+#      - MODE=standalone
+#      - SPRING_DATASOURCE_PLATFORM=mysql
+#      - MYSQL_SERVICE_HOST=nacos-mysql
+#      - MYSQL_SERVICE_PORT=3306
+#      - MYSQL_SERVICE_DB_NAME=nacos_config
+#      - MYSQL_SERVICE_USER=nacos
+#      - MYSQL_SERVICE_PASSWORD=${NACOS_MYSQL_PASSWORD:-nacos_pass}
+#      - NACOS_AUTH_ENABLE=true
+#      - NACOS_AUTH_IDENTITY_KEY=${NACOS_AUTH_KEY:-serverIdentity}
+#      - NACOS_AUTH_IDENTITY_VALUE=${NACOS_AUTH_VALUE:-security}
+#      - NACOS_AUTH_TOKEN=${NACOS_AUTH_TOKEN:-SecretKey012345678901234567890123456789012345678901234567890123456789}
+#      - JVM_XMS=256m
+#      - JVM_XMX=512m
+#      - JVM_XMN=128m
+#    ports:
+#      - '8848:8848'
+#      - '9848:9848'
+#    volumes:
+#      - nacos-logs:/home/nacos/logs
+#    depends_on:
+#      nacos-mysql:
+#        condition: service_healthy
+#    restart: unless-stopped
+#
+#  # --------------------------------------------------------------------------
+#  # Redis - 缓存服务
+#  # 连接信息：localhost:6379，密码：123
+#  # --------------------------------------------------------------------------
+#  redis:
+#    image: 'redis:7-alpine'
+#    container_name: ms-demo-redis
+#    networks:
+#      - ms-demo-network
+#    ports:
+#      - '6379:6379'
+#    volumes:
+#      - redis-data:/data
+#    command: redis-server --requirepass ${COMPOSE_REDIS_PASSWORD:-123} --appendonly yes
+#    restart: unless-stopped
+#
+#  # --------------------------------------------------------------------------
+#  # RabbitMQ - 消息队列服务
+#  # 管理界面地址：http://localhost:15672
+#  # 默认账号：guest / 密码见 .env
+#  # AMQP 端口：5672
+#  # --------------------------------------------------------------------------
+#  rabbitmq:
+#    build:
+#      context: ./docker/init/rabbitmq
+#      dockerfile: Dockerfile
+#    image: rabbitmq:3.13-with-plugins
+#    container_name: ms-demo-rabbitmq
+#    networks:
+#      - ms-demo-network
+#    environment:
+#      RABBITMQ_DEFAULT_USER: ${COMPOSE_RABBITMQ_USER:-guest}
+#      RABBITMQ_DEFAULT_PASS: ${COMPOSE_RABBITMQ_PASSWORD:-guest}
+#    ports:
+#      - '5672:5672'
+#      - '15672:15672'
+#    volumes:
+#      - rabbitmq-data:/var/lib/rabbitmq
+#    restart: unless-stopped
+#
+#  # --------------------------------------------------------------------------
+#  # Seata Server - 分布式事务协调者 (TC)
+#  # 控制台地址：http://localhost:7091
+#  # 默认账号：seata / seata
+#  # 服务端口：8091（Client 端连接）
+#  # --------------------------------------------------------------------------
+#  seata-server:
+#    build:
+#      context: ./docker/init/seata
+#      dockerfile: Dockerfile
+#    image: seata:2.5.0
+#    container_name: ms-demo-seata
+#    networks:
+#      - ms-demo-network
+#    environment:
+#      - SEATA_DB_PASSWORD=${MYSQL_ROOT_PASSWORD:-verysecret}
+#      - SEATA_IP=127.0.0.1
+#    ports:
+#      - '7091:7091'
+#      - '8091:8091'
+#    volumes:
+#      - ./docker/init/seata/application.yml:/seata-server/resources/application.yml
+#    depends_on:
+#      mysql:
+#        condition: service_healthy
+#      nacos:
+#        condition: service_started
+#    restart: unless-stopped
+#
+#  # --------------------------------------------------------------------------
+#  # Elasticsearch - 搜索引擎（带 IK 分词器）
+#  # 连接信息：localhost:9200
+#  # Kibana 控制台：http://localhost:5601
+#  # --------------------------------------------------------------------------
+#  elasticsearch:
+#    build:
+#      context: ./docker/init/elasticsearch
+#      dockerfile: Dockerfile
+#    image: elasticsearch:8.18.8-ik
+#    container_name: ms-demo-elasticsearch
+#    networks:
+#      - ms-demo-network
+#      - es-net
+#    environment:
+#      - discovery.type=single-node
+#      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+#      - xpack.security.enabled=false
+#      - xpack.security.enrollment.enabled=false
+#      - xpack.security.http.ssl.enabled=false
+#      - xpack.security.transport.ssl.enabled=false
+#      - cluster.name=es-cluster
+#    ports:
+#      - '9200:9200'
+#      - '9300:9300'
+#    volumes:
+#      - elasticsearch-data:/usr/share/elasticsearch/data
+#    restart: unless-stopped
+#
+#  # --------------------------------------------------------------------------
+#  # Kibana - ES 可视化管理界面
+#  # 控制台地址：http://localhost:5601
+#  # --------------------------------------------------------------------------
+#  kibana:
+#    image: kibana:8.18.8
+#    container_name: ms-demo-kibana
+#    networks:
+#      - ms-demo-network
+#      - es-net
+#    environment:
+#      - ELASTICSEARCH_HOSTS=http://ms-demo-elasticsearch:9200
+#    ports:
+#      - '5601:5601'
+#    volumes:
+#      - kibana-data:/usr/share/kibana/data
+#    depends_on:
+#      - elasticsearch
+#    restart: unless-stopped
+#
+## ============================================================================
+## 自定义网络 - 容器间通过容器名互相访问
+## ============================================================================
+#networks:
+#  ms-demo-network:
+#    driver: bridge
+#  es-net:
+#    external: true
+#
+## ============================================================================
+## 数据卷 - 持久化存储，容器删除后数据不会丢失
+## ============================================================================
+#volumes:
+#  mysql-data:
+#  nacos-mysql-data:
+#  nacos-logs:
+#  redis-data:
+#  rabbitmq-data:
+#  seata-logs:
+#  elasticsearch-data:
+#  kibana-data:

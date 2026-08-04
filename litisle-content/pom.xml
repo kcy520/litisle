@@ -8,7 +8,7 @@
     <!--父模块-->
     <parent>
         <groupId>com.litisle</groupId>
-        <artifactId>LitIsle</artifactId>
+        <artifactId>Litisle</artifactId>
         <version>0.0.1-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>

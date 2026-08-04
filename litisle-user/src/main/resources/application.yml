@@ -1,0 +1,104 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: litisle-social
+
+  profiles:
+    active: local-native
+
+  main:
+    allow-circular-references: true
+    allow-bean-definition-overriding: true
+
+
+  # ================================
+  # MySQL ?????
+  # ================================
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${litisle.db.host:localhost}:${litisle.db.port:3306}/${litisle.db.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: ${litisle.db.username:root}
+    password: ${litisle.db.password:123}
+
+  # ================================
+  # Redis ??????
+  # ================================
+  data:
+    redis:
+      host: ${litisle.redis.host:localhost}
+      port: ${litisle.redis.port:6379}
+      password: ${litisle.redis.password:123}
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-wait: -1ms
+          max-idle: 10
+          min-idle: 0
+
+
+
+  # ================================
+  # Redis ????????????
+  # ================================
+  # data:
+  #   redis:
+  #     cluster:
+  #       nodes:
+  #         - redis-node1:6379
+  #         - redis-node2:6379
+  #         - redis-node3:6379
+  #         - redis-node4:6379
+  #         - redis-node5:6379
+  #         - redis-node6:6379
+  #       max-redirects: 3
+  #     password: ${litisle.redis.password:123}
+  #     lettuce:
+  #       pool:
+  #         max-active: 200
+  #         max-wait: -1ms
+  #         max-idle: 10
+  #         min-idle: 0
+
+# ================================
+# MyBatis ??
+# ================================
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.example.entity
+
+# ================================
+# MyBatis-Plus ??
+# ================================
+mybatis-plus:
+  configuration:
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    db-config:
+      update-strategy: not_null
+      id-type: auto
+
+# ================================
+# ????
+# ================================
+logging:
+  level:
+    com.demo: debug
+  pattern:
+    dateformat: HH:mm:ss:SSS
+  file:
+    path: "logs/${spring.application.name}"
+
+# ================================
+# Knife4j API ????
+# ================================
+knife4j:
+  enable: true
+  openapi:
+    title: user??
+    description: "Litisle-user"
+    version: v1.0.0
+    group:

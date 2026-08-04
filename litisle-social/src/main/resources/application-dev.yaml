@@ -1,0 +1,21 @@
+#ms:
+#  demo:
+#    # ================================
+#    # MySQL 配置（Docker 环境：使用容器名）
+#    # ================================
+#    db:
+#      host: mysql
+#      port: 3306
+#      database: microservices_demo_redis
+#      username: root
+#      password: ${COMPOSE_MYSQL_PASSWORD:123}
+#
+#    # ================================
+#    # Redis 配置（Docker 环境：使用容器名）
+#    # ================================
+#    redis:
+#      host: redis
+#      port: 6379
+#      password: ${COMPOSE_REDIS_PASSWORD:123}
+#
+#
