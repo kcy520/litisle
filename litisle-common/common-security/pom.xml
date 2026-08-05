@@ -28,9 +28,21 @@
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
 
+        <!-- 【架构说明】common-security 不依赖 common-redis -->
+        <!-- 幂等性 @Idempotent 已移至 common-redis 模块，避免强制传递 Redis 依赖 -->
+        <!-- common-security 仅包含纯安全控制：上下文/角色校验/审计/脱敏/XSS/匿名认证 -->
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
+        <!-- spring-boot-starter-web：XssFilter 依赖 HttpServletRequest，脱敏序列化器依赖 Jackson -->
+        <!-- provided：由业务服务提供，common-security 不强制引入 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>

@@ -57,6 +57,7 @@ public class RedissonConfig {
     @Bean
     public RedissonClient redissonClient() {
         Config config = new Config();
+        // ---这不是yml配置里面的那个redis连接池，不一样，不会冲突.不是同一个客户端
 
         // 单机模式配置
         String address = "redis://" + host + ":" + port;

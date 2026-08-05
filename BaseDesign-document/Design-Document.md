@@ -138,18 +138,45 @@
 
 ### 2.1.1 litisle-common（技术基建库）
 
+**模块拆分**：拆分为 3 个子模块，避免"少数模块引入多余依赖"。
+
 ```
 litisle-common
-├── sensitive/        # DFA 敏感词引擎（多场景策略 + 双 buffer 热更新）
-├── audit/            # 审计日志 AOP（@AuditLog 注解 + 切面）
-├── security/         # SecurityContext（从 header 读 userId/roles）
-├── redis/            # RedisUtil + Redisson 锁封装 + 布隆过滤器
-├── exception/        # 全局异常处理 + BizException + ErrorCode
-├── feign/            # FeignAuthInterceptor（透传 userId/traceId）
-└── result/           # Result<T> / PageResult<T> 统一响应
+├── common-core/      # 核心基础（所有服务必须依赖）
+│   ├── exception/    # 全局异常处理 + BizException + ErrorCode
+│   ├── result/       # Result<T> / PageResult<T> 统一响应
+│   ├── constant/     # CommonConstant / HeaderConstant
+│   ├── enums/        # StatusEnum / DelFlagEnum
+│   ├── util/         # AssertUtil / JsonUtil / PageUtil
+│   ├── config/       # JacksonConfig / MyBatisPlusConfig
+│   └── sensitive/    # DFA 敏感词引擎（多场景策略 + 双 buffer 热更新）
+├── common-redis/     # Redis 工具（大部分服务需要，网关可选）
+│   ├── config/       # RedisConfig / RedissonConfig
+│   ├── util/         # RedisUtil（String/Hash/Set/ZSet/List）
+│   ├── lock/         # DistributedLock 接口 + RedissonLock 实现
+│   ├── bloom/        # BloomFilter 布隆过滤器
+│   └── constant/     # CacheConstant（Redis Key 前缀）
+└── common-security/  # 安全上下文（业务服务需要，网关不需要完整实现）
+    ├── context/      # SecurityContext + SecurityContextHolder（ThreadLocal）
+    ├── annotation/   # @RequireRole / @RequirePermission
+    ├── aspect/       # RoleCheckAspect（角色校验切面）
+    ├── feign/        # FeignAuthInterceptor（透传 userId/traceId）
+    ├── audit/        # @AuditLog + AuditLogAspect（审计日志）
+    ├── idempotent/   # @Idempotent + IdempotentAspect（接口幂等性）
+    ├── desensitize/  # @Sensitive + SensitiveSerializer（数据脱敏）
+    └── xss/          # XssFilter + XssHttpServletRequestWrapper（XSS 防护）
 ```
 
-**核心能力**：DFA 敏感词过滤（文章/评论/用户名/私信四策略）、审计切面、JWT 上下文透传、统一异常响应、Redis 工具。
+**核心能力**：
+
+- DFA 敏感词过滤（文章/评论/用户名/私信四策略）
+- 审计切面（@AuditLog 自动记录操作日志）
+- JWT 上下文透传（Feign 调用自动透传用户信息）
+- 统一异常响应（GlobalExceptionHandler + ErrorCode）
+- Redis 工具（六大数据结构 + 分布式锁 + 布隆过滤器）
+- **接口幂等性**（@Idempotent 基于 Redis SETNX，防重复提交）
+- **数据脱敏**（@Sensitive 基于 Jackson 序列化器，手机号/身份证/邮箱自动脱敏）
+- **XSS 防护**（全局过滤器清洗 HTML 标签，防跨站脚本攻击）
 
 ### 2.1.2 litisle-api（跨服务契约库）
 
@@ -201,8 +228,18 @@ litisle-gateway
 | API      | 透传所有下游 `/api/{service}/**`                             |
 | 流程     | 请求 → 白名单判断 → JWT 校验 → 注入用户上下文 → Sentinel 限流 → 路由转发 |
 | 错误处理 | 401（未登录）/403（无权限）/429（限流）统一响应体            |
-| 安全     | Token 黑名单校验（Redis）；敏感 header 过滤；CORS 白名单     |
-| 性能     | 响应式（Netty）；路由缓存；限流维度=接口+用户                |
+| 安全     | Token 黑名单校验（Redis，TTL=Token 剩余寿命）；多端登录校验（同账号最多 N 端，N 由 yml 配置）；敏感 Header 过滤（移除客户端伪造的 X-User-Id/X-Roles）；CORS 白名单 |
+| 审计     | RequestLogGlobalFilter 记录：traceId、userId、请求方法、路径、入参摘要、响应状态、耗时 |
+| 性能     | 响应式（Netty）；路由缓存；限流维度=接口+用户；请求日志异步写入 |
+
+**AuthProperties 配置（白名单 + 匿名访问）**：
+
+网关从 Nacos 读取白名单配置，支持两种匿名访问控制方式：
+
+1. **配置方式**：`litisle.security.anonymous.paths` 配置路径模式
+2. **注解方式**：业务服务 Controller 标注 `@Anonymous`，网关通过 Feign 调用各服务的 `/actuator/anonymous-paths` 端点动态收集白名单（启动时加载，变更时刷新）
+
+两种方式合并为最终白名单，匹配命中的请求跳过 JWT 校验，直接路由转发。
 
 ---
 
@@ -223,14 +260,14 @@ litisle-auth
 ├── security/          # JwtTokenProvider / SessionManager
 ├── oauth/             # WechatHandler / QQHandler
 ├── redis/             # TokenBlacklist / SessionCache
-└── config/            # AuthConfig
+└── config/            # AuthProperties（yml + JavaBean） / AuthConfig
 ```
 
 | 项       | 内容                                                         |
 | -------- | ------------------------------------------------------------ |
 | 主要职责 | 注册/登录/退出/OAuth2(微信/QQ)/图形验证码/JWT 签发与刷新/在线设备管理 |
-| 核心功能 | 账密+手机验证码+OAuth2 三方式；JWT 双 Token；同账号最多 2 端在线；记住我；退出加 Redis 黑名单 |
-| 关键组件 | `AuthService`、`JwtTokenProvider`、`SmsCodeService`、`CaptchaService`、`OAuth2LoginHandler`、`SessionManager` |
+| 核心功能 | 账密+手机验证码+OAuth2 三方式；JWT 双 Token；同账号最多 N 端在线；记住我；退出加 Redis 黑名单 |
+| 关键组件 | `AuthService`、`JwtTokenProvider`、`SmsCodeService`、`CaptchaService`、`OAuth2LoginHandler`、`SessionManager`、`AuthProperties` |
 | 数据模型 | 复用 user 库的 `sys_user`；新增 `sms_code`、`oauth_binding`（在 user 库） |
 | 外部依赖 | spring-security、JWT、Redis、短信网关、UserFeign、litisle-common(DFA 校验用户名) |
 | API      | `POST /auth/register`、`POST /auth/login`、`POST /auth/logout`、`POST /auth/refresh`、`GET /auth/captcha`、`POST /auth/oauth/{provider}` |
@@ -238,6 +275,90 @@ litisle-auth
 | 错误处理 | 账号冻结/注销返回特定码；连续失败 5 次锁 15 分钟             |
 | 安全     | 密码 BCrypt；Token 短效 + Refresh；黑名单 TTL=Token 剩余寿命；OAuth2 防 state CSRF |
 | 性能     | JWT 无状态签发；session 走 Redis；验证码图片缓存             |
+
+**认证配置（yml + JavaBean）**：
+
+使用 `@ConfigurationProperties` 将 yml 配置绑定到 JavaBean，集中管理认证相关参数。
+
+```yaml
+# application.yml
+litisle:
+  security:
+    # JWT 配置
+    jwt:
+      secret: ${JWT_SECRET:litisle-secret-key-at-least-256-bits-for-hs256}
+      # 记住我模式：长效 Token（默认 7 天）
+      remember-me-expire: 604800
+      # 普通模式：短效 Token（默认 30 分钟）
+      access-token-expire: 1800
+      # Refresh Token（默认 7 天）
+      refresh-token-expire: 604800
+    # 会话配置
+    session:
+      # 同账号最大同时在线数（踢出最旧的）
+      max-concurrent: 2
+      # 会话过期时间（秒）
+      session-timeout: 604800
+    # 登录失败锁定策略
+    login:
+      # 连续失败阈值
+      max-fail-count: 5
+      # 锁定时长（分钟）
+      lock-minutes: 15
+    # 匿名访问白名单
+    anonymous:
+      paths:
+        - /api/auth/login
+        - /api/auth/register
+        - /api/auth/captcha
+        - /api/auth/oauth/**
+        - /api/content/article/list
+        - /api/content/article/{id}
+```
+
+```java
+// AuthProperties.java（JavaBean 绑定）
+@Data
+@Component
+@ConfigurationProperties(prefix = "litisle.security")
+public class AuthProperties {
+    private Jwt jwt = new Jwt();
+    private Session session = new Session();
+    private Login login = new Login();
+    private Anonymous anonymous = new Anonymous();
+    
+    @Data
+    public static class Jwt {
+        private String secret;
+        private long rememberMeExpire = 604800;
+        private long accessTokenExpire = 1800;
+        private long refreshTokenExpire = 604800;
+    }
+    
+    @Data
+    public static class Session {
+        private int maxConcurrent = 2;
+        private long sessionTimeout = 604800;
+    }
+    
+    @Data
+    public static class Login {
+        private int maxFailCount = 5;
+        private int lockMinutes = 15;
+    }
+    
+    @Data
+    public static class Anonymous {
+        private List<String> paths = new ArrayList<>();
+    }
+}
+```
+
+**关键能力说明**：
+
+- **限制用户同时登录最大数**：`SessionManager` 基于 Redis List 维护用户会话列表，新登录时检查 `max-concurrent`，超出则踢出最旧的会话（加入 Token 黑名单）
+- **记住我模式**：登录接口接收 `rememberMe` 参数，为 `true` 时使用 `remember-me-expire` 作为 Token TTL，否则使用 `access-token-expire`
+- **匿名认证**：配合 common-security 的 `@Anonymous` 注解，网关扫描注解 + yml 白名单双重控制匿名访问
 
 ### 2.3.2 litisle-user（用户服务）
 

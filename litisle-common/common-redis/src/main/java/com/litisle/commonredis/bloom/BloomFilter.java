@@ -36,7 +36,11 @@ import org.springframework.stereotype.Component;
  * 2. 防止重复注册：手机号布隆过滤器
  *    - 注册时如果布隆过滤器判断手机号不存在，直接允许注册
  *    - 误判时，库里查一下即可，影响不大
- * 
+ *
+ * 布隆过滤器只能保证：
+ * ✅ 不在里面 → 一定不存在
+ * ❌ 在里面 → 可能不存在（因为 key 已过期/被删）
+ *
  * @author litisle
  */
 @Slf4j

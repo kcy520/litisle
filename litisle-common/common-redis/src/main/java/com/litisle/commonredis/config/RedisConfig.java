@@ -71,7 +71,6 @@ public class RedisConfig {
         template.setConnectionFactory(factory);
 
         // ====== 1. 配置 Jackson 序列化器（用于 Value） ======
-        Jackson2JsonRedisSerializer<Object> jsonSerializer = new Jackson2JsonRedisSerializer<>(Object.class);
         ObjectMapper mapper = new ObjectMapper();
 
         // 设置所有字段的可见性（private、public 都可见）
@@ -93,7 +92,7 @@ public class RedisConfig {
                 new LocalDateTimeDeserializer(DateTimeFormatter.ofPattern(DATE_TIME_PATTERN)));
         mapper.registerModule(javaTimeModule);
 
-        jsonSerializer.setObjectMapper(mapper);
+        Jackson2JsonRedisSerializer<Object> jsonSerializer = new Jackson2JsonRedisSerializer<>(mapper, Object.class);
 
         // ====== 2. 配置 String 序列化器（用于 Key） ======
         StringRedisSerializer stringSerializer = new StringRedisSerializer();

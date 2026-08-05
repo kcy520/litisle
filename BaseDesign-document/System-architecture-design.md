@@ -57,10 +57,14 @@ common-core/
     │   ├── AssertUtil.java             # 断言工具（抛 BizException）
     │   ├── JsonUtil.java               # Jackson 工具
     │   └── PageUtil.java               # 分页工具（MyBatis-Plus Page 转换）
+    ├── resolver/               # 解析器接口（新增，依赖倒置）
+    │   └── UserIdResolver.java         # 用户ID解析接口（解耦 common-redis 与 common-security）
     └── config/                 # 公共配置
         ├── JacksonConfig.java          # Jackson 全局配置（日期格式、空值处理）
         └── MyBatisPlusConfig.java      # MyBatis-Plus 配置（分页插件、乐观锁插件）
 ```
+
+> 【架构说明】UserIdResolver 定义在 common-core，是为了解耦 common-redis（幂等切面需要 userId）与 common-security（持有 SecurityContext）。两者都依赖 common-core 的接口，互不依赖，符合依赖倒置原则（DIP）。
 
 **依赖**：
 
@@ -117,9 +121,15 @@ common-redis/
     │   └── RedissonLock.java           # Redisson 实现
     ├── bloom/
     │   └── BloomFilter.java            # 布隆过滤器封装
+    ├── idempotent/                     # 接口幂等性（新增，面试高频）
+    │   ├── @Idempotent.java            # 幂等注解
+    │   ├── IdempotentKeyBuilder.java   # 幂等 key 构建器（接收 userId 参数）
+    │   └── IdempotentAspect.java       # 幂等切面（通过 UserIdResolver 获取 userId）
     └── constant/
         └── CacheConstant.java          # Redis Key 前缀常量
 ```
+
+> 【架构说明】idempotent 放在 common-redis 而非 common-security，因为幂等性强依赖 Redis。与分布式锁、布隆过滤器同级，都是"基于 Redis 的功能"，避免 common-security 被迫依赖 Redis。
 
 **依赖**：
 
@@ -157,20 +167,36 @@ common-redis/
 common-security/
 ├── pom.xml
 └── src/main/java/com/litisle/common/security/
-    ├── context/
+    ├── context/                        # 安全上下文（已实现）
     │   ├── SecurityContext.java        # 安全上下文（ThreadLocal）
     │   └── SecurityContextHolder.java  # 上下文持有者
-    ├── annotation/
+    ├── annotation/                     # 自定义注解（已实现）
     │   ├── @RequireRole.java           # 角色校验注解
-    │   └── @RequirePermission.java     # 权限校验注解（预留）
-    ├── aspect/
+    │   ├── @RequirePermission.java     # 权限校验注解（预留）
+    │   └── @Anonymous.java             # 匿名访问注解（新增）
+    ├── aspect/                         # 切面（已实现）
     │   └── RoleCheckAspect.java        # 角色校验切面
-    ├── feign/
+    ├── feign/                          # Feign 拦截器（已实现）
     │   └── FeignAuthInterceptor.java   # Feign 拦截器（透传 userId/traceId）
-    └── audit/
-        ├── @AuditLog.java              # 审计日志注解
-        └── AuditLogAspect.java         # 审计日志切面
+    ├── audit/                          # 审计日志（已实现）
+    │   ├── @AuditLog.java              # 审计日志注解
+    │   └── AuditLogAspect.java         # 审计日志切面
+    ├── resolver/                      # UserIdResolver 实现（新增，依赖倒置）
+    │   └── SecurityContextUserIdResolver.java  # 从 SecurityContextHolder 获取 userId
+    ├── desensitize/                    # 数据脱敏（新增，面试高频）
+    │   ├── @Sensitive.java             # 脱敏注解
+    │   ├── SensitiveStrategy.java      # 脱敏策略枚举
+    │   └── SensitiveSerializer.java    # Jackson 序列化器
+    ├── anonymous/                      # 匿名认证（新增，面试高频）
+    │   ├── AnonymousAccessHandler.java # 匿名访问处理器（构建匿名 SecurityContext）
+    │   └── AnonymousProperties.java    # 匿名访问配置（yml + JavaBean）
+    └── xss/                            # XSS 防护（新增，企业必备）
+        ├── XssHttpServletRequestWrapper.java  # 请求包装器
+        ├── XssStringJsonDeserializer.java     # JSON 反序列化清洗
+        └── XssFilter.java              # XSS 过滤器
 ```
+
+> 【架构说明】idempotent（接口幂等性）已从 common-security 移至 common-redis，因为幂等性强依赖 Redis，放在 common-redis 与分布式锁、布隆过滤器同级，避免 common-security 被迫依赖 Redis。依赖关系通过 common-core 的 UserIdResolver 接口解耦（依赖倒置）。
 
 **依赖**：
 
@@ -182,10 +208,23 @@ common-security/
         <artifactId>common-core</artifactId>
     </dependency>
     
+    <!-- common-redis（幂等性依赖 Redis） -->
+    <dependency>
+        <groupId>com.litisle</groupId>
+        <artifactId>common-redis</artifactId>
+    </dependency>
+    
     <!-- Spring AOP（切面） -->
     <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-aop</artifactId>
+    </dependency>
+    
+    <!-- Spring Web（XSS 过滤器依赖 HttpServletRequest） -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+        <scope>provided</scope>
     </dependency>
     
     <!-- Spring Security（仅用于注解，不完整配置） -->
@@ -210,6 +249,64 @@ common-security/
 - `FeignAuthInterceptor` 自动透传：从 SecurityContext 读取 userId/traceId 注入 Header
 - `@RequireRole` 注解 + 切面：方法级角色校验
 - `@AuditLog` 注解 + 切面：自动记录审计日志
+- `@Idempotent` 注解 + 切面：基于 Redis SETNX 实现接口幂等，防止重复提交（如订单创建、点赞）
+- `@Sensitive` 注解 + Jackson 序列化器：响应 JSON 时自动脱敏（手机号 138****8888、身份证 110***********1234）
+- `@Anonymous` 注解 + 匿名访问处理器：标记接口允许匿名访问，构建匿名 SecurityContext，未登录也能调用
+- `XssFilter` + `XssHttpServletRequestWrapper`：全局清洗请求参数中的 HTML 标签，防 XSS 攻击
+
+**新增功能详细设计**：
+
+**1. 接口幂等性（@Idempotent）**
+
+- **原理**：基于 Redis SETNX（SET IF NOT EXISTS）实现
+- **流程**：请求进入 → 构建 key（userId + 接口路径 + 参数摘要） → SETNX → 成功则执行业务 → 失败则返回"请勿重复提交"
+- **使用场景**：下单、支付、点赞、评论提交等 POST 接口
+- **使用示例**：
+  ```java
+  @Idempotent(expire = 5, timeUnit = TimeUnit.SECONDS, message = "请勿重复提交")
+  @PostMapping("/order/create")
+  public Result<Void> createOrder(@RequestBody OrderDTO dto) { ... }
+  ```
+
+**2. 数据脱敏（@Sensitive）**
+
+- **原理**：自定义 Jackson 序列化器，在序列化时根据策略脱敏
+- **优势**：业务代码无感知，只需在 VO 字段加注解
+- **使用示例**：
+  ```java
+  public class UserVO {
+      @Sensitive(strategy = SensitiveStrategy.PHONE)
+      private String phone;        // 138****8888
+      
+      @Sensitive(strategy = SensitiveStrategy.ID_CARD)
+      private String idCard;       // 110***********1234
+      
+      @Sensitive(strategy = SensitiveStrategy.EMAIL)
+      private String email;        // ex***@example.com
+  }
+  ```
+
+**3. XSS 防护**
+
+- **原理**：Servlet Filter 拦截请求，重写 getParameterValues/getInputStream 方法清洗 HTML 标签
+- **覆盖范围**：表单参数、JSON 请求体
+- **实现方式**：使用 hutool 的 HtmlUtil.cleanHtmlTag() 或 OWASP ESAPI
+- **配置**：在业务服务的配置类中注册 XssFilter
+
+**4. 匿名认证（@Anonymous）**
+
+- **原理**：通过 `@Anonymous` 注解标记接口允许匿名访问，网关过滤器扫描后不强制要求 JWT
+- **两种配置方式**：
+  1. **注解方式**（推荐）：在 Controller 方法或类上标注 `@Anonymous`，由扫描器自动收集到白名单
+  2. **配置方式**：在 `application.yml` 中配置 `litisle.security.anonymous-paths`，灵活控制
+- **使用场景**：登录、注册、公开内容浏览、验证码获取、健康检查
+- **使用示例**：
+  ```java
+  @Anonymous
+  @GetMapping("/public/article/{id}")
+  public Result<ArticleVO> getPublicArticle(@PathVariable Long id) { ... }
+  ```
+- **匿名上下文**：匿名访问时构建匿名 `SecurityContext`（userId=null，roles=[ANONYMOUS]），业务层可据此判断是否登录
 
 ### 1.3 Spring Security 放置位置
 
@@ -416,11 +513,39 @@ litisle-gateway/
 ├── pom.xml
 └── src/main/java/com/litisle/gateway/
     ├── filter/                 # 过滤器
-    │   ├── JwtGlobalFilter.java        # JWT 校验过滤器
-    │   ├── SentinelGatewayFilter.java  # Sentinel 限流过滤器
-    │   └── TraceIdFilter.java          # TraceId 注入过滤器
+    │   ├── TraceIdGlobalFilter.java    # TraceId 注入过滤器（最先执行）
+    │   ├── JwtGlobalFilter.java        # JWT 校验 + 黑名单校验 + Header 注入
+    │   ├── RequestLogGlobalFilter.java # 请求日志过滤器（最后执行，记录访问日志）
+    │   └── SentinelGatewayFilter.java  # Sentinel 限流过滤器
     ├── config/                 # 配置
-    │   ├── AuthProperties.java         # 白名单配置
+    │   ├── AuthProperties.java         # 白名单配置（从 Nacos 读取）
     │   ├── CorsConfig.java             # 跨域配置
-    │   └
+    │   ├── RouteConfig.java            # 路由配置（从 Nacos 读取）
+    │   └── SentinelConfig.java         # Sentinel 限流规则配置
+    └── handler/                # 异常处理
+        ├── GlobalExceptionHandler.java # 全局异常处理器（401/403/429）
+        └── WsHandler.java             # WebSocket 路由处理
+```
+
+**过滤器执行顺序**：
+
+```
+请求进入 → TraceIdFilter(order=-100) → JwtGlobalFilter(order=-200)
+         → RequestLogFilter(order=-300) → SentinelFilter → 路由转发
+```
+
+**新增 RequestLogGlobalFilter 设计**：
+
+- **职责**：记录所有请求的访问日志（审计 + 排查）
+- **记录内容**：traceId、userId、请求方法、路径、入参摘要、响应状态、耗时
+- **异步写入**：使用 Reactor 的 asyncOperator 避免阻塞主流程
+- **采样策略**：可根据配置采样记录（如只记录耗时 > 500ms 的慢请求）
+- **输出方式**：log.info 输出到日志文件，未来可扩展到 ELK
+
+**JwtGlobalFilter 增强点**：
+
+- **Token 黑名单校验**：退出登录时 Token 加入 Redis 黑名单，TTL = Token 剩余寿命
+- **多端登录校验**：校验 Token 中的 deviceId 是否在 Redis session 列表中
+- **Header 注入**：注入 X-User-Id / X-Roles / X-Trace-Id / X-Device-Id
+- **敏感 Header 过滤**：移除客户端伪造的 X-User-Id / X-Roles 等内部 Header
 ```
