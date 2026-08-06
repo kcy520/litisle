@@ -1,7 +1,5 @@
 package com.litisle.commonsecurity.anonymous;
 
-e:\NewJavaPro\LitIsle\litisle-common\common-security\src\main\java\com\litisle\commonsecurity\anonymous\AnonymousAccessHandler.java
-package com.litisle.commonsecurity.anonymous;
 
 import com.litisle.commonsecurity.context.SecurityContext;
 import com.litisle.commonsecurity.context.SecurityContextHolder;
@@ -47,6 +45,8 @@ public class AnonymousAccessHandler {
     /**
      * 匿白名单路径集合（线程安全）
      * 【说明】使用 volatile + 不可变集合保证可见性和线程安全
+     * volatile 保证的是：一个线程修改了变量，另一个线程能立刻看到最新值，
+     * 并且"看到变量的那一刻，它指向的对象已经完全构造好了"。
      */
     private volatile Set<String> anonymousPaths = Collections.emptySet();
 
@@ -89,6 +89,7 @@ public class AnonymousAccessHandler {
         return false;
     }
 
+
     /**
      * 为匿名请求构建匿名 SecurityContext
      *
@@ -108,7 +109,9 @@ public class AnonymousAccessHandler {
         Set<String> roles = new HashSet<>();
         roles.add(ANONYMOUS_ROLE);
         anonymousContext.setRoles(roles);
-        anonymousContext.setAuthenticated(false);
+        // 【说明】SecurityContext.isAuthenticated() 是基于 userId 是否为 null 的只读判断，
+        // 没有 authenticated 字段，无需也无法调用 setAuthenticated。
+        // 这里 userId 已设为 null，isAuthenticated() 自然返回 false。
         SecurityContextHolder.setContext(anonymousContext);
     }
 

@@ -1,7 +1,6 @@
 package com.litisle.commonsecurity.desensitize;
 
-e:\NewJavaPro\LitIsle\litisle-common\common-security\src\main\java\com\litisle\commonsecurity\desensitize\SensitiveSerializer.java
-package com.litisle.commonsecurity.desensitize;
+
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.BeanProperty;

@@ -1,7 +1,5 @@
 package com.litisle.commonsecurity.desensitize;
 
-e:\NewJavaPro\LitIsle\litisle-common\common-security\src\main\java\com\litisle\commonsecurity\desensitize\SensitiveStrategy.java
-package com.litisle.commonsecurity.desensitize;
 
 /**
  * 脱敏策略枚举

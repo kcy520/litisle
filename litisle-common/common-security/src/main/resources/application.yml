@@ -1,75 +1,71 @@
-  e:\NewJavaPro\LitIsle\litisle-common\common-security\src\main\resources\application-security.yml
-  # ====================================================================
-  # common-security ????????????????????? application.yml ????
-  # ====================================================================
-  # ????
-  # 1. common-security ??????????????
-  # 2. ?????? litisle-auth?litisle-user??????????? application.yml
-  # 3. ???? Nacos ????????????????
+# ====================================================================
+# common-security 配置模板（供业务服务参考，业务服务在自己的 application.yml 中配置）
+# ====================================================================
+# 【说明】
+# 1. common-security 是公共库，此文件仅作配置参考模板，不会直接生效
+# 2. 业务服务（如 litisle-auth、litisle-user）复制所需配置到自己的 application.yml
+# 3. 配置通过 Nacos 动态下发，运维可热更新，无需重启
 
-  litisle:
-    security:
-      # ----------------------- ??????? -----------------------
-      # ?????? @Anonymous ?????????????
-      # ????????? JWT ??????????? SecurityContext
-      anonymous:
-        paths:
-          - /api/auth/login           # ??
-          - /api/auth/register        # ??
-          - /api/auth/captcha         # ?????
-          - /api/auth/oauth/**        # OAuth2 ?????
-          - /api/content/article/list # ??????
-          - /api/content/article/{id} # ??????
-          - /actuator/**              # ?????????????
+litisle:
+  security:
+    # ----------------------- 匿名访问白名单 -----------------------
+    # 【说明】配合 @Anonymous 注解使用，双重控制匿名访问
+    # 网关读取此配置跳过 JWT 校验，业务服务构建匿名 SecurityContext
+    anonymous:
+      paths:
+        - /api/auth/login           # 登录
+        - /api/auth/register        # 注册
+        - /api/auth/captcha         # 图形验证码
+        - /api/auth/oauth/**        # OAuth2 第三方登录
+        - /api/content/article/list # 公开文章列表
+        - /api/content/article/{id} # 公开文章详情
+        - /actuator/**              # 健康检查（生产环境需限制）
 
-      # ----------------------- ?????litisle-auth ??? -----------------------
-      jwt:
-        # JWT ???HS256??? 256 bit??? 32 ?????
-        # ?????????????????
-        secret: ${JWT_SECRET:litisle-secret-key-at-least-256-bits-please-change-in-prod}
-        # ???? Access Token ????????? 30 ??
-        access-token-expire: 1800
-        # ????? Access Token ????????? 7 ?
-        # ?????????? rememberMe ???? true ???? TTL
-        remember-me-expire: 604800
-        # Refresh Token ????????? 7 ?
-        refresh-token-expire: 604800
+    # ----------------------- 认证配置（litisle-auth 使用） -----------------------
+    jwt:
+      # JWT 密钥（HS256，至少 256 bit，建议 32 字符以上）
+      # 生产环境通过环境变量注入，不硬编码
+      secret: ${JWT_SECRET:litisle-secret-key-at-least-256-bits-please-change-in-prod}
+      # 普通模式 Access Token 有效期（秒），默认 30 分钟
+      access-token-expire: 1800
+      # 记住我模式 Access Token 有效期（秒），默认 7 天
+      # 【说明】登录接口接收 rememberMe 参数，为 true 时使用此 TTL
+      remember-me-expire: 604800
+      # Refresh Token 有效期（秒），默认 7 天
+      refresh-token-expire: 604800
 
-      # ----------------------- ????????????? -----------------------
-      session:
-        # ??????????
-        # ????Redis List ????????????????????????
-        # ??????????????????????????
-        max-concurrent: 2
-        # ???????????? 7 ?
-        session-timeout: 604800
+    # ----------------------- 会话配置（限制同时登录数） -----------------------
+    session:
+      # 同账号最大同时在线数
+      # 【实现】Redis List 维护会话列表，新登录时检查长度，超出踢出最旧会话
+      # 【场景】防止账号被盗用后无法挤掉登录，或防止账号共享
+      max-concurrent: 2
+      # 会话过期时间（秒），默认 7 天
+      session-timeout: 604800
 
-      # ----------------------- ???????? -----------------------
-      login:
-        # ???????????????
-        max-fail-count: 5
-        # ????????
-        lock-minutes: 15
+    # ----------------------- 登录失败锁定策略 -----------------------
+    login:
+      # 连续失败阈值（超过则锁定账号）
+      max-fail-count: 5
+      # 锁定时长（分钟）
+      lock-minutes: 15
 
-  # ====================================================================
-  # XSS ???????????????/???
-  # ====================================================================
-  # ????XssFilter ???? /*????????????????
-  litisle:
-    xss:
-      # ???? XSS ????? true?
-      enabled: true
-      # ???????? XSS ?????????????
-      exclude-paths:
-        - /api/content/article/publish   # ???????? HTML?
-        - /api/content/comment/rich       # ?????
+  # ----------------------- XSS 过滤配置 -----------------------
+  # 【说明】XssFilter 默认拦截 /*，如需排除富文本接口，可在此配置
+  xss:
+    # 是否启用 XSS 过滤（默认 true）
+    enabled: true
+    # 排除路径（不进行 XSS 清洗，如富文本编辑器内容）
+    exclude-paths:
+      - /api/content/article/publish   # 文章发布（需保留 HTML）
+      - /api/content/comment/rich       # 富文本评论
 
-  # ====================================================================
-  # ????????????
-  # ====================================================================
-  logging:
-    level:
-      # ???????? INFO ???????
-      com.litisle.commonsecurity.audit: INFO
-      # ???? DEBUG ????????? INFO?
-      com.litisle.commonsecurity.idempotent: DEBUG
+# ====================================================================
+# 日志配置（审计日志输出）
+# ====================================================================
+logging:
+  level:
+    # 审计日志单独设置 INFO 级别，确保记录
+    com.litisle.commonsecurity.audit: INFO
+    # 匿名访问处理器
+    com.litisle.commonsecurity.anonymous: INFO

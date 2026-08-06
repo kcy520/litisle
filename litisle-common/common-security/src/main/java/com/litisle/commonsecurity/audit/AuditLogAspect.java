@@ -1,7 +1,5 @@
 package com.litisle.commonsecurity.audit;
 
-e:\NewJavaPro\LitIsle\litisle-common\common-security\src\main\java\com\litisle\commonsecurity\audit\AuditLogAspect.java
-package com.litisle.commonsecurity.audit;
 
 import com.litisle.commonsecurity.context.SecurityContextHolder;
 import com.fasterxml.jackson.databind.ObjectMapper;

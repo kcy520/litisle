@@ -1,8 +1,5 @@
 package com.litisle.commonsecurity.xss;
 
-e:\NewJavaPro\LitIsle\litisle-common\common-security\src\main\java\com\litisle\commonsecurity\xss\XssFilter.java
-package com.litisle.commonsecurity.xss;
-
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

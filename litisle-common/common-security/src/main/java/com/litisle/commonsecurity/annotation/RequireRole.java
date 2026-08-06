@@ -5,6 +5,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+// 用自定义注解，是为了让业务代码依赖“我的安全模型”，而不是依赖 Spring Security。**
+
 /**
  * 角色校验注解
  * 

@@ -8,6 +8,7 @@ import java.lang.annotation.Target;
 
 /**
  * 匿名访问注解
+ *在网关架构下，此匿名登录方案避免了不必要的 JWT 校验，支持注解扫描、配置合并和热更新，而这些都不是 Spring Security 的设计目标。**
  *
  * 【设计说明】
  * 1. 标注在 Controller 方法或类上，表示该接口允许匿名访问（无需 JWT）

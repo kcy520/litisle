@@ -1,7 +1,6 @@
 package com.litisle.commonsecurity.xss;
 
-e:\NewJavaPro\LitIsle\litisle-common\common-security\src\main\java\com\litisle\commonsecurity\xss\XssStringJsonDeserializer.java
-package com.litisle.commonsecurity.xss;
+
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;

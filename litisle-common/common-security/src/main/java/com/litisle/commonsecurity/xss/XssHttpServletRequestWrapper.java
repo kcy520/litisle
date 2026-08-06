@@ -1,7 +1,5 @@
 package com.litisle.commonsecurity.xss;
 
-e:\NewJavaPro\LitIsle\litisle-common\common-security\src\main\java\com\litisle\commonsecurity\xss\XssHttpServletRequestWrapper.java
-package com.litisle.commonsecurity.xss;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;

@@ -53,7 +53,7 @@ public class AnonymousProperties {
      * 【示例】
      * - /api/auth/login：精确匹配
      * - /api/content/article/**：匹配该路径下所有子路径
-     * - /api/*/list：匹配所有模块的 list 接口
+     * - /api/ * /list：匹配所有模块的 list 接口
      */
     private List<String> paths = new ArrayList<>();
 }
