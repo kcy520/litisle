@@ -3,6 +3,7 @@ package com.litisle.commonsecurity.anonymous;
 
 import com.litisle.commonsecurity.context.SecurityContext;
 import com.litisle.commonsecurity.context.SecurityContextHolder;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -56,7 +57,7 @@ public class AnonymousAccessHandler {
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
     /**
-     * yml 配置的匿名路径
+     * yml 配置的匿名路径（兑底，用于无法加注解的场景）
      */
     private final AnonymousProperties anonymousProperties;
 
@@ -64,6 +65,24 @@ public class AnonymousAccessHandler {
      * 匿名用户角色标识
      */
     private static final String ANONYMOUS_ROLE = "ANONYMOUS";
+
+    /**
+     * 兜底初始化：加载 yml 配置到白名单
+     *
+     * 【企业规范：Fail-Fast 原则】
+     * - Bean 初始化完成后状态必须可用，不依赖外部调用
+     * - 启动时加载 yml 配置，配置错误立即暴露
+     * - 防御性编程：避免空白名单导致的安全风险（本该匿名的接口被拦截）
+     *
+     * 【调用顺序】
+     * 1. @PostConstruct 先加载 yml 配置（本方法）
+     * 2. AnonymousPathScanner 在 ContextRefreshedEvent 时调用 refreshPaths 合并注解结果
+     * 3. 即使没有扫描器（如单元测试），yml 配置也能生效
+     */
+    @PostConstruct
+    public void init() {
+        refreshPaths(Collections.emptySet());
+    }
 
     /**
      * 判断请求路径是否允许匿名访问
@@ -119,9 +138,17 @@ public class AnonymousAccessHandler {
      * 刷新匿名白名单（合并 yml 配置 + 注解扫描路径）
      *
      * 【调用时机】
-     * 1. 应用启动时（@PostConstruct）
-     * 2. 业务服务通过 @Anonymous 注解扫描完成后调用
-     * 3. 配置热更新时（Nacos 监听变更）
+     * 1. 应用启动时（@PostConstruct 兑底加载 yml）
+     * 2. AnonymousPathScanner 扫描注解完成后调用（合并注解结果）
+     * 3. 配置热更新时（Nacos 监听变更，后续实现）
+     *
+     * 【TODO - 后续实现：网关侧白名单收集】
+     * 网关是 WebFlux，无法用 RequestMappingHandlerMapping 扫描。
+     * 后续方案：
+     * 1. 业务服务暴露 /actuator/anonymous-paths 端点返回本服务白名单
+     * 2. 网关启动时通过 Feign 调用各服务的端点收集全局白名单
+     * 3. 结合服务发现（Nacos）动态感知服务上下线
+     * 当前阶段网关先用 yml 配置作为兑底，后续优化为自动收集
      *
      * @param annotationPaths 通过 @Anonymous 注解扫描到的路径集合
      */

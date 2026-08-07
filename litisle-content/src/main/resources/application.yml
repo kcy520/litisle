@@ -1,0 +1,11 @@
+litisle:
+security:
+anonymous:
+paths:                           # ????????
+- /api/content/article/list
+- /api/content/article/{id}
+xss:
+enabled: true                      # ????? XSS
+exclude-paths:                     # ?????????
+- /api/content/article/publish
+- /api/content/comment/rich

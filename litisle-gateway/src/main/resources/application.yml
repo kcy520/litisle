@@ -1,0 +1,7 @@
+litisle:
+  security:
+    anonymous:
+      paths:                           # ??????????? JWT
+        - /api/auth/login
+        - /api/auth/register
+        - /api/auth/captcha

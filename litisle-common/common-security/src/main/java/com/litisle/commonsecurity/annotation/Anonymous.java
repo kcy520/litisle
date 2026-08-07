@@ -1,4 +1,4 @@
-package com.litisle.commonsecurity.anonymous;
+package com.litisle.commonsecurity.annotation;
 
 
 import java.lang.annotation.ElementType;
@@ -9,6 +9,7 @@ import java.lang.annotation.Target;
 /**
  * 匿名访问注解
  *在网关架构下，此匿名登录方案避免了不必要的 JWT 校验，支持注解扫描、配置合并和热更新，而这些都不是 Spring Security 的设计目标。**
+ *你这一整套代码，就是在“配置 + 发现 + 生效”允许匿名访问的接口。
  *
  * 【设计说明】
  * 1. 标注在 Controller 方法或类上，表示该接口允许匿名访问（无需 JWT）

@@ -29,7 +29,10 @@ import java.util.Set;
  * 客户端 → 网关(校验JWT，注入Header) → 服务A(解析Header)
  *      → 服务A通过Feign调用服务B → Feign拦截器透传Header
  *      → 服务B(解析Header，获取用户信息)
- * 
+ *
+ * 只要你用 Feign Client 去调用别的微服务，每一个 Feign 请求都会被它拦到。
+ * （通过 @FeignClient 接口​ 发起的调用，全都会进 apply() ）
+ *
  * 【使用示例】
  * // 服务A 中调用服务B
  * @Autowired

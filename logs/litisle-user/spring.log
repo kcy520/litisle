@@ -1,32 +1,16 @@
-16:21:00:436  INFO 25092 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 25092 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-16:21:00:437  INFO 25092 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
-16:21:01:040  INFO 25092 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
-16:21:01:045  INFO 25092 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
-16:21:01:072  INFO 25092 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 7 ms. Found 0 Redis repository interfaces.
-16:21:01:169  WARN 25092 --- [litisle-user] [main] o.m.s.mapper.ClassPathMapperScanner      : No MyBatis mapper was found in '[com.litisle.litisleuser]' package. Please check your configuration.
-16:21:01:563  INFO 25092 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
-16:21:01:576  INFO 25092 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-16:21:01:576  INFO 25092 --- [litisle-user] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
-16:21:01:635  INFO 25092 --- [litisle-user] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-16:21:01:635  INFO 25092 --- [litisle-user] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 1160 ms
-16:21:01:796  INFO 25092 --- [litisle-user] [main] o.s.v.b.OptionalValidatorFactoryBean     : Failed to set up a Bean Validation provider: jakarta.validation.NoProviderFoundException: Unable to create a Configuration, because no Jakarta Bean Validation provider could be found. Add a provider like Hibernate Validator (RI) to your classpath.
-16:21:02:437  INFO 25092 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8081 (http) with context path '/'
-16:21:02:442  INFO 25092 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Started LitisleUserApplication in 2.465 seconds (process running for 3.197)
-16:21:20:343  INFO 25092 --- [litisle-user] [SpringApplicationShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown        : Commencing graceful shutdown. Waiting for active requests to complete
-16:21:20:350  INFO 25092 --- [litisle-user] [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown        : Graceful shutdown complete
-16:21:22:281  INFO 5600 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 5600 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-16:21:22:283  INFO 5600 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
-16:21:22:706  INFO 5600 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
-16:21:22:709  INFO 5600 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
-16:21:22:723  INFO 5600 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 5 ms. Found 0 Redis repository interfaces.
-16:21:22:778  WARN 5600 --- [litisle-user] [main] o.m.s.mapper.ClassPathMapperScanner      : No MyBatis mapper was found in '[com.litisle.litisleuser]' package. Please check your configuration.
-16:21:23:016  INFO 5600 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
-16:21:23:024  INFO 5600 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-16:21:23:025  INFO 5600 --- [litisle-user] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
-16:21:23:070  INFO 5600 --- [litisle-user] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-16:21:23:070  INFO 5600 --- [litisle-user] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 762 ms
-16:21:23:205  INFO 5600 --- [litisle-user] [main] o.s.v.b.OptionalValidatorFactoryBean     : Failed to set up a Bean Validation provider: jakarta.validation.NoProviderFoundException: Unable to create a Configuration, because no Jakarta Bean Validation provider could be found. Add a provider like Hibernate Validator (RI) to your classpath.
-16:21:23:665  INFO 5600 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8081 (http) with context path '/'
-16:21:23:670  INFO 5600 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Started LitisleUserApplication in 1.732 seconds (process running for 2.177)
-16:21:32:572  INFO 5600 --- [litisle-user] [SpringApplicationShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown        : Commencing graceful shutdown. Waiting for active requests to complete
-16:21:32:576  INFO 5600 --- [litisle-user] [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown        : Graceful shutdown complete
+07:06:08:295  INFO 17108 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 17108 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
+07:06:08:306  INFO 17108 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
+07:06:09:473  INFO 17108 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+07:06:09:477  INFO 17108 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+07:06:09:502  INFO 17108 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 6 ms. Found 0 Redis repository interfaces.
+07:06:09:593  WARN 17108 --- [litisle-user] [main] o.m.s.mapper.ClassPathMapperScanner      : No MyBatis mapper was found in '[com.litisle.litisleuser]' package. Please check your configuration.
+07:06:10:003  INFO 17108 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
+07:06:10:015  INFO 17108 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+07:06:10:016  INFO 17108 --- [litisle-user] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
+07:06:10:075  INFO 17108 --- [litisle-user] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+07:06:10:075  INFO 17108 --- [litisle-user] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 1714 ms
+07:06:10:250  INFO 17108 --- [litisle-user] [main] o.s.v.b.OptionalValidatorFactoryBean     : Failed to set up a Bean Validation provider: jakarta.validation.NoProviderFoundException: Unable to create a Configuration, because no Jakarta Bean Validation provider could be found. Add a provider like Hibernate Validator (RI) to your classpath.
+07:06:10:929  INFO 17108 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8081 (http) with context path '/'
+07:06:10:935  INFO 17108 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Started LitisleUserApplication in 3.283 seconds (process running for 4.297)
+07:07:06:532  INFO 17108 --- [litisle-user] [SpringApplicationShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown        : Commencing graceful shutdown. Waiting for active requests to complete
+07:07:06:538  INFO 17108 --- [litisle-user] [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown        : Graceful shutdown complete

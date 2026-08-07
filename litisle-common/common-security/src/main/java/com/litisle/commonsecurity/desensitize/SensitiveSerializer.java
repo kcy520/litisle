@@ -90,6 +90,7 @@ public class SensitiveSerializer extends JsonSerializer<String> implements Conte
      * - Jackson 首次序列化某字段时调用此方法
      * - 读取字段上的 @Sensitive 注解，获取 strategy
      * - 返回新的 Serializer 实例（带策略），Jackson 会缓存复用
+     *✅ 会自动执行，而且是 Jackson 自动执行的，你永远不需要、也不能手动调用它。
      *
      * @param prov      序列化提供者
      * @param property  字段属性（包含注解信息）

@@ -7,9 +7,11 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.AntPathMatcher;
 
 import java.io.IOException;
 
@@ -53,6 +55,19 @@ import java.io.IOException;
 public class XssFilter {
 
     /**
+     * XSS 配置（读取 yml 的 litisle.xss.* 配置）
+     * 这个 yml 是「业务模块 / 业务服务」自己的 application.yml​
+     * 【注入方式】用 @Autowired 字段注入，避免 @Configuration + 构造器注入 @Component 的加载顺序问题
+     */
+    @Autowired
+    private XssProperties xssProperties;
+
+    /**
+     * Ant 路径匹配器（线程安全，全局复用）
+     */
+    private final AntPathMatcher pathMatcher = new AntPathMatcher();
+
+    /**
      * 注册 XSS 过滤器
      *
      * 【FilterRegistrationBean 说明】
@@ -64,22 +79,26 @@ public class XssFilter {
      */
     @Bean
     public FilterRegistrationBean<Filter> xssFilterRegistration() {
+        // 全局开关关闭时不注册过滤器
+        if (!xssProperties.isEnabled()) {
+            log.info("XSS 过滤器已关闭（litisle.xss.enabled=false）");
+            return new FilterRegistrationBean<>();
+        }
+
         FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
-        // 注册实际的 Filter 逻辑
         registration.setFilter((ServletRequest request, ServletResponse response, FilterChain chain)
                 -> doXssFilter(request, response, chain));
-        // 拦截所有请求
         registration.addUrlPatterns("/*");
-        // 过滤器顺序（值越小越先执行）
         registration.setOrder(1);
-        // 过滤器名称
         registration.setName("xssFilter");
-        log.info("XSS 过滤器已注册，拦截路径: /*");
+        log.info("XSS 过滤器已注册，拦截路径: /*，排除路径: {}", xssProperties.getExcludePaths());
         return registration;
     }
 
     /**
      * 实际的 XSS 过滤逻辑
+     *
+     * 【修复点】新增排除路径判断，富文本接口（如文章发布）不清洗
      *
      * @param request  原始请求
      * @param response 响应
@@ -87,13 +106,40 @@ public class XssFilter {
      */
     private void doXssFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
-        // 仅处理 HttpServletRequest
         if (request instanceof HttpServletRequest httpRequest) {
+            String requestUri = httpRequest.getRequestURI();
+
+            // 判断是否在排除路径中（富文本接口不清洗，保留 HTML 标签）
+            if (isExcluded(requestUri)) {
+                log.debug("路径命中 XSS 排除规则，跳过清洗: {}", requestUri);
+                chain.doFilter(request, response);
+                return;
+            }
+
             // 包装为 XSS 安全的 request
             XssHttpServletRequestWrapper wrappedRequest = new XssHttpServletRequestWrapper(httpRequest);
             chain.doFilter(wrappedRequest, response);
         } else {
             chain.doFilter(request, response);
         }
+    }
+
+    /**
+     * 判断请求路径是否在排除列表中
+     * 【说明】使用 AntPathMatcher 支持通配符匹配
+     *
+     * @param requestUri 请求 URI
+     * @return true=应跳过 XSS 清洗
+     */
+    private boolean isExcluded(String requestUri) {
+        if (xssProperties.getExcludePaths() == null || xssProperties.getExcludePaths().isEmpty()) {
+            return false;
+        }
+        for (String pattern : xssProperties.getExcludePaths()) {
+            if (pathMatcher.match(pattern, requestUri)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

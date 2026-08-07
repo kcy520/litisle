@@ -1,0 +1,10 @@
+litisle:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:xxx}        # auth ??
+      access-token-expire: 1800        # auth ??
+      remember-me-expire: 604800       # auth ??
+    session:
+      max-concurrent: 2                # auth ??
+    login:
+      max-fail-count: 5                # auth ??

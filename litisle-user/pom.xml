@@ -38,9 +38,27 @@
         </dependency>
 
         <!--common模块-->
-        <dependency>
+<!--        <dependency>
             <groupId>com.litisle</groupId>
             <artifactId>Litisle</artifactId>
+            <version>${project.version}</version>
+        </dependency>-->
+        <!-- common-core -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-redis -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-redis</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-security -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-security</artifactId>
             <version>${project.version}</version>
         </dependency>
 
