@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit;
  * 2. 搭配 IdempotentAspect 切面，基于 Redis SETNX 实现分布式幂等
  * 3. 适用于写操作：下单、支付、点赞、评论提交等
  *
+ * 仅仅是在ttl的时间之内防止用户重复提交
+ *
  * 【为什么放在 common-redis 而不是 common-security】
  * - 幂等性的本质是 Redis SETNX，与 Redis 强耦合
  * - 与 common-redis 的分布式锁、布隆过滤器同级，都是"基于 Redis 的功能"
