@@ -24,13 +24,13 @@ public class UserServiceImpl
         if (user == null) {
             return null;
         }
-
+        log.info("UserServiceImpl getDtoById userId:{}", user.getId());
         UserDTO dto = new UserDTO();
-        dto.setUserId(user.getId());
-        dto.setUsername(user.getUsername());
-        dto.setAvatarFileId(user.getAvatarFileId());
-        dto.setStatus(user.getStatus());
-        dto.setCreatedAt(user.getCreatedAt());
+//        dto.setUserId(user.getId());
+//        dto.setUsername(user.getUsername());
+//        dto.setAvatarFileId(user.getAvatarFileId());
+//        dto.setStatus(user.getStatus());
+//        dto.setCreatedAt(user.getCreatedAt());
         return dto;
     }
 }

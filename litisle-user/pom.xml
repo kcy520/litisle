@@ -90,6 +90,12 @@
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
+        <!--Feign Starter -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+
         <!--API 文档  增强的 Swagger UI 界面-->
         <!-- 子工程 server 内：同步修改 -->
         <dependency>

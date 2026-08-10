@@ -2,8 +2,9 @@ package com.litisle.litisleuser.controller.feign;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.user.UserDTO;
-import com.litisle.litisleapi.feign.UserFeignApi;
-import com.litisle.litisleuser.service.UserService;
+
+import com.litisle.litisleapi.feign.UserClient;
+import com.litisle.litisleuser.service.IUserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.RestController;
@@ -15,12 +16,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Slf4j
 @RequiredArgsConstructor
-public class UserFeignProviderController implements UserFeignApi {
+public class UserFeignProviderController implements UserClient {
 
-    private final UserService userService;
+    private final IUserService userService;
 
     @Override
     public Result<UserDTO> getUserById(Long userId) {
+        log.info("远程api调用getUserById userId:{}", userId);
         UserDTO dto = userService.getDtoById(userId);
         return Result.success(dto);
     }
