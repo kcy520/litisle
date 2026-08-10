@@ -2,6 +2,7 @@ package com.litisle.litisleuser;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.openfeign.EnableFeignClients;
 
 /**
  * 一键启动docker容器
@@ -57,6 +58,9 @@ docker-compose stop
 
 
 @SpringBootApplication
+//user-service 如果是被调用方（只提供接口实现），它不需要这个注解；但如果有其他模块（比如 order 模块）要通过这个 Feign 客户端调用 user 服务，那么 order 模块的启动类必须加 @EnableFeignClients。
+@EnableFeignClients(basePackages = "com.litisle.litisleapi.feign")
+//@EnableFeignClients(basePackages = "com.demo.api.client", defaultConfiguration = FeignApiConfig.class)
 public class LitisleUserApplication {
 
     public static void main(String[] args) {

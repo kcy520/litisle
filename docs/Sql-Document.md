@@ -90,7 +90,37 @@ insert ignore into `sys_role` (`role_code`, `role_name`, `role_type`) values
 ('LEGACY_AUTHOR', '纪念作家',   2),
 ('REVIEWER',      '审核员',     2);
 
-# 5. 用户资料扩展表（删除状态以主表 sys_user.del_flag 为唯一真相源）
+# 5. 权限表（菜单 + 按钮/API 统一管理，parent_id 自关联树形结构）
+create table if not exists `sys_permission`
+(
+    `id`          bigint unsigned not null auto_increment primary key comment '权限ID',
+    `parent_id`   bigint unsigned not null default 0 comment '父权限ID（0=根节点）',
+    `perm_code`   varchar(64)     not null comment '权限编码（如 user:read / article:write）',
+    `perm_name`   varchar(32)     not null comment '权限名称',
+    `perm_type`   tinyint         not null comment '类型：1-菜单 2-按钮/API',
+    `path`        varchar(128)    null comment '前端路由路径（菜单类型用）',
+    `component`   varchar(128)    null comment '前端组件路径（菜单类型用）',
+    `icon`        varchar(64)     null comment '图标',
+    `sort`        int             not null default 0 comment '排序（同级内升序）',
+    `status`      tinyint         not null default 1 comment '状态：0-禁用 1-正常',
+    `create_time` datetime        not null default current_timestamp comment '创建时间',
+    `update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    unique key `uk_perm_code` (`perm_code`),
+    index `idx_parent_id` (`parent_id`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '权限表（菜单与按钮/API 统一管理，parent_id 自关联形成树形结构）';
+
+# 6. 角色-权限关联表
+create table if not exists `sys_role_permission`
+(
+    `role_id`       bigint unsigned not null comment '角色ID',
+    `permission_id` bigint unsigned not null comment '权限ID',
+    primary key (`role_id`, `permission_id`),
+    index `idx_permission_id` (`permission_id`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '角色-权限关联表';
+
+# 7. 用户资料扩展表（删除状态以主表 sys_user.del_flag 为唯一真相源）
 create table if not exists `sys_user_profile`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '主键ID',
@@ -106,7 +136,7 @@ index `idx_user_id` (`user_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '用户资料扩展表（删除状态以主表 sys_user.del_flag 为唯一真相源，本表不设 del_flag）';
 
-# 6. 第三方 OAuth 绑定表（物理删除 + @AuditLog 审计 + app_id 预留）
+# 8. 第三方 OAuth 绑定表（物理删除 + @AuditLog 审计 + app_id 预留）
 create table if not exists `sys_oauth_binding`
 (
 `id`          bigint unsigned not null auto_increment primary key comment '主键ID',
@@ -121,6 +151,7 @@ unique key `uk_provider_app_open` (`provider`, `app_id`, `open_id`),
 index `idx_user_id` (`user_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
+
 ```
 ```
 

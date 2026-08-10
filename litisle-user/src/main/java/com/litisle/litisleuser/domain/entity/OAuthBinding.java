@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
  */
 @Data
 @TableName("sys_oauth_binding")
-public class SysOAuthBinding implements Serializable {
+public class OAuthBinding implements Serializable {
 
     private static final long serialVersionUID = 1L;
 

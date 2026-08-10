@@ -1,44 +1,4 @@
-我先扫描所有 common 模块的源码，确保说明文档内容准确（类名、注解、方法签名等）。
-
-
-toolName: view_files
-
-status: success
-
-
-filePath: e:\NewJavaPro\LitIsle\litisle-common\common-core\src\main\java\com\litisle\commoncore\exception\ErrorCode.java
-
-
-
-
-toolName: view_files
-
-status: success
-
-
-filePath: e:\NewJavaPro\LitIsle\litisle-common\common-core\src\main\java\com\litisle\commoncore\result\Result.java
-
-
-
-
-toolName: view_files
-
-status: success
-
-
-filePath: e:\NewJavaPro\LitIsle\litisle-common\common-core\src\main\java\com\litisle\commoncore\resolver\UserIdResolver.java
-
-
-
-
-toolName: view_files
-
-status: success
-
-
-filePath: e:\NewJavaPro\LitIsle\litisle-common\common-redis\src\main\java\com\litisle\commonredis\idempotent\Idempotent.java
-
-我已收集足够信息。现在生成完整的 common 模块说明文档，直接输出到 [commom-des.md](file:///e:/NewJavaPro/LitIsle/BaseDesign-document/commom-des.md)：
+完整的 common 模块说明文档，[commom-des.md](file:///e:/NewJavaPro/LitIsle/BaseDesign-document/commom-des.md)：
 
 ```markdown
 e:\NewJavaPro\LitIsle\BaseDesign-document\commom-des.md

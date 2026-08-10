@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  */
 @Data
 @TableName("sys_role")
-public class SysRole implements Serializable {
+public class Role implements Serializable {
 
     private static final long serialVersionUID = 1L;
 

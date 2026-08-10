@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  */
 @Data
 @TableName("sys_user")
-public class SysUser implements Serializable {
+public class User implements Serializable {
 
     private static final long serialVersionUID = 1L;
 

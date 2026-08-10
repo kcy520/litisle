@@ -11,7 +11,7 @@ import java.io.Serializable;
  */
 @Data
 @TableName("sys_user_role")
-public class SysUserRole implements Serializable {
+public class UserRole implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
