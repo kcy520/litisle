@@ -117,7 +117,7 @@ return Result.success(new PageResult<>(records, total, page, size));
 | `RedisConfig` | RedisTemplate 配置（Jackson 序列化、Key 前缀） | **自动执行** |
 | `RedissonConfig` | Redisson 客户端配置（分布式锁基础） | **自动执行** |
 | `RedisUtil` | Redis 操作工具类（String/Hash/List/Set/ZSet） | 手动调用 |
-| `CacheConstant` | 缓存 Key 常量前缀 | 手动引用 |
+| `CacheConstant` | 缓存 Key 常量前缀（含 USER_PERMISSION、RATE_LIMIT 等） | 手动引用 |
 
 ### 3.2 分布式锁
 
@@ -165,6 +165,62 @@ public Result<Void> createOrder(@RequestBody OrderDTO dto) { ... }
 - 业务服务必须同时引入 common-security（提供 `SecurityContextUserIdResolver` 实现），否则 userId 为 "anonymous"
 - TTL 应略大于业务执行时间
 
+### 3.5 接口限流
+
+| 类 | 说明 | 使用方式 |
+|----|------|--------|
+| `RateLimiter` | 限流注解（支持 USER/IP/DEFAULT 三种 key 类型） | 声明式 |
+| `RateLimiterAspect` | 限流切面（Redis + Lua 脚本实现） | **自动执行** |
+| `RateLimiterKeyBuilder` | 限流 key 构建器（userId/IP/方法路径） | 内部使用 |
+
+**使用方式**：声明式，加注解即可。
+
+```java
+// 示例1：登录接口，同一用户 1 分钟最多 5 次
+@RateLimiter(time = 1, timeUnit = TimeUnit.MINUTES, count = 5, keyType = RateLimiter.KeyType.USER)
+@PostMapping("/login")
+public Result<LoginVO> login(@RequestBody LoginDTO dto) { ... }
+
+// 示例2：短信发送，同一 IP 1 小时最多 10 次
+@RateLimiter(time = 1, timeUnit = TimeUnit.HOURS, count = 10, keyType = RateLimiter.KeyType.IP)
+@PostMapping("/sms/send")
+public Result<Void> sendSms(@RequestParam String phone) { ... }
+
+// 示例3：全局接口保护，1 秒最多 100 次
+@RateLimiter(time = 1, count = 100, keyType = RateLimiter.KeyType.DEFAULT)
+@GetMapping("/hot/articles")
+public Result<List<ArticleVO>> hotArticles() { ... }
+```
+
+**实现原理（固定窗口计数法）**：
+1. 构建 key：`rate_limit:{type}:{id}:{method}`
+2. Redis 执行 Lua 脚本（原子操作）：
+   - `INCR key`（计数 +1）
+   - 首次访问（count == 1）才 `EXPIRE key seconds`
+3. 返回当前计数：
+   - `count <= maxCount`：放行
+   - `count > maxCount`：抛 `BizException(TOO_MANY_REQUESTS)`
+
+**Lua 脚本**：
+```lua
+local count = redis.call('incr', KEYS[1])
+if count == 1 then
+    redis.call('expire', KEYS[1], ARGV[1])
+end
+return count
+```
+
+**与 @Idempotent 的区别**：
+- `@Idempotent`：防止“重复提交”（TTL 内只能执行一次）
+- `@RateLimiter`：防止“频繁访问”（TTL 内允许 N 次）
+- 两者可叠加使用：先限流再幂等
+
+**⚠️ 注意事项**：
+- 限流切面通过 `UserIdResolver`（可选注入）获取 userId，与幂等切面一致
+- IP 类型限流需 web 环境（common-redis 的 pom.xml 已添加 `spring-boot-starter-web` provided）
+- 固定窗口存在边界问题（窗口切换处可能出现 2 倍流量），高精度场景可演进为滑动窗口
+- Lua 脚本保证 `INCR + EXPIRE` 原子性，避免并发下 key 永久计数
+
 ---
 
 ## 四、common-security 模块
@@ -173,8 +229,8 @@ public Result<Void> createOrder(@RequestBody OrderDTO dto) { ... }
 
 | 类 | 说明 | 使用方式 |
 |----|------|---------|
-| `SecurityContext` | 安全上下文（userId、username、roles、authenticated） | 内部使用 |
-| `SecurityContextHolder` | ThreadLocal 上下文持有者 | 手动调用 `getUserId()` / `getRoles()` |
+| `SecurityContext` | 安全上下文（userId、username、roles、permissions、authenticated） | 内部使用 |
+| `SecurityContextHolder` | ThreadLocal 上下文持有者 | 手动调用 `getUserId()` / `getRoles()` / `getPermissions()` |
 
 **使用方式**：业务代码通过 `SecurityContextHolder` 获取当前登录用户。
 
@@ -187,21 +243,47 @@ Set<String> roles = SecurityContextHolder.getRoles();
 - 基于 ThreadLocal，请求结束必须清理（由 Filter/Interceptor 负责）
 - 网关已校验 JWT，业务服务从 Header 读取用户信息构建上下文
 
-### 4.2 角色权限校验
+### 4.2 登录与权限校验
 
 | 类 | 说明 | 使用方式 |
 |----|------|---------|
+| `Login` | 登录校验注解（方法/类级别，仅需登录无需角色） | 声明式 |
 | `RequireRole` | 角色校验注解（支持 AND/OR 逻辑） | 声明式 |
-| `RequirePermission` | 权限校验注解（预留） | 声明式 |
+| `RequirePermission` | 权限校验注解（细粒度，如 user:delete） | 声明式 |
+| `LoginAspect` | 登录校验切面（支持 @Anonymous 跳过） | **自动执行** |
 | `RoleCheckAspect` | 角色校验切面 | **自动执行** |
+| `PermissionCheckAspect` | 权限校验切面（细粒度权限） | **自动执行** |
 
 **使用方式**：声明式。
 
 ```java
-@RequireRole(roles = {"ADMIN", "EDITOR"}, logical = Logical.OR)
+// 示例1：仅需登录（获取个人信息）
+@Login
+@GetMapping("/user/profile")
+public Result<UserVO> getProfile() { ... }
+
+// 示例2：类级登录校验（整个 Controller 都需登录）
+@Login
+@RestController
+@RequestMapping("/api/user")
+public class UserController { ... }
+
+// 示例3：角色校验（ADMIN 或 EDITOR 可发布文章）
+@RequireRole(value = {"ADMIN", "EDITOR"}, logical = Logical.OR)
 @PostMapping("/article/publish")
 public Result<Void> publish(@RequestBody ArticleDTO dto) { ... }
+
+// 示例4：细粒度权限校验（需要 user:delete 权限）
+@RequirePermission("user:delete")
+@DeleteMapping("/user/{id}")
+public Result<Void> deleteUser(@PathVariable Long id) { ... }
 ```
+
+**⚠️ 注意事项**：
+- `@Login`、`@RequireRole`、`@RequirePermission` 均依赖 `SecurityContextHolder` 中的上下文，业务服务必须在 Filter 中从 Header 解析用户信息并写入上下文
+- `@RequirePermission` 需要 JWT 中携带 `permissions` 字段，由 litisle-auth 服务的 JwtAuthenticationFilter 解析后写入 `SecurityContext.permissions`
+- 方法标注 `@Anonymous` 时，`@Login` 切面会跳过校验（匿名访问由网关白名单控制）
+- 角色与权限的区别：角色是粗粒度（ADMIN），权限是细粒度（user:delete），一个角色可拥有多个权限
 
 ### 4.3 Feign 拦截器
 
@@ -374,8 +456,9 @@ litisle:
 | 注解 | 模块 | 作用 |
 |------|------|------|
 | `@Idempotent` | common-redis | 接口幂等性（防重复提交） |
+| `@Login` | common-security | 登录校验（仅需登录无需角色） |
 | `@RequireRole` | common-security | 角色校验（支持 AND/OR） |
-| `@RequirePermission` | common-security | 权限校验（预留） |
+| `@RequirePermission` | common-security | 权限校验（细粒度权限码） |
 | `@AuditLog` | common-security | 审计日志记录 |
 | `@Sensitive` | common-security | 数据脱敏（响应 JSON 自动脱敏） |
 | `@Anonymous` | common-security | 匿名访问（自动加入白名单） |

@@ -38,7 +38,7 @@ public class IdempotentKeyBuilder {
     /**
      * Key 前缀（统一管理，避免冲突）
      */
-    private static final String KEY_PREFIX = "idempotent:";
+    private static final String IDEMPOTENT_KEY_PREFIX = "idempotent:";
 
     /**
      * 构建幂等 key
@@ -64,6 +64,6 @@ public class IdempotentKeyBuilder {
         }
 
         // 3. 拼接 key
-        return KEY_PREFIX + userKey + ":" + methodPath + ":" + argsDigest;
+        return IDEMPOTENT_KEY_PREFIX + userKey + ":" + methodPath + ":" + argsDigest;
     }
 }

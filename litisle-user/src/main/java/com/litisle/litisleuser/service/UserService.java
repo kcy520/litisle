@@ -6,7 +6,7 @@ import com.litisle.litisleuser.domain.entity.User;
 import org.springframework.transaction.annotation.Transactional;
 
 @Transactional(rollbackFor = Exception.class)
-public interface IUserService extends IService<User> {
+public interface UserService extends IService<User> {
 
     /**
      * 查询用户 DTO（供 Feign 使用）

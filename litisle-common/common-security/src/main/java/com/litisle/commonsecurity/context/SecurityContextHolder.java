@@ -96,6 +96,19 @@ public class SecurityContextHolder {
     }
 
     /**
+     * 获取当前用户权限集合
+     * 
+     * 【说明】配合 SecurityContext.permissions 字段使用，
+     *       由 PermissionCheckAspect 切面调用进行细粒度权限校验。
+     *
+     * @return 权限集合（未登录返回 null）
+     */
+    public static Set<String> getPermissions() {
+        SecurityContext context = getContext();
+        return context != null ? context.getPermissions() : null;
+    }
+
+    /**
      * 判断当前用户是否已登录
      * 
      * @return true=已登录
@@ -114,6 +127,17 @@ public class SecurityContextHolder {
     public static boolean hasRole(String role) {
         SecurityContext context = getContext();
         return context != null && context.hasRole(role);
+    }
+
+    /**
+     * 判断当前用户是否拥有某个权限
+     * 
+     * @param permission 权限编码（如 "user:delete"）
+     * @return true=拥有该权限
+     */
+    public static boolean hasPermission(String permission) {
+        SecurityContext context = getContext();
+        return context != null && context.hasPermission(permission);
     }
 
     /**

@@ -5,7 +5,7 @@ import com.litisle.litisleapi.dto.user.UserDTO;
 
 import com.litisle.litisleuser.domain.entity.User;
 import com.litisle.litisleuser.mapper.UserMapper;
-import com.litisle.litisleuser.service.IUserService;
+import com.litisle.litisleuser.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class UserServiceImpl
         extends ServiceImpl<UserMapper, User>
-        implements IUserService {
+        implements UserService {
     private final UserMapper userMapper;
 
     @Override

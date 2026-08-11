@@ -53,6 +53,7 @@ create table if not exists `sys_user`
     `create_time`     datetime        not null default current_timestamp comment '创建时间',
     `update_time`     datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
     unique key `uk_phone_del` (`phone`, `del_flag`),
+    unique key `uk_email_del` (`email`, `del_flag`) comment '邮箱唯一（未删除范围内）',
     index `idx_username` (`username`),
     index `idx_email` (`email`),
     index `idx_create_time` (`create_time`)

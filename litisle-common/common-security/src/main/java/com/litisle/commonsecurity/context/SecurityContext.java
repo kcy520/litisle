@@ -52,6 +52,15 @@ public class SecurityContext implements Serializable {
     private Set<String> roles;
 
     /**
+     * 用户权限集合（如 user:read、article:publish）
+     * 【说明】细粒度权限码，由角色映射而来（角色-权限映射存于 DB，由 auth 服务管理）
+     *       权限码格式：资源:动作（如 user:delete）
+     *       由 JwtAuthenticationFilter 解析 JWT 后写入
+     *       配合 @RequirePermission 注解和 PermissionCheckAspect 切面使用
+     */
+    private Set<String> permissions;
+
+    /**
      * 链路追踪ID（用于日志关联）
      */
     private String traceId;
@@ -99,4 +108,18 @@ public class SecurityContext implements Serializable {
         }
         return false;
     }
+
+    /**
+     * 判断是否拥有某个权限
+     *
+     * 【使用示例】
+     * if (context.hasPermission("user:delete")) { ... }
+     *
+     * @param permission 权限编码（如 "user:delete"）
+     * @return true=拥有该权限
+     */
+    public boolean hasPermission(String permission) {
+        return permissions != null && permissions.contains(permission);
+    }
+
 }

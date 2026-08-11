@@ -4,7 +4,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.user.UserDTO;
 
 import com.litisle.litisleapi.feign.UserClient;
-import com.litisle.litisleuser.service.IUserService;
+import com.litisle.litisleuser.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class UserFeignProviderController implements UserClient {
 
-    private final IUserService userService;
+    private final UserService userService;
 
     @Override
     public Result<UserDTO> getUserById(Long userId) {

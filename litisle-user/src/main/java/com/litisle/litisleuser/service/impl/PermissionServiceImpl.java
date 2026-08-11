@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 
 import com.litisle.litisleuser.domain.entity.Permission;
 import com.litisle.litisleuser.mapper.PermissionMapper;
-import com.litisle.litisleuser.service.IPermissionService;
+import com.litisle.litisleuser.service.PermissionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class PermissionServiceImpl
         extends ServiceImpl<PermissionMapper, Permission>
-        implements IPermissionService {
+        implements PermissionService {
 
     private final PermissionMapper sysPermissionMapper;
 }

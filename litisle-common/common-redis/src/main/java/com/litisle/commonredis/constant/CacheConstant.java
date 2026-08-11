@@ -47,9 +47,19 @@ public class CacheConstant {
     /**
      * 用户角色缓存
      * 格式：user:role:{userId}
-     * 用途：缓存用户角色列表
+     * 用途：缓存用户角色列表（粗粒度：ADMIN、AUTHOR、READER）
      */
     public static final String USER_ROLE = "user:role:";
+
+    /**
+     * 用户权限缓存
+     * 格式：user:permission:{userId}
+     * 用途：缓存用户细粒度权限列表（如 user:delete、article:publish）
+     *       配合 SecurityContext.permissions 字段和 @RequirePermission 注解使用
+     *       litisle-auth 登录时写入缓存，业务服务从缓存读取后写入 SecurityContext.permissions
+     *       角色变更时需同步刷新此缓存（避免权限缓存陈旧）
+     */
+    public static final String USER_PERMISSION = "user:permission:";
 
     /**
      * 用户 VIP 状态缓存
@@ -170,6 +180,17 @@ public class CacheConstant {
      * 用途：记录连续登录失败次数，超过5次锁定15分钟
      */
     public static final String LOGIN_FAIL_CNT = "login:fail:";
+
+    /**
+     * 接口限流计数前缀
+     * 格式：rate_limit:{type}:{id}:{method}
+     * 用途：配合 @RateLimiter 注解，基于 Redis + Lua 脚本实现分布式限流
+     *       - type：限流维度（user/ip/default）
+     *       - id：用户ID / 客户端IP / global
+     *       - method：类名:方法名
+     *       完整 key 示例：rate_limit:user:1001:LoginController:login
+     */
+    public static final String RATE_LIMIT = "rate_limit:";
 
     // ==================== 缓存默认过期时间（秒） ====================
 
