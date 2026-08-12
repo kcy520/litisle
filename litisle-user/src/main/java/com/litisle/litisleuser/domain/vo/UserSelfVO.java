@@ -80,6 +80,11 @@ public class UserSelfVO {
      */
     private Boolean frozen;
 
+//    private Boolean enabled ;
+
+    //status = 身份合法性
+    //frozen = 行为可用性
+
     /**
      * 封禁截止时间（未封禁为 null）
      */

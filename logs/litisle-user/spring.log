@@ -1,35 +1,41 @@
-18:30:43:411  INFO 25448 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 25448 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-18:30:43:419  INFO 25448 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
-18:30:44:289  WARN 25448 --- [litisle-user] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: java.lang.NoClassDefFoundError: org/springframework/cloud/context/named/NamedContextFactory$Specification
-18:30:44:294  INFO 25448 --- [litisle-user] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
+21:55:46:566  INFO 29200 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 29200 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
+21:55:46:607  INFO 29200 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
+21:55:48:017  INFO 29200 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+21:55:48:021  INFO 29200 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+21:55:48:051  INFO 29200 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 10 ms. Found 0 Redis repository interfaces.
+21:55:48:260  INFO 29200 --- [litisle-user] [main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=d5f96ec2-7724-3782-998c-64e73aff65be
+21:55:48:834  INFO 29200 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
+21:55:48:851  INFO 29200 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+21:55:48:852  INFO 29200 --- [litisle-user] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
+21:55:48:922  INFO 29200 --- [litisle-user] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+21:55:48:922  INFO 29200 --- [litisle-user] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 1979 ms
+21:55:49:392  WARN 29200 --- [litisle-user] [main] c.b.m.core.metadata.TableInfoHelper      : Can not find table primary key in Class: "com.litisle.litisleuser.domain.entity.UserRole".
+21:55:49:392  WARN 29200 --- [litisle-user] [main] c.b.m.core.injector.DefaultSqlInjector   : class com.litisle.litisleuser.domain.entity.UserRole ,Not found @TableId annotation, Cannot use Mybatis-Plus 'xxById' Method.
+21:55:49:533  INFO 29200 --- [litisle-user] [main] o.s.v.b.OptionalValidatorFactoryBean     : Failed to set up a Bean Validation provider: jakarta.validation.NoProviderFoundException: Unable to create a Configuration, because no Jakarta Bean Validation provider could be found. Add a provider like Hibernate Validator (RI) to your classpath.
+21:55:49:807  INFO 29200 --- [litisle-user] [main] org.redisson.Version                     : Redisson 3.52.0
+21:55:57:459  WARN 29200 --- [litisle-user] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'redisTemplate' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Unsatisfied dependency expressed through method 'redisTemplate' parameter 0: Error creating bean with name 'redissonConnectionFactory' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Unsatisfied dependency expressed through method 'redissonConnectionFactory' parameter 0: Error creating bean with name 'redisson' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Failed to instantiate [org.redisson.api.RedissonClient]: Factory method 'redisson' threw exception with message: java.util.concurrent.ExecutionException: org.redisson.client.RedisConnectionException: Unable to connect to Redis server: localhost/127.0.0.1:6380
+21:55:57:462  INFO 29200 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Stopping service [Tomcat]
+21:55:57:472  INFO 29200 --- [litisle-user] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
 
 Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
-18:30:44:315 ERROR 25448 --- [litisle-user] [main] o.s.boot.SpringApplication               : Application run failed
+21:55:57:485 ERROR 29200 --- [litisle-user] [main] o.s.boot.SpringApplication               : Application run failed
 
-java.lang.NoClassDefFoundError: org/springframework/cloud/context/named/NamedContextFactory$Specification
-	at java.base/java.lang.ClassLoader.defineClass1(Native Method) ~[na:na]
-	at java.base/java.lang.ClassLoader.defineClass(ClassLoader.java:962) ~[na:na]
-	at java.base/java.security.SecureClassLoader.defineClass(SecureClassLoader.java:144) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.defineClass(BuiltinClassLoader.java:776) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.findClassOnClassPathOrNull(BuiltinClassLoader.java:691) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClassOrNull(BuiltinClassLoader.java:620) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:578) ~[na:na]
-	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerClientConfiguration(FeignClientsRegistrar.java:464) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerDefaultConfiguration(FeignClientsRegistrar.java:168) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerBeanDefinitions(FeignClientsRegistrar.java:153) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.context.annotation.ImportBeanDefinitionRegistrar.registerBeanDefinitions(ImportBeanDefinitionRegistrar.java:86) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.lambda$loadBeanDefinitionsFromRegistrars$1(ConfigurationClassBeanDefinitionReader.java:409) ~[spring-context-6.2.19.jar:6.2.19]
-	at java.base/java.util.LinkedHashMap.forEach(LinkedHashMap.java:987) ~[na:na]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsFromRegistrars(ConfigurationClassBeanDefinitionReader.java:408) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsForConfigurationClass(ConfigurationClassBeanDefinitionReader.java:148) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitions(ConfigurationClassBeanDefinitionReader.java:120) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassPostProcessor.processConfigBeanDefinitions(ConfigurationClassPostProcessor.java:430) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry(ConfigurationClassPostProcessor.java:290) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanDefinitionRegistryPostProcessors(PostProcessorRegistrationDelegate.java:349) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors(PostProcessorRegistrationDelegate.java:118) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.AbstractApplicationContext.invokeBeanFactoryPostProcessors(AbstractApplicationContext.java:792) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:610) ~[spring-context-6.2.19.jar:6.2.19]
+org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'redisTemplate' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Unsatisfied dependency expressed through method 'redisTemplate' parameter 0: Error creating bean with name 'redissonConnectionFactory' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Unsatisfied dependency expressed through method 'redissonConnectionFactory' parameter 0: Error creating bean with name 'redisson' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Failed to instantiate [org.redisson.api.RedissonClient]: Factory method 'redisson' threw exception with message: java.util.concurrent.ExecutionException: org.redisson.client.RedisConnectionException: Unable to connect to Redis server: localhost/127.0.0.1:6380
+	at org.springframework.beans.factory.support.ConstructorResolver.createArgumentArray(ConstructorResolver.java:804) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.ConstructorResolver.instantiateUsingFactoryMethod(ConstructorResolver.java:546) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.instantiateUsingFactoryMethod(AbstractAutowireCapableBeanFactory.java:1373) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBeanInstance(AbstractAutowireCapableBeanFactory.java:1203) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:569) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:529) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:373) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.instantiateSingleton(DefaultListableBeanFactory.java:1235) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingleton(DefaultListableBeanFactory.java:1201) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1130) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:991) ~[spring-context-6.2.19.jar:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:628) ~[spring-context-6.2.19.jar:6.2.19]
 	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146) ~[spring-boot-3.5.15.jar:3.5.15]
 	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752) ~[spring-boot-3.5.15.jar:3.5.15]
 	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439) ~[spring-boot-3.5.15.jar:3.5.15]
@@ -37,218 +43,102 @@ java.lang.NoClassDefFoundError: org/springframework/cloud/context/named/NamedCon
 	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361) ~[spring-boot-3.5.15.jar:3.5.15]
 	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350) ~[spring-boot-3.5.15.jar:3.5.15]
 	at com.litisle.litisleuser.LitisleUserApplication.main(LitisleUserApplication.java:67) ~[classes/:na]
-Caused by: java.lang.ClassNotFoundException: org.springframework.cloud.context.named.NamedContextFactory$Specification
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:580) ~[na:na]
-	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]
-	... 30 common frames omitted
+Caused by: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'redissonConnectionFactory' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Unsatisfied dependency expressed through method 'redissonConnectionFactory' parameter 0: Error creating bean with name 'redisson' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Failed to instantiate [org.redisson.api.RedissonClient]: Factory method 'redisson' threw exception with message: java.util.concurrent.ExecutionException: org.redisson.client.RedisConnectionException: Unable to connect to Redis server: localhost/127.0.0.1:6380
+	at org.springframework.beans.factory.support.ConstructorResolver.createArgumentArray(ConstructorResolver.java:804) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.ConstructorResolver.instantiateUsingFactoryMethod(ConstructorResolver.java:546) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.instantiateUsingFactoryMethod(AbstractAutowireCapableBeanFactory.java:1373) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBeanInstance(AbstractAutowireCapableBeanFactory.java:1203) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:569) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:529) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:373) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.config.DependencyDescriptor.resolveCandidate(DependencyDescriptor.java:254) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.doResolveDependency(DefaultListableBeanFactory.java:1777) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.resolveDependency(DefaultListableBeanFactory.java:1660) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.ConstructorResolver.resolveAutowiredArgument(ConstructorResolver.java:913) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.ConstructorResolver.createArgumentArray(ConstructorResolver.java:791) ~[spring-beans-6.2.19.jar:6.2.19]
+	... 21 common frames omitted
+Caused by: org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'redisson' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Failed to instantiate [org.redisson.api.RedissonClient]: Factory method 'redisson' threw exception with message: java.util.concurrent.ExecutionException: org.redisson.client.RedisConnectionException: Unable to connect to Redis server: localhost/127.0.0.1:6380
+	at org.springframework.beans.factory.support.ConstructorResolver.instantiate(ConstructorResolver.java:657) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.ConstructorResolver.instantiateUsingFactoryMethod(ConstructorResolver.java:489) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.instantiateUsingFactoryMethod(AbstractAutowireCapableBeanFactory.java:1373) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBeanInstance(AbstractAutowireCapableBeanFactory.java:1203) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:569) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:529) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:373) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.config.DependencyDescriptor.resolveCandidate(DependencyDescriptor.java:254) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.doResolveDependency(DefaultListableBeanFactory.java:1777) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.resolveDependency(DefaultListableBeanFactory.java:1660) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.ConstructorResolver.resolveAutowiredArgument(ConstructorResolver.java:913) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.ConstructorResolver.createArgumentArray(ConstructorResolver.java:791) ~[spring-beans-6.2.19.jar:6.2.19]
+	... 35 common frames omitted
+Caused by: org.springframework.beans.BeanInstantiationException: Failed to instantiate [org.redisson.api.RedissonClient]: Factory method 'redisson' threw exception with message: java.util.concurrent.ExecutionException: org.redisson.client.RedisConnectionException: Unable to connect to Redis server: localhost/127.0.0.1:6380
+	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.lambda$instantiate$0(SimpleInstantiationStrategy.java:200) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.instantiateWithFactoryMethod(SimpleInstantiationStrategy.java:89) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.instantiate(SimpleInstantiationStrategy.java:169) ~[spring-beans-6.2.19.jar:6.2.19]
+	at org.springframework.beans.factory.support.ConstructorResolver.instantiate(ConstructorResolver.java:653) ~[spring-beans-6.2.19.jar:6.2.19]
+	... 49 common frames omitted
+Caused by: org.redisson.client.RedisConnectionException: java.util.concurrent.ExecutionException: org.redisson.client.RedisConnectionException: Unable to connect to Redis server: localhost/127.0.0.1:6380
+	at org.redisson.connection.MasterSlaveConnectionManager.doConnect(MasterSlaveConnectionManager.java:229) ~[redisson-3.52.0.jar:3.52.0]
+	at org.redisson.connection.MasterSlaveConnectionManager.connect(MasterSlaveConnectionManager.java:188) ~[redisson-3.52.0.jar:3.52.0]
+	at org.redisson.connection.ConnectionManager.create(ConnectionManager.java:98) ~[redisson-3.52.0.jar:3.52.0]
+	at org.redisson.Redisson.<init>(Redisson.java:76) ~[redisson-3.52.0.jar:3.52.0]
+	at org.redisson.Redisson.create(Redisson.java:119) ~[redisson-3.52.0.jar:3.52.0]
+	at org.redisson.spring.starter.RedissonAutoConfiguration.redisson(RedissonAutoConfiguration.java:329) ~[redisson-spring-boot-starter-3.52.0.jar:3.52.0]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104) ~[na:na]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565) ~[na:na]
+	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.lambda$instantiate$0(SimpleInstantiationStrategy.java:172) ~[spring-beans-6.2.19.jar:6.2.19]
+	... 52 common frames omitted
+Caused by: java.util.concurrent.ExecutionException: org.redisson.client.RedisConnectionException: Unable to connect to Redis server: localhost/127.0.0.1:6380
+	at java.base/java.util.concurrent.CompletableFuture.wrapInExecutionException(CompletableFuture.java:345) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture.reportGet(CompletableFuture.java:440) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture.get(CompletableFuture.java:2117) ~[na:na]
+	at org.redisson.connection.MasterSlaveConnectionManager.doConnect(MasterSlaveConnectionManager.java:224) ~[redisson-3.52.0.jar:3.52.0]
+	... 60 common frames omitted
+Caused by: org.redisson.client.RedisConnectionException: Unable to connect to Redis server: localhost/127.0.0.1:6380
+	at org.redisson.connection.ConnectionsHolder.lambda$createConnection$2(ConnectionsHolder.java:169) ~[redisson-3.52.0.jar:3.52.0]
+	at java.base/java.util.concurrent.CompletableFuture.uniHandle(CompletableFuture.java:955) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture$UniHandle.tryFire(CompletableFuture.java:932) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture.postComplete(CompletableFuture.java:531) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture.completeExceptionally(CompletableFuture.java:2221) ~[na:na]
+	at org.redisson.connection.ConnectionsHolder.lambda$createConnection$5(ConnectionsHolder.java:183) ~[redisson-3.52.0.jar:3.52.0]
+	at java.base/java.util.concurrent.CompletableFuture.uniWhenComplete(CompletableFuture.java:884) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture$UniWhenComplete.tryFire(CompletableFuture.java:862) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture.postComplete(CompletableFuture.java:531) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture.completeExceptionally(CompletableFuture.java:2221) ~[na:na]
+	at org.redisson.client.RedisClient$2$2.run(RedisClient.java:325) ~[redisson-3.52.0.jar:3.52.0]
+	at io.netty.util.concurrent.AbstractEventExecutor.runTask(AbstractEventExecutor.java:173) ~[netty-common-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.util.concurrent.AbstractEventExecutor.safeExecute(AbstractEventExecutor.java:166) ~[netty-common-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.util.concurrent.SingleThreadEventExecutor.runAllTasks(SingleThreadEventExecutor.java:472) ~[netty-common-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.channel.nio.NioEventLoop.run(NioEventLoop.java:569) ~[netty-transport-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.util.concurrent.SingleThreadEventExecutor$4.run(SingleThreadEventExecutor.java:998) ~[netty-common-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.util.internal.ThreadExecutorMap$2.run(ThreadExecutorMap.java:74) ~[netty-common-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30) ~[netty-common-4.1.135.Final.jar:4.1.135.Final]
+	at java.base/java.lang.Thread.run(Thread.java:1474) ~[na:na]
+Caused by: java.util.concurrent.CompletionException: io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: getsockopt: localhost/127.0.0.1:6380
+	at java.base/java.util.concurrent.CompletableFuture.wrapInCompletionException(CompletableFuture.java:323) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture.encodeRelay(CompletableFuture.java:412) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture.completeRelay(CompletableFuture.java:421) ~[na:na]
+	at java.base/java.util.concurrent.CompletableFuture$UniRelay.tryFire(CompletableFuture.java:1118) ~[na:na]
+	... 11 common frames omitted
+Caused by: io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: getsockopt: localhost/127.0.0.1:6380
+Caused by: java.net.ConnectException: Connection refused: getsockopt
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method) ~[na:na]
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:639) ~[na:na]
+	at java.base/sun.nio.ch.SocketChannelImpl.finishConnect(SocketChannelImpl.java:1046) ~[na:na]
+	at io.netty.channel.socket.nio.NioSocketChannel.doFinishConnect(NioSocketChannel.java:336) ~[netty-transport-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.channel.nio.AbstractNioChannel$AbstractNioUnsafe.finishConnect(AbstractNioChannel.java:339) ~[netty-transport-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.channel.nio.NioEventLoop.processSelectedKey(NioEventLoop.java:784) ~[netty-transport-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.channel.nio.NioEventLoop.processSelectedKeysOptimized(NioEventLoop.java:732) ~[netty-transport-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.channel.nio.NioEventLoop.processSelectedKeys(NioEventLoop.java:658) ~[netty-transport-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.channel.nio.NioEventLoop.run(NioEventLoop.java:562) ~[netty-transport-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.util.concurrent.SingleThreadEventExecutor$4.run(SingleThreadEventExecutor.java:998) ~[netty-common-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.util.internal.ThreadExecutorMap$2.run(ThreadExecutorMap.java:74) ~[netty-common-4.1.135.Final.jar:4.1.135.Final]
+	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30) ~[netty-common-4.1.135.Final.jar:4.1.135.Final]
+	at java.base/java.lang.Thread.run(Thread.java:1474) ~[na:na]
 
-18:31:05:505  INFO 33300 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 33300 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-18:31:05:507  INFO 33300 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
-18:31:06:011  WARN 33300 --- [litisle-user] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: java.lang.NoClassDefFoundError: org/springframework/cloud/context/named/NamedContextFactory$Specification
-18:31:06:019  INFO 33300 --- [litisle-user] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
-
-Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
-18:31:06:034 ERROR 33300 --- [litisle-user] [main] o.s.boot.SpringApplication               : Application run failed
-
-java.lang.NoClassDefFoundError: org/springframework/cloud/context/named/NamedContextFactory$Specification
-	at java.base/java.lang.ClassLoader.defineClass1(Native Method) ~[na:na]
-	at java.base/java.lang.ClassLoader.defineClass(ClassLoader.java:962) ~[na:na]
-	at java.base/java.security.SecureClassLoader.defineClass(SecureClassLoader.java:144) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.defineClass(BuiltinClassLoader.java:776) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.findClassOnClassPathOrNull(BuiltinClassLoader.java:691) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClassOrNull(BuiltinClassLoader.java:620) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:578) ~[na:na]
-	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerClientConfiguration(FeignClientsRegistrar.java:464) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerDefaultConfiguration(FeignClientsRegistrar.java:168) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerBeanDefinitions(FeignClientsRegistrar.java:153) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.context.annotation.ImportBeanDefinitionRegistrar.registerBeanDefinitions(ImportBeanDefinitionRegistrar.java:86) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.lambda$loadBeanDefinitionsFromRegistrars$1(ConfigurationClassBeanDefinitionReader.java:409) ~[spring-context-6.2.19.jar:6.2.19]
-	at java.base/java.util.LinkedHashMap.forEach(LinkedHashMap.java:987) ~[na:na]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsFromRegistrars(ConfigurationClassBeanDefinitionReader.java:408) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsForConfigurationClass(ConfigurationClassBeanDefinitionReader.java:148) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitions(ConfigurationClassBeanDefinitionReader.java:120) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassPostProcessor.processConfigBeanDefinitions(ConfigurationClassPostProcessor.java:430) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry(ConfigurationClassPostProcessor.java:290) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanDefinitionRegistryPostProcessors(PostProcessorRegistrationDelegate.java:349) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors(PostProcessorRegistrationDelegate.java:118) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.AbstractApplicationContext.invokeBeanFactoryPostProcessors(AbstractApplicationContext.java:792) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:610) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350) ~[spring-boot-3.5.15.jar:3.5.15]
-	at com.litisle.litisleuser.LitisleUserApplication.main(LitisleUserApplication.java:67) ~[classes/:na]
-Caused by: java.lang.ClassNotFoundException: org.springframework.cloud.context.named.NamedContextFactory$Specification
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:580) ~[na:na]
-	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]
-	... 30 common frames omitted
-
-18:37:20:797  INFO 15792 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 15792 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-18:37:20:799  INFO 15792 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
-18:37:21:620  WARN 15792 --- [litisle-user] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: java.lang.NoClassDefFoundError: org/springframework/cloud/context/named/NamedContextFactory$Specification
-18:37:21:628  INFO 15792 --- [litisle-user] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
-
-Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
-18:37:21:650 ERROR 15792 --- [litisle-user] [main] o.s.boot.SpringApplication               : Application run failed
-
-java.lang.NoClassDefFoundError: org/springframework/cloud/context/named/NamedContextFactory$Specification
-	at java.base/java.lang.ClassLoader.defineClass1(Native Method) ~[na:na]
-	at java.base/java.lang.ClassLoader.defineClass(ClassLoader.java:962) ~[na:na]
-	at java.base/java.security.SecureClassLoader.defineClass(SecureClassLoader.java:144) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.defineClass(BuiltinClassLoader.java:776) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.findClassOnClassPathOrNull(BuiltinClassLoader.java:691) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClassOrNull(BuiltinClassLoader.java:620) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:578) ~[na:na]
-	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerClientConfiguration(FeignClientsRegistrar.java:464) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerDefaultConfiguration(FeignClientsRegistrar.java:168) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerBeanDefinitions(FeignClientsRegistrar.java:153) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.context.annotation.ImportBeanDefinitionRegistrar.registerBeanDefinitions(ImportBeanDefinitionRegistrar.java:86) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.lambda$loadBeanDefinitionsFromRegistrars$1(ConfigurationClassBeanDefinitionReader.java:409) ~[spring-context-6.2.19.jar:6.2.19]
-	at java.base/java.util.LinkedHashMap.forEach(LinkedHashMap.java:987) ~[na:na]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsFromRegistrars(ConfigurationClassBeanDefinitionReader.java:408) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsForConfigurationClass(ConfigurationClassBeanDefinitionReader.java:148) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitions(ConfigurationClassBeanDefinitionReader.java:120) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassPostProcessor.processConfigBeanDefinitions(ConfigurationClassPostProcessor.java:430) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry(ConfigurationClassPostProcessor.java:290) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanDefinitionRegistryPostProcessors(PostProcessorRegistrationDelegate.java:349) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors(PostProcessorRegistrationDelegate.java:118) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.AbstractApplicationContext.invokeBeanFactoryPostProcessors(AbstractApplicationContext.java:792) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:610) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350) ~[spring-boot-3.5.15.jar:3.5.15]
-	at com.litisle.litisleuser.LitisleUserApplication.main(LitisleUserApplication.java:67) ~[classes/:na]
-Caused by: java.lang.ClassNotFoundException: org.springframework.cloud.context.named.NamedContextFactory$Specification
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:580) ~[na:na]
-	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]
-	... 30 common frames omitted
-
-18:37:54:327  INFO 9468 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 9468 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-18:37:54:329  INFO 9468 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
-18:37:54:715  WARN 9468 --- [litisle-user] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: java.lang.NoClassDefFoundError: org/springframework/cloud/context/named/NamedContextFactory$Specification
-18:37:54:719  INFO 9468 --- [litisle-user] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
-
-Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
-18:37:54:732 ERROR 9468 --- [litisle-user] [main] o.s.boot.SpringApplication               : Application run failed
-
-java.lang.NoClassDefFoundError: org/springframework/cloud/context/named/NamedContextFactory$Specification
-	at java.base/java.lang.ClassLoader.defineClass1(Native Method) ~[na:na]
-	at java.base/java.lang.ClassLoader.defineClass(ClassLoader.java:962) ~[na:na]
-	at java.base/java.security.SecureClassLoader.defineClass(SecureClassLoader.java:144) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.defineClass(BuiltinClassLoader.java:776) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.findClassOnClassPathOrNull(BuiltinClassLoader.java:691) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClassOrNull(BuiltinClassLoader.java:620) ~[na:na]
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:578) ~[na:na]
-	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerClientConfiguration(FeignClientsRegistrar.java:464) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerDefaultConfiguration(FeignClientsRegistrar.java:168) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.cloud.openfeign.FeignClientsRegistrar.registerBeanDefinitions(FeignClientsRegistrar.java:153) ~[spring-cloud-openfeign-core-4.3.3.jar:4.3.3]
-	at org.springframework.context.annotation.ImportBeanDefinitionRegistrar.registerBeanDefinitions(ImportBeanDefinitionRegistrar.java:86) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.lambda$loadBeanDefinitionsFromRegistrars$1(ConfigurationClassBeanDefinitionReader.java:409) ~[spring-context-6.2.19.jar:6.2.19]
-	at java.base/java.util.LinkedHashMap.forEach(LinkedHashMap.java:987) ~[na:na]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsFromRegistrars(ConfigurationClassBeanDefinitionReader.java:408) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsForConfigurationClass(ConfigurationClassBeanDefinitionReader.java:148) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitions(ConfigurationClassBeanDefinitionReader.java:120) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassPostProcessor.processConfigBeanDefinitions(ConfigurationClassPostProcessor.java:430) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.annotation.ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry(ConfigurationClassPostProcessor.java:290) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanDefinitionRegistryPostProcessors(PostProcessorRegistrationDelegate.java:349) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors(PostProcessorRegistrationDelegate.java:118) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.AbstractApplicationContext.invokeBeanFactoryPostProcessors(AbstractApplicationContext.java:792) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:610) ~[spring-context-6.2.19.jar:6.2.19]
-	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361) ~[spring-boot-3.5.15.jar:3.5.15]
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350) ~[spring-boot-3.5.15.jar:3.5.15]
-	at com.litisle.litisleuser.LitisleUserApplication.main(LitisleUserApplication.java:67) ~[classes/:na]
-Caused by: java.lang.ClassNotFoundException: org.springframework.cloud.context.named.NamedContextFactory$Specification
-	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:580) ~[na:na]
-	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]
-	... 30 common frames omitted
-
-18:42:55:639  INFO 31296 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 31296 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-18:42:55:848  INFO 31296 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
-18:42:56:900  INFO 31296 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
-18:42:56:907  INFO 31296 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
-18:42:56:965  INFO 31296 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 17 ms. Found 0 Redis repository interfaces.
-18:42:57:212  INFO 31296 --- [litisle-user] [main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=16898d0b-6708-3a46-82fa-d9d5cec9be29
-18:42:57:946  INFO 31296 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
-18:42:57:975  INFO 31296 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-18:42:57:975  INFO 31296 --- [litisle-user] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
-18:42:58:131  INFO 31296 --- [litisle-user] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-18:42:58:132  INFO 31296 --- [litisle-user] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 2208 ms
-18:42:58:609  WARN 31296 --- [litisle-user] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'OAuthBindingServiceImpl' defined in file [E:\NewJavaPro\LitIsle\litisle-user\target\classes\com\litisle\litisleuser\service\impl\OAuthBindingServiceImpl.class]: Unsatisfied dependency expressed through constructor parameter 0: No qualifying bean of type 'com.litisle.litisleuser.mapper.OAuthBindingMapper' available: expected at least 1 bean which qualifies as autowire candidate. Dependency annotations: {}
-18:42:58:613  INFO 31296 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Stopping service [Tomcat]
-18:42:58:629  INFO 31296 --- [litisle-user] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
-
-Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
-18:42:58:659 ERROR 31296 --- [litisle-user] [main] o.s.b.d.LoggingFailureAnalysisReporter   : 
-
-***************************
-APPLICATION FAILED TO START
-***************************
-
-Description:
-
-Parameter 0 of constructor in com.litisle.litisleuser.service.impl.OAuthBindingServiceImpl required a bean of type 'com.litisle.litisleuser.mapper.OAuthBindingMapper' that could not be found.
-
-
-Action:
-
-Consider defining a bean of type 'com.litisle.litisleuser.mapper.OAuthBindingMapper' in your configuration.
-
-18:44:19:908  INFO 16896 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 16896 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-18:44:19:910  INFO 16896 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
-18:44:22:220  INFO 16896 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
-18:44:22:239  INFO 16896 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
-18:44:22:299  INFO 16896 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 19 ms. Found 0 Redis repository interfaces.
-18:44:22:674  INFO 16896 --- [litisle-user] [main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=f4aeadbd-19fc-375f-bd3d-db854f84706d
-18:44:23:595  INFO 16896 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
-18:44:23:616  INFO 16896 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-18:44:23:617  INFO 16896 --- [litisle-user] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
-18:44:23:720  INFO 16896 --- [litisle-user] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-18:44:23:720  INFO 16896 --- [litisle-user] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3632 ms
-18:44:24:573  WARN 16896 --- [litisle-user] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'userRoleServiceImpl' defined in file [E:\NewJavaPro\LitIsle\litisle-user\target\classes\com\litisle\litisleuser\service\impl\UserRoleServiceImpl.class]: Unsatisfied dependency expressed through constructor parameter 0: No qualifying bean of type 'com.litisle.litisleuser.mapper.UserRoleMapper' available: expected at least 1 bean which qualifies as autowire candidate. Dependency annotations: {}
-18:44:24:576  INFO 16896 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Stopping service [Tomcat]
-18:44:24:587  INFO 16896 --- [litisle-user] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
-
-Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
-18:44:24:617 ERROR 16896 --- [litisle-user] [main] o.s.b.d.LoggingFailureAnalysisReporter   : 
-
-***************************
-APPLICATION FAILED TO START
-***************************
-
-Description:
-
-Parameter 0 of constructor in com.litisle.litisleuser.service.impl.UserRoleServiceImpl required a bean of type 'com.litisle.litisleuser.mapper.UserRoleMapper' that could not be found.
-
-
-Action:
-
-Consider defining a bean of type 'com.litisle.litisleuser.mapper.UserRoleMapper' in your configuration.
-
-18:44:31:287  INFO 18572 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : Starting LitisleUserApplication using Java 25.0.1 with PID 18572 (E:\NewJavaPro\LitIsle\litisle-user\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-18:44:31:289  INFO 18572 --- [litisle-user] [main] c.l.litisleuser.LitisleUserApplication   : The following 1 profile is active: "local"
-18:44:32:679  INFO 18572 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
-18:44:32:691  INFO 18572 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
-18:44:32:757  INFO 18572 --- [litisle-user] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 15 ms. Found 0 Redis repository interfaces.
-18:44:33:016  INFO 18572 --- [litisle-user] [main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=e2f88c46-4b4b-3bcc-9550-947fb27de17e
-18:44:33:740  INFO 18572 --- [litisle-user] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
-18:44:33:760  INFO 18572 --- [litisle-user] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-18:44:33:760  INFO 18572 --- [litisle-user] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
-18:44:34:029  INFO 18572 --- [litisle-user] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-18:44:34:029  INFO 18572 --- [litisle-user] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 2686 ms
-18:44:34:645  WARN 18572 --- [litisle-user] [main] c.b.m.core.metadata.TableInfoHelper      : Can not find table primary key in Class: "com.litisle.litisleuser.domain.entity.UserRole".
-18:44:34:645  WARN 18572 --- [litisle-user] [main] c.b.m.core.injector.DefaultSqlInjector   : class com.litisle.litisleuser.domain.entity.UserRole ,Not found @TableId annotation, Cannot use Mybatis-Plus 'xxById' Method.
-18:44:34:978  INFO 18572 --- [litisle-user] [main] o.s.v.b.OptionalValidatorFactoryBean     : Failed to set up a Bean Validation provider: jakarta.validation.NoProviderFoundException: Unable to create a Configuration, because no Jakarta Bean Validation provider could be found. Add a provider like Hibernate Validator (RI) to your classpath.
-18:44:35:543  INFO 18572 --- [litisle-user] [main] org.redisson.Version                     : Redisson 3.52.0
-18:44:42:077  WARN 18572 --- [litisle-user] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'redisTemplate' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Unsatisfied dependency expressed through method 'redisTemplate' parameter 0: Error creating bean with name 'redissonConnectionFactory' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Unsatisfied dependency expressed through method 'redissonConnectionFactory' parameter 0: Error creating bean with name 'redisson' defined in class path resource [org/redisson/spring/starter/RedissonAutoConfigurationV2.class]: Failed to instantiate [org.redisson.api.RedissonClient]: Factory method 'redisson' threw exception with message: java.util.concurrent.ExecutionException: org.redisson.client.RedisConnectionException: Unable to connect to Redis server: localhost/127.0.0.1:6380

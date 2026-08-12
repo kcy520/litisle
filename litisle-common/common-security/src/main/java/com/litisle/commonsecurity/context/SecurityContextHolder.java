@@ -1,5 +1,7 @@
 package com.litisle.commonsecurity.context;
 
+import com.litisle.commonsecurity.enumus.RoleCodeEnum;
+
 import java.util.Set;
 
 /**
@@ -161,6 +163,15 @@ public class SecurityContextHolder {
     public static boolean hasPermission(String permission) {
         SecurityContext context = getContext();
         return context != null && context.hasPermission(permission);
+    }
+
+    /**
+     * 判断当前用户是否为 作者/纪念作者 角色
+     * @return
+     */
+    public static boolean isAuthor() {
+        return hasRole(RoleCodeEnum.AUTHOR.getCode())
+                || hasRole(RoleCodeEnum.LEGACY_AUTHOR.getCode());
     }
 
     /**

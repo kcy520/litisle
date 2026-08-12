@@ -48,16 +48,33 @@ common-security ❌ 不依赖 common-redis
 | `ErrorCode` | 枚举 | 全局错误码定义（按模块分段：10000-通用、20000-用户、30000-内容...） |
 | `BizException` | 运行时异常 | 业务异常，携带 ErrorCode，由全局处理器捕获 |
 | `GlobalExceptionHandler` | @RestControllerAdvice | 统一异常处理，转换为 Result 响应 |
+| `Assert` | 工具类 | 业务断言工具，断言失败自动抛出 BizException |
 
 **使用方式**：自动执行。业务代码抛 `BizException`，由 `GlobalExceptionHandler` 自动捕获转 `Result`。
 
 ```java
-// 业务代码抛异常
+// 方式1：直接抛异常
 throw new BizException(ErrorCode.USER_NOT_FOUND);
+
+// 方式2：使用 Assert 简化判断（推荐）
+Assert.notNull(user, ErrorCode.USER_NOT_FOUND);
+Assert.notNull(user, ErrorCode.USER_NOT_FOUND, "用户ID=" + userId + "不存在");
+Assert.isTrue(balance >= amount, ErrorCode.INSUFFICIENT_BALANCE);
+Assert.isFalse(exists, ErrorCode.DATA_EXISTS, "用户名已存在");
 
 // Controller 无需 try-catch，统一响应：
 // { "code": 20001, "message": "用户不存在", "data": null }
 ```
+
+**GlobalExceptionHandler 支持的异常类型**：
+- `BizException`：业务异常（主动抛出）
+- `MethodArgumentNotValidException`：@Valid 参数校验失败
+- `BindException`：参数绑定失败
+- `HttpMessageNotReadableException`：请求体 JSON 解析失败
+- `MethodArgumentTypeMismatchException`：URL 参数类型不匹配
+- `ConstraintViolationException`：@Validated 类级校验失败
+- `MissingServletRequestParameterException`：缺少必需参数
+- `Exception`：兜底处理所有未捕获异常
 
 ### 2.2 统一响应
 
@@ -79,7 +96,7 @@ return Result.success(new PageResult<>(records, total, page, size));
 | 类 | 说明 |
 |----|------|
 | `CommonConstant` | 通用常量（缓存前缀、分隔符等） |
-| `HeaderConstant` | HTTP Header 常量（X-User-Id、X-Trace-Id 等） |
+| `HeaderConstant` | HTTP Header 常量（X-User-Id、X-Username、X-Roles、X-User-Permissions、X-Token-Id、X-Trace-Id） |
 | `DelFlagEnum` | 逻辑删除标志（0-正常、1-删除） |
 | `StatusEnum` | 状态枚举（启用/禁用） |
 
@@ -229,19 +246,22 @@ return count
 
 | 类 | 说明 | 使用方式 |
 |----|------|---------|
-| `SecurityContext` | 安全上下文（userId、username、roles、permissions、authenticated） | 内部使用 |
-| `SecurityContextHolder` | ThreadLocal 上下文持有者 | 手动调用 `getUserId()` / `getRoles()` / `getPermissions()` |
+| `SecurityContext` | 安全上下文（userId、username、roles、permissions、tokenId、traceId、authenticated） | 内部使用 |
+| `SecurityContextHolder` | ThreadLocal 上下文持有者 | 手动调用 `getUserId()` / `getRoles()` / `getPermissions()` / `getTraceId()` / `getTokenId()` |
 
 **使用方式**：业务代码通过 `SecurityContextHolder` 获取当前登录用户。
 
 ```java
 Long userId = SecurityContextHolder.getUserId();
 Set<String> roles = SecurityContextHolder.getRoles();
+String traceId = SecurityContextHolder.getTraceId();
+String tokenId = SecurityContextHolder.getTokenId();
 ```
 
 **⚠️ 注意事项**：
 - 基于 ThreadLocal，请求结束必须清理（由 Filter/Interceptor 负责）
 - 网关已校验 JWT，业务服务从 Header 读取用户信息构建上下文
+- `tokenId` 用于踢人/黑名单场景，`traceId` 用于链路追踪
 
 ### 4.2 登录与权限校验
 
@@ -289,9 +309,17 @@ public Result<Void> deleteUser(@PathVariable Long id) { ... }
 
 | 类 | 说明 | 使用方式 |
 |----|------|---------|
-| `FeignAuthInterceptor` | Feign 请求拦截器（透传 X-User-Id、X-Trace-Id） | **自动执行** |
+| `FeignAuthInterceptor` | Feign 请求拦截器（透传 X-User-Id、X-Username、X-Roles、X-User-Permissions、X-Token-Id、X-Trace-Id） | **自动执行** |
 
 **作用**：微服务间 Feign 调用时，自动透传用户上下文和链路追踪 ID。
+
+**透传的 Header 列表**：
+- `X-User-Id`：用户 ID
+- `X-Username`：用户名
+- `X-Roles`：角色列表（逗号分隔）
+- `X-User-Permissions`：权限列表（逗号分隔）
+- `X-Token-Id`：Token 唯一标识
+- `X-Trace-Id`：链路追踪 ID
 
 ### 4.4 审计日志
 
@@ -564,7 +592,7 @@ String cleanHtml = Jsoup.clean(html, safelist);
 
 ## 九、文件清单
 
-### common-core（16 个文件）
+### common-core（17 个文件）
 
 ```
 common-core/src/main/java/com/litisle/commoncore/
@@ -578,6 +606,7 @@ common-core/src/main/java/com/litisle/commoncore/
 │   ├── DelFlagEnum.java                # 逻辑删除标志
 │   └── StatusEnum.java                 # 状态枚举
 ├── exception/
+│   ├── Assert.java                     # 业务断言工具
 │   ├── BizException.java               # 业务异常
 │   ├── ErrorCode.java                  # 全局错误码
 │   └── GlobalExceptionHandler.java     # 全局异常处理器
@@ -587,7 +616,7 @@ common-core/src/main/java/com/litisle/commoncore/
 │   ├── PageResult.java                 # 分页响应封装
 │   └── Result.java                     # 统一响应封装
 └── utils/
-    ├── AssertUtil.java                 # 业务断言工具
+    ├── AssertUtil.java                 # 业务断言工具（utils 包）
     ├── JsonUtil.java                   # JSON 工具
     └── PageUtil.java                   # 分页工具
 ```
@@ -651,9 +680,19 @@ common-security/src/main/java/com/litisle/commonsecurity/
 
 ---
 
-**文档版本**：v1.0
-**最后更新**：2026-08-05
+**文档版本**：v1.1
+**最后更新**：2026-08-12
 **维护者**：LitIsle 团队
+
+**更新记录**：
+- v1.1（2026-08-12）：
+  - 新增 `Assert` 断言工具类（exception 包）
+  - `GlobalExceptionHandler` 增强：支持 HttpMessageNotReadableException、MethodArgumentTypeMismatchException、ConstraintViolationException、MissingServletRequestParameterException
+  - `BizException` 新增带 cause 的构造方法（支持异常链）
+  - `HeaderConstant` 新增 USERNAME 常量，修复 PERMISSIONS/TOKEN_ID 修饰符
+  - `SecurityContext` 新增 tokenId 字段
+  - `SecurityContextHolder` 新增 getTraceId()、getTokenId() 方法
+  - `FeignAuthInterceptor` 修复代码，透传完整 Header 列表
 ```
 
 ---
@@ -685,8 +724,6 @@ common-security/src/main/java/com/litisle/commonsecurity/
 
 3. **面试导向**：第八章专门总结架构设计、设计模式、企业规范实践，可直接用于面试讲解
 
-### 待您手动处理
 
 请将上述完整内容复制到 [commom-des.md](file:///e:/NewJavaPro/LitIsle/BaseDesign-document/commom-des.md)（当前文件为空，直接覆盖即可）。
 
-如果您希望我调整文档的某些部分（如精简、扩展、调整结构），请告知。

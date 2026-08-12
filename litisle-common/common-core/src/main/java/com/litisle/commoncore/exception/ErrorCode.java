@@ -99,6 +99,21 @@ public enum ErrorCode {
      */
     VIP_EXPIRED(20006, "VIP 已过期"),
 
+    /**
+     * 用户不存在或已注销
+     */
+    USER_NOT_EXIST_OR_CANCELLED(20007, "用户不存在或已注销"),
+
+    /**
+     * 用户名已存在
+     */
+    USERNAME_ALREADY_EXISTS(20008,"用户名已存在"),
+
+    /**
+     * 笔名已存在
+     */
+    PEN_NAME_ALREADY_EXISTS(20009,"笔名已存在"),
+
     // ==================== 内容模块 30000-39999 ====================
     /**
      * 文章不存在

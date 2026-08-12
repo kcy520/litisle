@@ -1,4 +1,3 @@
-
 SQL
 我先分析一下你现有 user-schema.sql 的风格特征，再据此风格给出各模块建表语句。
 
@@ -34,31 +33,44 @@ create database if not exists litisleuser
 
 use litisleuser;
 
-# 1. 用户表
+/* ================= 1. 用户表 ================= */
+c# ============================================================
+# 模块：litisle-user
+# 数据库：litisleuser
+# 说明：用户 / 角色 / 用户资料扩展 / OAuth 绑定 / 短信验证码
+# ============================================================
+
+create database if not exists litisleuser
+    character set utf8mb4
+    collate utf8mb4_unicode_ci;
+
+use litisleuser;
+
+/* ================= 1. 用户表 ================= */
 create table if not exists `sys_user`
 (
     `id`              bigint unsigned not null auto_increment primary key comment '用户ID',
     `username`        varchar(32)     not null comment '用户名',
     `password`        varchar(128)    not null comment '密码（BCrypt）',
     `email`           varchar(64)     null comment '邮箱',
-    `phone`           varchar(20)     not null comment '手机号（加密存储）',
+    `phone`           varchar(20)     not null comment '手机号',
     `avatar`          varchar(255)    not null default 'default-avatar-url' comment '头像URL',
+    `avatar_color`    tinyint         not null default 0 comment '【调整】头像标识：0-无 1-金 2-白', -- 【修改】
     `bio`             varchar(200)    null comment '个人简介',
     `vip_expire_time` datetime        null comment 'VIP 到期时间',
-    `frozen_until`    datetime        null comment '封禁截止时间（null=未封禁）',
-    `cancel_time`     datetime        null comment '注销时间（用于手机号冷却期计算，null=未注销过）',
-    `status`          tinyint         not null default 1 comment '状态：0-禁用 1-正常 2-注销',
-    `del_flag`        tinyint         not null default 0 comment '删除标志：0-未删除 1-已删除',
-    `version`         int             not null default 0 comment '乐观锁版本号',
-    `create_time`     datetime        not null default current_timestamp comment '创建时间',
-    `update_time`     datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    `frozen_until`    datetime        null comment '封禁截止时间',
+    `cancel_time`     datetime        null comment '注销时间',
+    `status`          tinyint         not null default 1 comment '0-禁用 1-正常 2-注销',
+    `del_flag`        tinyint         not null default 0 comment '删除标志',
+    `version`         int             not null default 0 comment '乐观锁',
+    `create_time`     datetime        not null default current_timestamp,
+    `update_time`     datetime        not null default current_timestamp on update current_timestamp,
     unique key `uk_phone_del` (`phone`, `del_flag`),
-    unique key `uk_email_del` (`email`, `del_flag`) comment '邮箱唯一（未删除范围内）',
+    unique key `uk_email_del` (`email`, `del_flag`),
     index `idx_username` (`username`),
-    index `idx_email` (`email`),
     index `idx_create_time` (`create_time`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '用户表';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '用户表';
 
 # 2. 角色表
 create table if not exists `sys_role`
@@ -69,8 +81,8 @@ create table if not exists `sys_role`
     `role_type`   tinyint         not null default 2 comment '角色类型：1-系统内置 2-业务角色',
     `create_time` datetime        not null default current_timestamp comment '创建时间',
     unique key `uk_role_code` (`role_code`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '角色表';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '角色表';
 
 # 3. 用户-角色关联表
 create table if not exists `sys_user_role`
@@ -79,8 +91,8 @@ create table if not exists `sys_user_role`
     `role_id` bigint unsigned not null comment '角色ID',
     primary key (`user_id`, `role_id`),
     index `idx_role_id` (`role_id`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '用户-角色关联表';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '用户-角色关联表';
 
 # 4. 角色初始化数据
 insert ignore into `sys_role` (`role_code`, `role_name`, `role_type`) values
@@ -108,8 +120,8 @@ create table if not exists `sys_permission`
     `update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
     unique key `uk_perm_code` (`perm_code`),
     index `idx_parent_id` (`parent_id`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '权限表（菜单与按钮/API 统一管理，parent_id 自关联形成树形结构）';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '权限表（菜单与按钮/API 统一管理，parent_id 自关联形成树形结构）';
 
 # 6. 角色-权限关联表
 create table if not exists `sys_role_permission`
@@ -118,43 +130,41 @@ create table if not exists `sys_role_permission`
     `permission_id` bigint unsigned not null comment '权限ID',
     primary key (`role_id`, `permission_id`),
     index `idx_permission_id` (`permission_id`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '角色-权限关联表';
-
-# 7. 用户资料扩展表（删除状态以主表 sys_user.del_flag 为唯一真相源）
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '角色-权限关联表';
 create table if not exists `sys_user_profile`
 (
-`id`            bigint unsigned not null auto_increment primary key comment '主键ID',
-`user_id`       bigint unsigned not null unique comment '用户ID（关联 sys_user.id）',
-`pen_name`      varchar(32)     null comment '笔名（作家专用）',
-`creation_dir`  varchar(100)    null comment '创作方向（作家申请时填写）',
-`masterpiece`   varchar(500)    null comment '代表作简介',
-`avatar_color`  tinyint         not null default 0 comment '头像标识：0-无 1-金色（作家）2-白色（纪念作家）',
-`version`       int             not null default 0 comment '乐观锁版本号',
-`create_time`   datetime        not null default current_timestamp comment '创建时间',
-`update_time`   datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
-index `idx_user_id` (`user_id`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '用户资料扩展表（删除状态以主表 sys_user.del_flag 为唯一真相源，本表不设 del_flag）';
+    `id`           bigint unsigned not null auto_increment primary key,
+    `user_id`      bigint unsigned not null unique comment '关联用户',
+    `pen_name`     varchar(32)     null comment '【调整】笔名（作家专用）',
+    `creation_dir` varchar(100)    null comment '创作方向',
+    `masterpiece`  varchar(500)    null comment '代表作简介',
+    `version`      int             not null default 0,
+    `create_time`  datetime        not null default current_timestamp,
+    `update_time`  datetime        not null default current_timestamp on update current_timestamp,
+    unique key `uk_pen_name` (`pen_name`), -- 【新增】唯一
+    index `idx_user_id` (`user_id`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '用户资料扩展表（仅作家资料）';
 
 # 8. 第三方 OAuth 绑定表（物理删除 + @AuditLog 审计 + app_id 预留）
 create table if not exists `sys_oauth_binding`
 (
-`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
-`user_id`     bigint unsigned not null comment '用户ID',
-`provider`    varchar(16)     not null comment 'OAuth 提供方：WECHAT / QQ',
-`app_id`      varchar(32)     not null default 'default' comment '应用ID（预留多应用扩展，同一 provider 下区分不同 app）',
-`open_id`     varchar(64)     not null comment '第三方 openId',
-`union_id`    varchar(64)     null comment '第三方 unionId（可选）',
-`create_time` datetime        not null default current_timestamp comment '绑定时间',
-`update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
-unique key `uk_provider_app_open` (`provider`, `app_id`, `open_id`),
-index `idx_user_id` (`user_id`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
+    `id`          bigint unsigned not null auto_increment primary key comment '主键ID',
+    `user_id`     bigint unsigned not null comment '用户ID',
+    `provider`    varchar(16)     not null comment 'OAuth 提供方：WECHAT / QQ',
+    `app_id`      varchar(32)     not null default 'default' comment '应用ID（预留多应用扩展，同一 provider 下区分不同 app）',
+    `open_id`     varchar(64)     not null comment '第三方 openId',
+    `union_id`    varchar(64)     null comment '第三方 unionId（可选）',
+    `create_time` datetime        not null default current_timestamp comment '绑定时间',
+    `update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    unique key `uk_provider_app_open` (`provider`, `app_id`, `open_id`),
+    index `idx_user_id` (`user_id`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
 
 ```
-```
+```sql
 
 **设计原因**：
 

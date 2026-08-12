@@ -1,4 +1,4 @@
-package com.litisle.litisleuser.enums;
+package com.litisle.commonsecurity.enumus;
 
 public enum RoleLevel {
 

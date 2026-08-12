@@ -1,6 +1,8 @@
 package com.litisle.litisleuser.domain.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.litisle.litisleuser.enums.AvatarColor;
+import com.litisle.litisleuser.enums.DelFlag;
 import com.litisle.litisleuser.enums.UserStatus;
 import jakarta.validation.constraints.*;
 import lombok.Data;
@@ -44,6 +46,10 @@ public class User implements Serializable {
     @Size(max = 255, message = "头像URL长度不能超过 255 个字符")
     @TableField("avatar")
     private String avatar;
+
+    /** 头像标识：0-无 1-金色（作家）2-白色（纪念作家） */
+    @TableField("avatar_color")
+    private AvatarColor avatarColor;
 
     /** 个人简介 */
     @Size(max = 200, message = "个人简介长度不能超过 200 个字符")

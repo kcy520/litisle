@@ -1,6 +1,7 @@
 package com.litisle.litisleuser.domain.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.litisle.litisleuser.constant.UserInfoConstant;
 import com.litisle.litisleuser.enums.AvatarColor;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -29,21 +30,21 @@ public class UserProfile implements Serializable {
     /** 笔名（作家专用） */
     @Size(max = 32, message = "笔名长度不能超过 32 个字符")
     @TableField("pen_name")
-    private String penName;
+    private String penName ;
 
     /** 创作方向（作家申请时填写） */
     @Size(max = 100, message = "创作方向长度不能超过 100 个字符")
     @TableField("creation_dir")
-    private String creationDir;
+    private String creationDir ;
 
     /** 代表作简介 */
     @Size(max = 500, message = "代表作简介长度不能超过 500 个字符")
     @TableField("masterpiece")
-    private String masterpiece;
+    private String masterpiece ;
 
-    /** 头像标识：0-无 1-金色（作家）2-白色（纪念作家） */
-    @TableField("avatar_color")
-    private AvatarColor avatarColor;
+//    /** 头像标识：0-无 1-金色（作家）2-白色（纪念作家） */
+//    @TableField("avatar_color")
+//    private AvatarColor avatarColor;
 
     /** 乐观锁版本号 */
     @Version

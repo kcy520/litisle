@@ -12,48 +12,123 @@ CREATE DATABASE IF NOT EXISTS litisleuser
   DEFAULT CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
-USE litisleuser;
 
-# 1. sys_user 表字段补齐
-alter table `sys_user`
-    add column `phone`          varchar(20)  null comment '手机号（加密存储）' after `email`,
-add column `bio`            varchar(200) null comment '个人简介' after `avatar`,
-add column `vip_expire_time` datetime    null comment 'VIP 到期时间' after `bio`,
-add column `frozen_until`   datetime     null comment '封禁截止时间（null=未封禁）' after `vip_expire_time`,
-add column `cancel_time`    datetime     null comment '注销时间（用于手机号冷却期计算，null=未注销过）' after `frozen_until`,
-add unique key `uk_phone_del` (`phone`, `del_flag`);
+use litisleuser;
+# ============================================================
+# 模块：litisle-user
+# 数据库：litisleuser
+# 说明：用户 / 角色 / 用户资料扩展 / OAuth 绑定 / 短信验证码
+# ============================================================
 
-# 2. 补充角色数据（前台业务角色）
-insert into `sys_role` (`role_code`, `role_name`, `role_type`)
-values
-('READER',        '读者',     2),
-('AUTHOR',        '作家',     2),
-('LEGACY_AUTHOR', '纪念作家', 2),
-('REVIEWER',      '审核员',   2);
+create database if not exists litisleuser
+    character set utf8mb4
+    collate utf8mb4_unicode_ci;
 
-                  -- 补充系统内置角色（role_type = 1）
-insert into `sys_role` (`role_code`, `role_name`, `role_type`) values
-                                                                   ('SUPER_ADMIN', '超级管理员', 1),
-                                                                   ('ADMIN',       '管理员',     1);
+use litisleuser;
 
-# 3. 用户资料扩展表（删除状态以主表 sys_user.del_flag 为准）
-create table `sys_user_profile`
+/* ================= 1. 用户表 ================= */
+create table if not exists `sys_user`
 (
-    `id`            bigint unsigned not null auto_increment primary key comment '主键ID',
-    `user_id`       bigint unsigned not null unique comment '用户ID（关联 sys_user.id）',
-    `pen_name`      varchar(32)     null comment '笔名（作家专用）',
-    `creation_dir`  varchar(100)    null comment '创作方向（作家申请时填写）',
-    `masterpiece`   varchar(500)    null comment '代表作简介',
-    `avatar_color`  tinyint         not null default 0 comment '头像标识：0-无 1-金色（作家）2-白色（纪念作家）',
-    `version`       int             not null default 0 comment '乐观锁版本号',
-    `create_time`   datetime        not null default current_timestamp comment '创建时间',
-    `update_time`   datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    `id`              bigint unsigned not null auto_increment primary key comment '用户ID',
+    `username`        varchar(32)     not null comment '用户名',
+    `password`        varchar(128)    not null comment '密码（BCrypt）',
+    `email`           varchar(64)     null comment '邮箱',
+    `phone`           varchar(20)     not null comment '手机号',
+    `avatar`          varchar(255)    not null default 'default-avatar-url' comment '头像URL',
+    `avatar_color`    tinyint         not null default 0 comment '头像标识：0-无 1-金 2-白', -- 【修改】
+    `bio`             varchar(200)    null comment '个人简介',
+    `vip_expire_time` datetime        null comment 'VIP 到期时间',
+    `frozen_until`    datetime        null comment '封禁截止时间',
+    `cancel_time`     datetime        null comment '注销时间',
+    `status`          tinyint         not null default 1 comment '0-禁用 1-正常 2-注销',
+    `del_flag`        tinyint         not null default 0 comment '删除标志',
+    `version`         int             not null default 0 comment '乐观锁',
+    `create_time`     datetime        not null default current_timestamp,
+    `update_time`     datetime        not null default current_timestamp on update current_timestamp,
+    unique key `uk_phone_del` (`phone`, `del_flag`),
+    unique key `uk_email_del` (`email`, `del_flag`),
+    index `idx_username` (`username`),
+    index `idx_create_time` (`create_time`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '用户表';
+
+# 2. 角色表
+create table if not exists `sys_role`
+(
+    `id`          bigint unsigned not null auto_increment primary key comment '角色ID',
+    `role_code`   varchar(32)     not null comment '角色编码',
+    `role_name`   varchar(32)     not null comment '角色名称',
+    `role_type`   tinyint         not null default 2 comment '角色类型：1-系统内置 2-业务角色',
+    `create_time` datetime        not null default current_timestamp comment '创建时间',
+    unique key `uk_role_code` (`role_code`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '角色表';
+
+# 3. 用户-角色关联表
+create table if not exists `sys_user_role`
+(
+    `user_id` bigint unsigned not null comment '用户ID',
+    `role_id` bigint unsigned not null comment '角色ID',
+    primary key (`user_id`, `role_id`),
+    index `idx_role_id` (`role_id`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '用户-角色关联表';
+
+# 4. 角色初始化数据
+insert ignore into `sys_role` (`role_code`, `role_name`, `role_type`) values
+                                                                          ('SUPER_ADMIN',   '超级管理员', 1),
+                                                                          ('ADMIN',         '管理员',     1),
+                                                                          ('READER',        '读者',       2),
+                                                                          ('AUTHOR',        '作家',       2),
+                                                                          ('LEGACY_AUTHOR', '纪念作家',   2),
+                                                                          ('REVIEWER',      '审核员',     2);
+
+# 5. 权限表（菜单 + 按钮/API 统一管理，parent_id 自关联树形结构）
+create table if not exists `sys_permission`
+(
+    `id`          bigint unsigned not null auto_increment primary key comment '权限ID',
+    `parent_id`   bigint unsigned not null default 0 comment '父权限ID（0=根节点）',
+    `perm_code`   varchar(64)     not null comment '权限编码（如 user:read / article:write）',
+    `perm_name`   varchar(32)     not null comment '权限名称',
+    `perm_type`   tinyint         not null comment '类型：1-菜单 2-按钮/API',
+    `path`        varchar(128)    null comment '前端路由路径（菜单类型用）',
+    `component`   varchar(128)    null comment '前端组件路径（菜单类型用）',
+    `icon`        varchar(64)     null comment '图标',
+    `sort`        int             not null default 0 comment '排序（同级内升序）',
+    `status`      tinyint         not null default 1 comment '状态：0-禁用 1-正常',
+    `create_time` datetime        not null default current_timestamp comment '创建时间',
+    `update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    unique key `uk_perm_code` (`perm_code`),
+    index `idx_parent_id` (`parent_id`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '权限表（菜单与按钮/API 统一管理，parent_id 自关联形成树形结构）';
+
+# 6. 角色-权限关联表
+create table if not exists `sys_role_permission`
+(
+    `role_id`       bigint unsigned not null comment '角色ID',
+    `permission_id` bigint unsigned not null comment '权限ID',
+    primary key (`role_id`, `permission_id`),
+    index `idx_permission_id` (`permission_id`)
+) engine = InnoDB
+  default charset = utf8mb4 comment = '角色-权限关联表';
+create table if not exists `sys_user_profile`
+(
+    `id`           bigint unsigned not null auto_increment primary key,
+    `user_id`      bigint unsigned not null unique comment '关联用户',
+    `pen_name`     varchar(32)     null comment '【调整】笔名（作家专用）',
+    `creation_dir` varchar(100)    null comment '创作方向',
+    `masterpiece`  varchar(500)    null comment '代表作简介',
+    `version`      int             not null default 0,
+    `create_time`  datetime        not null default current_timestamp,
+    `update_time`  datetime        not null default current_timestamp on update current_timestamp,
+    unique key `uk_pen_name` (`pen_name`), -- 【新增】唯一
     index `idx_user_id` (`user_id`)
 ) engine = InnoDB
-default charset = utf8mb4 comment = '用户资料扩展表（删除状态以主表 sys_user.del_flag 为唯一真相源，本表不设 del_flag）';
+  default charset = utf8mb4 comment = '用户资料扩展表（仅作家资料）';
 
-# 4. 第三方 OAuth 绑定表（物理删除 + @AuditLog 审计 + app_id 预留）
-create table `sys_oauth_binding`
+# 8. 第三方 OAuth 绑定表（物理删除 + @AuditLog 审计 + app_id 预留）
+create table if not exists `sys_oauth_binding`
 (
     `id`          bigint unsigned not null auto_increment primary key comment '主键ID',
     `user_id`     bigint unsigned not null comment '用户ID',
@@ -66,8 +141,7 @@ create table `sys_oauth_binding`
     unique key `uk_provider_app_open` (`provider`, `app_id`, `open_id`),
     index `idx_user_id` (`user_id`)
 ) engine = InnoDB
-default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
-
+  default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
 
 -- **设计原因**：
 --

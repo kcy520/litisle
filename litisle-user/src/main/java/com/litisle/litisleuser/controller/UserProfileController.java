@@ -2,12 +2,13 @@ package com.litisle.litisleuser.controller;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonsecurity.annotation.Login;
- import com.litisle.litisleuser.domain.vo.UserSelfVO;
+import com.litisle.litisleuser.domain.dto.UserProfileUpdateDTO;
+import com.litisle.litisleuser.domain.vo.UserPublicVO;
+import com.litisle.litisleuser.domain.vo.UserSelfVO;
+import com.litisle.litisleuser.domain.vo.UserUpdateProfileVO;
 import com.litisle.litisleuser.service.UserProfileService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * 当前用户资料
@@ -33,23 +34,23 @@ public class UserProfileController {
     public Result<UserSelfVO> me() {
         return Result.success(userProfileService.currentUserProfile());
     }
-//
-//    /**
-//     * 根据 ID 获取公开资料
-//     */
-//    @GetMapping("/{userId}")
-//    public Result<PublicUserProfileVO> publicProfile(@PathVariable Long userId) {
-//        return Result.success(userProfileService.publicProfile(userId));
-//    }
-//
-//    /**
-//     * 修改基础资料
-//     */
-//    @PutMapping
-//    public Result<Void> update(@Valid @RequestBody UserProfileUpdateDTO dto) {
-//        userProfileService.updateCurrentUserProfile(dto);
-//        return Result.success();
-//    }
+
+    /**
+     * 根据 ID 获取公开资料
+     */
+    @GetMapping("/{userId}")
+    public Result<UserPublicVO> publicProfile(@PathVariable Long userId) {
+        return Result.success(userProfileService.publicProfile());
+    }
+
+    /**
+     * 修改基础资料
+     */
+    @PutMapping
+    public Result<UserUpdateProfileVO> update(@Valid @RequestBody UserProfileUpdateDTO dto) {
+        UserUpdateProfileVO userUpdateProfileVO = userProfileService.updateCurrentUserProfile(dto);
+        return Result.success(userUpdateProfileVO);
+    }
 //
 //    /**
 //     * 上传/更新头像
