@@ -2,7 +2,7 @@ package com.litisle.litisleuser.controller;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonsecurity.annotation.Login;
-import com.litisle.litisleuser.domain.vo.UserSelfVO;
+ import com.litisle.litisleuser.domain.vo.UserSelfVO;
 import com.litisle.litisleuser.service.UserProfileService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
  * */
 
 @RestController
-@RequestMapping("/v1/user/profile")
+@RequestMapping("/user/profile")
 //@PreAuthorize("isAuthenticated()")//登录校验
 @Login//自定义登录校验
 public class UserProfileController {
@@ -33,7 +33,7 @@ public class UserProfileController {
     public Result<UserSelfVO> me() {
         return Result.success(userProfileService.currentUserProfile());
     }
-
+//
 //    /**
 //     * 根据 ID 获取公开资料
 //     */

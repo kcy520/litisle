@@ -30,9 +30,13 @@ public class AssertUtil {
      * 
      * @param object    待检查对象
      * @param errorCode 错误码枚举
+     * @param message   自定义消息（可选）
      */
-    public static void notNull(Object object, ErrorCode errorCode) {
+    public static void notNull(Object object, ErrorCode errorCode, String... message) {
         if (object == null) {
+            if (message.length > 0) {
+                throw new BizException(errorCode, message[0]);
+            }
             throw new BizException(errorCode);
         }
     }
@@ -42,9 +46,13 @@ public class AssertUtil {
      * 
      * @param str       待检查字符串
      * @param errorCode 错误码枚举
+     * @param message   自定义消息（可选）
      */
-    public static void notBlank(String str, ErrorCode errorCode) {
+    public static void notBlank(String str, ErrorCode errorCode, String... message) {
         if (str == null || str.trim().isEmpty()) {
+            if (message.length > 0) {
+                throw new BizException(errorCode, message[0]);
+            }
             throw new BizException(errorCode);
         }
     }

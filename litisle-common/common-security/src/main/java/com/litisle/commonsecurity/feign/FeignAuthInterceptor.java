@@ -65,16 +65,23 @@ public class FeignAuthInterceptor implements RequestInterceptor {
 
             // 3. 注入用户名
             if (context.getUsername() != null) {
-                template.header("X-Username", context.getUsername());
+                template.header(HeaderConstant.USERNAME, context.getUsername());
             }
 
             // 4. 注入角色列表（多个角色用逗号分隔）
             Set<String> roles = context.getRoles();
             if (roles != null && !roles.isEmpty()) {
                 template.header(HeaderConstant.USER_ROLES, String.join(",", roles));
+
             }
 
-            // 5. 注入链路追踪ID
+            // ========== 5. 权限（重点） ==========
+            Set<String> perms = context.getPermissions();
+            if (perms != null && !perms.isEmpty()) {
+                template.header(HeaderConstant.PERMISSIONS, String.join(",", perms));
+            }
+
+            // 6. 注入链路追踪ID
             if (context.getTraceId() != null) {
                 template.header(HeaderConstant.TRACE_ID, context.getTraceId());
             }

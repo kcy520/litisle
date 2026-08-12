@@ -30,6 +30,22 @@ public class HeaderConstant {
     public static final String USER_ROLES = "X-Roles";
 
     /**
+     * 用户名
+     */
+    public static final String USERNAME = "X-Username";
+
+    /**
+     * 用户权限（细粒度）
+     * 示例：article:publish,comment:delete,user:read
+     */
+    public static final String PERMISSIONS = "X-User-Permissions";
+
+    /**
+     * Token 唯一标识（用于踢人/黑名单）
+     */
+    public static final String TOKEN_ID = "X-Token-Id";
+
+    /**
      * 链路追踪ID（用于日志追踪，跨服务排查问题）
      */
     public static final String TRACE_ID = "X-Trace-Id";

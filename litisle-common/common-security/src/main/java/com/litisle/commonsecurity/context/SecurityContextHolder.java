@@ -4,7 +4,10 @@ import java.util.Set;
 
 /**
  * 安全上下文持有者（基于 ThreadLocal）
- * 
+ *
+ *
+ *  *ContextHolder管“生命周期（线程）”
+ *
  * 【设计说明】
  * 1. 使用 ThreadLocal 存储当前线程的 SecurityContext
  * 2. 每个请求在独立线程中处理，互不干扰
@@ -106,6 +109,26 @@ public class SecurityContextHolder {
     public static Set<String> getPermissions() {
         SecurityContext context = getContext();
         return context != null ? context.getPermissions() : null;
+    }
+
+    /**
+     * 获取链路追踪ID
+     *
+     * @return traceId（未登录返回 null）
+     */
+    public static String getTraceId() {
+        SecurityContext context = getContext();
+        return context != null ? context.getTraceId() : null;
+    }
+
+    /**
+     * 获取 Token 唯一标识
+     *
+     * @return tokenId（未登录返回 null）
+     */
+    public static String getTokenId() {
+        SecurityContext context = getContext();
+        return context != null ? context.getTokenId() : null;
     }
 
     /**

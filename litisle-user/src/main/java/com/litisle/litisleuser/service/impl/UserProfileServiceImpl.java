@@ -3,6 +3,7 @@ package com.litisle.litisleuser.service.impl;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.litisle.litisleuser.domain.entity.UserProfile;
 import com.litisle.litisleuser.domain.vo.UserSelfVO;
+import com.litisle.litisleuser.mapper.UserMapper;
 import com.litisle.litisleuser.mapper.UserProfileMapper;
 import com.litisle.litisleuser.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ public class UserProfileServiceImpl
         implements UserProfileService {
 
     private final UserProfileMapper userProfileMapper;
+    private final UserMapper userMapper;
 
     /**
      * 获取当前登录用户资料
@@ -25,6 +27,11 @@ public class UserProfileServiceImpl
      */
     @Override
     public UserSelfVO currentUserProfile() {
+
+
+
+
+
         return null;
     }
 }

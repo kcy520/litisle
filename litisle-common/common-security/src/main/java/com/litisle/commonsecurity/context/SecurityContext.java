@@ -9,9 +9,31 @@ import lombok.NoArgsConstructor;
 import java.io.Serializable;
 import java.util.Set;
 
+
+/**
+ * SecurityContext 与 SecurityContextHolder 的职责分离：
+ *
+ * 1. SecurityContext
+ *    - 用户认证/授权数据的载体（POJO）
+ *    - 与线程、请求、容器无关
+ *    - 可序列化、可传递、可单测
+ *    - 承载 hasRole / hasPermission 等“用户本身的能力”
+ *
+ * 2. SecurityContextHolder
+ *    - 线程级访问入口（ThreadLocal 工具）
+ *    - 负责生命周期：set / clear
+ *    - 为业务/切面提供“无参获取当前用户”的快捷 API
+ *    - 所有静态方法都是对 SecurityContext 的空安全委托
+ *
+ * 二者不是重复设计，而是“数据”与“作用域”的强制解耦。
+ */
+
+
 /**
  * 安全上下文（封装当前请求的用户信息）
- * 
+ *
+ *Context管“内容（用户）”
+ *
  * 【设计说明】
  * 1. 封装当前登录用户的核心信息（userId、username、roles）
  * 2. 通过 SecurityContextHolder 获取，避免业务代码从 Header 解析
@@ -59,6 +81,14 @@ public class SecurityContext implements Serializable {
      *       配合 @RequirePermission 注解和 PermissionCheckAspect 切面使用
      */
     private Set<String> permissions;
+
+    /**
+     * Token 唯一标识（用于踢人/黑名单场景）
+     * 【说明】网关签发 JWT 时生成 jti（JWT ID），下游服务可通过此 ID 实现：
+     *       - 强制下线：将该 tokenId 加入黑名单
+     *       - 会话管理：记录用户活跃 token 列表
+     */
+    private String tokenId;
 
     /**
      * 链路追踪ID（用于日志关联）

@@ -68,4 +68,30 @@ public class BizException extends RuntimeException {
         this.code = code;
     }
 
+    /**
+     * 构造方法4：通过 ErrorCode 枚举创建异常，保留原始异常链
+     *
+     * 【使用场景】包装底层异常（如 IOException、SQLException）时保留完整堆栈
+     * 例如：catch (IOException e) { throw new BizException(ErrorCode.SYSTEM_ERROR, e); }
+     *
+     * @param errorCode 错误码枚举
+     * @param cause     原始异常
+     */
+    public BizException(ErrorCode errorCode, Throwable cause) {
+        super(errorCode.getMessage(), cause);
+        this.code = errorCode.getCode();
+    }
+
+    /**
+     * 构造方法5：通过 ErrorCode 枚举 + 自定义消息，保留原始异常链
+     *
+     * @param errorCode 错误码枚举
+     * @param message   自定义错误消息
+     * @param cause     原始异常
+     */
+    public BizException(ErrorCode errorCode, String message, Throwable cause) {
+        super(message, cause);
+        this.code = errorCode.getCode();
+    }
+
 }
