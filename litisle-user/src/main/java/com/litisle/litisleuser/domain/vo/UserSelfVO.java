@@ -1,5 +1,7 @@
 package com.litisle.litisleuser.domain.vo;
 
+import com.litisle.commonsecurity.desensitize.Sensitive;
+import com.litisle.commonsecurity.desensitize.SensitiveStrategy;
 import com.litisle.litisleuser.enums.AvatarColor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -43,11 +45,13 @@ public class UserSelfVO {
     /**
      * 邮箱（脱敏返回，如 ex***@xx.com）
      */
+    @Sensitive(strategy = SensitiveStrategy.EMAIL)
     private String email;
 
     /**
      * 手机号（脱敏返回，如 138****8888）
      */
+    @Sensitive(strategy = SensitiveStrategy.PHONE)
     private String phone;
 
     /**

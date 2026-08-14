@@ -1,6 +1,8 @@
 package com.litisle.commonsecurity.annotation;
 
 
+import com.litisle.commonsecurity.enums.PermissionEnum;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -34,10 +36,15 @@ import java.lang.annotation.Target;
 public @interface RequirePermission {
 
     /**
-     * 权限编码列表
+     * 权限编码列表 --字符串，不使用，此处修改还需搭配aspect
      * 【说明】如 "user:delete"、"article:publish"
      */
-    String[] value();
+//    String[] value();
+
+    /**
+     * 主推用法（枚举，编译期安全）
+     */
+    PermissionEnum[] perms() default {};
 
     /**
      * 逻辑关系（默认 OR）

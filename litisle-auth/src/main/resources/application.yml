@@ -1,3 +1,30 @@
+spring:
+  mail:
+    # 发送者邮箱（与 username 一致）
+    username: ${litisle.demo.mail.from:}
+    from: ${litisle.demo.mail.from:}
+    # 邮箱授权码（非登录密码，QQ邮箱需在设置中获取）
+    password: ${litisle.demo.mail.password:}
+    # SMTP 服务器地址
+    host: smtp.qq.com
+    # 端口号：SSL 用 465，TLS 用 587
+    port: 465
+    # 使用 SMTPS 协议
+    protocol: smtps
+    # 默认邮件编码
+    default-encoding: UTF-8
+    # SSL / SMTP 高级配置
+    properties:
+      mail:
+        smtp:
+          # 开启认证
+          auth: true
+          # SSL Socket 工厂
+          socketFactoryClass: javax.net.ssl.SSLSocketFactory
+          # 开启 DEBUG 模式，便于排查邮件发送问题
+          debug: true
+          # 启用 SSL
+          ssl: true
 litisle:
   security:
     jwt:
@@ -8,3 +35,4 @@ litisle:
       max-concurrent: 2                # auth ??
     login:
       max-fail-count: 5                # auth ??
+  # ===== 邮箱配置 =====

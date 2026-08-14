@@ -2,6 +2,9 @@ package com.litisle.commonsecurity.audit;
 
 
 
+import com.litisle.commoncore.enums.AuditModule;
+import com.litisle.commoncore.enums.AuditOperation;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -43,12 +46,15 @@ public @interface AuditLog {
     /**
      * 模块名称（如 "用户管理"、"OAuth"、"支付"）
      */
-    String module() default "";
+//    String module() default "";
+    AuditModule moudle();
 
     /**
      * 操作类型（如 "封禁用户"、"解绑账号"、"提现"）
      */
-    String operation() default "";
+//    String operation() default "";
+    AuditOperation operation();
+
 
     /**
      * 是否记录请求参数

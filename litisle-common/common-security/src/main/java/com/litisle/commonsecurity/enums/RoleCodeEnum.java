@@ -1,4 +1,4 @@
-package com.litisle.commonsecurity.enumus;
+package com.litisle.commonsecurity.enums;
 
 
 import lombok.AllArgsConstructor;

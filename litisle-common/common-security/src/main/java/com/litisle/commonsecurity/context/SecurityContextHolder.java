@@ -1,6 +1,6 @@
 package com.litisle.commonsecurity.context;
 
-import com.litisle.commonsecurity.enumus.RoleCodeEnum;
+import com.litisle.commonsecurity.enums.RoleCodeEnum;
 
 import java.util.Set;
 

@@ -1,0 +1,25 @@
+litisle:
+  # ================================
+  # MySQL 配置（Docker 环境：使用容器名）
+  # 容器名：litisle-mysql，容器内端口 3306
+  # ================================
+  db:
+    host: litisle-mysql
+    port: 3306
+    database: litisle_db
+    username: test_k.1
+    password: ${COMPOSE_MYSQL_PASSWORD:123}
+
+  # ================================
+  # Redis 配置（Docker 环境：使用容器名）
+  # 容器名：litisle-redis，容器内端口 6379
+  # ================================
+  redis:
+    host: litisle-redis
+    port: 6379
+    password: ${COMPOSE_REDIS_PASSWORD:123}
+  #email 配置
+  mail:
+    from: ${MAIL_FROM:}
+    password: ${MAIL_AUTH_CODE:}
+

@@ -198,6 +198,8 @@ create table if not exists `sys_oauth_binding`
 - **审计**：所有删除操作通过 `litisle-common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
 - **app_id 预留**：唯一索引 `(provider, app_id, open_id)` 预留 `app_id` 字段，默认值 `'default'`。当前单应用无影响，未来接入多个微信/QQ 应用时，同一 provider 下不同 app 的 openId 不会冲突。
 
+```
+
 ## 二、litisle-content 模块（数据库：litislecontent）
 
 （草稿上的图片也能暂存在数据库中）
@@ -215,9 +217,9 @@ create table if not exists `sys_oauth_binding`
 create database if not exists litislecontent
 character set utf8mb4
 collate utf8mb4_unicode_ci;
-​
+
 use litislecontent;
-​
+
 # 1. 文章主表
 create table if not exists `article`
 (
@@ -230,7 +232,7 @@ create table if not exists `article`
 `cover_file_id`  varchar(64)    null comment '封面文件ID（SeaweedFS）',
 `category`      varchar(20)     not null default '散文' comment '分类：小说/散文/现代诗/随笔等',
 `status`        tinyint         not null default 0 comment '状态：0-草稿 1-待审核 2-已发布 3-驳回 4-下架',
-`visibility`    tinyint         not null default 1 comment '可见性：1-公开 2-仅自己可见 3-仅关注者可见 4-密码访问',
+`visibility`    tinyint         not null default 1 comment '可见性：1-公开 2-仅自己可见',
 `view_cnt`      bigint unsigned not null default 0 comment '浏览量',
 `like_cnt`      bigint unsigned not null default 0 comment '点赞数',
 `comment_cnt`   bigint unsigned not null default 0 comment '评论数',
@@ -263,7 +265,28 @@ default charset = utf8mb4 comment = '文章图片表';
 
 
 
-# 3. 书籍/合集表
+# 3. 草稿自动保存表（多次编辑历史）
+create table if not exists `article_draft`
+(
+`id`              bigint unsigned not null auto_increment primary key comment '草稿ID',
+`article_id`      bigint unsigned null comment '关联文章ID（新草稿为 null，发布后回填）',
+`author_id`       bigint unsigned not null comment '作者用户ID',
+`title`           varchar(100)    not null comment '标题',
+`summary`         varchar(500)    null comment '摘要',
+`content_html`    longtext        not null comment '正文HTML',
+`cover_file_id`   varchar(64)     null comment '封面文件ID（SeaweedFS）',
+`category`        varchar(20)     not null default '散文' comment '分类',
+`visibility`      tinyint         not null default 1 comment '可见性（与 article 一致，发布时继承）',
+`draft_version`   int             not null default 1 comment '草稿版本号（递增）',
+`create_time`     datetime        not null default current_timestamp comment '创建时间',
+`update_time`     datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+index `idx_article_id` (`article_id`),
+index `idx_author_id` (`author_id`),
+index `idx_create_time` (`create_time`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '草稿自动保存表（多次编辑历史，发布后清空或标记）';
+
+# 4. 书籍/合集表
 create table if not exists `book`
 (
 `id`           bigint unsigned not null auto_increment primary key comment '书籍ID',
@@ -280,8 +303,8 @@ create table if not exists `book`
 index `idx_author_id` (`author_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '书籍/合集表';
-​
-# 4. 章节表（文章作为章节挂到书籍）
+
+# 5. 章节表（文章作为章节挂到书籍）
 create table if not exists `book_chapter`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '章节ID',
@@ -294,18 +317,17 @@ index `idx_book_id` (`book_id`),
 index `idx_article_id` (`article_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '书籍章节表';
-​
-# 5. 阅读进度表
+
+# 6. 阅读进度表
 create table if not exists `reading_progress`
 (
 `id`         bigint unsigned not null auto_increment primary key comment '主键ID',
 `user_id`    bigint unsigned not null comment '读者ID',
 `book_id`    bigint unsigned not null comment '书籍ID',
 `chapter_id` bigint unsigned not null comment '最后阅读章节ID',
-#    `percent`    decimal(5,2)    not null default 0.00 comment '阅读百分比',不需要阅读百分比
-    `update_time` datetime       not null default current_timestamp on update current_timestamp comment '更新时间',
-    unique key `uk_user_book` (`user_id`, `book_id`),
-    index `idx_book_id` (`book_id`)
+`update_time` datetime       not null default current_timestamp on update current_timestamp comment '更新时间',
+unique key `uk_user_book` (`user_id`, `book_id`),
+index `idx_book_id` (`book_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '阅读进度表';
 ```
@@ -316,7 +338,11 @@ article 计数字段冗余（view_cnt/like_cnt）：避免每次列表查询都 
 
 article_image 独立表：设计文档要求图片在任意位置插入 + 5 种对齐，落表后支持"图片管理"与重新排版。
 
-article_draft 与 article 分离：草稿是高频写、低频读，独立表避免污染主表查询缓存。
+article_draft 与 article 分离：草稿是高频写、低频读，独立表避免污染主表查询缓存。article_draft 记录每次编辑的快照，draft_version 递增；发布后 article_id 回填，关联到正式文章。
+
+publish_batch_id：批量发布时同一批次文章共享一个 batch_id，便于前端"按批次展示"和"批量操作"。
+
+access_password：visibility=4（密码访问）时使用，BCrypt 加密存储，与用户密码同级别安全保护。
 
 book_chapter 用 (book_id, chapter_no) 唯一索引：保证章节序号不重复，序号即排序键。
 

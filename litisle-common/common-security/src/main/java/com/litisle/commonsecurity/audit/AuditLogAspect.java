@@ -63,6 +63,7 @@ public class AuditLogAspect {
      */
     private final ObjectMapper objectMapper;
 
+    //todo 审计的异常接收需要处理
     /**
      * 环绕通知：记录审计日志
      *
@@ -101,12 +102,13 @@ public class AuditLogAspect {
         } catch (Throwable e) {
             // 6. 捕获异常（不吞掉，记录后 re-throw）
             thrown = e;
-            throw e;
+            throw e;//接住但故意不处理  切面不处理，是因为它“没资格处理”---统一由 @RestControllerAdvice 接   即全局异常处理器这个类
         } finally {
             // 7. 计算耗时
             long costTime = System.currentTimeMillis() - startTime;
 
-            // 8. 构建审计日志（生产环境改为异步发送 MQ）
+            // 8. 构建审计日志（todo 生产环境改为异步发送审计 MQ）
+            //log.info 看似轻量，但本质是同步磁盘 IO + 序列化
             Map<String, Object> logMap = new HashMap<>();
             logMap.put("module", auditLog.module());
             logMap.put("operation", auditLog.operation());
@@ -116,14 +118,28 @@ public class AuditLogAspect {
             logMap.put("costTime", costTime + "ms");
             logMap.put("status", thrown == null ? "SUCCESS" : "FAIL");
 
+            // ===== 审计字段按需落盘（防止日志污染 + 避免敏感泄露）=====
+
+            // 1. 请求参数：是否记录完全由注解开关控制
+            // 用途：排查问题、复现操作；密码/Token 场景必须关
             if (auditLog.saveRequestData()) {
                 logMap.put("request", requestData);
             }
+
+            // 2. 返回结果：只记录非空返回值，避免无意义字段
+            // 用 Object[]{result} 统一序列化风格，防止 String/POJO 格式不一致
+            // 查询接口常开，写操作按需开
             if (auditLog.saveResponseData() && result != null) {
                 logMap.put("response", serializeArgs(new Object[]{result}));
             }
+
+            // 3. 异常信息：仅失败场景记录，且只保留“类型 + 简述”
+            // 不打印完整堆栈（堆栈由 error 日志负责）
+            // 审计只关心“失败了 + 原因”，不做 debug 用途
             if (auditLog.saveException() && thrown != null) {
-                logMap.put("exception", thrown.getClass().getSimpleName() + ": " + thrown.getMessage());
+                // 例："BusinessException: 用户已存在"
+                logMap.put("exception",
+                        thrown.getClass().getSimpleName() + ": " + thrown.getMessage());
             }
 
             // 9. 输出审计日志（生产环境：auditLogService.saveAsync(logMap) 或 MQ 发送）

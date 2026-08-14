@@ -6,6 +6,7 @@ import com.litisle.commonsecurity.annotation.RequirePermission;
 import com.litisle.commonsecurity.annotation.RequireRole;
 import com.litisle.commonsecurity.context.SecurityContext;
 import com.litisle.commonsecurity.context.SecurityContextHolder;
+import com.litisle.commonsecurity.enums.PermissionEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
@@ -75,26 +76,53 @@ public class PermissionCheckAspect {
             throw new BizException(ErrorCode.FORBIDDEN, requirePermission.message());
         }
 
-        // 4. 获取注解配置的权限列表
-        String[] requiredPermissions = requirePermission.value();
+        // 4. 获取注解配置的权限列表-----字符串版本
+//        String[] requiredPermissions = requirePermission.value();
+//        RequireRole.Logical logical = requirePermission.logical();
+       // 5. 根据逻辑关系校验
+//        boolean hasPermission;
+//        if (logical == RequireRole.Logical.OR) {
+//            // OR：满足任意一个权限即可
+//            hasPermission = Arrays.stream(requiredPermissions)
+//                    .anyMatch(userPermissions::contains);
+//        } else {
+//            // AND：必须同时拥有所有权限
+//            hasPermission = Arrays.stream(requiredPermissions)
+//                    .allMatch(userPermissions::contains);
+//        }
+
+
+        // 4. 获取注解配置的权限（纯枚举）
+        PermissionEnum[] requiredPerms = requirePermission.perms();
+        // ✅ 兜底：没配权限直接拒绝
+        if (requiredPerms.length == 0) {
+            log.error("注解未配置权限: method={}", getMethodName(joinPoint));
+            throw new BizException(ErrorCode.FORBIDDEN, "接口未声明权限点");
+        }
         RequireRole.Logical logical = requirePermission.logical();
 
-        // 5. 根据逻辑关系校验
+
+        // 5. 校验（基于 enum）
         boolean hasPermission;
         if (logical == RequireRole.Logical.OR) {
-            // OR：满足任意一个权限即可
-            hasPermission = Arrays.stream(requiredPermissions)
-                    .anyMatch(userPermissions::contains);
+            hasPermission = Arrays.stream(requiredPerms)
+                    .anyMatch(p -> userPermissions.contains(p.getCode()));
         } else {
-            // AND：必须同时拥有所有权限
-            hasPermission = Arrays.stream(requiredPermissions)
-                    .allMatch(userPermissions::contains);
+            hasPermission = Arrays.stream(requiredPerms)
+                    .allMatch(p -> userPermissions.contains(p.getCode()));
         }
+
 
         // 6. 校验失败抛出异常
         if (!hasPermission) {
-            log.warn("权限校验失败: userId={}, userPermissions={}, requiredPermissions={}, logical={}",
-                    context.getUserId(), userPermissions, Arrays.toString(requiredPermissions), logical);
+            log.warn("权限校验失败: userId={}, userPermissions={}, required={}, logical={}",
+                    context.getUserId(),
+                    userPermissions,
+                    Arrays.toString(Arrays.stream(requiredPerms)
+                            .map(PermissionEnum::getCode)
+                            .toArray()),
+                    logical);
+
             throw new BizException(ErrorCode.FORBIDDEN, requirePermission.message());
         }
 

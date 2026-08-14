@@ -42,6 +42,12 @@ public class User implements Serializable {
     @TableField("phone")
     private String phone;
 
+    /** 邮箱 */
+    @Email(message = "邮箱格式不正确")
+    @Size(max = 64, message = "邮箱长度不能超过 64 个字符")
+    @TableField("email")
+    private String email;
+
     /** 头像URL */
     @Size(max = 255, message = "头像URL长度不能超过 255 个字符")
     @TableField("avatar")

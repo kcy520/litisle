@@ -77,4 +77,52 @@
 //    public CommonResult<String> adminViewPlainPhone(@PathVariable Long userId) {
 //        return CommonResult.ok(userAdminService.viewPlainPhone(userId));
 //    }
+
+/* ================= 管理员查看 ================= */
+//
+///**
+// * 管理员查看指定用户手机号
+// */
+//@GetMapping("/users/{userId}/phone")
+//@RequirePermission(perms = {PermissionEnum.SENSITIVE_PHONE_READ})
+//@AuditLog(
+//        moudle = AuditModule.SENSITIVE,
+//        operation = AuditOperation.USER_VIEW_PHONE_ADMIN,
+//        saveRequestData = false,
+//        saveResponseData = false
+//)
+//public Result<String> userPhone(@PathVariable Long userId) {
+//    return Result.success(userProfileService.viewUserPlainPhone(userId));
+//}
+//
+///**
+// * 管理员查看指定用户邮箱
+// */
+//@GetMapping("/users/{userId}/email")
+//@RequirePermission(perms = {PermissionEnum.SENSITIVE_EMAIL_READ})
+//@AuditLog(
+//        moudle = AuditModule.SENSITIVE,
+//        operation = AuditOperation.USER_VIEW_EMAIL_ADMIN,
+//        saveRequestData = false,
+//        saveResponseData = false
+//)
+//public Result<String> userEmail(@PathVariable Long userId) {
+//    return Result.success(userProfileService.viewUserPlainEmail(userId));
+//}
+//
+///**
+// * 管理员查看指定用户密码
+// */
+//@GetMapping("/users/{userId}/password")
+////    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
+//@RequirePermission(perms = {PermissionEnum.SENSITIVE_PASSWORD_READ})
+//@AuditLog(
+//        moudle = AuditModule.SENSITIVE,
+//        operation = AuditOperation.USER_VIEW_PASSWORD_ADMIN,
+//        saveRequestData = false,
+//        saveResponseData = false
+//)
+//public Result<String> userPassword(@PathVariable Long userId) {
+//    return Result.success(userProfileService.viewUserPlainPassword(userId));
+//}
 //}

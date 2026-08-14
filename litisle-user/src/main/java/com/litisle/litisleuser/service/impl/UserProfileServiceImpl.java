@@ -249,4 +249,108 @@ public class UserProfileServiceImpl
                 : userProfileMapper.selectUpdateProfileBaseByUserId(userId);
     }
 
+
+    /**
+     * 查看本人手机号（明文）
+     * <p>
+     * 仅用于本人身份校验，不落日志
+     */
+    @Override
+    public String viewCurrentUserPlainPhone() {
+        Long userId = SecurityContextHolder.getUserId();
+
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getPhone)
+        );
+
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+        }
+
+        // phone 本身已是明文/脱敏由库决定，这里原样返回
+        return user.getPhone();
+    }
+
+
+
+    /**
+     * 查看本人邮箱
+     * @return
+     */
+    @Override
+    public String viewCurrentUserPlainEmail() {
+//        Long userId = SecurityContextHolder.getUserId();
+//
+//        User user = userMapper.selectOne(
+//                new LambdaQueryWrapper<User>()
+//                        .eq(User::getId, userId)
+//                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+//                        .select(User::get)
+//        );
+//
+//        if (user == null) {
+//            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+//        }
+//
+//         phone 本身已是明文/脱敏由库决定，这里原样返回
+//        return user.getPhone();
+        return null;
+        }
+
+    /**
+     * 查看本人密码
+     * @return
+     */
+    @Override
+    public String viewCurrentUserPlainPassword() {
+        Long userId = SecurityContextHolder.getUserId();
+
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getPassword)
+        );
+
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+        }
+
+        // phone 本身已是明文/脱敏由库决定，这里原样返回
+        return user.getPassword();
+    }
+
+    /**
+     * 管理员查看用户手机号
+     * @param userId 用户ID
+     * @return
+     */
+    @Override
+    public String viewUserPlainPhone(Long userId) {
+        return "";
+    }
+
+    /**
+     * 管理员查看用户邮箱
+     * @param userId 用户ID
+     * @return
+     */
+    @Override
+    public String viewUserPlainEmail(Long userId) {
+        return "";
+    }
+
+    /**
+     * 管理员查看用户密码
+     * @param userId 用户ID
+     * @return
+     */
+    @Override
+    public String viewUserPlainPassword(Long userId) {
+        return "";
+    }
+
 }
