@@ -93,6 +93,21 @@ logging:
     path: "logs/${spring.application.name}"
 
 # ================================
+# 安全加密配置（common-security）
+# ================================
+# AES-256-GCM：用于手机号/邮箱加密存储
+# BCrypt：用于密码哈希
+litisle:
+  security:
+    crypto:
+      # AES-256 密钥（Base64 编码的 32 字节密钥，生产环境必须环境变量注入）
+      # 生成方式：Aes256GcmCrypto.generateKey() 或在线工具生成 32 字节 Base64
+      # 未配置时启动立即报错（Fail-Fast），不等到运行时才暴露
+      key: ${LITISLE_CRYPTO_KEY}
+      # BCrypt 强度因子（默认 10，范围 4-31，每+1 计算量翻倍）
+      bcrypt-cost: 10
+
+# ================================
 # Knife4j API 文档配置
 # ================================
 knife4j:

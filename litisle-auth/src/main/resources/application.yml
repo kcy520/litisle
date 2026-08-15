@@ -1,38 +1,52 @@
 spring:
   mail:
     # 发送者邮箱（与 username 一致）
-    username: ${litisle.demo.mail.from:}
-    from: ${litisle.demo.mail.from:}
+    username: ${litisle.mail.from:}
+    from: ${litisle.mail.from:}
     # 邮箱授权码（非登录密码，QQ邮箱需在设置中获取）
-    password: ${litisle.demo.mail.password:}
+    password: ${litisle.mail.password:}
+
     # SMTP 服务器地址
     host: smtp.qq.com
-    # 端口号：SSL 用 465，TLS 用 587
+    # 端口：SSL 用 465（推荐），TLS 用 587
     port: 465
-    # 使用 SMTPS 协议
-    protocol: smtps
+    # 协议统一用 smtp，SSL 在 properties 中开启（更稳）
+    protocol: smtp
+
     # 默认邮件编码
     default-encoding: UTF-8
-    # SSL / SMTP 高级配置
+
+    # SMTP / SSL 高级配置（QQ邮箱专用）
     properties:
       mail:
         smtp:
-          # 开启认证
+          # 开启登录认证
           auth: true
-          # SSL Socket 工厂
-          socketFactoryClass: javax.net.ssl.SSLSocketFactory
-          # 开启 DEBUG 模式，便于排查邮件发送问题
+          # 开启 SSL（465 必须）
+          ssl.enable: true
+          # 兼容老 JDK 的 SSL Socket 工厂
+          socketFactory:
+            class: javax.net.ssl.SSLSocketFactory
+            port: 465
+          # 调试模式，开发阶段开着很香
           debug: true
-          # 启用 SSL
-          ssl: true
+
 litisle:
+  # ===== 邮箱配置（业务层）=====
+  mail:
+    # from 在 spring.mail 里已复用，这里仅作语义收口
+    from: ${litisle.mail.from:}
+    password: ${litisle.mail.password:}
+
   security:
     jwt:
-      secret: ${JWT_SECRET:xxx}        # auth ??
-      access-token-expire: 1800        # auth ??
-      remember-me-expire: 604800       # auth ??
+      secret: ${JWT_SECRET:}           # 鉴权密钥（生产必须环境变量）
+      access-token-expire: 1800        # 令牌有效期（秒）
+      remember-me-expire: 604800       # 记住我有效期（秒）
     session:
-      max-concurrent: 2                # auth ??
+      max-concurrent: 2                # 同账号最大并发会话数
     login:
-      max-fail-count: 5                # auth ??
-  # ===== 邮箱配置 =====
+      max-fail-count: 5                # 登录失败最大次数
+    crypto:
+      # auth 只需 BCrypt（验证密码），不配置 AES key 则 AES Bean 不会创建
+      bcrypt-cost: 10

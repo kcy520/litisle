@@ -14,7 +14,7 @@ e:\NewJavaPro\LitIsle\BaseDesign-document\commom-des.md
 litisle-common/
 ├── common-core          # 基础工具：异常/响应/枚举/常量/工具类/配置
 ├── common-redis         # Redis 能力：序列化/分布式锁/布隆过滤器/幂等性
-└── common-security      # 安全控制：上下文/角色校验/审计/脱敏/XSS/匿名认证
+└── common-security      # 安全控制：上下文/角色校验/审计/脱敏/XSS/匿名认证/数据加密
 ```
 
 ### 模块依赖关系
@@ -409,7 +409,151 @@ public Result<ArticleVO> getArticle(@PathVariable Long id) { ... }
 - 网关（WebFlux）无法用扫描器，当前用 yml 配置白名单
 - 后续优化：业务服务暴露 `/actuator/anonymous-paths` 端点，网关 Feign 收集
 
-### 4.8 依赖倒置实现
+### 4.8 数据加密
+
+#### 4.8.1 AES-256-GCM 对称加密（敏感字段存储加密）
+
+| 类 | 说明 | 使用方式 |
+|----|------|---------|
+| `Aes256GcmCrypto` | AES-256-GCM 加密工具类 | 手动调用 |
+| `CryptoProperties` | 加密配置类（密钥配置） | **自动绑定**（@ConfigurationProperties） |
+| `CryptoAutoConfiguration` | 加密自动配置类 | **自动执行** |
+
+**算法说明**：
+- **AES-256-GCM**：分组加密算法 + 认证标签，提供**保密性+完整性+真实性**三重保护
+- **GCM 模式**：Galois/Counter Mode，支持并行计算，性能优于 CBC 模式，自带认证标签防篡改
+- **密钥长度**：256-bit（32 字节），符合当前安全标准
+- **随机 IV**：每次加密生成 12 字节随机 IV（NIST 推荐）
+- **认证标签**：16 字节，确保密文未被篡改
+- **输出格式**：`Base64(IV + 密文 + 认证标签)`，便于数据库存储
+
+**适用场景**：
+- 用户手机号（phone）加密存储
+- 用户邮箱（email）加密存储
+- 其他需要**可逆解密**的敏感字段加密
+
+**依赖版本兼容性**：
+- Spring Boot 3.5.x + JDK 25：使用标准 `javax.crypto` API（JDK 原生支持，无需额外依赖）
+- 无需引入第三方加密库，JDK 标准 API 已支持 AES-256-GCM
+
+**配置方式**：
+```yaml
+# 业务服务的 application.yml 或 Nacos 配置
+litisle:
+  security:
+    crypto:
+      # AES-256 密钥（必须 32 字符 = 256 bit）
+      # 生产环境通过环境变量或配置中心加密注入，禁止硬编码
+      key: ${LITISLE_CRYPTO_KEY:your-32-character-aes-256-key-here}
+```
+
+**使用示例**：
+
+```java
+@Autowired
+private Aes256GcmCrypto crypto;
+
+// 加密存储（用户注册时）
+String plainPhone = "13812345678";
+String encryptedPhone = crypto.encrypt(plainPhone);
+// 结果：Base64 字符串，存储到数据库
+
+// 解密查询（用户登录时）
+String storedPhone = encryptedPhone;
+String decryptedPhone = crypto.decrypt(storedPhone);
+// 结果：13812345678
+
+// 判断加密后的内容是否匹配（手机号登录比对）
+String inputPhone = "13812345678";
+String storedEncryptedPhone = "...";
+boolean matches = crypto.matches(inputPhone, storedEncryptedPhone);
+```
+
+**安全设计要点**：
+| 设计点 | 说明 |
+|--------|------|
+| 随机 IV | 相同明文每次加密得到不同密文，防止字典攻击 |
+| GCM 认证标签 | 密文被篡改后解密立即失败，不返回明文 |
+| 密钥长度 | 256-bit 对抗量子计算攻击比 128-bit 更安全 |
+| 密钥管理 | 配置中心集中管理，支持热更新，不硬编码 |
+| 异常处理 | 解密失败抛出 `BizException(ENCRYPTION_ERROR)`，Fail-Fast 设计 |
+
+**为什么不用 ECB/CBC 模式**：
+- ECB：不安全，相同明文块生成相同密文块，模式本身有缺陷
+- CBC：需要填充（PKCS#5/PKCS#7），易受 Padding Oracle 攻击，无完整性保护
+- GCM：AEAD 算法（Authenticated Encryption with Associated Data），一次完成加密+认证
+
+#### 4.8.2 BCrypt 密码哈希（用户密码不可逆加密）
+
+| 类 | 说明 | 使用方式 |
+|----|------|---------|
+| `PasswordCrypto` | BCrypt 封装工具类 | 手动调用 |
+
+**算法说明**：
+- **BCrypt**：基于 Blowfish 算法的自适应密码哈希函数
+- **自适应**：cost 因子可调，随着硬件性能提升可增加计算成本
+- **自动加盐**：每个密码自动生成随机盐，存在哈希结果中（无需单独存储盐）
+- **输出格式**：`$2a$10$...`，包含版本、cost、盐、哈希
+
+**适用场景**：
+- 用户登录密码（不可逆加密，只验不解密）
+
+**依赖说明**：
+- Spring Boot 3.5.x 使用 `org.springframework.security:spring-security-crypto`
+- 不需要完整的 Spring Security，仅引入 `spring-security-crypto` 模块
+- 版本与 Spring Boot 一致（由父 pom 管理），无版本冲突
+
+**使用示例**：
+
+```java
+@Autowired
+private PasswordCrypto passwordCrypto;
+
+// 用户注册：加密密码
+String rawPassword = "user123456";
+String encodedPassword = passwordCrypto.encode(rawPassword);
+// 结果示例：$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH
+// 存储到数据库
+
+// 用户登录：验证密码
+String rawPassword = "user123456";
+String storedEncodedPassword = "...";
+boolean matches = passwordCrypto.matches(rawPassword, storedEncodedPassword);
+if (!matches) {
+    throw new BizException(ErrorCode.USER_PASSWORD_ERROR);
+}
+```
+
+**安全设计要点**：
+| 设计点 | 说明 |
+|--------|------|
+| 自动加盐 | 每个密码随机盐，相同密码得到不同哈希，防止彩虹表攻击 |
+| 自适应 cost | 可随硬件升级提高计算成本，保持哈希慢生成特性 |
+| 不可逆 | 无法从哈希还原出明文，即使数据库泄露也无法直接得到密码 |
+| 防时序攻击 | BCrypt 实现内置恒定时间比较，防止时序攻击 |
+
+**密码加密 vs 字段加密对比**：
+
+| 对比项 | AES-256-GCM（手机号/邮箱） | BCrypt（密码） |
+|--------|---------------------------|----------------|
+| 可逆性 | ✅ 可逆（需要时可解密） | ❌ 不可逆（只验不解密） |
+| 使用场景 | 需要查询展示的敏感字段 | 只验证不展示的密码 |
+| 算法目的 | 加密存储，防拖库泄露 | 密码哈希，防止明文存储 |
+| 密钥要求 | 需要保密密钥 | 不需要密钥（盐自动生成） |
+| 性能 | 快（加密算法） | 慢（故意设计慢，防暴力破解） |
+
+**业务使用建议**：
+```
+用户表 (user)
+├── id                  (PK)
+├── username            明文（用户名校验登录）
+├── phone               AES-256-GCM 加密（需要发短信时解密）
+├── email               AES-256-GCM 加密（需要发邮件时解密）
+├── password_hash       BCrypt 哈希（验证密码，无法还原）
+└── ...
+```
+
+### 4.9 依赖倒置实现
 
 | 类 | 说明 |
 |----|------|
@@ -442,6 +586,13 @@ litisle:
       paths:
         - /actuator/**              # 健康检查
         - /static/**                # 静态资源（无法加注解的场景）
+
+    # ====== 数据加密配置（common-security） ======
+    crypto:
+      # AES-256 密钥（必须 32 字符，生产环境从环境变量/配置中心获取）
+      key: ${LITISLE_CRYPTO_KEY:change-this-to-32-character-key-in-prod}
+      # BCrypt cost 因子（默认 10，范围 4-31，越大越安全但越慢）
+      bcrypt-cost: 10
 
   # ====== XSS 过滤配置（common-security） ======
   xss:
@@ -476,6 +627,7 @@ litisle:
 | Redisson 配置 | common-redis | `@Configuration` 自动扫描 |
 | Feign 用户上下文透传 | common-security | `@Component` 自动注册拦截器 |
 | XSS 过滤 | common-security | `@Configuration` 自动注册 Filter |
+| 加密工具配置 | common-security | `@Configuration` 自动配置 Aes256GcmCrypto、PasswordCrypto |
 | 匿名白名单初始化 | common-security | `@PostConstruct` 兜底加载 |
 | 匿白名单注解扫描 | common-security | `ContextRefreshedEvent` 自动扫描 |
 
@@ -498,6 +650,8 @@ litisle:
 | `Result.success()/error()` | common-core | Controller 返回 |
 | `AssertUtil` | common-core | 业务断言 |
 | `JsonUtil` | common-core | JSON 转换 |
+| `Aes256GcmCrypto` | common-security | AES-256-GCM 加密/解密手机号、邮箱 |
+| `PasswordCrypto` | common-security | BCrypt 密码加密/验证 |
 | `RedisUtil` | common-redis | 缓存操作 |
 | `RedissonLock` | common-redis | 分布式锁 |
 | `BloomFilter` | common-redis | 布隆过滤 |

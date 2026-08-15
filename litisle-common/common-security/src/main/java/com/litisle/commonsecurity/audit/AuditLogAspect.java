@@ -110,7 +110,7 @@ public class AuditLogAspect {
             // 8. 构建审计日志（todo 生产环境改为异步发送审计 MQ）
             //log.info 看似轻量，但本质是同步磁盘 IO + 序列化
             Map<String, Object> logMap = new HashMap<>();
-            logMap.put("module", auditLog.module());
+            logMap.put("module", auditLog.moudle());
             logMap.put("operation", auditLog.operation());
             logMap.put("userId", userId);
             logMap.put("username", username);
@@ -176,4 +176,5 @@ public class AuditLogAspect {
             return map.toString();
         }
     }
+
 }

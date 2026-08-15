@@ -50,6 +50,16 @@
 #      # 锁定时长（分钟）
 #      lock-minutes: 15
 #
+#    # ----------------------- 数据加密配置 -----------------------
+#    # 【说明】AES-256-GCM 密钥配置，用于手机号/邮箱等敏感字段加密存储
+#    # 生产环境通过环境变量注入，不硬编码
+#    crypto:
+#      # AES-256 密钥（必须 32 字符 = 256 bit）
+#      key: ${LITISLE_CRYPTO_KEY:change-this-to-32-character-key-in-prod}
+#      # BCrypt 强度因子（默认 10，范围 4-31，越大越安全但越慢）
+#      bcrypt-cost: 10
+# 像 litisle.security.crypto.key （AES 密钥）这种 具体值 ，业务服务必须在自己的 application.yml 中配置：
+#
 #  # ----------------------- XSS 过滤配置 -----------------------
 #  # 【说明】XssFilter 默认拦截 /*，如需排除富文本接口，可在此配置
 #  xss:
