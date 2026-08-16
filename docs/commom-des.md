@@ -13,7 +13,7 @@ e:\NewJavaPro\LitIsle\BaseDesign-document\commom-des.md
 ```
 litisle-common/
 ├── common-core          # 基础工具：异常/响应/枚举/常量/工具类/配置
-├── common-redis         # Redis 能力：序列化/分布式锁/布隆过滤器/幂等性
+├── common-redis         # Redis 能力：序列化/分布式锁/布隆过滤器/幂等性/限流/黑名单/会话管理/登录重试限制
 └── common-security      # 安全控制：上下文/角色校验/审计/脱敏/XSS/匿名认证/数据加密
 ```
 
@@ -297,9 +297,203 @@ return count
 - 固定窗口存在边界问题（窗口切换处可能出现 2 倍流量），高精度场景可演进为滑动窗口
 - Lua 脚本保证 `INCR + EXPIRE` 原子性，避免并发下 key 永久计数
 
+### 3.6 Token 黑名单
+
+| 类 | 说明 | 使用方式 |
+|----|------|--------|
+| `TokenBlacklistService` | Token 黑名单服务（Redis SET + EXISTS） | **手动调用** |
+
+**使用方式**：手动调用，由 litisle-auth（写入）与网关（校验）配合使用。
+
+**Redis 数据结构**：
+
+```
+Key   ：auth:token:blacklist:{tokenId}（CacheConstant.TOKEN_BLACKLIST）
+Value ："1"（占位标记）
+TTL   ：JWT 剩余有效期（exp - now），过期自动回收，零运维
+```
+
+**核心机制**：
+
+```
+├── 退出登录：logout() → addToBlacklist(tokenId, ttl) → Token 立即失效
+├── 踢人下线：DeviceSessionManager.doKick() → 联动加黑
+├── 网关校验：JwtAuthGlobalFilter → isBlacklisted(tokenId) → 命中返回 401
+└── 刷新令牌：refreshToken() → 旧 Token 加黑
+```
+
+**调用示例**：
+
+```java
+// AuthService.logout() 中：黑名单 TTL = Token 剩余有效期
+String tokenId = jwtTokenProvider.getTokenIdFromToken(token);
+long ttlSeconds = (expiration.getTime() - System.currentTimeMillis()) / 1000;
+if (ttlSeconds > 0) {
+    tokenBlacklistService.addToBlacklist(tokenId, ttlSeconds);
+}
+
+// 网关 JwtAuthGlobalFilter 中：解析 JWT 后校验黑名单
+if (tokenBlacklistService.isBlacklisted(claims.getId())) {
+    return unauthorized(exchange, ErrorCode.TOKEN_BLACKLISTED);
+}
+```
+
+**实现原理**：
+1. 加入黑名单：`SET auth:token:blacklist:{jti} "1" EX {剩余秒数}`
+2. 网关校验：`EXISTS`（O(1) 毫秒级）
+3. TTL 随 Token 剩余寿命同步衰减：Token 过期后黑名单条目自动消失，无需定时清理
+
+**读写容错策略（非对称设计）**：
+- 读（isBlacklisted）：Redis 异常 → 放行（可用性优先，宁可放行一个已拉黑 Token 也不让全站瘫痪，JWT 过期时间兜底）
+- 写（addToBlacklist）：Redis 异常 → 抛 BizException（吊销失败必须可见，不能静默丢失）
+
+**⚠️ 注意事项**：
+- 网关为 WebFlux 环境，阻塞式 StringRedisTemplate 建议包在 `publishOn(boundedElastic)` 中调用，或后续演进为 ReactiveStringRedisTemplate
+- 加入前校验 tokenId 非空、ttl > 0（已过期 Token 无需拉黑）
+
+### 3.7 设备会话管理
+
+| 类 | 说明 | 使用方式 |
+|----|------|--------|
+| `DeviceSession` | 设备会话 DTO（tokenId/设备/IP/登录时间/Token 过期时间） | 内部使用 |
+| `DeviceSessionManager` | 会话管理器（多设备并发限制 + 踢人下线） | **手动调用** |
+
+**使用方式**：手动调用，由 litisle-auth 在登录/退出/踢人流程中调用。
+
+**Redis 数据结构**：
+
+```
+Key   ：auth:session:{userId}（CacheConstant.USER_SESSION）
+类型  ：Hash
+field ：tokenId（JWT 的 jti）
+value ：DeviceSession 序列化后的 JSON
+```
+
+**核心机制**：
+
+```
+├── 懒清理：Hash 不支持 field 级 TTL，读取时按 tokenExpireTime 过滤并 HDEL
+├── 多设备限制：超限时按 loginTime 升序挤下线最早设备（自动加黑名单）
+├── 原子性：Redisson 用户级锁 lock:device_session:{userId}（单用户粒度）
+└── 协作：踢人 = HDEL 会话 + TokenBlacklistService 加黑（两步缺一不可）
+```
+
+**调用示例**：
+
+```java
+// 1. 登录成功后注册会话（AuthService），返回被挤下线的设备列表
+DeviceSession session = DeviceSession.builder()
+        .tokenId(tokenId)
+        .deviceType("WEB")
+        .deviceName(parseUserAgent(request))
+        .ip(clientIp)
+        .loginTime(System.currentTimeMillis())
+        .tokenExpireTime(expireTime)
+        .build();
+List<DeviceSession> kicked = deviceSessionManager.registerSession(userId, session, 2);
+
+// 2. 退出登录：仅移除会话（Token 是否加黑由 logout 自行决定）
+deviceSessionManager.removeSession(userId, tokenId);
+
+// 3. 修改密码 / 管理员封禁：全端强制下线（逐个加黑）
+deviceSessionManager.kickAllSessions(userId);
+```
+
+**API 一览**：
+
+| 方法 | 场景 | 黑名单联动 |
+|------|------|----------|
+| `registerSession(userId, session, maxDevices)` | 登录成功 | ✅ 被挤设备加黑 |
+| `removeSession(userId, tokenId)` | 退出登录 | ❌ 调用方决定 |
+| `getOnlineSessions(userId)` | “在线设备管理”页 | — |
+| `getOnlineSessionCount(userId)` | 在线设备计数 | — |
+| `kickSession(userId, tokenId)` | 踢指定设备 | ✅ |
+| `kickAllSessions(userId)` | 改密/封禁全端下线 | ✅ |
+
+**关键设计说明**：
+1. **踢人必须两步**：只删会话，被踢 Token 在自然过期前仍能通过网关（网关只查黑名单）；只加黑名单，会话列表残留脏数据。故 `doKick()` 封装 HDEL + 加黑
+2. **懒清理**：Redis Hash 无 field 级 TTL 的标准补偿方案；所有 field 删除后 Hash key 自动回收
+3. **锁粒度**：锁到单用户而非全局，多用户完全并行，兼顾正确性与吞吐
+4. **可选依赖降级**：DistributedLock 经 ObjectProvider 注入，Redisson 不可用时无锁执行，仅损失多设备计数精度（与 IdempotentAspect 处理 UserIdResolver 方式一致）
+5. **时间字段用 Long 时间戳**：规避 LocalDateTime 对 JavaTimeModule 的序列化依赖，排序直接比 long
+
+**⚠️ 注意事项**：
+- maxDevices 由 litisle-auth 配置传入（如 `auth.max-devices: 2`），common 层不感知业务配置
+- 获取锁超时（5s）抛 BizException，提示稍后重试
+
 ---
 
-## 四、common-security 模块
+### 3.8 登录重试限制
+
+| 类 | 说明 | 使用方式 |
+|-----|------|--------|
+| `LoginRetryLimiter` | 登录重试限制器（暴力破解防护） | **手动调用** |
+
+**使用方式**：手动调用，由 litisle-auth 在登录校验流程中调用。
+
+**Redis 数据结构**：
+
+```
+┌─────────────────────────────────────────────────────┐
+│ Key：login:fail:{identifier}                        │
+│ 类型：String  值：连续失败次数（整数）    TTL：15min  │
+├─────────────────────────────────────────────────────┤
+│ Key：login:lock:{identifier}                        │
+│ 类型：String  值："1"（仅占位标记）    TTL：15min    │
+└─────────────────────────────────────────────────────┘
+```
+
+**核心机制**：
+
+```
+├── 原子递增：INCR 原子操作，首次失败自动设置 TTL（防止计数永不过期）
+├── 双 Key 结构：login:fail → 计数，login:lock → 锁定标记（职责分离）
+├── 自动解锁：锁定 key 到期后 Redis 自动删除，无需定时任务
+└── 容错降级：Redis 异常时放行，不因缓存故障导致全站无法登录
+```
+
+**调用示例**：
+
+```java
+// 1. 登录前检查账户是否锁定
+if (loginRetryLimiter.isLocked(username)) {
+    long remainingSeconds = loginRetryLimiter.getLockRemainingSeconds(username);
+    throw new BizException(ErrorCode.ACCOUNT_LOCKED,
+            "账户已锁定，请 " + remainingSeconds + " 秒后重试");
+}
+
+// 2. 密码校验失败时记录失败次数
+loginRetryLimiter.recordFailure(username);
+int remaining = loginRetryLimiter.getRemainingAttempts(username);
+// 返回给前端："密码错误，您还有 " + remaining + " 次尝试机会"
+
+// 3. 登录成功后重置所有失败记录
+loginRetryLimiter.resetFailure(username);
+```
+
+**API 一览**：
+
+| 方法 | 场景 | 说明 |
+|------|------|------|
+| `recordFailure(identifier)` | 登录失败 | 递增计数，超限自动锁定（默认 5 次失败锁定 15 分钟） |
+| `recordFailure(identifier, maxAttempts, lockDuration)` | 自定义阈值 | 可覆盖默认配置 |
+| `isLocked(identifier)` | 登录前检查 | 锁定返回 true（Redis 异常容错返回 false） |
+| `resetFailure(identifier)` | 登录成功 | 清除失败计数和锁定标记 |
+| `getRemainingAttempts(identifier)` | 前端提示 | 返回剩余尝试次数（≥0） |
+| `getLockRemainingSeconds(identifier)` | 锁定提示 | 返回剩余锁定秒数（未锁定返回 0） |
+| `unlockAccount(identifier)` | 管理员手动解锁 | 清除锁定标记和失败计数 |
+
+**关键设计说明**：
+1. **INCR + EXPIRE 组合**：首次失败时设 TTL = 15 分钟，每次失败刷新 TTL，防止活跃攻击者计数永不过期
+2. **双 Key 职责分离**：`login:fail` 仅计数，`login:lock` 仅标记锁定。查看锁定状态只需 EXISTS 一个 key（O(1)），无需 GET 计数再比较
+3. **容错策略**：Redis 异常时全部降级放行，写 ERROR 日志——宁可让暴力破解者多试几次，也不能让全站用户无法登录
+4. **identifier 灵活**：支持 username、phone、email 三种标识，由 litisle-auth 在调用时决定用哪种
+5. **无锁设计**：INCR 本身就是原子操作，无需额外分布式锁；锁定检查不要求精确到毫秒，业务上可接受微小竞态
+
+**⚠️ 注意事项**：
+- maxAttempts 和 lockDurationSeconds 由 litisle-auth 配置传入（如 `auth.login.max-attempts: 5`），common 层不感知业务配置
+- 修改密码成功后应调用 `resetFailure()` 清除旧密码的失败记录
+- 管理员手动解锁后，用户应能立即重试（无需等待 TTL 到期）
 
 ### 4.1 安全上下文
 
@@ -706,9 +900,188 @@ litisle:
 
 ---
 
-## 六、配置文件说明
+## 六、OAuth2 第三方登录（litisle-auth）
 
-### 6.1 common 模块的 yml 文件
+> OAuth2 第三方登录是 litisle-auth 模块的子功能，采用**预留骨架 + 策略模式**设计，当前为骨架状态（代码已注释），需完成前置条件后方可启用。
+
+### 6.1 整体架构
+
+```
+┌──────────────┐     Feign      ┌───────────────────┐
+│ litisle-auth  │─────────────▶│  litisle-user      │
+│  (OAuth 入口)  │               │  (OAuth 绑定存储)   │
+│              │               │                   │
+│  OAuth2Controller  ─── 路由    │  OAuthBinding      │
+│  OAuth2LoginService ── 编排    │  (实体 / Mapper /   │
+│              │               │   Service / Impl)   │
+│  JustAuth ─── 第三方 SDK       │                   │
+│  (微信/QQ/GitHub)            │  sys_oauth_binding  │
+└──────────────┘               │  表（物理删除 + 审计）│
+                                └───────────────────┘
+```
+
+### 6.2 代码分布
+
+#### litisle-auth 模块（OAuth 入口）
+
+| 文件 | 路径 | 状态 | 说明 |
+|------|------|------|------|
+| `OAuth2Controller` | controller/OAuth2Controller.java | **全部注释** | 暴露 4 个接口：获取授权地址 / 回调 / 绑定 / 解绑 |
+| `OAuth2LoginService` | service/oauth2/OAuth2LoginService.java | **骨架（方法体全部 TODO）** | 核心编排逻辑：state 防 CSRF / 换取 token / 查询用户 / 签发 JWT |
+
+**OAuth2Controller 接口一览**：
+
+| 方法 | 路由 | 说明 | 认证要求 |
+|------|------|------|---------|
+| `authorizeUrl()` | `GET /v1/auth/oauth2/{provider}/authorize-url` | 获取第三方授权地址 | 无 |
+| `callback()` | `GET /v1/auth/oauth2/{provider}/callback` | 第三方登录回调 | 无 |
+| `bind()` | `POST /v1/auth/oauth2/bind` | 绑定第三方账号到当前用户 | 需登录 |
+| `unbind()` | `DELETE /v1/auth/oauth2/unbind/{provider}` | 解绑第三方账号 | 需登录 |
+
+#### litisle-api 模块（共享 DTO/VO/Feign）
+
+| 文件 | 说明 |
+|------|------|
+| `OAuthAuthorizeVO` | 授权地址响应 VO（authorizeUrl + provider + state） |
+| `OAuthBindDTO` | 绑定请求 DTO（provider + openId + unionId + authCode） |
+| `UserClient` | Feign 客户端（预留 4 个 OAuth 接口，当前已注释） |
+
+#### litisle-user 模块（OAuth 绑定存储）
+
+| 文件 | 说明 |
+|------|------|
+| `OAuthBinding` | 实体类，映射 `sys_oauth_binding` 表（物理删除，@AuditLog 记录审计） |
+| `OAuthBindingMapper` | MyBatis-Plus Mapper |
+| `OAuthBindingService` | 接口，继承 IService |
+| `OAuthBindingServiceImpl` | 实现类（当前为空，仅自动注入 Mapper） |
+
+#### 数据库表 `sys_oauth_binding`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | BIGINT (PK) | 主键 |
+| `user_id` | BIGINT | 用户 ID |
+| `provider` | VARCHAR(16) | OAuth 提供方（WECHAT / QQ） |
+| `app_id` | VARCHAR(32) | 应用 ID（预留多应用扩展） |
+| `open_id` | VARCHAR(64) | 第三方用户唯一标识 |
+| `union_id` | VARCHAR(64) | 微信 unionId（可选，跨应用识别） |
+| `create_time` | DATETIME | 绑定时间 |
+| `update_time` | DATETIME | 更新时间 |
+| UK | (provider, app_id, open_id) | 唯一约束，防止重复绑定 |
+
+### 6.3 核心流程
+
+**OAuth2 第三方登录完整流程**：
+
+```
+┌──────────┐         ┌──────────────┐         ┌─────────────────┐
+│  前端     │         │  litisle-auth │         │ 第三方平台(微信)  │
+│  (浏览器)  │         │  (OAuth2服务)  │         │  (OAuth2 Provider)│
+└────┬─────┘         └──────┬───────┘         └────────┬────────┘
+     │                      │                          │
+     │ ① GET /authorize-url │                          │
+     │─────────────────────▶│                          │
+     │                      │                          │
+     │ ② 返回 authorizeUrl  │                          │
+     │◀─────────────────────│                          │
+     │                      │                          │
+     │ ③ 重定向到第三方登录页  │                          │
+     │─────────────────────────────────────────────────▶│
+     │                      │                          │
+     │ ④ 用户授权           │                          │
+     │◀─────────────────────────────────────────────────│
+     │                      │                          │
+     │ ⑤ 回调 callback     │                          │
+     │  (GET /callback)     │                          │
+     │─────────────────────▶│                          │
+     │                      │ ⑥ 用 authCode 换取 token  │
+     │                      │─────────────────────────▶│
+     │                      │ ⑦ 返回 accessToken+openId│
+     │                      │◀─────────────────────────│
+     │                      │                          │
+     │                      │ ⑧ 查询或创建用户         │
+     │                      │  (Feign → litisle-user)  │
+     │                      │                          │
+     │                      │ ⑨ 签发 JWT Token         │
+     │                      │  (JwtTokenProvider)      │
+     │                      │                          │
+     │ ⑩ 返回 TokenVO      │                          │
+     │◀─────────────────────│                          │
+     │                      │                          │
+```
+
+**流程说明**：
+1. 前端请求获取授权地址 → 后端生成随机 state 并缓存到 Redis（5 分钟有效）
+2. 后端返回第三方登录页面的 URL（含 state 参数）
+3. 前端 redirect 到第三方登录页
+4. 用户在第三方平台完成授权
+5. 第三方回调到后端 callback 接口，携带 authCode + state
+6. 后端校验 state（防止 CSRF），用 authCode 换取 accessToken
+7. 使用 accessToken 获取用户信息（openId、昵称、头像等）
+8. 查询 sys_oauth_binding 表：openId 已绑定 → 直接登录；未绑定 → 创建新用户或要求绑定已有账号
+9. 使用 JwtTokenProvider 签发 JWT 双 Token
+10. 返回 TokenVO 给前端，完成登录
+
+### 6.4 安全设计
+
+| 设计点 | 说明 |
+|--------|------|
+| **state 防 CSRF** | 生成随机 UUID 作为 state，缓存到 Redis（5 分钟 TTL），回调时校验并一次性删除 |
+| **JustAuth SDK** | 封装 20+ 第三方 OAuth2 平台，统一 AuthRequest 接口，屏蔽平台差异 |
+| **物理删除 + 审计** | 解绑时直接 DELETE，依赖 @AuditLog 切面记录操作日志，不保留历史 |
+| **唯一约束** | (provider, app_id, open_id) 联合唯一索引，防止重复绑定 |
+| **策略模式** | provider 参数路由到不同第三方平台，扩展新平台只需新增 provider 枚举 |
+
+### 6.5 后续开发注意事项
+
+#### ⚠️ 前置条件（必须完成）
+
+1. **解除 OAuth2Controller 和 OAuth2LoginService 的注释**
+   - 当前两个文件所有代码均被注释，仅保留骨架
+   - 解除注释后，确保 `@Service`、`@RestController` 等注解生效
+
+2. **实现 UserClient 中 OAuth 相关 Feign 接口**
+   - 需在 UserClient 中取消注释以下 4 个接口：
+     - `findByOAuth(provider, openId)` → 根据第三方标识查询已绑定的用户
+     - `createUserByOAuth(OAuthUserDTO)` → 根据第三方信息创建新用户（自动注册）
+     - `bindOAuth(userId, provider, openId, unionId)` → 绑定第三方账号
+     - `unbindOAuth(userId, provider)` → 解绑第三方账号
+   - 需在 litisle-user 模块实现对应的 Controller 和 Service 逻辑
+
+3. **配置第三方应用信息**
+   - 在 litisle-auth 的 `application.yml` 中添加 JustAuth 配置：
+   ```yaml
+   justauth:
+     enabled: true
+     type:
+       WECHAT_OPEN:
+         client-id: ${WECHAT_APP_ID}
+         client-secret: ${WECHAT_APP_SECRET}
+         redirect-uri: https://your-domain.com/v1/auth/oauth2/WECHAT_OPEN/callback
+       QQ:
+         client-id: ${QQ_APP_ID}
+         client-secret: ${QQ_APP_KEY}
+         redirect-uri: https://your-domain.com/v1/auth/oauth2/QQ/callback
+   ```
+
+4. **确认 sys_oauth_binding 表已初始化**
+   - 检查初始化 SQL 中是否包含 `sys_oauth_binding` 表的建表语句
+   - 已有初始化数据时需确认唯一索引正确
+
+#### ⚠️ 建议关注的设计点
+
+5. **OAuth2 登录后的设备会话管理**
+   - 回调成功后，应调用 `DeviceSessionManager.registerSession()` 注册设备会话
+   - 当前 OAuth2LoginService 中已预留 TODO 注释
+
+6. **第三方用户信息映射**
+   - 需要创建 `OAuthUserDTO`（或复用现有 DTO）承载第三方用户信息
+   - 映射关系：openId → 新用户账号，nickname → 用户昵称，avatar → 头像
+
+7. **绑定已有账号的用户体验**
+   - 未绑定 openId 时，有两种策略：
+     a. 自动创建新用户（静默注册，推荐）
+     b. 返回临时 token，前端引导用户`OAuthUserDTO`（或复用现有 DTO）承载第三方用户信息\n   - 映射关系：openId → 新用户账号，nickname → 用户昵称，avatar → 头像\n\n7. **绑定已有账号的用户体验**\n   - 未绑定 openId 时，有两种策略：\n     a. 自动创建新用户（静默注册，推荐）\n     b. 返回临时 token，前端引导用户选择"绑定已有账号"或"注册新账号"\n   - 当前骨架采用策略 a（回调中直接创建用户），但预留了 bind() 方法支持策略 b\n\n8. **JustAuth 版本兼容性**\n   - 当前引入 JustAuth 1.16.6，需确认与 Spring Boot 3.5.x + JDK 25 的兼容性\n   - 如遇兼容性问题，可考虑升级 JustAuth 版本或自行实现 OAuth2 流程\n\n---\n\n## 七、配置文件说明\n\n### 7.1 common 模块的 yml 文件"}]
 
 **重要**：common 模块的 yml 文件**已全部注释**，仅作配置参考模板。
 
@@ -717,7 +1090,7 @@ litisle:
 - yml 配置应由业务服务或 Nacos 提供，避免配置冲突
 - 公共库只提供"代码能力和默认值"（通过 @ConfigurationProperties 字段默认值）
 
-### 6.2 业务服务必须配置的项
+### 7.2 业务服务必须配置的项
 
 业务服务（如 litisle-content、litisle-auth）**必须**在自己的 `application.yml` 配置：
 
@@ -756,7 +1129,7 @@ litisle:
       - /api/content/comment/rich
 ```
 
-### 5.3 各模块配置归属
+### 7.3 各模块配置归属
 
 | 配置项 | 归属模块 | 说明 |
 |--------|---------|------|
@@ -768,9 +1141,9 @@ litisle:
 
 ---
 
-## 六、使用方式总览
+## 八、使用方式总览
 
-### 6.1 自动执行（引入依赖即生效）
+### 8.1 自动执行（引入依赖即生效）
 
 | 功能 | 模块 | 自动机制 |
 |------|------|---------|
@@ -785,7 +1158,7 @@ litisle:
 | 匿名白名单初始化 | common-security | `@PostConstruct` 兜底加载 |
 | 匿白名单注解扫描 | common-security | `ContextRefreshedEvent` 自动扫描 |
 
-### 6.2 声明式（加注解即生效）
+### 8.2 声明式（加注解即生效）
 
 | 注解 | 模块 | 作用 |
 |------|------|------|
@@ -797,7 +1170,7 @@ litisle:
 | `@Sensitive` | common-security | 数据脱敏（响应 JSON 自动脱敏） |
 | `@Anonymous` | common-security | 匿名访问（自动加入白名单） |
 
-### 6.3 手动调用
+### 8.3 手动调用
 
 | 类 | 模块 | 场景 |
 |----|------|------|
@@ -813,7 +1186,7 @@ litisle:
 
 ---
 
-## 七、后续开发注意事项
+## 九、后续开发注意事项
 
 ### ⚠️ 待办事项1：网关匿名白名单收集
 
@@ -868,7 +1241,7 @@ String cleanHtml = Jsoup.clean(html, safelist);
 
 ---
 
-## 八、面试亮点总结
+## 十、面试亮点总结
 
 ### 8.1 架构设计
 
@@ -898,7 +1271,7 @@ String cleanHtml = Jsoup.clean(html, safelist);
 
 ---
 
-## 九、文件清单
+## 十一、文件清单
 
 ### common-core（17 个文件）
 
@@ -929,13 +1302,16 @@ common-core/src/main/java/com/litisle/commoncore/
     └── PageUtil.java                   # 分页工具
 ```
 
-### common-redis（8 个文件）
+### common-redis（15 个文件）
 
 ```
 common-redis/src/main/java/com/litisle/commonredis/
+├── blacklist/
+│   └── TokenBlacklistService.java      # Token 黑名单服务
 ├── bloom/
 │   └── BloomFilter.java                # 布隆过滤器
 ├── config/
+│   ├── CommonRedisAutoConfiguration.java # Bean 集中注册（替代 @Component 扫描）
 │   ├── RedisConfig.java                # RedisTemplate 配置
 │   └── RedissonConfig.java             # Redisson 配置
 ├── constant/
@@ -947,6 +1323,11 @@ common-redis/src/main/java/com/litisle/commonredis/
 ├── lock/
 │   ├── DistributedLock.java            # 分布式锁接口
 │   └── RedissonLock.java               # Redisson 实现
+├── session/
+│   ├── DeviceSession.java              # 设备会话 DTO
+│   └── DeviceSessionManager.java       # 设备会话管理器（多设备限制/踢人）
+├── login/
+│   └── LoginRetryLimiter.java          # 登录重试限制器（暴力破解防护）
 └── util/
     └── RedisUtil.java                  # Redis 操作工具
 ```
@@ -1013,7 +1394,7 @@ common-security/src/main/java/com/litisle/commonsecurity/
 |------|------|
 | 一、模块总览 | 模块结构、依赖关系、核心设计原则 |
 | 二、common-core | 16 个文件的功能说明（异常/响应/常量/工具/配置/接口） |
-| 三、common-redis | 8 个文件（Redis 配置/分布式锁/布隆过滤器/幂等性） |
+| 三、common-redis | 9 个文件（Redis 配置/分布式锁/布隆过滤器/幂等性/限流/黑名单/会话管理/登录重试限制） |
 | 四、common-security | 16 个文件（上下文/角色/Feign/审计/脱敏/XSS/匿名） |
 | 五、配置文件说明 | yml 注释原因、业务服务必须配置项、配置归属 |
 | 六、使用方式总览 | **自动执行/声明式/手动调用** 三类分类 |

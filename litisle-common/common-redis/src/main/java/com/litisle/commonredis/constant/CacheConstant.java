@@ -176,10 +176,20 @@ public class CacheConstant {
 
     /**
      * 登录失败次数
-     * 格式：login:fail:{username}
-     * 用途：记录连续登录失败次数，超过5次锁定15分钟
+     * 格式：login:fail:{identifier}
+     * 用途：记录连续登录失败次数，配合 LoginRetryLimiter 使用
+     *       超过阈值后账户锁定，登录成功后通过 resetFailure() 清除
+     *       identifier 可以是 username、phone、email
      */
     public static final String LOGIN_FAIL_CNT = "login:fail:";
+
+    /**
+     * 登录锁定标记
+     * 格式：login:lock:{identifier}
+     * 用途：账户锁定标记，达到最大失败次数后 SET，TTL 到期后自动解锁
+     *       identifier 与 LOGIN_FAIL_CNT 保持一致
+     */
+    public static final String LOGIN_LOCK = "login:lock:";
 
     /**
      * 接口限流计数前缀

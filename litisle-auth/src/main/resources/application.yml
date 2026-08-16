@@ -61,3 +61,19 @@ litisle:
 #        - /api/auth/refresh
 #        - /api/content/article/list
 #        - /api/content/article/{id}
+# OAuth2 第三方登录配置
+justauth:
+  enabled: true
+  type:
+    WECHAT_OPEN:
+      client-id: ${WECHAT_OPEN_APP_ID}
+      client-secret: ${WECHAT_OPEN_APP_SECRET}
+      redirect-uri: https://your-domain.com/v1/auth/oauth2/WECHAT_OPEN/callback
+    QQ:
+      client-id: ${QQ_APP_ID}
+      client-secret: ${QQ_APP_KEY}
+      redirect-uri: https://your-domain.com/v1/auth/oauth2/QQ/callback
+    GITHUB:
+      client-id: ${GITHUB_CLIENT_ID}
+      client-secret: ${GITHUB_CLIENT_SECRET}
+      redirect-uri: https://your-domain.com/v1/auth/oauth2/GITHUB/callback
