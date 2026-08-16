@@ -19,6 +19,11 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
  * - BCrypt：不可逆，用于密码存储（只验不解密）
  * - AES-256-GCM：可逆，用于手机号/邮箱等需要展示的字段
  *
+ * 【为什么封装】
+ * 1. 解耦：业务代码不直接依赖 BCryptPasswordEncoder，未来换 Argon2/scrypt 只需改内部
+ * 2. 统一入口：团队只需知道 encode()/matches()，不需要了解 Spring Security API
+ * 3. 扩展点：如需加密码强度校验、历史密码去重，直接在 encode() 里加，不用改业务代码
+ *
  * @author litisle
  */
 public class PasswordCrypto {

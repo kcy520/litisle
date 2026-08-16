@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
 
+
 /**
  * AES-256-GCM 加密/解密工具类
  *
@@ -40,12 +41,44 @@ import java.util.Base64;
 @Slf4j
 public class Aes256GcmCrypto {
 
+
+//    private static final String ALGORITHM = "AES/GCM/NoPadding";//algorithm
+//    private static final int IV_LENGTH = 12;
+//    private static final int TAG_LENGTH = 128; // 16 字节
+//    private static final int KEY_SIZE = 256;
+
+    /**
+     * AES/GCM/NoPadding
+     * - AES：算法
+     * - GCM：认证加密模式（防篡改）
+     * - NoPadding：不填充（GCM 不需要）
+     */
     private static final String ALGORITHM = "AES/GCM/NoPadding";
+
+    /**
+     * IV（随机数）长度：12 字节（96 bit）
+     * GCM 官方推荐值，安全 + 性能最优
+     * 每次加密必须不同
+     */
     private static final int IV_LENGTH = 12;
-    private static final int TAG_LENGTH = 128; // 16 字节
+
+    /**
+     * 认证标签长度：128 bit（16 字节）
+     * 用于校验密文是否被篡改
+     * 等价于 HMAC
+     */
+    private static final int TAG_LENGTH = 128;
+
+    /**
+     * 密钥长度：256 bit（32 字节）
+     * 当前行业/等保/支付级最低要求
+     */
     private static final int KEY_SIZE = 256;
 
     private final SecretKey secretKey;
+
+
+
 
     /**
      * 构造器：通过 Base64 编码的密钥字符串初始化
@@ -98,6 +131,7 @@ public class Aes256GcmCrypto {
      * @throws BizException 加密失败时抛出 ENCRYPTION_ERROR
      */
     public String encrypt(String plainText) {
+
         try {
             byte[] iv = generateIv();
             Cipher cipher = Cipher.getInstance(ALGORITHM);
@@ -116,6 +150,7 @@ public class Aes256GcmCrypto {
             log.error("AES-256-GCM 加密失败", e);
             throw new BizException(ErrorCode.ENCRYPTION_ERROR, "加密失败: " + e.getMessage());
         }
+
     }
 
     /**
@@ -146,6 +181,7 @@ public class Aes256GcmCrypto {
             cipher.init(Cipher.DECRYPT_MODE, secretKey, spec);
 
             byte[] plainText = cipher.doFinal(cipherText);
+
             return new String(plainText, StandardCharsets.UTF_8);
         } catch (Exception e) {
             log.error("AES-256-GCM 解密失败", e);
@@ -168,9 +204,20 @@ public class Aes256GcmCrypto {
             String decrypted = decrypt(encryptedData);
             return decrypted.equals(plainText);
         } catch (Exception e) {
+            log.warn("AES-256-GCM 解密匹配失败，可能是密钥错误或密文被篡改", e);
             return false;
         }
     }
+//    public boolean matches(String plainText, String encryptedData) {
+//        try {
+//            return decrypt(encryptedData).equals(plainText);
+//        } catch (javax.crypto.AEADBadTagException e) {
+//            return false;
+//        } catch (Exception e) {
+//            log.error("AES matches 非预期失败，密文={}", encryptedData, e);
+//            throw new BizException(ErrorCode.ENCRYPTION_ERROR, "数据校验失败");
+//        }
+//    }
 
     /**
      * 生成随机 IV（Initialization Vector）

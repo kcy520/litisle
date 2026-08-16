@@ -1,7 +1,122 @@
+# ====================================================================
+# LitIsle 网关配置
+# ====================================================================
+
+# ====== 服务配置 ======
+server:
+  port: 8080
+
+spring:
+  application:
+    name: litisle-gateway
+
+  main:
+    # WebFlux 应用，不允许存在 WebMVC 的冲突 Bean
+    web-application-type: reactive
+
+  cloud:
+    gateway:
+      # 全局默认过滤器
+      default-filters:
+        # 移除响应头中的 Server 信息（安全加固）
+        - RemoveResponseHeader=Server
+        - RemoveResponseHeader=X-Powered-By
+
+      routes:
+        # ---------- 认证服务 ----------
+        - id: litisle-auth
+          uri: lb://litisle-auth
+          predicates:
+            - Path=/api/auth/**
+
+        # ---------- 用户服务 ----------
+        - id: litisle-user
+          uri: lb://litisle-user
+          predicates:
+            - Path=/api/user/**
+
+        # ---------- 内容服务 ----------
+        - id: litisle-content
+          uri: lb://litisle-content
+          predicates:
+            - Path=/api/content/**
+
+        # ---------- 社交服务 ----------
+        - id: litisle-social
+          uri: lb://litisle-social
+          predicates:
+            - Path=/api/social/**
+
+        # ---------- 支付服务 ----------
+        - id: litisle-payment
+          uri: lb://litisle-payment
+          predicates:
+            - Path=/api/payment/**
+
+        # ---------- 商城服务 ----------
+        - id: litisle-shop
+          uri: lb://litisle-shop
+          predicates:
+            - Path=/api/shop/**
+
+        # ---------- 审核服务 ----------
+        - id: litisle-review
+          uri: lb://litisle-review
+          predicates:
+            - Path=/api/review/**
+
+        # ---------- 文件服务 ----------
+        - id: litisle-file
+          uri: lb://litisle-file
+          predicates:
+            - Path=/api/file/**
+
+        # ---------- AI 服务 ----------
+        - id: litisle-ai
+          uri: lb://litisle-ai
+          predicates:
+            - Path=/api/ai/**
+
+        # ---------- 通知服务 ----------
+        - id: litisle-notification
+          uri: lb://litisle-notification
+          predicates:
+            - Path=/api/notification/**
+
+        # ---------- 搜索服务 ----------
+        - id: litisle-search
+          uri: lb://litisle-search
+          predicates:
+            - Path=/api/search/**
+
+# ====== JWT 认证配置 ======
+# 【说明】网关通过此配置校验 JWT 令牌，提取用户信息注入下游请求 Header
 litisle:
   security:
+    jwt:
+      # JWT 签名密钥（HMAC-SHA256，至少 256 bit = 32 字符）
+      # 生产环境通过环境变量 JWT_SECRET 注入，禁止硬编码
+      secret: ${JWT_SECRET:LitIsle-Default-JWT-Secret-Key-Change-In-Production!}
+      # Access Token 有效期（秒），默认 30 分钟
+      access-token-expire: 1800
+      # 记住我模式 Access Token 有效期（秒），默认 7 天
+      remember-me-expire: 604800
+
+    # ====== 匿名访问白名单 ======
+    # 【说明】这些路径跳过 JWT 校验，直接放行
     anonymous:
-      paths:                           # ??????????? JWT
-        - /api/auth/login
-        - /api/auth/register
-        - /api/auth/captcha
+      paths:
+        - /api/auth/login            # 登录
+        - /api/auth/register         # 注册
+        - /api/auth/captcha          # 图形验证码
+        - /api/auth/oauth/**         # OAuth2 第三方登录
+        - /api/auth/refresh          # 刷新 Token
+        - /api/content/article/list  # 公开文章列表
+        - /api/content/article/{id}  # 公开文章详情
+        - /actuator/**               # 健康检查（生产环境需限制）
+
+# ====== 日志配置 ======
+logging:
+  level:
+    com.litisle.litislegateway: DEBUG
+    com.litisle.commoncore: INFO

@@ -69,6 +69,8 @@
         <knife4j>4.5.0</knife4j>
         <!--redission-->
         <redisson.version>3.52.0</redisson.version>
+        <!-- JJWT -->
+        <jjwt.version>0.12.6</jjwt.version>
 
     </properties>
 
@@ -132,6 +134,25 @@
                 <groupId>org.redisson</groupId>
                 <artifactId>redisson</artifactId>
                 <version>${redisson.version}</version>
+            </dependency>
+
+            <!-- JJWT（JWT 令牌签发与验证） -->
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-api</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-impl</artifactId>
+                <version>${jjwt.version}</version>
+                <scope>runtime</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-jackson</artifactId>
+                <version>${jjwt.version}</version>
+                <scope>runtime</scope>
             </dependency>
 
         </dependencies>

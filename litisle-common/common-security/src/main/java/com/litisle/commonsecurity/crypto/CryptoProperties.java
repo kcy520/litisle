@@ -2,7 +2,6 @@ package com.litisle.commonsecurity.crypto;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /**
  * 数据加密配置类
@@ -23,15 +22,16 @@ import org.springframework.stereotype.Component;
  * @author litisle
  */
 @Data
-@Component
 @ConfigurationProperties(prefix = "litisle.security.crypto")
 public class CryptoProperties {
 
-    /**
-     * AES-256 密钥（必须 32 字符 = 256 bit）
+        /**
+     * AES-256 密钥（Base64 编码的 32 字节密钥 = 256 bit）
      * 生产环境通过环境变量 LITISLE_CRYPTO_KEY 注入
+     * 默认值仅用于开发环境兜底，生产环境必须配置否则启动报错（Fail-Fast）
      */
-    private String key = "change-this-to-32-character-key-in-prod";
+//    private String key = "AAAAAAAAAAAAAAAAAAAAAA";
+        private String key = "change-this-to-32-character-key-in-prod";
 
     /**
      * BCrypt 强度因子（默认 10，范围 4-31）

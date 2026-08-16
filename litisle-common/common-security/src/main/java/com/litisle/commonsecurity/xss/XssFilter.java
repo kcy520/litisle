@@ -59,6 +59,7 @@ public class XssFilter {
      * 这个 yml 是「业务模块 / 业务服务」自己的 application.yml​
      * 【注入方式】用 @Autowired 字段注入，避免 @Configuration + 构造器注入 @Component 的加载顺序问题
      */
+    //todo 编译报错
     @Autowired
     private XssProperties xssProperties;
 

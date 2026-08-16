@@ -21,18 +21,20 @@
 #        - /api/content/article/{id} # 公开文章详情
 #        - /actuator/**              # 健康检查（生产环境需限制）
 #
-#    # ----------------------- 认证配置（litisle-auth 使用） -----------------------
+#    # ----------------------- JWT 令牌配置（JwtTokenProvider 使用） -----------------------
+#    # 【说明】JwtTokenProvider 实现在 common-core 模块，网关和业务服务共用
+#    # 网关：litisle-gateway 配置此段，用于 JWT 校验
+#    # 业务服务（如 litisle-auth）：配置此段，用于 JWT 签发
+#    # 密钥必须一致，否则网关校验失败
 #    jwt:
-#      # JWT 密钥（HS256，至少 256 bit，建议 32 字符以上）
-#      # 生产环境通过环境变量注入，不硬编码
-#      secret: ${JWT_SECRET:litisle-secret-key-at-least-256-bits-please-change-in-prod}
-#      # 普通模式 Access Token 有效期（秒），默认 30 分钟
+#      # JWT 密钥（HMAC-SHA256，至少 256 bit = 32 字符）
+#      # 生产环境通过环境变量 JWT_SECRET 注入，禁止硬编码
+#      secret: ${JWT_SECRET:your-256-bit-secret-key-here}
+#      # Access Token 有效期（秒），默认 30 分钟
 #      access-token-expire: 1800
 #      # 记住我模式 Access Token 有效期（秒），默认 7 天
 #      # 【说明】登录接口接收 rememberMe 参数，为 true 时使用此 TTL
 #      remember-me-expire: 604800
-#      # Refresh Token 有效期（秒），默认 7 天
-#      refresh-token-expire: 604800
 #
 #    # ----------------------- 会话配置（限制同时登录数） -----------------------
 #    session:

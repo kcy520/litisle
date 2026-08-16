@@ -46,6 +46,13 @@ common-security ❌ 不依赖 common-redis
 | 类 | 类型 | 说明 |
 |----|------|------|
 | `ErrorCode` | 枚举 | 全局错误码定义（按模块分段：10000-通用、20000-用户、30000-内容...） |
+
+**新增 JWT 错误码**：
+| 错误码 | 枚举名 | 说明 |
+|--------|--------|------|
+| 10008 | `TOKEN_EXPIRED` | Token 已过期，需重新登录 |
+| 10009 | `TOKEN_INVALID` | Token 无效（格式错误/签名不匹配/被篡改） |
+| 10010 | `TOKEN_BLACKLISTED` | Token 已被加入黑名单（用户主动退出/管理员踢人） |
 | `BizException` | 运行时异常 | 业务异常，携带 ErrorCode，由全局处理器捕获 |
 | `GlobalExceptionHandler` | @RestControllerAdvice | 统一异常处理，转换为 Result 响应 |
 | `Assert` | 工具类 | 业务断言工具，断言失败自动抛出 BizException |
@@ -97,6 +104,7 @@ return Result.success(new PageResult<>(records, total, page, size));
 |----|------|
 | `CommonConstant` | 通用常量（缓存前缀、分隔符等） |
 | `HeaderConstant` | HTTP Header 常量（X-User-Id、X-Username、X-Roles、X-User-Permissions、X-Token-Id、X-Trace-Id） |
+| `JwtConstant` | JWT 常量（Claims 名称、Authorization Header 名称、Bearer 前缀等） |
 | `DelFlagEnum` | 逻辑删除标志（0-正常、1-删除） |
 | `StatusEnum` | 状态枚举（启用/禁用） |
 
@@ -115,7 +123,58 @@ return Result.success(new PageResult<>(records, total, page, size));
 | `JacksonConfig` | Jackson 全局配置（Long 转字符串防精度丢失、日期格式、XSS 反序列化器注册） | **自动执行**，业务服务引入依赖即生效 |
 | `MyBatisPlusConfig` | MyBatis-Plus 配置（分页插件、自动填充、逻辑删除） | **自动执行**，业务服务引入依赖即生效 |
 
-### 2.6 依赖倒置接口
+### 2.6 JWT 令牌提供者
+
+| 类 | 说明 | 使用方式 |
+|----|------|---------|
+| `JwtConstant` | JWT 常量（Claims 名称、Header 名称、Bearer 前缀等） | 手动引用 |
+| `JwtProperties` | JWT 配置属性（密钥、有效期等），绑定 `litisle.security.jwt.*` | **自动绑定**（@ConfigurationProperties） |
+| `JwtTokenProvider` | JWT 令牌提供者（签发/验证/解析令牌） | **自动注入**（由 `JwtAutoConfiguration` 创建 Bean） |
+| `JwtAutoConfiguration` | JWT 自动配置类（`@ConditionalOnProperty`，仅配置 secret 时创建） | **自动执行** |
+
+**设计说明**：
+- JWT 相关类放在 `common-core` 模块，而非 `common-security`，因为网关（WebFlux）无法依赖 `common-security`（后者依赖 Servlet API）
+- `JwtTokenProvider` 使用 HMAC-SHA256（HS256）对称签名算法，无额外依赖
+- 网关和 `litisle-auth` 共用同一密钥，网关校验、auth 签发
+
+**使用方式**：
+
+```java
+// ====== litisle-auth：登录成功后签发令牌 ======
+@Autowired
+private JwtTokenProvider jwtTokenProvider;
+
+public TokenVO login(LoginDTO dto) {
+    // 验证用户名密码...
+    String token = jwtTokenProvider.createToken(userId, username, roles, permissions, rememberMe);
+    return new TokenVO(token, expiresIn);
+}
+
+// ====== 网关：JwtAuthGlobalFilter 自动校验令牌 ======
+// 无需手动调用，由过滤器自动完成
+```
+
+**JWT 令牌结构**：
+```json
+{
+  "iss": "LitIsle",
+  "sub": "用户ID",
+  "userId": "用户ID",
+  "username": "用户名",
+  "roles": "ADMIN,READER",
+  "permissions": "article:publish,comment:delete",
+  "jti": "UUID（令牌唯一标识）",
+  "iat": 签发时间,
+  "exp": 过期时间
+}
+```
+
+**⚠️ 注意事项**：
+- 密钥必须 `≥ 256 bit（32 字符）`，启动时校验（Fail-Fast）
+- 网关和 auth 服务的 `litisle.security.jwt.secret` 必须一致，否则网关校验失败
+- 每次签发生成唯一 `jti`（JWT ID），用于黑名单踢人
+
+### 2.7 依赖倒置接口
 
 | 类 | 说明 |
 |----|------|
@@ -248,6 +307,7 @@ return count
 |----|------|---------|
 | `SecurityContext` | 安全上下文（userId、username、roles、permissions、tokenId、traceId、authenticated） | 内部使用 |
 | `SecurityContextHolder` | ThreadLocal 上下文持有者 | 手动调用 `getUserId()` / `getRoles()` / `getPermissions()` / `getTraceId()` / `getTokenId()` |
+| `SecurityContextFilter` | Servlet Filter，从网关注入的 Header 读取用户信息，构建 SecurityContext 并写入 ThreadLocal | **自动执行**（`@Order(HIGHEST_PRECEDENCE + 10)`） |
 
 **使用方式**：业务代码通过 `SecurityContextHolder` 获取当前登录用户。
 
@@ -258,9 +318,22 @@ String traceId = SecurityContextHolder.getTraceId();
 String tokenId = SecurityContextHolder.getTokenId();
 ```
 
+**SecurityContextFilter 工作流程**：
+```
+网关校验 JWT → 注入 Header（X-User-Id, X-Roles, ...）
+  → 业务服务接收请求
+    → SecurityContextFilter（@Order 最高优先级）
+      ├─ Header 有用户信息 → 构建认证 SecurityContext（userId=xxx, roles=[ADMIN]）
+      ├─ Header 无用户信息 → 构建匿名 SecurityContext（userId=null, roles=[ANONYMOUS]）
+      └─ 写入 SecurityContextHolder（ThreadLocal）
+        → 业务代码通过 SecurityContextHolder.getContext() 获取
+          → finally 块中 SecurityContextHolder.clear() 清理 ThreadLocal
+```
+
 **⚠️ 注意事项**：
-- 基于 ThreadLocal，请求结束必须清理（由 Filter/Interceptor 负责）
+- 基于 ThreadLocal，Filter 的 `finally` 块中自动清理，无需业务代码关心
 - 网关已校验 JWT，业务服务从 Header 读取用户信息构建上下文
+- 匿名请求也构建上下文（`roles=[ANONYMOUS]`），业务代码可通过 `isAuthenticated()` 判断
 - `tokenId` 用于踢人/黑名单场景，`traceId` 用于链路追踪
 
 ### 4.2 登录与权限校验
@@ -563,9 +636,79 @@ if (!matches) {
 
 ---
 
-## 五、配置文件说明
+## 五、网关安全模块（litisle-gateway）
 
-### 5.1 common 模块的 yml 文件
+### 5.1 网关 JWT 认证过滤器
+
+| 类 | 说明 | 使用方式 |
+|----|------|---------|
+| `JwtAuthGlobalFilter` | Spring Cloud Gateway GlobalFilter，拦截所有请求进行 JWT 校验 | **自动执行**（`@Order(-200)`，最高优先级） |
+| `GatewayJwtProperties` | 网关 JWT 配置属性，绑定 `litisle.security.anonymous.*` | **自动绑定** |
+| `GatewayFilterConfig` | 网关过滤器配置，将匿名路径列表暴露为 Bean | **自动执行** |
+
+**设计说明**：
+- 网关是微服务架构的**统一入口**，所有请求首先经过网关
+- `JwtAuthGlobalFilter` 在所有路由转发之前执行（`@Order(-200)`）
+- 使用 `JwtTokenProvider`（来自 common-core）校验令牌，不重复实现 JWT 解析逻辑
+- 白名单路径跳过 JWT 校验，由 `GatewayJwtProperties` 从 yml 读取
+
+**执行流程**：
+```
+客户端请求 → JwtAuthGlobalFilter
+  ├─ 白名单路径？ → 是 → 放行（追加 traceId）
+  ├─ 否 → 提取 Authorization: Bearer xxx
+  │   ├─ 无 Token → 返回 401 {"code":10002,"message":"缺少认证令牌"}
+  │   └─ 解析 Token（JwtTokenProvider.parseToken）
+  │       ├─ 解析失败 → 返回 401（TOKEN_EXPIRED / TOKEN_INVALID）
+  │       └─ 解析成功 → 注入 Header（X-User-Id, X-Roles, ...）→ 放行
+```
+
+**注入下游 Header 列表**：
+| Header | 来源 | 说明 |
+|--------|------|------|
+| `X-User-Id` | JWT Claims `userId` | 用户ID |
+| `X-Username` | JWT Claims `username` | 用户名 |
+| `X-Roles` | JWT Claims `roles` | 角色列表（逗号分隔） |
+| `X-User-Permissions` | JWT Claims `permissions` | 权限列表（逗号分隔） |
+| `X-Token-Id` | JWT `jti` | 令牌唯一标识 |
+| `X-Trace-Id` | 请求头或新生成 | 链路追踪ID |
+
+**网关 application.yml 配置示例**：
+```yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: litisle-auth
+          uri: lb://litisle-auth
+          predicates:
+            - Path=/api/auth/**
+        # ... 其他路由
+
+litisle:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:your-256-bit-secret-key-here}
+      access-token-expire: 1800
+      remember-me-expire: 604800
+    anonymous:
+      paths:
+        - /api/auth/login
+        - /api/auth/register
+        - /api/auth/captcha
+        - /actuator/**
+```
+
+**⚠️ 注意事项**：
+- 网关使用 WebFlux（响应式），不依赖 Servlet API
+- 匿名白名单通过 yml 配置，网关无法使用 `@Anonymous` 注解扫描（依赖 Spring MVC）
+- 网关和 auth 服务的 `litisle.security.jwt.secret` 必须一致
+
+---
+
+## 六、配置文件说明
+
+### 6.1 common 模块的 yml 文件
 
 **重要**：common 模块的 yml 文件**已全部注释**，仅作配置参考模板。
 
@@ -574,7 +717,7 @@ if (!matches) {
 - yml 配置应由业务服务或 Nacos 提供，避免配置冲突
 - 公共库只提供"代码能力和默认值"（通过 @ConfigurationProperties 字段默认值）
 
-### 5.2 业务服务必须配置的项
+### 6.2 业务服务必须配置的项
 
 业务服务（如 litisle-content、litisle-auth）**必须**在自己的 `application.yml` 配置：
 
@@ -586,6 +729,17 @@ litisle:
       paths:
         - /actuator/**              # 健康检查
         - /static/**                # 静态资源（无法加注解的场景）
+
+    # ====== JWT 令牌配置（common-core JwtTokenProvider） ======
+    # 【说明】网关和 auth 服务的密钥必须一致，否则校验失败
+    jwt:
+      # HMAC-SHA256 密钥（至少 256 bit = 32 字符）
+      # 生产环境通过环境变量 JWT_SECRET 注入
+      secret: ${JWT_SECRET:your-256-bit-secret-key-here}
+      # Access Token 有效期（秒），默认 30 分钟
+      access-token-expire: 1800
+      # 记住我模式有效期（秒），默认 7 天
+      remember-me-expire: 604800
 
     # ====== 数据加密配置（common-security） ======
     crypto:

@@ -73,6 +73,21 @@ public enum ErrorCode {
      */
     ENCRYPTION_ERROR(10007, "加密解密失败"),
 
+    /**
+     * Token 已过期（JWT 超过 expiration 时间）
+     */
+    TOKEN_EXPIRED(10008, "登录已过期，请重新登录"),
+
+    /**
+     * Token 无效（格式错误、签名不匹配、被篡改等）
+     */
+    TOKEN_INVALID(10009, "令牌无效"),
+
+    /**
+     * Token 已被加入黑名单（用户主动退出或管理员踢人）
+     */
+    TOKEN_BLACKLISTED(10010, "令牌已被吊销"),
+
     // ==================== 用户模块 20000-29999 ====================
     /**
      * 用户不存在
@@ -199,6 +214,8 @@ public enum ErrorCode {
      */
     REVIEW_REJECTED(70002, "审核未通过");
 
+
+
     /**
      * 错误码
      */
@@ -208,4 +225,27 @@ public enum ErrorCode {
      * 错误消息
      */
     private final String message;
+
+    /**
+     * 根据错误码数值查找对应的枚举常量
+     *
+     * 【设计说明】
+     * 1. 企业规范：提供 code → enum 的反查能力，用于 BizException(code) 构造后恢复 ErrorCode 引用
+     * 2. 使用场景：JwtAuthGlobalFilter 捕获 BizException 后，通过 e.getCode() 获取错误码数值，
+     *    再用此方法还原 ErrorCode 枚举，传递给 unauthorized() 方法
+     * 3. 性能：枚举值通常较少，遍历查找开销可忽略
+     *
+     * @param code 错误码数值（如 10008、20001）
+     * @return 匹配的 ErrorCode 枚举常量
+     * @throws IllegalArgumentException 未找到匹配的枚举时抛出（运行时异常，不应发生）
+     */
+    public static ErrorCode getByCode(int code) {
+        for (ErrorCode errorCode : ErrorCode.values()) {
+            if (errorCode.getCode() == code) {
+                return errorCode;
+            }
+        }
+        // 未找到匹配的枚举，返回兜底错误码而非抛异常
+        return SYSTEM_ERROR;
+    }
 }
