@@ -70,6 +70,9 @@ Spring Cloud版本：2025.0.0.0
 | Design-Document.md | 总体架构 + 分模块架构（文本量大，按需查阅） |
 | Function-Document.md | LitIsle 功能设计文档 |
 | Sql-Document.md | 数据库表 SQL |
+| \Auth-Module-Development-Plan.md | 当前auth模块开发规划 |
+
+
 
 ## 八、常用命令（Windows / Win11）
 

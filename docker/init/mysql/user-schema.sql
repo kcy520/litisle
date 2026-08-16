@@ -186,34 +186,34 @@ create table if not exists `sys_oauth_binding`
 # ============================================================
 
 -- 1. READER 读者
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1001, 'reader_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010001', '热爱阅读的普通用户', 1, 0, NOW());
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`,`avatar_color`)
+VALUES (1001, 'reader_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010001', '热爱阅读的普通用户', 1, 0, NOW(),0);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1001, `id` FROM `sys_role` WHERE `role_code` = 'READER';
 
-INSERT INTO `sys_user_profile` (`user_id`, `avatar_color`)
-VALUES (1001, 0);
+INSERT INTO `sys_user_profile` (`user_id`)
+VALUES (1001);
 
 -- 2. AUTHOR 作家
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1002, 'author_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010002', '专注科幻小说创作', 1, 0, NOW());
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
+VALUES (1002, 'author_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010002', '专注科幻小说创作', 1, 0, NOW(),1);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1002, `id` FROM `sys_role` WHERE `role_code` = 'AUTHOR';
 
-INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`, `avatar_color`)
-VALUES (1002, '红袖添香', '科幻 / 奇幻', '《星海归途》系列', 1);
+INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`)
+VALUES (1002, '红袖添香', '科幻 / 奇幻', '《星海归途》系列');
 
 -- 3. LEGACY_AUTHOR 纪念作家
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1003, 'legacy_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010003', '已故文学巨匠，作品永久珍藏', 1, 0, NOW());
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
+VALUES (1003, 'legacy_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010003', '已故文学巨匠，作品永久珍藏', 1, 0, NOW(),2);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1003, `id` FROM `sys_role` WHERE `role_code` = 'LEGACY_AUTHOR';
 
-INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`, `avatar_color`)
-VALUES (1003, '老舍', '现实主义文学', '《骆驼祥子》《茶馆》', 2);
+INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`)
+VALUES (1003, '老舍', '现实主义文学', '《骆驼祥子》《茶馆》');
 
 -- 4. REVIEWER 审核员
 INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
@@ -222,8 +222,8 @@ VALUES (1004, 'reviewer_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgK
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1004, `id` FROM `sys_role` WHERE `role_code` = 'REVIEWER';
 
-INSERT INTO `sys_user_profile` (`user_id`, `avatar_color`)
-VALUES (1004, 0);
+INSERT INTO `sys_user_profile` (`user_id`)
+VALUES (1004);
 
 -- 5. ADMIN 管理员
 INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
@@ -232,8 +232,8 @@ VALUES (1005, 'admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1005, `id` FROM `sys_role` WHERE `role_code` = 'ADMIN';
 
-INSERT INTO `sys_user_profile` (`user_id`, `avatar_color`)
-VALUES (1005, 0);
+INSERT INTO `sys_user_profile` (`user_id`)
+VALUES (1005);
 
 -- 6. SUPER_ADMIN 超级管理员
 INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
@@ -242,5 +242,5 @@ VALUES (1006, 'super_admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1r
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1006, `id` FROM `sys_role` WHERE `role_code` = 'SUPER_ADMIN';
 
-INSERT INTO `sys_user_profile` (`user_id`, `avatar_color`)
-VALUES (1006, 0);
+INSERT INTO `sys_user_profile` (`user_id`)
+VALUES (1006);
