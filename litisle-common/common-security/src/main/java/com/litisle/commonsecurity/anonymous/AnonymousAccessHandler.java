@@ -39,7 +39,6 @@ import java.util.Set;
  * @author litisle
  */
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class AnonymousAccessHandler {
 

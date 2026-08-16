@@ -1,9 +1,8 @@
-package com.litisle.commonsecurity.aspect;
+package com.litisle.commonsecurity.login;
 
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
-import com.litisle.commonsecurity.annotation.Anonymous;
-import com.litisle.commonsecurity.annotation.Login;
+import com.litisle.commonsecurity.anonymous.Anonymous;
 import com.litisle.commonsecurity.context.SecurityContext;
 import com.litisle.commonsecurity.context.SecurityContextHolder;
 import lombok.extern.slf4j.Slf4j;
@@ -78,7 +77,7 @@ public class LoginAspect {
      * @param joinPoint 连接点
      * @param login     注解对象（类级别）
      */
-    @Before("@within(login) && !@annotation(com.litisle.commonsecurity.annotation.Login)")
+    @Before("@within(login) && !@annotation(com.litisle.commonsecurity.login.Login)")
     public void checkClassLogin(JoinPoint joinPoint, Login login) {
         // 方法级 @Anonymous 优先，跳过登录校验
         if (isAnonymous(joinPoint)) {

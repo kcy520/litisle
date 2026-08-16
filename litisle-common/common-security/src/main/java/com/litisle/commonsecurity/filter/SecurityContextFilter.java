@@ -12,8 +12,6 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 
 import java.io.IOException;
@@ -117,32 +115,7 @@ public class SecurityContextFilter implements Filter {
         }
     }
 
-    /**
-     * 注册 SecurityContextFilter
-     *
-     * 【设计说明】
-     * 1. 使用 @Configuration + FilterRegistrationBean 注册，与 XssFilter 写法一致
-     * 2. 拦截 /api/* 路径，排除 actuator、静态资源等
-     * 3. 设置最高优先级，在业务切面之前执行
-     * 4. 与 XssFilter 的顺序关系：
-     *    - SecurityContextFilter (Ordered.HIGHEST_PRECEDENCE + 10) 先执行
-     *    - XssFilter (order=1) 后执行
-     *    - 顺序：认证上下文 → XSS 清洗 → 业务逻辑
-     */
-    @Configuration
-    public static class SecurityContextFilterConfig {
 
-        @Bean
-        public FilterRegistrationBean<SecurityContextFilter> securityContextFilterRegistration(
-                AnonymousAccessHandler anonymousAccessHandler) {
-            FilterRegistrationBean<SecurityContextFilter> registration = new FilterRegistrationBean<>();
-            registration.setFilter(new SecurityContextFilter(anonymousAccessHandler));
-            registration.addUrlPatterns("/api/*");
-            registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
-            registration.setName("securityContextFilter");
-            return registration;
-        }
-    }
 
     /**
      * 解析逗号分隔的字符串为 Set
@@ -161,3 +134,4 @@ public class SecurityContextFilter implements Filter {
                 .collect(Collectors.toSet());
     }
 }
+

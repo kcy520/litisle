@@ -1,4 +1,4 @@
-package com.litisle.commonsecurity.annotation;
+package com.litisle.commonsecurity.anonymous;
 
 
 import java.lang.annotation.ElementType;

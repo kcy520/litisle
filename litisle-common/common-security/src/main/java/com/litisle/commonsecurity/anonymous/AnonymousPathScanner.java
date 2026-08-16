@@ -1,6 +1,5 @@
 package com.litisle.commonsecurity.anonymous;
 
-import com.litisle.commonsecurity.annotation.Anonymous;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationListener;

@@ -7,7 +7,7 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -52,21 +52,24 @@ import java.io.IOException;
  */
 @Slf4j
 @Configuration
+@EnableConfigurationProperties(XssProperties.class)
 public class XssFilter {
 
     /**
      * XSS 配置（读取 yml 的 litisle.xss.* 配置）
      * 这个 yml 是「业务模块 / 业务服务」自己的 application.yml​
-     * 【注入方式】用 @Autowired 字段注入，避免 @Configuration + 构造器注入 @Component 的加载顺序问题
+     * 【注入方式】构造器注入，@Configuration 类中字段注入可能导致 CGLIB 代理问题
      */
-    //todo 编译报错
-    @Autowired
-    private XssProperties xssProperties;
+    private final XssProperties xssProperties;
 
     /**
      * Ant 路径匹配器（线程安全，全局复用）
      */
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
+
+    public XssFilter(XssProperties xssProperties) {
+        this.xssProperties = xssProperties;
+    }
 
     /**
      * 注册 XSS 过滤器
