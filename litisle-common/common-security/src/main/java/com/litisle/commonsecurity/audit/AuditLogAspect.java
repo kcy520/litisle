@@ -2,7 +2,6 @@ package com.litisle.commonsecurity.audit;
 
 
 import com.litisle.commonsecurity.context.SecurityContextHolder;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -53,7 +52,6 @@ import java.util.Map;
  */
 @Slf4j
 @Aspect
-@Component
 @RequiredArgsConstructor
 public class AuditLogAspect {
 

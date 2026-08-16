@@ -43,14 +43,20 @@ public class SecurityContextFilterConfig {
         return new AnonymousAccessHandler(anonymousProperties);
     }
 
+    /**
+     * 用 Java 代码把 SecurityContextFilter 装进 Web 容器并精确控制拦截路径和顺序”的入口。
+     * @param anonymousAccessHandler
+     * @return
+     */
     @Bean
     public FilterRegistrationBean<SecurityContextFilter> securityContextFilterRegistration(
-            AnonymousAccessHandler anonymousAccessHandler) {
+            AnonymousAccessHandler anonymousAccessHandler) {                         // 从容器中注入匿名处理器（白名单逻辑）
         FilterRegistrationBean<SecurityContextFilter> registration = new FilterRegistrationBean<>();
-        registration.setFilter(new SecurityContextFilter(anonymousAccessHandler));
-        registration.addUrlPatterns("/api/*");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
-        registration.setName("securityContextFilter");
-        return registration;
+        registration.setFilter(new SecurityContextFilter(anonymousAccessHandler));     // 手动 new Filter，把匿名规则传进去（不走组件扫描）
+        //todo 所有“代表用户身份的业务接口” → 必须 /api 开头
+        registration.addUrlPatterns("/api/*");                                        // 只拦截业务接口，不碰 actuator/静态资源
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);                       // 优先级极高，保证在 XSS/业务切面之前构建安全上下文
+        registration.setName("securityContextFilter");                                // Filter 名称，便于日志/排查
+        return registration;                                                          // 交给 Servlet 容器注册
     }
 }

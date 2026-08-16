@@ -43,7 +43,6 @@ import java.util.Set;
  */
 @Slf4j
 @Aspect
-@Component
 public class RoleCheckAspect {
 
     /**

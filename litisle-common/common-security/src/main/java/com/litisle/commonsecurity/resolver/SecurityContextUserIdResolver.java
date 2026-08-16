@@ -27,13 +27,12 @@ import org.springframework.stereotype.Component;
  *
  * 【自动装配流程】
  * 1. 业务服务引入 common-redis 和 common-security
- * 2. Spring 扫描到 SecurityContextUserIdResolver（@Component）
+ * 2. CommonSecurityAutoConfiguration 注册 SecurityContextUserIdResolver（@Bean）
  * 3. IdempotentAspect 的 @Autowired(required=false) 注入此实现
  * 4. 切面调用 resolveUserId() → 实际调用 SecurityContextHolder.getUserId()
  *
  * @author litisle
  */
-@Component
 public class SecurityContextUserIdResolver implements UserIdResolver {
 
     /**

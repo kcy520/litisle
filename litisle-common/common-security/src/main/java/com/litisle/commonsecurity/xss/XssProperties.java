@@ -32,7 +32,6 @@ import java.util.List;
  * @author litisle
  */
 @Data
-@Component
 @ConfigurationProperties(prefix = "litisle.xss")
 public class XssProperties {
 

@@ -46,7 +46,6 @@ import java.util.Set;
  * @author litisle
  */
 @Slf4j
-@Component
 public class FeignAuthInterceptor implements RequestInterceptor {
 
     /**

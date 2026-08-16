@@ -38,7 +38,6 @@ import java.util.List;
  * @author litisle
  */
 @Data
-@Component
 @ConfigurationProperties(prefix = "litisle.security.anonymous")
 public class AnonymousProperties {
 

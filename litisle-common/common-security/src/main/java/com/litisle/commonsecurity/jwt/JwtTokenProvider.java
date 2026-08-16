@@ -126,19 +126,19 @@ public class JwtTokenProvider {
         Date expiration = new Date(now.getTime() + expireMs);
 
         return Jwts.builder()
-                .issuer(ISSUER)
-                .subject(String.valueOf(userId))
-                .claim(JwtConstant.CLAIM_USER_ID, String.valueOf(userId))
-                .claim(JwtConstant.CLAIM_USERNAME, username)
-                .claim(JwtConstant.CLAIM_ROLES,
+                .issuer(ISSUER)                                                     // 签发者：标识是谁发的 token（防混用）
+                .subject(String.valueOf(userId))                                     // JWT 标准字段：用户唯一标识（主要给网关/规范用）
+                .claim(JwtConstant.CLAIM_USER_ID, String.valueOf(userId))            // 自定义 claim：网关/业务真正读取的 userId
+                .claim(JwtConstant.CLAIM_USERNAME, username)                         // 自定义 claim：展示用用户名，避免再查库
+                .claim(JwtConstant.CLAIM_ROLES,                                      // 自定义 claim：角色集合，逗号拼接
                         (roles != null && !roles.isEmpty()) ? String.join(",", roles) : "")
-                .claim(JwtConstant.CLAIM_PERMISSIONS,
+                .claim(JwtConstant.CLAIM_PERMISSIONS,                                // 自定义 claim：权限集合，用于细粒度鉴权
                         (permissions != null && !permissions.isEmpty()) ? String.join(",", permissions) : "")
-                .id(UUID.randomUUID().toString().replace("-", ""))
-                .issuedAt(now)
-                .expiration(expiration)
-                .signWith(secretKey)
-                .compact();
+                .id(UUID.randomUUID().toString().replace("-", ""))                   // jti：令牌唯一ID，用于黑名单/踢人
+                .issuedAt(now)                                                       // iat：签发时间，防重放/计算有效期
+                .expiration(expiration)                                              // exp：绝对过期时间，到时直接失效
+                .signWith(secretKey)                                                 // 用 HS256 对以上所有内容签名，防篡改
+                .compact();                                                          // 生成最终 x.y.z 格式 JWT 字符串
     }
 
     /**

@@ -55,7 +55,6 @@ import java.util.Set;
  * @author litisle
  */
 @Slf4j
-@Component
 public class AnonymousPathScanner implements ApplicationListener<ContextRefreshedEvent> {
 
     /**

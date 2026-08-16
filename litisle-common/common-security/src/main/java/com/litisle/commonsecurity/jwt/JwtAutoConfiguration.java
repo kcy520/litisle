@@ -39,7 +39,7 @@ public class JwtAutoConfiguration {
      * @return JwtTokenProvider 实例
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean//只有当容器里还没有这个类型的 Bean 时，我才生效
     public JwtTokenProvider jwtTokenProvider(JwtProperties properties) {
         String secret = properties.getSecret();
         if (secret == null || secret.isBlank()) {
