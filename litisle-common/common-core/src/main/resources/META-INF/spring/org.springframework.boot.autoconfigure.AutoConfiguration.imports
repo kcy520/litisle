@@ -1,0 +1,6 @@
+# common-core 自动配置注册
+# Spring Boot 3.x 通过此文件发现第三方 jar 包中的 @Configuration 类
+
+com.litisle.commoncore.config.JacksonConfig
+com.litisle.commoncore.config.MyBatisPlusConfig
+com.litisle.commoncore.config.CommonCoreAutoConfiguration
