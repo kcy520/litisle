@@ -1,7 +1,6 @@
 package com.litisle.commonredis.idempotent;
 
 
-import org.springframework.stereotype.Component;
 import org.springframework.util.DigestUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -32,7 +31,6 @@ import java.nio.charset.StandardCharsets;
  *
  * @author litisle
  */
-@Component
 public class IdempotentKeyBuilder {
 
     /**

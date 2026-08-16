@@ -42,7 +42,6 @@ import java.time.Duration;
  * @author litisle
  */
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class TokenBlacklistService {
 

@@ -54,7 +54,6 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Aspect
-@Component
 public class IdempotentAspect {
 
     /**
@@ -74,7 +73,6 @@ public class IdempotentAspect {
      * - required=false：业务服务未引入 common-security 时为 null，用 anonymous
      * - 体现"可选依赖"设计，保证 common-redis 模块可独立工作
      */
-    @Autowired(required = false)
     private UserIdResolver userIdResolver;
 
     public IdempotentAspect(RedisTemplate<String, Object> redisTemplate, IdempotentKeyBuilder keyBuilder) {
@@ -123,6 +121,14 @@ public class IdempotentAspect {
      *
      * @return 用户ID，无 UserIdResolver 实现时返回 null
      */
+    /**
+     * 设置 UserIdResolver（可选依赖）
+     * 由 CommonRedisAutoConfiguration 通过 ObjectProvider 注入
+     */
+    public void setUserIdResolver(UserIdResolver userIdResolver) {
+        this.userIdResolver = userIdResolver;
+    }
+
     private Long resolveUserId() {
         if (userIdResolver == null) {
             return null;

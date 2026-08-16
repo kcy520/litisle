@@ -3,7 +3,6 @@ package com.litisle.commonredis.ratelimit;
 import com.litisle.commoncore.resolver.UserIdResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -37,7 +36,6 @@ import java.lang.reflect.Method;
  * @author litisle
  */
 @Slf4j
-@Component
 public class RateLimiterKeyBuilder {
 
     /**

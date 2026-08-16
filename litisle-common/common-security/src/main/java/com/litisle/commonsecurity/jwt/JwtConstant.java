@@ -83,4 +83,5 @@ public class JwtConstant {
      * Bearer 前缀长度（用于截取 Token）
      */
     public static final int BEARER_PREFIX_LENGTH = 7;
+}
 

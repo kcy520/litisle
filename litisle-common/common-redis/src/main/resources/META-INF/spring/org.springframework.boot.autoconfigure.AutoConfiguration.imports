@@ -1,0 +1,6 @@
+# common-redis 自动配置注册
+# Spring Boot 3.x 通过此文件发现第三方 jar 包中的 @Configuration 类
+
+com.litisle.commonredis.config.RedisConfig
+com.litisle.commonredis.config.RedissonConfig
+com.litisle.commonredis.config.CommonRedisAutoConfiguration

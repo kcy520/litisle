@@ -57,7 +57,6 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Aspect
-@Component
 public class RateLimiterAspect {
 
     /**
@@ -94,7 +93,6 @@ public class RateLimiterAspect {
      * - required=false：业务服务未引入 common-security 时为 null，USER 类型降级为 anonymous
      * - 与 IdempotentAspect 保持一致的依赖倒置设计
      */
-    @Autowired(required = false)
     private UserIdResolver userIdResolver;
 
     public RateLimiterAspect(RedisTemplate<String, Object> redisTemplate, RateLimiterKeyBuilder keyBuilder) {
@@ -148,6 +146,14 @@ public class RateLimiterAspect {
      *
      * @return 用户ID，无 UserIdResolver 实现时返回 null
      */
+    /**
+     * 设置 UserIdResolver（可选依赖）
+     * 由 CommonRedisAutoConfiguration 通过 ObjectProvider 注入
+     */
+    public void setUserIdResolver(UserIdResolver userIdResolver) {
+        this.userIdResolver = userIdResolver;
+    }
+
     private Long resolveUserId() {
         if (userIdResolver == null) {
             return null;
