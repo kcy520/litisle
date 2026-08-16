@@ -1,6 +1,7 @@
 package com.litisle.commonsecurity.audit;
 
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.litisle.commonsecurity.context.SecurityContextHolder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

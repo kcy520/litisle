@@ -46,12 +46,13 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- spring-boot-starter-web：XssFilter 依赖 HttpServletRequest，脱敏序列化器依赖 Jackson -->
-        <!-- provided：由业务服务提供，common-security 不强制引入 -->
+        <!-- spring-boot-starter-web：XssFilter 依赖 HttpServletRequest/ServletResponse，脱敏序列化器依赖 Jackson -->
+        <!-- 【重要】compile：common-security 代码直接引用了 Jackson 类（StdScalarDeserializer/JsonSerializer/ObjectMapper） -->
+        <!-- 以及 Servlet API（HttpServletRequest/HttpServletResponse），这些必须在编译期可用 -->
+        <!-- 因此不能设为 provided，必须为 compile 以确保编译期依赖完整 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
-            <scope>provided</scope>
         </dependency>
 
         <!-- <dependency>
