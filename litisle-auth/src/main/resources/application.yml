@@ -50,3 +50,14 @@ litisle:
     crypto:
       # auth 只需 BCrypt（验证密码），不配置 AES key 则 AES Bean 不会创建
       bcrypt-cost: 10
+#
+#litisle:
+#  security:
+#    anonymous:
+#      paths:
+#        - /api/auth/login
+#        - /api/auth/register
+#        - /api/auth/captcha
+#        - /api/auth/refresh
+#        - /api/content/article/list
+#        - /api/content/article/{id}

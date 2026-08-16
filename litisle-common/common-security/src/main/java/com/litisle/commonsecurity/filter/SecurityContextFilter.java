@@ -10,12 +10,11 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -54,27 +53,22 @@ import java.util.stream.Collectors;
  *
  * @author litisle
  */
+//@Component + implements Filter 会导致 Spring Boot 自动将 Filter 注册到 /* 。
+// 不过没关系 ：Spring Boot 的规则是——如果同一个 Filter 同时有 @Component 自动注册和 FilterRegistrationBean 手动注册， FilterRegistrationBean 优先，自动注册被抑制 。所以最终拦截路径是 /api/* ，不是 /* 。
 @Slf4j
-@Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 10)
-@RequiredArgsConstructor
 public class SecurityContextFilter implements Filter {
 
-    /**
-     * 匿名访问处理器（用于判断路径是否在白名单中）
-     */
     private final AnonymousAccessHandler anonymousAccessHandler;
 
-    /**
-     * 匿名用户角色标识
-     */
-    private static final String ANONYMOUS_ROLE = "ANONYMOUS";
+    public SecurityContextFilter(AnonymousAccessHandler anonymousAccessHandler) {
+        this.anonymousAccessHandler = anonymousAccessHandler;
+    }
 
     @Override
     public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse,
                          FilterChain filterChain) throws IOException, ServletException {
         HttpServletRequest request = (HttpServletRequest) servletRequest;
-        HttpServletResponse response = (HttpServletResponse) servletResponse;
+        String requestPath = request.getRequestURI();
 
         try {
             // 1. 从 Header 中提取用户信息
@@ -90,8 +84,6 @@ public class SecurityContextFilter implements Filter {
 
             if (authenticated) {
                 // 2a. 已认证：构建认证 SecurityContext
-                // 【说明】认证状态由 SecurityContext.isAuthenticated() 基于 userId != null 推断
-                // 不需要显式设置 authenticated 字段（该字段不存在）
                 SecurityContext context = SecurityContext.builder()
                         .userId(Long.parseLong(userIdStr))
                         .username(username)
@@ -104,31 +96,51 @@ public class SecurityContextFilter implements Filter {
                 SecurityContextHolder.setContext(context);
                 log.debug("SecurityContext 已设置: userId={}, roles={}", userIdStr, rolesStr);
             } else {
-                // 2b. 未认证：构建匿名 SecurityContext
-                // 【说明】userId = null 时 SecurityContext.isAuthenticated() 自动返回 false
-                SecurityContext context = SecurityContext.builder()
-                        .userId(null)
-                        .username(null)
-                        .roles(new HashSet<>(Collections.singletonList(ANONYMOUS_ROLE)))
-                        .permissions(Collections.emptySet())
-                        .tokenId(null)
-                        .traceId(traceId)
-                        .build();
-
-                SecurityContextHolder.setContext(context);
-                log.debug("匿名 SecurityContext 已设置: path={}", request.getRequestURI());
+                // 2b. 未认证：检查是否在白名单中，决定是否构建匿名上下文
+                if (anonymousAccessHandler.isAnonymous(requestPath)) {
+                    // 白名单路径：构建匿名上下文
+                    anonymousAccessHandler.setupAnonymousContext();
+                    log.debug("匿名路径，已设置匿名 SecurityContext: path={}", requestPath);
+                } else {
+                    // 非白名单路径：理论上不会发生（网关已校验 JWT），容错构建匿名上下文
+                    anonymousAccessHandler.setupAnonymousContext();
+                    log.warn("非匿名路径缺少用户信息，容错构建匿名上下文: path={}", requestPath);
+                }
             }
 
             // 3. 放行，执行后续业务逻辑
             filterChain.doFilter(servletRequest, servletResponse);
 
-        } catch (Exception e) {
-            log.error("SecurityContext 设置异常: {}", e.getMessage(), e);
-            // 异常情况下不阻塞请求，继续执行
-            filterChain.doFilter(servletRequest, servletResponse);
         } finally {
             // 4. 清理 ThreadLocal，防止内存泄漏
             SecurityContextHolder.clear();
+        }
+    }
+
+    /**
+     * 注册 SecurityContextFilter
+     *
+     * 【设计说明】
+     * 1. 使用 @Configuration + FilterRegistrationBean 注册，与 XssFilter 写法一致
+     * 2. 拦截 /api/* 路径，排除 actuator、静态资源等
+     * 3. 设置最高优先级，在业务切面之前执行
+     * 4. 与 XssFilter 的顺序关系：
+     *    - SecurityContextFilter (Ordered.HIGHEST_PRECEDENCE + 10) 先执行
+     *    - XssFilter (order=1) 后执行
+     *    - 顺序：认证上下文 → XSS 清洗 → 业务逻辑
+     */
+    @Configuration
+    public static class SecurityContextFilterConfig {
+
+        @Bean
+        public FilterRegistrationBean<SecurityContextFilter> securityContextFilterRegistration(
+                AnonymousAccessHandler anonymousAccessHandler) {
+            FilterRegistrationBean<SecurityContextFilter> registration = new FilterRegistrationBean<>();
+            registration.setFilter(new SecurityContextFilter(anonymousAccessHandler));
+            registration.addUrlPatterns("/api/*");
+            registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
+            registration.setName("securityContextFilter");
+            return registration;
         }
     }
 
