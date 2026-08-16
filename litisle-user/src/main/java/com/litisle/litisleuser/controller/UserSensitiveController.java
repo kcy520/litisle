@@ -4,7 +4,7 @@ import com.litisle.commoncore.enums.AuditModule;
 import com.litisle.commoncore.enums.AuditOperation;
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonsecurity.login.Login;
-import com.litisle.commonsecurity.annotation.RequirePermission;
+import com.litisle.commonsecurity.permission.RequirePermission;
 import com.litisle.commonsecurity.audit.AuditLog;
 import com.litisle.commonsecurity.enums.PermissionEnum;
 import com.litisle.litisleuser.service.UserProfileService;

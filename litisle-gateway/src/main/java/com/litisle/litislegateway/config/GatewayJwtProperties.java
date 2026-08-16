@@ -35,7 +35,7 @@ import java.util.List;
 @Component
 @ConfigurationProperties(prefix = "litisle.gateway.jwt")
 public class GatewayJwtProperties {
-    // 问题： 两个 @ConfigurationProperties 绑定同一个 prefix，启动时它们会互相覆盖或冲突，导致其中一个读取不到正确的配置。
+    // 问题：之前与AnonymousProperties类， 两个 @ConfigurationProperties 绑定同一个 prefix，启动时它们会互相覆盖或冲突，导致其中一个读取不到正确的配置。所以在此修改次类prefix
 
     /**
      * 匿名访问路径列表（支持 Ant 风格通配符）

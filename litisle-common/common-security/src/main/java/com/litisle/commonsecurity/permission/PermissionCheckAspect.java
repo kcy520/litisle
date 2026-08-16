@@ -1,9 +1,8 @@
-package com.litisle.commonsecurity.aspect;
+package com.litisle.commonsecurity.permission;
 
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
-import com.litisle.commonsecurity.annotation.RequirePermission;
-import com.litisle.commonsecurity.annotation.RequireRole;
+import com.litisle.commonsecurity.role.RequireRole;
 import com.litisle.commonsecurity.context.SecurityContext;
 import com.litisle.commonsecurity.context.SecurityContextHolder;
 import com.litisle.commonsecurity.enums.PermissionEnum;
@@ -12,7 +11,6 @@ import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.reflect.MethodSignature;
-import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;

@@ -18,3 +18,14 @@ litisle:
     host: litisle-redis
     port: 6379
     password: ${COMPOSE_REDIS_PASSWORD:123}
+
+  # ================================
+  # 安全加密配置（Dev 环境使用硬编码密钥，排除环境变量干扰）
+  # ================================
+  security:
+    crypto:
+      # Dev 环境直接写入合法 Base64 密钥，不通过占位符
+      # 生产环境使用主 application.yml 的 ${LITISLE_CRYPTO_KEY} 从环境变量注入
+      key: OHP0YhYHKz21rPS4bGhQBOVlB2R2OXZ7mE1uSbHQ0fU=
+
+

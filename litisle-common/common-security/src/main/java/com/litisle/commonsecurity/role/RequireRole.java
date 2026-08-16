@@ -1,4 +1,4 @@
-package com.litisle.commonsecurity.annotation;
+package com.litisle.commonsecurity.role;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

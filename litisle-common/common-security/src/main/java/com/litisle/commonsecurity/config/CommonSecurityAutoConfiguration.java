@@ -2,8 +2,8 @@ package com.litisle.commonsecurity.config;
 
 import com.litisle.commonsecurity.anonymous.AnonymousAccessHandler;
 import com.litisle.commonsecurity.anonymous.AnonymousPathScanner;
-import com.litisle.commonsecurity.aspect.PermissionCheckAspect;
-import com.litisle.commonsecurity.aspect.RoleCheckAspect;
+import com.litisle.commonsecurity.permission.PermissionCheckAspect;
+import com.litisle.commonsecurity.role.RoleCheckAspect;
 import com.litisle.commonsecurity.audit.AuditLogAspect;
 import com.litisle.commonsecurity.feign.FeignAuthInterceptor;
 import com.litisle.commonsecurity.login.LoginAspect;

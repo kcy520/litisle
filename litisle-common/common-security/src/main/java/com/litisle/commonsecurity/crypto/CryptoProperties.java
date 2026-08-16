@@ -27,11 +27,12 @@ public class CryptoProperties {
 
         /**
      * AES-256 密钥（Base64 编码的 32 字节密钥 = 256 bit）
-     * 生产环境通过环境变量 LITISLE_CRYPTO_KEY 注入
-     * 默认值仅用于开发环境兜底，生产环境必须配置否则启动报错（Fail-Fast）
+     * todo 生产环境通过环境变量 LITISLE_CRYPTO_KEY 注入
+     * 无默认值，必须通过 yml 配置 litisle.security.crypto.key 提供
+     * 未配置时 @ConditionalOnProperty 会跳过 Aes256GcmCrypto Bean 创建，不会报错
+     * 【注意】Java 默认值不能设为非 Base64 字符串，否则 Base64 解码会抛出异常
      */
-//    private String key = "AAAAAAAAAAAAAAAAAAAAAA";
-        private String key = "change-this-to-32-character-key-in-prod";
+    private String key;
 
     /**
      * BCrypt 强度因子（默认 10，范围 4-31）

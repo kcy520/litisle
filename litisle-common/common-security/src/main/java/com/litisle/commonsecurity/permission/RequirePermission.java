@@ -1,6 +1,7 @@
-package com.litisle.commonsecurity.annotation;
+package com.litisle.commonsecurity.permission;
 
 
+import com.litisle.commonsecurity.role.RequireRole;
 import com.litisle.commonsecurity.enums.PermissionEnum;
 
 import java.lang.annotation.ElementType;

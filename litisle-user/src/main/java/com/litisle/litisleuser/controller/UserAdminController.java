@@ -1,7 +1,7 @@
 //package com.litisle.litisleuser.controller;
 //
 //
-//import com.litisle.commonsecurity.annotation.RequireRole;
+//import com.litisle.commonsecurity.role.RequireRole;
 //import com.litisle.litisleuser.enums.RoleType;
 //import org.springframework.web.bind.annotation.RequestMapping;
 //import org.springframework.web.bind.annotation.RestController;
