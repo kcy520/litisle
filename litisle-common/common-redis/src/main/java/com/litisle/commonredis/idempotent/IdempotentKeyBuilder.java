@@ -11,11 +11,10 @@ import java.nio.charset.StandardCharsets;
  * 【设计说明】
  * 1. 构建唯一的幂等 key，格式：idempotent:{userId}:{接口路径}:{参数MD5}
  * 2. 使用 MD5 摘要参数，避免 key 过长（Redis key 建议 < 1KB）
- * 3. 【方案 A】接收 userId 参数，由切面传入，不再自己依赖 SecurityContextHolder
+ * 3. 【方案 A】接收 userId 参数，由切面通过 UserIdResolver 接口传入，KeyBuilder 不自己获取用户信息
  *
  * 【方案 A 说明】
- * - 之前在 common-security 时，KeyBuilder 直接调用 SecurityContextHolder.getUserId()
- * - 迁移到 common-redis 后，不能依赖 common-security，因此改为接收 userId 参数
+ * - 之前 KeyBuilder 直接调用认证框架获取 userId，迁移到 common-redis 后改为接收参数
  * - 切面 IdempotentAspect 通过 UserIdResolver 接口获取 userId，再传给本类
  * - 符合"单一职责"：KeyBuilder 只负责"构建 key"，不负责"获取用户"
  *

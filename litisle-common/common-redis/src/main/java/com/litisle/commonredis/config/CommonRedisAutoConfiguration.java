@@ -1,11 +1,9 @@
 package com.litisle.commonredis.config;
 
 import com.litisle.commoncore.resolver.UserIdResolver;
-import com.litisle.commonredis.blacklist.TokenBlacklistService;
 import com.litisle.commonredis.bloom.BloomFilter;
 import com.litisle.commonredis.lock.DistributedLock;
 import com.litisle.commonredis.login.LoginRetryLimiter;
-import com.litisle.commonredis.session.DeviceSessionManager;
 import com.litisle.commonredis.idempotent.IdempotentAspect;
 import com.litisle.commonredis.idempotent.IdempotentKeyBuilder;
 import com.litisle.commonredis.lock.RedissonLock;
@@ -70,15 +68,6 @@ public class CommonRedisAutoConfiguration {
     // ==================== 服务类 ====================
 
     /**
-     * Token 黑名单服务
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public TokenBlacklistService tokenBlacklistService(StringRedisTemplate stringRedisTemplate) {
-        return new TokenBlacklistService(stringRedisTemplate);
-    }
-
-    /**
      * 登录重试限制器
      *
      * 防止暴力破解，记录连续登录失败次数，超限后临时锁定账户
@@ -88,23 +77,6 @@ public class CommonRedisAutoConfiguration {
     @ConditionalOnMissingBean
     public LoginRetryLimiter loginRetryLimiter(StringRedisTemplate stringRedisTemplate) {
         return new LoginRetryLimiter(stringRedisTemplate);
-    }
-
-    /**
-     * 设备会话管理器
-     *
-     * 【依赖说明】
-     * - StringRedisTemplate：Hash 读写会话数据
-     * - TokenBlacklistService：踢人时联动 Token 黑名单
-     * - DistributedLock（可选）：注册/踢人加用户级锁；Redisson 不可用时降级为无锁执行
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public DeviceSessionManager deviceSessionManager(
-            StringRedisTemplate stringRedisTemplate,
-            TokenBlacklistService tokenBlacklistService,
-            ObjectProvider<DistributedLock> distributedLockProvider) {
-        return new DeviceSessionManager(stringRedisTemplate, tokenBlacklistService, distributedLockProvider);
     }
 
     /**

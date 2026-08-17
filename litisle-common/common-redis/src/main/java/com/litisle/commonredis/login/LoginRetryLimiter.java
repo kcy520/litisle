@@ -84,9 +84,9 @@ public class LoginRetryLimiter {
 
     /**
      * 默认锁定持续时间（秒）
-     * 15 分钟 = 900 秒
+     * 3 分钟 = 180 秒
      */
-    private static final long DEFAULT_LOCK_DURATION_SECONDS = 900L;
+    private static final long DEFAULT_LOCK_DURATION_SECONDS = 180L;
 
     /**
      * 失败计数默认 TTL（秒）
@@ -100,13 +100,13 @@ public class LoginRetryLimiter {
     /**
      * 记录一次登录失败
      *
-     * 使用默认配置：5 次失败锁定 15 分钟
+     * 使用默认配置：5 次失败锁定 3 分钟
      *
      * 【执行流程】
      * 1. INCR login:fail:{identifier}（原子递增）
      * 2. 如果返回 1（首次失败），设置 TTL = 15 分钟
      * 3. 如果 count >= maxAttempts（默认 5），SET login:lock:{identifier}
-     * 4. 设置锁定 key 的 TTL = 锁定持续时间（默认 15 分钟）
+     * 4. 设置锁定 key 的 TTL = 锁定持续时间（默认 3 分钟）
      *
      * 【原子性说明】
      * - INCR 本身是原子操作，但 INCR + EXPIRE 不是严格原子

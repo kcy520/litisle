@@ -89,20 +89,26 @@ spring:
           predicates:
             - Path=/api/search/**
 
-# ====== JWT 认证配置 ======
-# 【说明】网关通过此配置校验 JWT 令牌，提取用户信息注入下游请求 Header
-litisle:
-  security:
-    jwt:
-      # JWT 签名密钥（HMAC-SHA256，至少 256 bit = 32 字符）
-      # 生产环境通过环境变量 JWT_SECRET 注入，禁止硬编码
-      secret: ${JWT_SECRET:LitIsle-Default-JWT-Secret-Key-Change-In-Production!}
-      # Access Token 有效期（秒），默认 30 分钟
-      access-token-expire: 1800
-      # 记住我模式 Access Token 有效期（秒），默认 7 天
-      remember-me-expire: 604800
+# ====== Sa-Token 认证配置（替代原 JWT 配置） ======
+# 【重要】网关需要引入 sa-token-reactor-spring-boot3-starter 依赖（WebFlux 专用）
+# 【说明】网关通过 Sa-Token JWT 模式无状态校验 Token，提取用户信息注入下游请求 Header
+sa-token:
+  # Token 名称
+  token-name: Authorization
+  # Token 前缀
+  token-prefix: Bearer
+  # JWT 密钥（HMAC-SHA256，至少 256 bit = 32 字符）
+  # 生产环境通过环境变量 LITISLE_JWT_SECRET 注入，禁止硬编码
+  jwt-secret-key: ${LITISLE_JWT_SECRET:LitIsle-Default-JWT-Secret-Key-Change-In-Production!}
+  # Token 有效期（秒），默认 30 分钟
+  timeout: 1800
+  # 记住我模式有效期（秒），默认 7 天
+  active-timeout: 604800
+  # 是否输出操作日志
+  is-log: true
 
-    # ====== 匿名访问白名单 ======
+litisle:
+  security:    # ====== 匿名访问白名单 ======
     # 【说明】这些路径跳过 JWT 校验，直接放行
     anonymous:
       paths:

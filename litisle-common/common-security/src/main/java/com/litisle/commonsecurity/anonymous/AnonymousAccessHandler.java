@@ -1,8 +1,6 @@
 package com.litisle.commonsecurity.anonymous;
 
 
-import com.litisle.commonsecurity.context.SecurityContext;
-import com.litisle.commonsecurity.context.SecurityContextHolder;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -107,31 +105,6 @@ public class AnonymousAccessHandler {
         return false;
     }
 
-
-    /**
-     * 为匿名请求构建匿名 SecurityContext
-     *
-     * 【使用场景】
-     * - 业务服务在 Filter 中检测到匿名请求（无 X-User-Id Header）时调用
-     * - 构建匿名上下文后，业务代码可通过 SecurityContextHolder 获取"匿名用户"信息
-     * - @RequireRole 注解的接口会拦截匿名用户（因 authenticated=false）
-     *
-     * 【为什么需要匿名上下文】
-     * - 避免 NPE：业务代码调用 SecurityContextHolder.getUserId() 时返回 null 而非抛异常
-     * - 角色区分：匿名用户拥有 ANONYMOUS 角色，可针对匿名用户做特殊逻辑（如限流更严格）
-     */
-    public void setupAnonymousContext() {
-        SecurityContext anonymousContext = new SecurityContext();
-        anonymousContext.setUserId(null);
-        anonymousContext.setUsername("anonymous");
-        Set<String> roles = new HashSet<>();
-        roles.add(ANONYMOUS_ROLE);
-        anonymousContext.setRoles(roles);
-        // 【说明】SecurityContext.isAuthenticated() 是基于 userId 是否为 null 的只读判断，
-        // 没有 authenticated 字段，无需也无法调用 setAuthenticated。
-        // 这里 userId 已设为 null，isAuthenticated() 自然返回 false。
-        SecurityContextHolder.setContext(anonymousContext);
-    }
 
     /**
      * 刷新匿名白名单（合并 yml 配置 + 注解扫描路径）

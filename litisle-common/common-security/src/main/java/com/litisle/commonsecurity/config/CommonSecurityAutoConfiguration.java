@@ -2,12 +2,8 @@ package com.litisle.commonsecurity.config;
 
 import com.litisle.commonsecurity.anonymous.AnonymousAccessHandler;
 import com.litisle.commonsecurity.anonymous.AnonymousPathScanner;
-import com.litisle.commonsecurity.permission.PermissionCheckAspect;
-import com.litisle.commonsecurity.role.RoleCheckAspect;
 import com.litisle.commonsecurity.audit.AuditLogAspect;
 import com.litisle.commonsecurity.feign.FeignAuthInterceptor;
-import com.litisle.commonsecurity.login.LoginAspect;
-import com.litisle.commonsecurity.resolver.SecurityContextUserIdResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -33,32 +29,8 @@ public class CommonSecurityAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public PermissionCheckAspect permissionCheckAspect() {
-        return new PermissionCheckAspect();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public RoleCheckAspect roleCheckAspect() {
-        return new RoleCheckAspect();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public LoginAspect loginAspect() {
-        return new LoginAspect();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public AuditLogAspect auditLogAspect(ObjectMapper objectMapper) {
         return new AuditLogAspect(objectMapper);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public SecurityContextUserIdResolver securityContextUserIdResolver() {
-        return new SecurityContextUserIdResolver();
     }
 
     @Bean

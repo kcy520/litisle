@@ -38,29 +38,27 @@ litisle:
     from: ${litisle.mail.from:}
     password: ${litisle.mail.password:}
 
-  security:
-    jwt:
-      secret: ${JWT_SECRET:}           # 鉴权密钥（生产必须环境变量）
-      access-token-expire: 1800        # 令牌有效期（秒）
-      remember-me-expire: 604800       # 记住我有效期（秒）
-    session:
-      max-concurrent: 2                # 同账号最大并发会话数
-    login:
-      max-fail-count: 5                # 登录失败最大次数
-    crypto:
-      # auth 只需 BCrypt（验证密码），不配置 AES key 则 AES Bean 不会创建
-      bcrypt-cost: 10
-#
-#litisle:
-#  security:
-#    anonymous:
-#      paths:
-#        - /api/auth/login
-#        - /api/auth/register
-#        - /api/auth/captcha
-#        - /api/auth/refresh
-#        - /api/content/article/list
-#        - /api/content/article/{id}
+sa-token:
+  # Token 名称
+  token-name: Authorization
+  # Token 前缀
+  token-prefix: Bearer
+  # JWT 密钥（替换 JwtTokenProvider 的 secret）
+  jwt-secret-key: ${LITISLE_JWT_SECRET:your-32-character-jwt-secret-key}
+  # Token 有效期（秒，默认 7 天）
+  timeout: 86400
+  # 记住我模式有效期（秒）
+  active-timeout: 604800
+  # 是否允许同一账号多端登录
+  is-concurrent: true
+  # 同一账号最大登录数量（-1 = 不限）
+  max-login-count: 2
+  # 是否开启 Token 认证
+  is-write-header: true
+  # 是否输出操作日志
+  is-log: true
+  # 配置 Sa-Token 的 SSO 或 Same-Token 等
+
 # OAuth2 第三方登录配置
 justauth:
   enabled: true

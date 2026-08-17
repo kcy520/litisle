@@ -12,7 +12,7 @@ package com.litisle.commoncore.constant;
  * 
  * 【使用场景】
  * - 网关：JwtGlobalFilter 校验 JWT 后，将 userId、roles 写入 Header
- * - 业务服务：SecurityContextHolder 从 Header 读取用户信息
+ * - 业务服务：网关过滤器从 Header 读取用户信息，注入 Sa-Token 上下文
  * - Feign 调用：FeignAuthInterceptor 自动透传 Header
  * 
  * @author litisle

@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
  * 3. 【方案 A】通过 UserIdResolver 接口获取 userId（可选注入），传给 KeyBuilder
  *
  * 【依赖倒置设计】
- * - common-redis 不依赖 common-security，无法直接调用 SecurityContextHolder
+ * - common-redis 通过 UserIdResolver 接口获取 userId，不直接依赖认证框架
  * - 通过 common-core 的 UserIdResolver 接口解耦：
  *   - IdempotentAspect 依赖 UserIdResolver 接口（@Autowired required=false）
  *   - common-security 提供 SecurityContextUserIdResolver 实现

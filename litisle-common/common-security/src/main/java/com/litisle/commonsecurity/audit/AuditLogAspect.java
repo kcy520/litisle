@@ -2,7 +2,7 @@ package com.litisle.commonsecurity.audit;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.litisle.commonsecurity.context.SecurityContextHolder;
+import cn.dev33.satoken.stp.StpUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -37,7 +37,7 @@ import java.util.Map;
  * 5. 异步输出审计日志
  *
  * 【审计日志内容】
- * - 操作人：userId、username（从 SecurityContextHolder 获取）
+ * - 操作人：userId、username（从 Sa-Token StpUtil 获取）
  * - 操作内容：module、operation（注解配置）
  * - 请求参数：args（可选，敏感参数应关闭）
  * - 执行结果：成功/失败、返回值（可选）
@@ -76,9 +76,11 @@ public class AuditLogAspect {
         // 1. 记录开始时间
         long startTime = System.currentTimeMillis();
 
-        // 2. 收集操作人信息
-        Long userId = SecurityContextHolder.getUserId();
-        String username = SecurityContextHolder.getUsername();
+        // 2. 收集操作人信息（Sa-Token 方式）
+        Long userId = StpUtil.getLoginIdDefaultNull() instanceof Long
+                ? (Long) StpUtil.getLoginIdDefaultNull() : null;
+        String username = StpUtil.isLogin()
+                ? (String) StpUtil.getSession().get("username") : null;
 
         // 3. 获取目标方法信息
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();

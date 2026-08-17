@@ -23,19 +23,8 @@ public class CacheConstant {
 
     // ==================== 用户模块 ====================
 
-    /**
-     * 用户 Token 黑名单
-     * 格式：auth:token:blacklist:{userId}
-     * 用途：用户退出登录后，将 Token 加入黑名单
-     */
-    public static final String TOKEN_BLACKLIST = "auth:token:blacklist:";
 
-    /**
-     * 用户登录 Session
-     * 格式：auth:session:{userId}
-     * 用途：记录用户在线设备信息
-     */
-    public static final String USER_SESSION = "auth:session:";
+
 
     /**
      * 用户信息缓存

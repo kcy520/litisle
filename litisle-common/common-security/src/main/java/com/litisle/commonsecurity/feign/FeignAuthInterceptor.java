@@ -1,22 +1,22 @@
 package com.litisle.commonsecurity.feign;
 
 
+import cn.dev33.satoken.session.SaSession;
+import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.constant.HeaderConstant;
-import com.litisle.commonsecurity.context.SecurityContext;
-import com.litisle.commonsecurity.context.SecurityContextHolder;
 import feign.RequestInterceptor;
 import feign.RequestTemplate;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
+import org.slf4j.MDC;
 
-import java.util.Set;
+import java.util.List;
 
 /**
  * Feign 拦截器（透传用户上下文）
  * 
  * 【设计说明】
  * 1. Feign 调用其他服务时，自动透传当前用户信息（userId、roles、traceId）
- * 2. 下游服务通过 Header 解析出用户信息，写入自己的 SecurityContextHolder
+ * 2. 下游服务通过 Header 解析出用户信息，写入自己的 Sa-Token 上下文
  * 3. 实现"链路上用户身份的传递"
  * 
  * 【为什么需要透传？】
@@ -55,41 +55,48 @@ public class FeignAuthInterceptor implements RequestInterceptor {
      */
     @Override
     public void apply(RequestTemplate template) {
-        // 1. 获取当前线程的安全上下文
-        SecurityContext context = SecurityContextHolder.getContext();
-
-        if (context != null && context.isAuthenticated()) {
-            // 2. 注入用户ID
-            template.header(HeaderConstant.USER_ID, String.valueOf(context.getUserId()));
-
-            // 3. 注入用户名
-            if (context.getUsername() != null) {
-                template.header(HeaderConstant.USERNAME, context.getUsername());
-            }
-
-            // 4. 注入角色列表（多个角色用逗号分隔）
-            Set<String> roles = context.getRoles();
-            if (roles != null && !roles.isEmpty()) {
-                template.header(HeaderConstant.USER_ROLES, String.join(",", roles));
-
-            }
-
-            // ========== 5. 权限（重点） ==========
-            Set<String> perms = context.getPermissions();
-            if (perms != null && !perms.isEmpty()) {
-                template.header(HeaderConstant.PERMISSIONS, String.join(",", perms));
-            }
-
-            // 6. 注入链路追踪ID
-            if (context.getTraceId() != null) {
-                template.header(HeaderConstant.TRACE_ID, context.getTraceId());
-            }
-
-            log.debug("Feign 透传用户上下文: userId={}, traceId={}", 
-                    context.getUserId(), context.getTraceId());
-        } else {
+        // 1. 检查是否登录（Sa-Token 方式，替代原 SecurityContextHolder.getContext()）
+        if (!StpUtil.isLogin()) {
             // 未登录场景（如内部定时任务调用），只透传 traceId
             log.debug("Feign 调用无用户上下文（未登录场景）");
+            return;
         }
+
+        // 2. 注入用户ID（Sa-Token 的 loginId 即业务 userId）
+        Object loginId = StpUtil.getLoginId();
+        template.header(HeaderConstant.USER_ID, String.valueOf(loginId));
+
+        // 3. 注入用户名（从 Sa-Token Session 获取，登录时业务侧 session.set("username", xxx)）
+        SaSession session = StpUtil.getSession();
+        String username = (String) session.get("username");
+        if (username != null) {
+            template.header(HeaderConstant.USERNAME, username);
+        }
+
+        // 4. 注入角色列表（Sa-Token 通过 StpInterface.getRoleList() 提供）
+        List<String> roles = StpUtil.getRoleList();
+        if (roles != null && !roles.isEmpty()) {
+            template.header(HeaderConstant.USER_ROLES, String.join(",", roles));
+        }
+
+        // ========== 5. 权限（Sa-Token 通过 StpInterface.getPermissionList() 提供） ==========
+        List<String> perms = StpUtil.getPermissionList();
+        if (perms != null && !perms.isEmpty()) {
+            template.header(HeaderConstant.PERMISSIONS, String.join(",", perms));
+        }
+
+        // 6. 注入 Sa-Token 的 Token 值（下游服务可通过它直接查询会话，无需重复鉴权）
+        String tokenValue = StpUtil.getTokenValue();
+        if (tokenValue != null) {
+            template.header(StpUtil.getTokenName(), tokenValue);
+        }
+
+        // 7. 注入链路追踪ID（从 MDC 获取，与 SecurityContext 解耦）
+        String traceId = MDC.get("traceId");
+        if (traceId != null) {
+            template.header(HeaderConstant.TRACE_ID, traceId);
+        }
+
+        log.debug("Feign 透传用户上下文: userId={}, traceId={}", loginId, traceId);
     }
 }

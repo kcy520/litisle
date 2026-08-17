@@ -2,7 +2,6 @@
 # Spring Boot 3.x 通过此文件发现第三方 jar 包中的 @Configuration 类
 
 com.litisle.commonsecurity.xss.XssFilter
-com.litisle.commonsecurity.filter.SecurityContextFilterConfig
-com.litisle.commonsecurity.jwt.JwtAutoConfiguration
 com.litisle.commonsecurity.crypto.CryptoAutoConfiguration
 com.litisle.commonsecurity.config.CommonSecurityAutoConfiguration
+com.litisle.commonsecurity.satoken.SaTokenAutoConfiguration

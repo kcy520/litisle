@@ -28,6 +28,27 @@
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
 
+        <!-- Sa-Token 核心 -->
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-spring-boot3-starter</artifactId>
+            <version>${sa-token.version}</version>
+        </dependency>
+
+        <!-- Sa-Token 整合 Redis（替换 common-redis 中的部分功能） -->
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-redis-jackson</artifactId>
+            <version>${sa-token.version}</version>
+        </dependency>
+
+        <!-- Sa-Token JWT 模式（替换 JwtTokenProvider） -->
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-jwt</artifactId>
+            <version>${sa-token.version}</version>
+        </dependency>
+
         <!-- 【架构说明】common-security 不依赖 common-redis -->
         <!-- 幂等性 @Idempotent 已移至 common-redis 模块，避免强制传递 Redis 依赖 -->
         <!-- common-security 仅包含纯安全控制：上下文/角色校验/审计/脱敏/XSS/匿名认证 -->
@@ -74,22 +95,6 @@
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
-
-        <!-- JJWT：JWT 令牌签发与验证（JwtTokenProvider 依赖） 不在在此 -->
-        <dependency>
-            <groupId>io.jsonwebtoken</groupId>
-            <artifactId>jjwt-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.jsonwebtoken</groupId>
-            <artifactId>jjwt-impl</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>io.jsonwebtoken</groupId>
-            <artifactId>jjwt-jackson</artifactId>
-            <scope>runtime</scope>
-        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

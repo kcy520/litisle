@@ -21,29 +21,42 @@
 #        - /api/content/article/{id} # 公开文章详情
 #        - /actuator/**              # 健康检查（生产环境需限制）
 #
-#    # ----------------------- JWT 令牌配置（JwtTokenProvider 使用） -----------------------
-#    # 【说明】JwtTokenProvider 实现在 common-core 模块，网关和业务服务共用
-#    # 网关：litisle-gateway 配置此段，用于 JWT 校验
-#    # 业务服务（如 litisle-auth）：配置此段，用于 JWT 签发
-#    # 密钥必须一致，否则网关校验失败
-#    jwt:
-#      # JWT 密钥（HMAC-SHA256，至少 256 bit = 32 字符）
-#      # 生产环境通过环境变量 JWT_SECRET 注入，禁止硬编码
-#      secret: ${JWT_SECRET:your-256-bit-secret-key-here}
-#      # Access Token 有效期（秒），默认 30 分钟
-#      access-token-expire: 1800
-#      # 记住我模式 Access Token 有效期（秒），默认 7 天
-#      # 【说明】登录接口接收 rememberMe 参数，为 true 时使用此 TTL
-#      remember-me-expire: 604800
-#
-#    # ----------------------- 会话配置（限制同时登录数） -----------------------
-#    session:
-#      # 同账号最大同时在线数
-#      # 【实现】Redis List 维护会话列表，新登录时检查长度，超出踢出最旧会话
-#      # 【场景】防止账号被盗用后无法挤掉登录，或防止账号共享
-#      max-concurrent: 2
-#      # 会话过期时间（秒），默认 7 天
-#      session-timeout: 604800
+    # ----------------------- Sa-Token 配置（替代 JwtTokenProvider + DeviceSessionManager） -----------------------
+    # 【重要】sa-token 是顶级配置项，不能放在 litisle.security 下（框架识别不到）
+    # 此处为模板参考，业务服务复制到自己的 application.yml 时需放到顶级
+    # 详见 https://sa-token.cc/doc.html#/use/config
+    # 网关与业务服务共享 jwt-secret-key，确保 Token 校验一致
+
+# ====================================================================
+# Sa-Token 配置（替代 JwtTokenProvider + DeviceSessionManager）
+# 【重要】sa-token 是顶级配置项，框架通过 @ConfigurationProperties(prefix = "sa-token") 绑定
+# 若放在 litisle.security 下，前缀变为 litisle.security.sa-token，框架无法识别，配置失效
+# 业务服务使用时，取消注释并将此段复制到自己的 application.yml 顶级
+# 详见 https://sa-token.cc/doc.html#/use/config
+# ====================================================================
+#sa-token:
+#  # Token 名称（请求头名），默认 satoken，建议改为 Authorization
+#  token-name: Authorization
+#  # Token 前缀（请求头中 Bearer xxx）
+#  token-prefix: Bearer
+#  # 是否从请求头读取 Token
+#  is-read-header: true
+#  # 是否将 Token 写入响应头
+#  is-write-header: true
+#  # Token 有效期（秒），默认 30 分钟（对应原 access-token-expire）
+#  timeout: 1800
+#  # 临时有效期（秒），记住我模式用，默认 7 天（对应原 remember-me-expire）
+#  active-timeout: 604800
+#  # 是否允许同一账号多端登录（对应原 session.is-concurrent 语义）
+#  is-concurrent: true
+#  # 同一账号最大登录数量（-1 = 不限，对应原 max-concurrent: 2）
+#  max-login-count: 2
+#  # JWT 密钥（HMAC-SHA256，至少 256 bit = 32 字符）
+#  # 启用后 Token 为 JWT 格式，网关可无状态校验
+#  # 生产环境通过环境变量 LITISLE_JWT_SECRET 注入，禁止硬编码
+#  jwt-secret-key: ${LITISLE_JWT_SECRET:your-256-bit-secret-key-here}
+#  # 是否输出操作日志
+#  is-log: true
 #
 #    # ----------------------- 登录失败锁定策略 -----------------------
 #    login:

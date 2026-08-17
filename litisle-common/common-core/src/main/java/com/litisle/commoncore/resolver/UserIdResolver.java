@@ -20,7 +20,7 @@ package com.litisle.commoncore.resolver;
  *   - 两者都依赖 common-core 的抽象，互不依赖
  *
  * 【使用方式】
- * - common-security 实现：从 SecurityContextHolder.getUserId() 获取
+ * - common-security 实现：从 Sa-Token StpUtil.getLoginIdDefaultNull() 获取
  * - 业务服务自定义实现：从 Request Header 的 X-User-Id 读取
  * - 不提供实现时：IdempotentAspect 用 "anonymous" 作为用户标识
  *
