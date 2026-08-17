@@ -139,24 +139,24 @@
                 <version>${redisson.version}</version>
             </dependency>
 
-            <!-- JJWT（JWT 令牌签发与验证） -->
-            <dependency>
-                <groupId>io.jsonwebtoken</groupId>
-                <artifactId>jjwt-api</artifactId>
-                <version>${jjwt.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.jsonwebtoken</groupId>
-                <artifactId>jjwt-impl</artifactId>
-                <version>${jjwt.version}</version>
-                <scope>runtime</scope>
-            </dependency>
-            <dependency>
-                <groupId>io.jsonwebtoken</groupId>
-                <artifactId>jjwt-jackson</artifactId>
-                <version>${jjwt.version}</version>
-                <scope>runtime</scope>
-            </dependency>
+<!--            &lt;!&ndash; JJWT（JWT 令牌签发与验证） &ndash;&gt;-->
+<!--            <dependency>-->
+<!--                <groupId>io.jsonwebtoken</groupId>-->
+<!--                <artifactId>jjwt-api</artifactId>-->
+<!--                <version>${jjwt.version}</version>-->
+<!--            </dependency>-->
+<!--            <dependency>-->
+<!--                <groupId>io.jsonwebtoken</groupId>-->
+<!--                <artifactId>jjwt-impl</artifactId>-->
+<!--                <version>${jjwt.version}</version>-->
+<!--                <scope>runtime</scope>-->
+<!--            </dependency>-->
+<!--            <dependency>-->
+<!--                <groupId>io.jsonwebtoken</groupId>-->
+<!--                <artifactId>jjwt-jackson</artifactId>-->
+<!--                <version>${jjwt.version}</version>-->
+<!--                <scope>runtime</scope>-->
+<!--            </dependency>-->
 
         </dependencies>
     </dependencyManagement>
