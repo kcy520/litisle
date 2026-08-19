@@ -69,8 +69,9 @@ public class LoginRetryLimiter {
     /**
      * 账户锁定标记 Key 前缀
      * 完整 Key：login:lock:{identifier}
+     * 【说明】引用 CacheConstant 统一管理，避免硬编码
      */
-    private static final String LOGIN_LOCK_PREFIX = "login:lock:";
+    private static final String LOGIN_LOCK_PREFIX = CacheConstant.LOGIN_LOCK;
 
     /**
      * 锁定标记值（仅占位，无实际意义）

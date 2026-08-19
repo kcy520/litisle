@@ -191,6 +191,14 @@ public class CacheConstant {
      */
     public static final String RATE_LIMIT = "rate_limit:";
 
+    /**
+     * 幂等请求 Key 前缀
+     * 格式：idempotent:{userId}:{methodPath}:{argsMd5}
+     * 用途：配合 @Idempotent 注解，防止重复提交
+     *       完整 key 示例：idempotent:1001:OrderController:createOrder:a1b2c3
+     */
+    public static final String IDEMPOTENT = "idempotent:";
+
     // ==================== 缓存默认过期时间（秒） ====================
 
     /** 5分钟 */

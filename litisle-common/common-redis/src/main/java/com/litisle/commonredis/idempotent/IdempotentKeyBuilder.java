@@ -1,6 +1,7 @@
 package com.litisle.commonredis.idempotent;
 
 
+import com.litisle.commonredis.constant.CacheConstant;
 import org.springframework.util.DigestUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -34,8 +35,9 @@ public class IdempotentKeyBuilder {
 
     /**
      * Key 前缀（统一管理，避免冲突）
+     * 【说明】引用 CacheConstant 统一管理，避免硬编码
      */
-    private static final String IDEMPOTENT_KEY_PREFIX = "idempotent:";
+    private static final String IDEMPOTENT_KEY_PREFIX = CacheConstant.IDEMPOTENT;
 
     /**
      * 构建幂等 key

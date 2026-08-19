@@ -1,5 +1,6 @@
 package com.litisle.commonredis.ratelimit;
 
+import com.litisle.commonredis.constant.CacheConstant;
 import com.litisle.commoncore.resolver.UserIdResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -40,8 +41,9 @@ public class RateLimiterKeyBuilder {
 
     /**
      * Key 前缀（统一管理，避免冲突）
+     * 【说明】引用 CacheConstant 统一管理，避免硬编码
      */
-    private static final String LIMIT_KEY_PREFIX = "rate_limit:";
+    private static final String LIMIT_KEY_PREFIX = CacheConstant.RATE_LIMIT;
 
     /**
      * 构建限流 key
