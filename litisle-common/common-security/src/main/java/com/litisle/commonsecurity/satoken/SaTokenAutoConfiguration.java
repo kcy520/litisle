@@ -45,6 +45,7 @@ public class SaTokenAutoConfiguration {
         return new StpInterfaceImpl();
     }
 
+
     /**
      * UserIdResolver 实现（Sa-Token 版）
      *
@@ -58,6 +59,7 @@ public class SaTokenAutoConfiguration {
     public SaTokenUserIdResolver saTokenUserIdResolver() {
         return new SaTokenUserIdResolver();
     }
+
 
     /**
      * Sa-Token 会话事件监听器

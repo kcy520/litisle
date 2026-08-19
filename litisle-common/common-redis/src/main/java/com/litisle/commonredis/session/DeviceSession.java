@@ -8,6 +8,8 @@ import lombok.NoArgsConstructor;
 /**
  * 设备会话信息
  *
+ * 注：暂未使用，可忽略
+ *
  * 【设计说明】
  * 记录单个设备的一次登录会话，作为 Hash 的 value 存储在 Redis 中：
  * - Key   ：auth:session:{userId}
