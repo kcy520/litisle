@@ -29,5 +29,5 @@ litisle:
       # 生产环境使用主 application.yml 的 ${LITISLE_CRYPTO_KEY} 从环境变量注入
       # 注意：若系统/IDE 中设置了 LITISLE_CRYPTO_KEY 环境变量，占位符会优先使用环境变量值
       # 因此开发环境直接硬编码，避免环境变量干扰
-      key: OHP0YhYHKz21rPS4bGhQBOVlB2R2OXZ7mE1uSbHQ0fU=
+      key: RT6uWj/AaWAJ9/dm3l1aBzEHackhrujBqMeAkiKaaac=
 

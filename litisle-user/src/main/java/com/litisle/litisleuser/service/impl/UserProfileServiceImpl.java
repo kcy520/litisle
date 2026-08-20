@@ -1,11 +1,13 @@
 package com.litisle.litisleuser.service.impl;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
-import com.litisle.commonsecurity.context.SecurityContextHolder;
+import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
+import com.litisle.commonsecurity.utils.SaRoleHelper;
 import com.litisle.litisleuser.domain.dto.UserProfileUpdateDTO;
 import com.litisle.litisleuser.domain.entity.User;
 import com.litisle.litisleuser.domain.entity.UserProfile;
@@ -31,6 +33,7 @@ public class UserProfileServiceImpl
 
     private final UserProfileMapper userProfileMapper;
     private final UserMapper userMapper;
+    private final Aes256GcmCrypto aes256GcmCrypto;
 
     /**
      * 获取当前登录用户资料
@@ -40,8 +43,8 @@ public class UserProfileServiceImpl
     @Override
     public UserSelfVO currentUserProfile() {
 
-        //获取用户id
-        Long userId = SecurityContextHolder.getUserId();
+        //获取用户id（Sa-Token 登录态）
+        Long userId = StpUtil.getLoginIdAsLong();
 
         User user = userMapper.selectOne(
                 new LambdaQueryWrapper<User>()
@@ -61,7 +64,7 @@ public class UserProfileServiceImpl
         //查询profile表
         UserProfile profile = null;
         //如果非作者身份跳过此表
-        if(SecurityContextHolder.isAuthor())
+        if(SaRoleHelper.isAuthor())
         profile = userProfileMapper.selectOne(
                 new LambdaQueryWrapper<UserProfile>()
                         .eq(UserProfile::getUserId, userId)
@@ -103,8 +106,8 @@ public class UserProfileServiceImpl
     @Override
     public UserPublicVO publicProfile() {
 
-        //用户id
-        Long userId = SecurityContextHolder.getUserId();
+        //用户id（Sa-Token 登录态）
+        Long userId = StpUtil.getLoginIdAsLong();
 
         //查询用户信息
         User user = userMapper.selectOne(
@@ -122,7 +125,7 @@ public class UserProfileServiceImpl
 
         //如果用户拥有作者角色，就查询用户概述
         UserProfile profile = null;
-        if (SecurityContextHolder.isAuthor()){
+        if (SaRoleHelper.isAuthor()){
              profile = userProfileMapper.selectOne(
                     new LambdaQueryWrapper<UserProfile>()
                             .eq(UserProfile::getUserId, userId)
@@ -157,7 +160,7 @@ public class UserProfileServiceImpl
     @Override
     public UserUpdateProfileVO updateCurrentUserProfile(UserProfileUpdateDTO dto) {
 
-        Long userId = SecurityContextHolder.getUserId();
+        Long userId = StpUtil.getLoginIdAsLong();
 
         // ===== 1. 查当前主表 =====
         User oldUser = userMapper.selectOne(
@@ -208,9 +211,7 @@ public class UserProfileServiceImpl
         }
 
         // ===== 4. 作者：处理 profile =====
-        boolean isAuthor = SecurityContextHolder.isAuthor();
-
-        if (isAuthor &&
+        if (SaRoleHelper.isAuthor() &&
                 (dto.getPenName() != null || dto.getCreationDir() != null || dto.getMasterpiece() != null)) {
 
             UserProfile oldProfile = userProfileMapper.selectOne(
@@ -244,7 +245,7 @@ public class UserProfileServiceImpl
         }
 
         // ===== 5. 回显：有 profile 才 JOIN =====
-        return isAuthor
+        return SaRoleHelper.isAuthor()
                 ? userProfileMapper.selectUpdateProfileByUserId(userId)
                 : userProfileMapper.selectUpdateProfileBaseByUserId(userId);
     }
@@ -257,7 +258,7 @@ public class UserProfileServiceImpl
      */
     @Override
     public String viewCurrentUserPlainPhone() {
-        Long userId = SecurityContextHolder.getUserId();
+        Long userId = StpUtil.getLoginIdAsLong();
 
         User user = userMapper.selectOne(
                 new LambdaQueryWrapper<User>()
@@ -270,8 +271,9 @@ public class UserProfileServiceImpl
             throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
         }
 
-        // phone 本身已是明文/脱敏由库决定，这里原样返回
-        return user.getPhone();
+        // 解密手机号密文（AES-256-GCM），未绑定手机号时返回 null
+        String phone = user.getPhone();
+        return phone == null || phone.isBlank() ? null : aes256GcmCrypto.decrypt(phone);
     }
 
 
@@ -282,23 +284,23 @@ public class UserProfileServiceImpl
      */
     @Override
     public String viewCurrentUserPlainEmail() {
-//        Long userId = SecurityContextHolder.getUserId();
-//
-//        User user = userMapper.selectOne(
-//                new LambdaQueryWrapper<User>()
-//                        .eq(User::getId, userId)
-//                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
-//                        .select(User::get)
-//        );
-//
-//        if (user == null) {
-//            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
-//        }
-//
-//         phone 本身已是明文/脱敏由库决定，这里原样返回
-//        return user.getPhone();
-        return null;
+        Long userId = StpUtil.getLoginIdAsLong();
+
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getEmail)
+        );
+
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
         }
+
+        // 解密邮箱密文（AES-256-GCM），未绑定邮箱时返回 null
+        String email = user.getEmail();
+        return email == null || email.isBlank() ? null : aes256GcmCrypto.decrypt(email);
+    }
 
     /**
      * 查看本人密码
@@ -306,7 +308,7 @@ public class UserProfileServiceImpl
      */
     @Override
     public String viewCurrentUserPlainPassword() {
-        Long userId = SecurityContextHolder.getUserId();
+        Long userId = StpUtil.getLoginIdAsLong();
 
         User user = userMapper.selectOne(
                 new LambdaQueryWrapper<User>()
@@ -319,8 +321,9 @@ public class UserProfileServiceImpl
             throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
         }
 
-        // phone 本身已是明文/脱敏由库决定，这里原样返回
-        return user.getPassword();
+        // BCrypt 不可逆，无法解密返回明文；仅返回脱敏占位符表示已设置密码
+        return user.getPassword() == null || user.getPassword().isBlank()
+                ? null : "********";
     }
 
     /**
@@ -330,7 +333,18 @@ public class UserProfileServiceImpl
      */
     @Override
     public String viewUserPlainPhone(Long userId) {
-        return "";
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getPhone)
+        );
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+        }
+        // 解密手机号密文（AES-256-GCM）
+        String phone = user.getPhone();
+        return phone == null || phone.isBlank() ? null : aes256GcmCrypto.decrypt(phone);
     }
 
     /**
@@ -340,7 +354,18 @@ public class UserProfileServiceImpl
      */
     @Override
     public String viewUserPlainEmail(Long userId) {
-        return "";
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getEmail)
+        );
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+        }
+        // 解密邮箱密文（AES-256-GCM）
+        String email = user.getEmail();
+        return email == null || email.isBlank() ? null : aes256GcmCrypto.decrypt(email);
     }
 
     /**
@@ -350,7 +375,20 @@ public class UserProfileServiceImpl
      */
     @Override
     public String viewUserPlainPassword(Long userId) {
-        return "";
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getPassword)
+        );
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+        }
+        // BCrypt 不可逆，仅返回脱敏占位符表示已设置密码
+        return user.getPassword() == null || user.getPassword().isBlank()
+                ? null : "********";
     }
+
+
 
 }

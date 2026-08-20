@@ -12,6 +12,13 @@ import org.springframework.context.annotation.Bean;
  * 2. 通过 @FeignClient(configuration = FeignApiConfig.class) 显式引用，仅对引用它的客户端生效
  * 3. 各业务服务依赖 litisle-api 后，其 Feign 客户端自动获得统一的日志与超时配置
  *
+ * Feign 日志 光配 Level 没用
+ * 各服务 application.yml 必须加：
+ * logging:
+ *   level:
+ *     com.litisle.litisleapi.feign: DEBUG
+ * 放client的这个包
+ *
  * @author litisle
  */
 public class FeignApiConfig {
@@ -35,9 +42,10 @@ public class FeignApiConfig {
      */
     @Bean
     public Request.Options feignRequestOptions() {
-        return Request.Options.create()
-                .connectTimeoutMillis(5000)
-                .readTimeoutMillis(10000)
-                .build();
+        return new Request.Options(
+                5000,   // connectTimeout
+                10000,  // readTimeout
+                true    // followRedirects
+        );
     }
 }

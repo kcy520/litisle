@@ -1,5 +1,6 @@
 package com.litisle.commonsecurity.enums;
 
+import com.litisle.commonsecurity.constant.PermissionCode;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -21,31 +22,33 @@ import java.util.Set;
 public enum PermissionEnum {
 
     /* ================= 用户 ================= */
-    USER_READ("user:read", "查看用户"),
-    USER_UPDATE("user:update", "修改用户"),
-    USER_DELETE("user:delete", "删除用户"),
-    USER_BAN("user:ban", "封禁用户"),
+    USER_READ(PermissionCode.USER_READ, "查看用户"),
+    USER_UPDATE(PermissionCode.USER_UPDATE, "修改用户"),
+    USER_DELETE(PermissionCode.USER_DELETE, "删除用户"),
+    USER_BAN(PermissionCode.USER_BAN, "封禁用户"),
 
     /* ================= 敏感信息（⚠️ 高风险） ================= */
-    SENSITIVE_PHONE_READ("sensitive:phone:read", "查看手机号"),
-    SENSITIVE_EMAIL_READ("sensitive:email:read", "查看邮箱"),
-    SENSITIVE_PASSWORD_READ("sensitive:password:read", "查看密码"),
-    SENSITIVE_EXPORT("sensitive:export", "导出敏感数据"),
+    SENSITIVE_PHONE_READ(PermissionCode.SENSITIVE_PHONE_READ, "查看手机号"),
+    SENSITIVE_EMAIL_READ(PermissionCode.SENSITIVE_EMAIL_READ, "查看邮箱"),
+    SENSITIVE_PASSWORD_READ(PermissionCode.SENSITIVE_PASSWORD_READ, "查看密码"),
+    SENSITIVE_EXPORT(PermissionCode.SENSITIVE_EXPORT, "导出敏感数据"),
 
     /* ================= 角色 / 权限 ================= */
-    ROLE_ASSIGN("role:assign", "分配角色"),
-    ROLE_PERM_UPDATE("role:perm:update", "修改角色权限"),
+    ROLE_ASSIGN(PermissionCode.ROLE_ASSIGN, "分配角色"),
+    ROLE_PERM_UPDATE(PermissionCode.ROLE_PERM_UPDATE, "修改角色权限"),
 
     /* ================= 系统 ================= */
-    SYS_CONFIG_UPDATE("system:config:update", "修改系统配置"),
-    SYS_DICT_UPDATE("system:dict:update", "修改数据字典"),
+    SYS_CONFIG_UPDATE(PermissionCode.SYS_CONFIG_UPDATE, "修改系统配置"),
+    SYS_DICT_UPDATE(PermissionCode.SYS_DICT_UPDATE, "修改数据字典"),
 
     /* ================= 内容（示例） ================= */
-    ARTICLE_READ("article:read", "查看文章"),
-    ARTICLE_PUBLISH("article:publish", "发布文章"),
-    ARTICLE_DELETE("article:delete", "删除文章");
+    ARTICLE_READ(PermissionCode.ARTICLE_READ, "查看文章"),
+    ARTICLE_PUBLISH(PermissionCode.ARTICLE_PUBLISH, "发布文章"),
+    ARTICLE_DELETE(PermissionCode.ARTICLE_DELETE, "删除文章");
 
-    /** 权限码（与 RequirePermission 注解对应） */
+
+
+    /** 权限码 */
     private final String code;
 
     /** 展示用 */

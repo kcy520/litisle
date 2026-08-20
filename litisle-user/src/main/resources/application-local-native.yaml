@@ -16,3 +16,12 @@ litisle:
     host: localhost
     port: 6379
     password: ${REDIS_PASSWORD}
+
+  # ================================
+  # 安全加密配置（本地裸装环境使用硬编码密钥，排除环境变量干扰）
+  # ================================
+  security:
+    crypto:
+      # 本地开发直接写入合法 Base64 密钥，不通过占位符
+      # 生产环境使用主 application.yml 的 ${LITISLE_CRYPTO_KEY} 从环境变量注入
+      key: RT6uWj/AaWAJ9/dm3l1aBzEHackhrujBqMeAkiKaaac=

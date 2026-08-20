@@ -1,7 +1,7 @@
 package com.litisle.litisleuser.controller;
 
+import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.litisle.commoncore.result.Result;
-import com.litisle.commonsecurity.login.Login;
 import com.litisle.litisleuser.domain.dto.UserProfileUpdateDTO;
 import com.litisle.litisleuser.domain.vo.UserPublicVO;
 import com.litisle.litisleuser.domain.vo.UserSelfVO;
@@ -17,8 +17,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/user/profile")
-//@PreAuthorize("isAuthenticated()")//登录校验
-@Login//自定义登录校验
+@SaCheckLogin//登录校验
 public class UserProfileController {
 
     private final UserProfileService userProfileService;

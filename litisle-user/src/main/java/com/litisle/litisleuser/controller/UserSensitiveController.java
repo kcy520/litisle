@@ -1,11 +1,12 @@
 package com.litisle.litisleuser.controller;
 
+import cn.dev33.satoken.annotation.SaCheckLogin;
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.litisle.commoncore.enums.AuditModule;
 import com.litisle.commoncore.enums.AuditOperation;
 import com.litisle.commoncore.result.Result;
-import com.litisle.commonsecurity.login.Login;
-import com.litisle.commonsecurity.permission.RequirePermission;
 import com.litisle.commonsecurity.audit.AuditLog;
+import com.litisle.commonsecurity.constant.PermissionCode;
 import com.litisle.commonsecurity.enums.PermissionEnum;
 import com.litisle.litisleuser.service.UserProfileService;
 import org.springframework.web.bind.annotation.*;
@@ -21,7 +22,7 @@ import org.springframework.web.bind.annotation.*;
  */
 @RestController
 @RequestMapping("/sensitive")
-@Login
+@SaCheckLogin//登录校验
 public class UserSensitiveController {
 
     private final UserProfileService userProfileService;
@@ -83,7 +84,7 @@ public class UserSensitiveController {
      * 管理员查看指定用户手机号
      */
     @GetMapping("/users/{userId}/phone")
-    @RequirePermission(perms = {PermissionEnum.SENSITIVE_PHONE_READ})
+    @SaCheckPermission(PermissionCode.SENSITIVE_PHONE_READ)
     @AuditLog(
         moudle = AuditModule.SENSITIVE,
         operation = AuditOperation.USER_VIEW_PHONE_ADMIN,
@@ -97,8 +98,9 @@ public class UserSensitiveController {
     /**
      * 管理员查看指定用户邮箱
      */
+//    @RequirePermission(perms={PermissionEnum.SENSITIVE_PHONE_READ})
     @GetMapping("/users/{userId}/email")
-    @RequirePermission(perms = {PermissionEnum.SENSITIVE_EMAIL_READ})
+    @SaCheckPermission(PermissionCode.SENSITIVE_EMAIL_READ)
     @AuditLog(
         moudle = AuditModule.SENSITIVE,
         operation = AuditOperation.USER_VIEW_EMAIL_ADMIN,
@@ -113,7 +115,7 @@ public class UserSensitiveController {
      * 管理员查看指定用户密码
      */
     @GetMapping("/users/{userId}/password")
-    @RequirePermission(perms = {PermissionEnum.SENSITIVE_PASSWORD_READ})
+    @SaCheckPermission(PermissionCode.SENSITIVE_PASSWORD_READ)
     @AuditLog(
         moudle = AuditModule.SENSITIVE,
         operation = AuditOperation.USER_VIEW_PASSWORD_ADMIN,

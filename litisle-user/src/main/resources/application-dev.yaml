@@ -26,6 +26,6 @@ litisle:
     crypto:
       # Dev 环境直接写入合法 Base64 密钥，不通过占位符
       # 生产环境使用主 application.yml 的 ${LITISLE_CRYPTO_KEY} 从环境变量注入
-      key: OHP0YhYHKz21rPS4bGhQBOVlB2R2OXZ7mE1uSbHQ0fU=
+      key: RT6uWj/AaWAJ9/dm3l1aBzEHackhrujBqMeAkiKaaac=
 
 
