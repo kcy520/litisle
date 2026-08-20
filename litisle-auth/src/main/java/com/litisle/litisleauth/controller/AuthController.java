@@ -2,13 +2,13 @@ package com.litisle.litisleauth.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.litisle.commoncore.result.Result;
+import com.litisle.litisleauth.domain.dto.PasswordLoginDTO;
+import com.litisle.litisleauth.domain.dto.RegisterRequestDTO;
 import com.litisle.litisleauth.domain.vo.LoginUserInfoVO;
 import com.litisle.litisleauth.domain.vo.TsuccessenVO;
 import com.litisle.litisleauth.service.AuthService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
 
 // 注册/登录/退出/刷新
 @RestController
@@ -45,6 +45,14 @@ public class AuthController {
 //        return Result.success(authService.smsLogin(dto));
 //    }
 
+        /**
+     * 邮箱+验证码登录
+     */
+    @PostMapping("/login/sms")
+    public Result<TsuccessenVO> loginBySms(@Valid @RequestBody EmailLoginDTO dto) {
+        return Result.success(authService.emailLogin(dto));
+    }
+
     /**
      * 退出登录
      */
@@ -56,7 +64,7 @@ public class AuthController {
     }
 
     /**
-     * 刷新 Tsuccessen
+     * 刷新 Tsuccessen  即刷新令牌
      */
     @PostMapping("/refresh")
     public Result<TsuccessenVO> refresh(@Valid @RequestBody RefreshTsuccessenDTO dto) {

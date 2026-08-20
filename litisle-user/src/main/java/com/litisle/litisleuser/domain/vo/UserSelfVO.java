@@ -3,6 +3,7 @@ package com.litisle.litisleuser.domain.vo;
 import com.litisle.commonsecurity.desensitize.Sensitive;
 import com.litisle.commonsecurity.desensitize.SensitiveStrategy;
 import com.litisle.litisleuser.enums.AvatarColor;
+import com.litisle.litisleuser.enums.UserStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -75,9 +76,9 @@ public class UserSelfVO {
     private LocalDateTime vipExpireTime;
 
     /**
-     * 账号状态：0-禁用 1-正常 2-注销
+     * 账号状态：禁用/正常/注销（JSON 输出 desc，如"正常"）
      */
-    private Integer status;
+    private UserStatus status;
 
     /**
      * 是否被封禁（true=封禁中）
@@ -115,8 +116,7 @@ public class UserSelfVO {
     private String masterpiece;
 
     /**
-     * 头像标识
-     * 0-无 1-金色（作家） 2-白色（纪念作家）
+     * 头像标识：无/金色（作家）/白色（纪念作家）（JSON 输出 desc，如"金色"）
      */
     private AvatarColor avatarColor;
 

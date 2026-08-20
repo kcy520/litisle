@@ -1,6 +1,7 @@
 package com.litisle.litisleuser.enums;
 
 import com.baomidou.mybatisplus.annotation.EnumValue;
+import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.Getter;
 
 /**
@@ -15,6 +16,9 @@ public enum DelFlag {
 
     @EnumValue
     private final int code;
+
+    /** 前端展示用：JSON 序列化为 desc 而非 code */
+    @JsonValue
     private final String desc;
 
     DelFlag(int code, String desc) {

@@ -27,7 +27,7 @@ public class UserUpdateProfileVO {
     /** 头像访问地址（已拼接 CDN/域名） */
     private String avatar;
 
-    /** 头像配色：0-无 1-金色 2-白色 */
+    /** 头像配色：0-无 1-金色 2-白色（JSON 输出 desc，如"金色"） */
     private AvatarColor avatarColor;
 
     /** 笔名（作家） */

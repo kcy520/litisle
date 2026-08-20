@@ -84,7 +84,7 @@ public class UserProfileServiceImpl
                 .bio(user.getBio())
                 .vip(user.getVipExpireTime() != null && user.getVipExpireTime().isAfter(now))
                 .vipExpireTime(user.getVipExpireTime())
-                .status(user.getStatus().getCode())
+                .status(user.getStatus())
                 .avatarColor(user.getAvatarColor())
                 .frozen(user.getFrozenUntil() != null && user.getFrozenUntil().isAfter(now))
 //                .enabled(UserStatus.NORMAL.equals(user.getStatus()) && !banned)
@@ -166,7 +166,7 @@ public class UserProfileServiceImpl
         User oldUser = userMapper.selectOne(
                 new LambdaQueryWrapper<User>()
                         .eq(User::getId, userId)
-                        .eq(User::getDelFlag, 0)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
                         .select(User::getId, User::getUsername, User::getBio, User::getAvatarColor)
         );
 
@@ -180,7 +180,7 @@ public class UserProfileServiceImpl
             Long count = userMapper.selectCount(
                     new LambdaQueryWrapper<User>()
                             .eq(User::getUsername, dto.getUsername())
-                            .eq(User::getDelFlag, 0)
+                            .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
             );
             if (count > 0) {
                 throw new BizException(ErrorCode.USERNAME_ALREADY_EXISTS);

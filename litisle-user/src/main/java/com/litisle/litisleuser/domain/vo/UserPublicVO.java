@@ -66,8 +66,7 @@ public class UserPublicVO {
     private String masterpiece;
 
     /**
-     * 头像标识
-     * 0-无 1-金色（作家） 2-白色（纪念作家）
+     * 头像标识：无/金色（作家）/白色（纪念作家）（JSON 输出 desc，如"金色"）
      */
     private AvatarColor avatarColor;
 

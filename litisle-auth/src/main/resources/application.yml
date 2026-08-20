@@ -38,6 +38,19 @@ litisle:
     from: ${litisle.mail.from:}
     password: ${litisle.mail.password:}
 
+# ================================
+# 安全加密配置（common-security）
+# ================================
+# AES-256-GCM：用于手机号/邮箱加密存储，auth 模块同样需要
+  security:
+    crypto:
+      # AES-256 密钥（Base64 编码的 32 字节密钥）
+      # 生产环境、开发/本地环境均通过环境变量注入或回退默认密钥
+      # 生产环境通过环境变量 LITISLE_CRYPTO_KEY 注入（占位符优先取环境变量）
+      key: ${LITISLE_CRYPTO_KEY:RT6uWj/AaWAJ9/dm3l1aBzEHackhrujBqMeAkiKaaac=}
+      # BCrypt 强度因子（默认 10，范围 4-31，每+1 计算量翻倍）
+      bcrypt-cost: 10
+
 sa-token:
   # Token 名称
   token-name: Authorization
