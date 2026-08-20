@@ -1,11 +1,17 @@
 litisle:
-security:
-anonymous:
-paths:                           # ????????
-- /api/content/article/list
-- /api/content/article/{id}
-xss:
-enabled: true                      # ????? XSS
-exclude-paths:                     # ?????????
-- /api/content/article/publish
-- /api/content/comment/rich
+  security:
+    anonymous:
+      paths:
+        - /api/content/article/list
+        - /api/content/article/{id}
+  xss:
+    enabled: true                      # 是否启用 XSS 过滤
+    exclude-paths:                     # 富文本接口排除路径
+      - /api/content/article/publish
+      - /api/content/comment/rich
+
+# ====== 日志配置 ======
+logging:
+  pattern:
+    # 控制台日志格式（%X{traceId} 输出链路追踪 ID）
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"

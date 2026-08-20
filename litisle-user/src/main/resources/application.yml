@@ -89,6 +89,7 @@ logging:
     com.litisle.user: debug
   pattern:
     dateformat: HH:mm:ss:SSS
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
   file:
     path: "logs/${spring.application.name}"
 

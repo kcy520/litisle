@@ -55,46 +55,47 @@ public class FeignAuthInterceptor implements RequestInterceptor {
      */
     @Override
     public void apply(RequestTemplate template) {
-        // 1. 检查是否登录（Sa-Token 方式，替代原 SecurityContextHolder.getContext()）
+        // 1. 先透传链路追踪ID（无论是否登录，保证链路不中断）
+        //    从 MDC 获取（由 TraceIdFilter 写入），与用户上下文解耦
+        String traceId = MDC.get("traceId");
+        if (traceId != null) {
+            template.header(HeaderConstant.TRACE_ID, traceId);
+        }
+
+        // 2. 检查是否登录（Sa-Token 方式，替代原 SecurityContextHolder.getContext()）
         if (!StpUtil.isLogin()) {
-            // 未登录场景（如内部定时任务调用），只透传 traceId
-            log.debug("Feign 调用无用户上下文（未登录场景）");
+            // 未登录场景（如内部定时任务调用），仅透传 traceId
+            log.debug("Feign 调用无用户上下文（未登录场景），仅透传 traceId={}", traceId);
             return;
         }
 
-        // 2. 注入用户ID（Sa-Token 的 loginId 即业务 userId）
+        // 3. 注入用户ID（Sa-Token 的 loginId 即业务 userId）
         Object loginId = StpUtil.getLoginId();
         template.header(HeaderConstant.USER_ID, String.valueOf(loginId));
 
-        // 3. 注入用户名（从 Sa-Token Session 获取，登录时业务侧 session.set("username", xxx)）
+        // 4. 注入用户名（从 Sa-Token Session 获取，登录时业务侧 session.set("username", xxx)）
         SaSession session = StpUtil.getSession();
         String username = (String) session.get("username");
         if (username != null) {
             template.header(HeaderConstant.USERNAME, username);
         }
 
-        // 4. 注入角色列表（Sa-Token 通过 StpInterface.getRoleList() 提供）
+        // 5. 注入角色列表（Sa-Token 通过 StpInterface.getRoleList() 提供）
         List<String> roles = StpUtil.getRoleList();
         if (roles != null && !roles.isEmpty()) {
             template.header(HeaderConstant.USER_ROLES, String.join(",", roles));
         }
 
-        // ========== 5. 权限（Sa-Token 通过 StpInterface.getPermissionList() 提供） ==========
+        // ========== 6. 权限（Sa-Token 通过 StpInterface.getPermissionList() 提供） ==========
         List<String> perms = StpUtil.getPermissionList();
         if (perms != null && !perms.isEmpty()) {
             template.header(HeaderConstant.PERMISSIONS, String.join(",", perms));
         }
 
-        // 6. 注入 Sa-Token 的 Token 值（下游服务可通过它直接查询会话，无需重复鉴权）
+        // 7. 注入 Sa-Token 的 Token 值（下游服务可通过它直接查询会话，无需重复鉴权）
         String tokenValue = StpUtil.getTokenValue();
         if (tokenValue != null) {
             template.header(StpUtil.getTokenName(), tokenValue);
-        }
-
-        // 7. 注入链路追踪ID（从 MDC 获取，与 SecurityContext 解耦）
-        String traceId = MDC.get("traceId");
-        if (traceId != null) {
-            template.header(HeaderConstant.TRACE_ID, traceId);
         }
 
         log.debug("Feign 透传用户上下文: userId={}, traceId={}", loginId, traceId);

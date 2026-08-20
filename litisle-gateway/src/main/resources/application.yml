@@ -108,17 +108,37 @@ sa-token:
   is-log: true
 
 litisle:
-  security:    # ====== 匿名访问白名单 ======
-    # 【说明】这些路径跳过 JWT 校验，直接放行
-    anonymous:
+  gateway:
+    jwt:    # ====== 匿名访问白名单 ======
+      # 【说明】这些路径跳过 JWT 校验，直接放行
+      # 与 GatewayJwtProperties 绑定的前缀 litisle.gateway.jwt 保持一致
+      # 【拦截逻辑】SaReactorFilter 拦截所有路径（addInclude("/**")），
+      # 仅放行下方白名单，其余路径一律要求登录（StpUtil.checkLogin()）
       paths:
-        - /api/auth/login            # 登录
+        # ---------- 认证服务（无需登录） ----------
+        - /api/auth/login            # 账号密码登录
         - /api/auth/register         # 注册
-        - /api/auth/captcha          # 图形验证码
+        - /api/auth/captcha/image    # 图形验证码
+        - /api/auth/captcha/email    # 邮箱验证码
         - /api/auth/oauth/**         # OAuth2 第三方登录
         - /api/auth/refresh          # 刷新 Token
+
+        # ---------- 内容服务（公开内容） ----------
         - /api/content/article/list  # 公开文章列表
         - /api/content/article/{id}  # 公开文章详情
+        - /api/content/article/hot   # 热门文章
+        - /api/content/category/**   # 文章分类列表
+
+        # ---------- 用户服务（公开信息） ----------
+        - /api/user/public/**        # 公开用户信息（作者主页等）
+
+        # ---------- 搜索服务 ----------
+        - /api/search/**             # 公开搜索
+
+        # ---------- 文件服务 ----------
+        - /api/file/download/**      # 公开文件下载
+
+        # ---------- 健康检查 ----------
         - /actuator/**               # 健康检查（生产环境需限制）
 
 # ====== 日志配置 ======
@@ -126,3 +146,5 @@ logging:
   level:
     com.litisle.litislegateway: DEBUG
     com.litisle.commoncore: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"

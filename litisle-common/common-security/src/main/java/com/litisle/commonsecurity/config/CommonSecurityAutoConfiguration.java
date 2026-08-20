@@ -4,10 +4,13 @@ import com.litisle.commonsecurity.anonymous.AnonymousAccessHandler;
 import com.litisle.commonsecurity.anonymous.AnonymousPathScanner;
 import com.litisle.commonsecurity.audit.AuditLogAspect;
 import com.litisle.commonsecurity.feign.FeignAuthInterceptor;
+import com.litisle.commonsecurity.trace.TraceIdFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 
 /**
  * common-security 核心自动配置
@@ -37,5 +40,19 @@ public class CommonSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public AnonymousPathScanner anonymousPathScanner(AnonymousAccessHandler anonymousAccessHandler) {
         return new AnonymousPathScanner(anonymousAccessHandler);
+    }
+
+    /**
+     * 注册 Trace ID 过滤器（链路追踪承接）
+     * 从请求 Header 读取 X-Trace-Id 写入 MDC，供 FeignAuthInterceptor 透传下游
+     * order 最高优先级，保证最早执行
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public FilterRegistrationBean<TraceIdFilter> traceIdFilterRegistration() {
+        FilterRegistrationBean<TraceIdFilter> registration = new FilterRegistrationBean<>(new TraceIdFilter());
+        registration.addUrlPatterns("/*");
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
     }
 }

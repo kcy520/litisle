@@ -570,6 +570,7 @@ litisle:
 | 加密工具配置         | common-security | `AutoConfiguration.imports` 注册 |
 | 匿名白名单初始化     | common-security | `@PostConstruct` 兜底加载        |
 | 匿名白名单注解扫描   | common-security | `ContextRefreshedEvent` 自动扫描 |
+| Trace ID 链路承接     | common-security | `FilterRegistrationBean` 注册    |
 
 ### 7.2 声明式（加注解即生效）
 
@@ -697,7 +698,89 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
 ---
 
-## 十、文件清单
+## 十、链路追踪 Trace ID（跨模块）
+
+### 10.1 设计目标
+
+全链路日志追踪：一次请求从网关到各业务服务，通过同一个 `traceId` 串联所有日志，便于问题定位与性能分析。
+
+### 10.2 完整链路
+
+```
+客户端
+  │ 请求（无 traceId）
+  ▼
+【litisle-gateway】TraceIdFilter（WebFilter，order=-200）
+  │ 生成/复用 traceId → 注入 X-Trace-Id Header + 响应 Header + MDC
+  ▼
+【业务服务A】TraceIdFilter（OncePerRequestFilter，common-security）
+  │ 读 Header 写 MDC → 服务A 日志带 traceId
+  ▼ Feign 调用
+【common-security】FeignAuthInterceptor
+  │ 从 MDC 读 traceId 透传 X-Trace-Id Header
+  ▼
+【业务服务B】TraceIdFilter（OncePerRequestFilter，common-security）
+  │ 读 Header 写 MDC → 服务B 日志带 traceId
+  ▼
+响应（X-Trace-Id 回传客户端，可关联）
+```
+
+### 10.3 相关文件清单（含模块）
+
+| 文件 | 所在模块 | 职责 | 状态 |
+|------|---------|------|------|
+| `TraceIdFilter` | litisle-gateway（filter 包） | 链路入口：生成/复用 traceId，注入下游 Header + 响应 Header + MDC | 新增 |
+| `TraceIdFilter` | common-security（trace 包） | 链路承接：读 Header 写 MDC | 新增 |
+| `FeignAuthInterceptor` | common-security（feign 包） | 链路透传：从 MDC 读 traceId 透传下游 | 已有（见 4.3） |
+| `HeaderConstant` | common-core（constant 包） | 定义 `X-Trace-Id` Header 名 | 已有（见 2.3） |
+| `CommonSecurityAutoConfiguration` | common-security（config 包） | 注册 TraceIdFilter（FilterRegistrationBean，最高优先级） | 修改 |
+
+### 10.4 各文件详细说明
+
+#### 10.4.1 网关 TraceIdFilter（litisle-gateway）
+
+- 类型：`WebFilter`（WebFlux 响应式）
+- order：`-200`（早于 SaReactorFilter 的 -100，认证失败时也能关联 traceId）
+- 逻辑：
+  1. 复用上游传入的 `X-Trace-Id`，缺失则生成 UUID（去横线）
+  2. 注入下游请求 Header + 响应 Header（客户端可关联）
+  3. 写入 MDC（WebFlux 线程模型下尽力而为，核心目的是注入下游 Header）
+
+#### 10.4.2 业务服务 TraceIdFilter（common-security）
+
+- 类型：`OncePerRequestFilter`（Servlet）
+- 注册：`CommonSecurityAutoConfiguration` 通过 `FilterRegistrationBean` 注册，`Ordered.HIGHEST_PRECEDENCE` 最高优先级，`/*` 全路径
+- 逻辑：
+  1. 读请求 Header `X-Trace-Id`，缺失则本地生成（直接访问/定时任务场景）
+  2. 写入 MDC（`FeignAuthInterceptor` 从此读取透传）
+  3. 响应 Header 回写 traceId
+  4. finally 中移除 MDC，避免线程池复用污染
+
+#### 10.4.3 FeignAuthInterceptor（common-security，已有）
+
+- 从 MDC 读取 `traceId`，透传 `X-Trace-Id` Header 给下游服务（详见 4.3 节）
+
+### 10.5 日志输出（已实现）
+
+MDC 中的 `traceId` 通过日志 pattern 输出，在全链路日志中可见。已在各业务服务 `application.yml` 中配置（无需额外 logback 文件）：
+
+```yaml
+logging:
+  pattern:
+    # 控制台输出：%X{traceId} 从 MDC 读取链路追踪 ID
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
+    # 文件输出（如需落盘日志）
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
+```
+
+**已配置服务**：litisle-gateway、litisle-auth、litisle-user、litisle-content
+
+**说明**：
+- `%X{traceId}` 从 MDC 读取 traceId（由 TraceIdFilter 写入）
+- 未配置时 traceId 为空，日志显示 `[]`，不影响正常运行
+- 若需滚动归档、异步输出等复杂策略，再引入 `logback-spring.xml`
+
+## 十一、文件清单
 
 ### common-core（18 个文件）
 
@@ -761,7 +844,7 @@ common-redis/src/main/java/com/litisle/commonredis/
     └── RedisUtil.java
 ```
 
-### common-security（27 个文件）
+### common-security（28 个文件）
 
 ```
 common-security/src/main/java/com/litisle/commonsecurity/
@@ -796,6 +879,8 @@ common-security/src/main/java/com/litisle/commonsecurity/
 │   ├── SaTokenExceptionHandler.java
 │   ├── SaTokenUserIdResolver.java
 │   └── StpInterfaceImpl.java
+├── trace/
+│   └── TraceIdFilter.java
 ├── xss/
 │   ├── XssFilter.java
 │   ├── XssHttpServletRequestWrapper.java

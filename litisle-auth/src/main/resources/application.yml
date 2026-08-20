@@ -75,3 +75,9 @@ justauth:
       client-id: ${GITHUB_CLIENT_ID}
       client-secret: ${GITHUB_CLIENT_SECRET}
       redirect-uri: https://your-domain.com/v1/auth/oauth2/GITHUB/callback
+
+# ====== 日志配置 ======
+logging:
+  pattern:
+    # 控制台日志格式（%X{traceId} 输出链路追踪 ID）
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
