@@ -61,22 +61,23 @@ public class UserSensitiveController {
         saveResponseData = false
     )
     public Result<String> myEmail() {
-        return Result.success(userProfileService.viewCurrentUserPlainEmail());
+        String email = userProfileService.viewCurrentUserPlainEmail();
+        return Result.success(email);
     }
 
-    /**
-     * 查看本人密码（明文/脱敏）
-     */
-    @GetMapping("/me/password")
-    @AuditLog(
-        moudle = AuditModule.SENSITIVE,
-        operation = AuditOperation.USER_VIEW_PASSWORD_SELF,
-        saveRequestData = false,
-        saveResponseData = false
-    )
-    public Result<String> myPassword() {
-        return Result.success(userProfileService.viewCurrentUserPlainPassword());
-    }
+//    /**
+//     * 查看本人密码（明文/脱敏）
+//     */
+//    @GetMapping("/me/password")
+//    @AuditLog(
+//        moudle = AuditModule.SENSITIVE,
+//        operation = AuditOperation.USER_VIEW_PASSWORD_SELF,
+//        saveRequestData = false,
+//        saveResponseData = false
+//    )
+//    public Result<String> myPassword() {
+//        return Result.success(userProfileService.viewCurrentUserPlainPassword());
+//    }
 
     /* ================= 管理员查看 ================= */
 
@@ -92,7 +93,8 @@ public class UserSensitiveController {
         saveResponseData = false
     )
     public Result<String> userPhone(@PathVariable Long userId) {
-        return Result.success(userProfileService.viewUserPlainPhone(userId));
+        String userPlainPhonehone = userProfileService.viewUserPlainPhone(userId);
+        return Result.success(userPlainPhonehone);
     }
 
     /**
@@ -108,21 +110,22 @@ public class UserSensitiveController {
         saveResponseData = false
     )
     public Result<String> userEmail(@PathVariable Long userId) {
-        return Result.success(userProfileService.viewUserPlainEmail(userId));
+        String userPlainEmail = userProfileService.viewUserPlainEmail(userId);
+        return Result.success(userPlainEmail);
     }
 
-    /**
-     * 管理员查看指定用户密码
-     */
-    @GetMapping("/users/{userId}/password")
-    @SaCheckPermission(PermissionCode.SENSITIVE_PASSWORD_READ)
-    @AuditLog(
-        moudle = AuditModule.SENSITIVE,
-        operation = AuditOperation.USER_VIEW_PASSWORD_ADMIN,
-        saveRequestData = false,
-        saveResponseData = false
-    )
-    public Result<String> userPassword(@PathVariable Long userId) {
-        return Result.success(userProfileService.viewUserPlainPassword(userId));
-    }
+//    /**
+//     * 管理员查看指定用户密码
+//     */
+//    @GetMapping("/users/{userId}/password")
+//    @SaCheckPermission(PermissionCode.SENSITIVE_PASSWORD_READ)
+//    @AuditLog(
+//        moudle = AuditModule.SENSITIVE,
+//        operation = AuditOperation.USER_VIEW_PASSWORD_ADMIN,
+//        saveRequestData = false,
+//        saveResponseData = false
+//    )
+//    public Result<String> userPassword(@PathVariable Long userId) {
+//        return Result.success(userProfileService.viewUserPlainPassword(userId));
+//    }
 }

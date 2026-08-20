@@ -32,13 +32,18 @@ public class User implements Serializable {
 
     /** 密码（BCrypt 哈希） */
     @NotBlank(message = "密码不能为空")
-    @Size(max = 128, message = "密码长度不能超过 128 个字符")
+    @Size(min = 3, max = 32, message = "密码长度 3-32 位")
     @TableField("password")
     private String password;
 
     /** 手机号 */
     @Size(max = 20, message = "手机号长度不能超过 20 个字符")
-    @Pattern(regexp = "^1[3-9]\\d{9}$|^$", message = "手机号格式不正确")
+//    @Pattern(regexp = "^1[3-9]\\d{9}$|^$", message = "手机号格式不正确")
+//    @NotBlank(message = "手机号不能为空")
+    @Pattern(
+            regexp = "^1[3-9]\\d{9}$",
+            message = "请输入有效的手机号"
+    )
     @TableField("phone")
     private String phone;
 
@@ -80,7 +85,7 @@ public class User implements Serializable {
 
     /** 删除标志：0-未删除 1-已删除 */
     @TableField("del_flag")
-    private Integer delFlag;
+    private DelFlag delFlag;
 
     /** 乐观锁版本号 */
     @Version

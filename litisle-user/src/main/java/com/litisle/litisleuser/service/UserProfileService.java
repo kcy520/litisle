@@ -43,12 +43,12 @@ public interface UserProfileService extends IService<UserProfile> {
      */
     String viewCurrentUserPlainEmail();
 
-    /**
-     * 查看本人密码（明文/脱敏）
-     * <p>
-     * 仅用于前端二次校验、重设密码前置流程
-     */
-    String viewCurrentUserPlainPassword();
+//    /**
+//     * 查看本人密码（明文/脱敏）
+//     * <p>
+//     * 仅用于前端二次校验、重设密码前置流程
+//     */
+//    String viewCurrentUserPlainPassword();
 
     /* ================= 管理员敏感信息（明文） ================= */
 
@@ -66,12 +66,12 @@ public interface UserProfileService extends IService<UserProfile> {
      */
     String viewUserPlainEmail(Long userId);
 
-    /**
-     * 管理员查看指定用户密码
-     *
-     * @param userId 用户ID
-     */
-    String viewUserPlainPassword(Long userId);
+//    /**
+//     * 管理员查看指定用户密码
+//     *
+//     * @param userId 用户ID
+//     */
+//    String viewUserPlainPassword(Long userId);
 
 
 }

@@ -26,11 +26,13 @@ public class UserServiceImpl
         }
         log.info("UserServiceImpl getDtoById userId:{}", user.getId());
         UserDTO dto = new UserDTO();
-//        dto.setUserId(user.getId());
-//        dto.setUsername(user.getUsername());
-//        dto.setAvatarFileId(user.getAvatarFileId());
-//        dto.setStatus(user.getStatus());
-//        dto.setCreatedAt(user.getCreatedAt());
+        dto.setUserId(user.getId());
+        dto.setUsername(user.getUsername());
+        // User 实体无 avatarFileId 字段，头像为 URL（avatar），按需映射
+        dto.setAvatarFileId(user.getAvatar());
+        // 枚举字段转数据库 int 值（UserStatus.code）
+        dto.setStatus(user.getStatus() == null ? null : user.getStatus().getCode());
+        dto.setCreatedAt(user.getCreateTime());
         return dto;
     }
 }

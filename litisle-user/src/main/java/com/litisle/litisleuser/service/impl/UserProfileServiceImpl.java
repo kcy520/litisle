@@ -302,29 +302,29 @@ public class UserProfileServiceImpl
         return email == null || email.isBlank() ? null : aes256GcmCrypto.decrypt(email);
     }
 
-    /**
-     * 查看本人密码
-     * @return
-     */
-    @Override
-    public String viewCurrentUserPlainPassword() {
-        Long userId = StpUtil.getLoginIdAsLong();
-
-        User user = userMapper.selectOne(
-                new LambdaQueryWrapper<User>()
-                        .eq(User::getId, userId)
-                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
-                        .select(User::getPassword)
-        );
-
-        if (user == null) {
-            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
-        }
-
-        // BCrypt 不可逆，无法解密返回明文；仅返回脱敏占位符表示已设置密码
-        return user.getPassword() == null || user.getPassword().isBlank()
-                ? null : "********";
-    }
+//    /**
+//     * 查看本人密码
+//     * @return
+//     */
+//    @Override
+//    public String viewCurrentUserPlainPassword() {
+//        Long userId = StpUtil.getLoginIdAsLong();
+//
+//        User user = userMapper.selectOne(
+//                new LambdaQueryWrapper<User>()
+//                        .eq(User::getId, userId)
+//                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+//                        .select(User::getPassword)
+//        );
+//
+//        if (user == null) {
+//            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+//        }
+//
+//        // BCrypt 不可逆，无法解密返回明文；仅返回脱敏占位符表示已设置密码
+//        return user.getPassword() == null || user.getPassword().isBlank()
+//                ? null : "********";
+//    }
 
     /**
      * 管理员查看用户手机号
@@ -368,26 +368,26 @@ public class UserProfileServiceImpl
         return email == null || email.isBlank() ? null : aes256GcmCrypto.decrypt(email);
     }
 
-    /**
-     * 管理员查看用户密码
-     * @param userId 用户ID
-     * @return
-     */
-    @Override
-    public String viewUserPlainPassword(Long userId) {
-        User user = userMapper.selectOne(
-                new LambdaQueryWrapper<User>()
-                        .eq(User::getId, userId)
-                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
-                        .select(User::getPassword)
-        );
-        if (user == null) {
-            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
-        }
-        // BCrypt 不可逆，仅返回脱敏占位符表示已设置密码
-        return user.getPassword() == null || user.getPassword().isBlank()
-                ? null : "********";
-    }
+//    /**
+//     * 管理员查看用户密码
+//     * @param userId 用户ID
+//     * @return
+//     */
+//    @Override
+//    public String viewUserPlainPassword(Long userId) {
+//        User user = userMapper.selectOne(
+//                new LambdaQueryWrapper<User>()
+//                        .eq(User::getId, userId)
+//                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+//                        .select(User::getPassword)
+//        );
+//        if (user == null) {
+//            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+//        }
+//        // BCrypt 不可逆，仅返回脱敏占位符表示已设置密码
+//        return user.getPassword() == null || user.getPassword().isBlank()
+//                ? null : "********";
+//    }
 
 
 

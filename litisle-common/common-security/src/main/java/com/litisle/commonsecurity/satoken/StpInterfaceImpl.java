@@ -3,8 +3,10 @@ package com.litisle.commonsecurity.satoken;
 import cn.dev33.satoken.session.SaSession;
 import cn.dev33.satoken.stp.StpInterface;
 import cn.dev33.satoken.stp.StpUtil;
+import com.litisle.commonsecurity.enums.RoleCodeEnum;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -63,6 +65,14 @@ public class StpInterfaceImpl implements StpInterface {
         if (rolesObj instanceof List<?> list) {
             @SuppressWarnings("unchecked")
             List<String> roles = (List<String>) list;
+            // 超级管理员拥有所有角色：返回全部角色编码，任何角色校验均直接通过
+            // 注意：Sa-Token 角色校验不支持 "*" 通配符（仅权限校验支持），故返回全部角色编码
+            if (roles.contains(RoleCodeEnum.SUPER_ADMIN.getCode())) {
+                log.debug("用户 {} 为超级管理员，授予全部角色", loginId);
+                return Arrays.stream(RoleCodeEnum.values())
+                        .map(RoleCodeEnum::getCode)
+                        .toList();
+            }
             log.debug("用户 {} 的角色列表: {}", loginId, roles);
             return roles;
         }
@@ -87,6 +97,14 @@ public class StpInterfaceImpl implements StpInterface {
      */
     @Override
     public List<String> getPermissionList(Object loginId, String loginType) {
+        // 超级管理员拥有所有权限：返回 Sa-Token 通配符 "*"，任何权限校验均直接通过
+        List<String> roles = getRoleList(loginId, loginType);
+        //- 登录时必须写入 SUPER_ADMIN 角色 ：本实现从 Session 的 roles 列表判断，所以 litisle-auth 登录时，超级管理员的角色列表必须包含 "SUPER_ADMIN" （写入 session.set("roles", ...) ）。否则判断不生效。
+        if (roles.contains(RoleCodeEnum.SUPER_ADMIN.getCode())) {
+            log.debug("用户 {} 为超级管理员，授予全部权限", loginId);
+            return List.of("*");
+        }
+
         SaSession session = StpUtil.getSessionByLoginId(loginId, false);
         if (session == null) {
             log.debug("用户 {} 的 Session 不存在，返回空权限列表", loginId);
