@@ -164,6 +164,27 @@ public class CacheConstant {
     public static final String CAPTCHA = "captcha:";
 
     /**
+     * 图形验证码
+     * 格式：captcha:img:{uuid}
+     * 用途：图形验证码，TTL=3分钟
+     */
+    public static final String CAPTCHA_IMG = "captcha:img:";
+
+    /**
+     * 邮箱验证码
+     * 格式：captcha:email:{email}
+     * 用途：邮箱验证码，TTL=5分钟
+     */
+    public static final String CAPTCHA_EMAIL = "captcha:email:";
+
+    /**
+     * 邮箱验证码防刷
+     * 格式：captcha:email:limit:{ip}
+     * 用途：同一 IP 每分钟发送次数限制，TTL=1分钟
+     */
+    public static final String CAPTCHA_EMAIL_LIMIT = "captcha:email:limit:";
+
+    /**
      * 登录失败次数
      * 格式：login:fail:{identifier}
      * 用途：记录连续登录失败次数，配合 LoginRetryLimiter 使用

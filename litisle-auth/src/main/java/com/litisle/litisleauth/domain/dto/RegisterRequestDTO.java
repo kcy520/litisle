@@ -37,6 +37,10 @@ public class RegisterRequestDTO {
     @Size(max = 64, message = "邮箱长度不能超过 64 个字符")
     private String email;
 
+    /** 图形验证码标识（Redis key = captcha:img:{uuid}） */
+    @NotBlank(message = "图形验证码标识不能为空")
+    private String uuid;
+
     /** 验证码（图形码 ，防刷校验） */
     @NotBlank(message = "验证码不能为空")
     @Size(min = 4, max = 6, message = "验证码长度 4-6 位")

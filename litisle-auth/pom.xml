@@ -58,6 +58,12 @@
             <version>1.16.6</version>
         </dependency>
 
+        <!-- 邮箱发送：版本由父 POM 的 spring-boot-starter-parent 3.5.15 统一管理，严禁写 <version> -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
