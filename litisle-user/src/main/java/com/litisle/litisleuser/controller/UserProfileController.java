@@ -7,6 +7,8 @@ import com.litisle.litisleuser.domain.vo.UserPublicVO;
 import com.litisle.litisleuser.domain.vo.UserSelfVO;
 import com.litisle.litisleuser.domain.vo.UserUpdateProfileVO;
 import com.litisle.litisleuser.service.UserProfileService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
  * 负责昵称、头像、手机号、邮箱、简介、笔名。
  * */
 
+@Tag(name = "用户资料接口", description = "当前登录用户资料 / 公开资料 / 修改基础资料")
 @RestController
 @RequestMapping("/user/profile")
 @SaCheckLogin//登录校验
@@ -29,6 +32,7 @@ public class UserProfileController {
     /**
      * 获取当前登录用户资料
      */
+    @Operation(summary = "获取当前登录用户资料")
     @GetMapping("/me")
     public Result<UserSelfVO> me() {
         return Result.success(userProfileService.currentUserProfile());
@@ -37,6 +41,7 @@ public class UserProfileController {
     /**
      * 根据 ID 获取公开资料
      */
+    @Operation(summary = "根据 ID 获取公开资料")
     @GetMapping("/{userId}")
     public Result<UserPublicVO> publicProfile(@PathVariable Long userId) {
         return Result.success(userProfileService.publicProfile());
@@ -45,6 +50,7 @@ public class UserProfileController {
     /**
      * 修改基础资料
      */
+    @Operation(summary = "修改基础资料")
     @PutMapping
     public Result<UserUpdateProfileVO> update(@Valid @RequestBody UserProfileUpdateDTO dto) {
         UserUpdateProfileVO userUpdateProfileVO = userProfileService.updateCurrentUserProfile(dto);

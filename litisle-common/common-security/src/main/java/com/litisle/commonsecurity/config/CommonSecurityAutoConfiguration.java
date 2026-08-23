@@ -2,11 +2,13 @@ package com.litisle.commonsecurity.config;
 
 import com.litisle.commonsecurity.anonymous.AnonymousAccessHandler;
 import com.litisle.commonsecurity.anonymous.AnonymousPathScanner;
+import com.litisle.commonsecurity.anonymous.AnonymousProperties;
 import com.litisle.commonsecurity.audit.AuditLogAspect;
 import com.litisle.commonsecurity.feign.FeignAuthInterceptor;
 import com.litisle.commonsecurity.trace.TraceIdFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,6 +24,7 @@ import org.springframework.core.Ordered;
  * @author litisle
  */
 @Configuration
+@EnableConfigurationProperties(AnonymousProperties.class)
 public class CommonSecurityAutoConfiguration {
 
     @Bean
@@ -36,6 +39,15 @@ public class CommonSecurityAutoConfiguration {
         return new AuditLogAspect(objectMapper);
     }
 
+    @Bean
+    @ConditionalOnMissingBean
+    public AnonymousAccessHandler anonymousAccessHandler(AnonymousProperties anonymousProperties) {
+        return new AnonymousAccessHandler(anonymousProperties);
+    }
+
+    /**
+     * 扫描 @Anonymous 注解路径并注册到匿名处理器
+     */
     @Bean
     @ConditionalOnMissingBean
     public AnonymousPathScanner anonymousPathScanner(AnonymousAccessHandler anonymousAccessHandler) {

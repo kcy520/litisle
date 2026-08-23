@@ -1,6 +1,8 @@
 package com.litisle.litisleapi.fallback;
 
 import com.litisle.commoncore.result.Result;
+import com.litisle.litisleapi.dto.user.AuthUserDTO;
+import com.litisle.litisleapi.dto.user.RegisterUserDTO;
 import com.litisle.litisleapi.feign.UserClient;
 import com.litisle.litisleapi.dto.user.UserDTO;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +17,26 @@ public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
             @Override
             public Result<UserDTO> getUserById(Long userId) {
                 log.error("远程调用 user 模块 getUserById 失败！id = {}", userId, cause);
+                return null;
+            }
+
+            @Override
+            public Result<AuthUserDTO> createUser(RegisterUserDTO dto) {
+                return null;
+            }
+
+            @Override
+            public Result<AuthUserDTO> findByAccount(String account) {
+                return null;
+            }
+
+            @Override
+            public Result<AuthUserDTO> findByEmail(String email) {
+                return null;
+            }
+
+            @Override
+            public Result<AuthUserDTO> getAuthUserInfo(Long userId) {
                 return null;
             }
 

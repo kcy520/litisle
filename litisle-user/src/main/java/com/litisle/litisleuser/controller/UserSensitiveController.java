@@ -9,6 +9,8 @@ import com.litisle.commonsecurity.audit.AuditLog;
 import com.litisle.commonsecurity.constant.PermissionCode;
 import com.litisle.commonsecurity.enums.PermissionEnum;
 import com.litisle.litisleuser.service.UserProfileService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
  * - 管理员查看：/sensitive/users/{userId}/*
  * - 所有接口不记录请求/返回值（合规要求）
  */
+@Tag(name = "用户敏感信息接口", description = "手机号/邮箱等明文敏感数据查看，本人查看与管理员查看物理隔离")
 @RestController
 @RequestMapping("/sensitive")
 @SaCheckLogin//登录校验
@@ -38,6 +41,7 @@ public class UserSensitiveController {
     /**
      * 查看本人手机号（明文）
      */
+    @Operation(summary = "查看本人手机号", description = "明文返回，高风险接口，不记录请求/响应日志")
     @GetMapping("/me/phone")
     @AuditLog(
         moudle = AuditModule.SENSITIVE,
@@ -53,6 +57,7 @@ public class UserSensitiveController {
     /**
      * 查看本人邮箱（明文）
      */
+    @Operation(summary = "查看本人邮箱", description = "明文返回，高风险接口，不记录请求/响应日志")
     @GetMapping("/me/email")
     @AuditLog(
         moudle = AuditModule.SENSITIVE,
@@ -84,6 +89,7 @@ public class UserSensitiveController {
     /**
      * 管理员查看指定用户手机号
      */
+    @Operation(summary = "管理员查看指定用户手机号", description = "需敏感数据读取权限，明细文返回，不记录请求/响应日志")
     @GetMapping("/users/{userId}/phone")
     @SaCheckPermission(PermissionCode.SENSITIVE_PHONE_READ)
     @AuditLog(
@@ -101,6 +107,7 @@ public class UserSensitiveController {
      * 管理员查看指定用户邮箱
      */
 //    @RequirePermission(perms={PermissionEnum.SENSITIVE_PHONE_READ})
+    @Operation(summary = "管理员查看指定用户邮箱", description = "需敏感数据读取权限，明文返回，不记录请求/响应日志")
     @GetMapping("/users/{userId}/email")
     @SaCheckPermission(PermissionCode.SENSITIVE_EMAIL_READ)
     @AuditLog(

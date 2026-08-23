@@ -185,6 +185,14 @@ public class CacheConstant {
     public static final String CAPTCHA_EMAIL_LIMIT = "captcha:email:limit:";
 
     /**
+     * 邮箱验证码校验失败计数
+     * 格式：captcha:email:fail:{email}
+     * 用途：连续校验失败计数，防止验证码被穷举爆破
+     *       达到阈值后删除验证码，强制用户重新获取
+     */
+    public static final String CAPTCHA_EMAIL_FAIL = "captcha:email:fail:";
+
+    /**
      * 登录失败次数
      * 格式：login:fail:{identifier}
      * 用途：记录连续登录失败次数，配合 LoginRetryLimiter 使用

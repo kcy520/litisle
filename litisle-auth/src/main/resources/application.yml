@@ -38,6 +38,19 @@ litisle:
     from: ${litisle.mail.from:}
     password: ${litisle.mail.password:}
 
+  # ===== 验证码配置（CaptchaProperties 绑定）=====
+  captcha:
+    # 图形验证码 TTL（秒）：3 分钟
+    img-ttl: 180
+    # 邮箱验证码 TTL（秒）：5 分钟
+    email-ttl: 300
+    # 防刷窗口 TTL（秒）：1 分钟
+    limit-ttl: 60
+    # 每分钟最大发送次数
+    limit-max: 5
+    # 邮箱验证码连续校验失败上限（防穷举爆破）
+    max-verify-fails: 3
+
 # ================================
 # 安全加密配置（common-security）
 # ================================
@@ -94,3 +107,19 @@ logging:
   pattern:
     # 控制台日志格式（%X{traceId} 输出链路追踪 ID）
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
+
+# ================================
+# Knife4j API 文档配置
+# ================================
+knife4j:
+  enable: true
+  openapi:
+    title: litisle-auth 接口文档
+    description: "Litisle-auth"
+    version: v1.0.0
+    group:
+      default:
+        group-name: default
+        api-rule: package
+        api-rule-resources:
+          - com.litisle.litisleauth.controller

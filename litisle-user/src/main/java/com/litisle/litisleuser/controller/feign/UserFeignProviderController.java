@@ -1,6 +1,8 @@
 package com.litisle.litisleuser.controller.feign;
 
 import com.litisle.commoncore.result.Result;
+import com.litisle.litisleapi.dto.user.AuthUserDTO;
+import com.litisle.litisleapi.dto.user.RegisterUserDTO;
 import com.litisle.litisleapi.dto.user.UserDTO;
 
 import com.litisle.litisleapi.feign.UserClient;
@@ -25,6 +27,26 @@ public class UserFeignProviderController implements UserClient {
         log.info("远程api调用getUserById userId:{}", userId);
         UserDTO dto = userService.getDtoById(userId);
         return Result.success(dto);
+    }
+
+    @Override
+    public Result<AuthUserDTO> createUser(RegisterUserDTO dto) {
+        return null;
+    }
+
+    @Override
+    public Result<AuthUserDTO> findByAccount(String account) {
+        return null;
+    }
+
+    @Override
+    public Result<AuthUserDTO> findByEmail(String email) {
+        return null;
+    }
+
+    @Override
+    public Result<AuthUserDTO> getAuthUserInfo(Long userId) {
+        return null;
     }
 
     // ==================== 以下 4 个方法待实现（auth 模块依赖） ====================

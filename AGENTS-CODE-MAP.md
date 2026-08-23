@@ -55,6 +55,7 @@ Spring Cloud Alibaba 多模块微服务文学社区，集成 RAG 知识库与 AI
 - 文章 RAG 入库走 MQ 异步，避免阻塞发布流程
 - 私有 / 草稿 / 拒绝文章永不入向量库
 - spring-boot版本：3.5.15
+- redis的key需要符合企业规范，比如：业务域:模块:功能:唯一标识   如果查到之前的redis的key不符合规范，可优化
 Spring Cloud版本：2025.0.0.0
 不可使用其他版本不兼容的方法
 
