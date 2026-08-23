@@ -90,9 +90,10 @@ create table if not exists `sys_role`
 # 3. 用户-角色关联表
 create table if not exists `sys_user_role`
 (
+    `id`      bigint unsigned not null auto_increment primary key comment '主键ID',
     `user_id` bigint unsigned not null comment '用户ID',
     `role_id` bigint unsigned not null comment '角色ID',
-    primary key (`user_id`, `role_id`),
+    unique key `uk_user_role` (`user_id`, `role_id`),
     index `idx_role_id` (`role_id`)
 ) engine = InnoDB
   default charset = utf8mb4 comment = '用户-角色关联表';
@@ -129,9 +130,10 @@ create table if not exists `sys_permission`
 # 6. 角色-权限关联表
 create table if not exists `sys_role_permission`
 (
+    `id`            bigint unsigned not null auto_increment primary key comment '主键ID',
     `role_id`       bigint unsigned not null comment '角色ID',
     `permission_id` bigint unsigned not null comment '权限ID',
-    primary key (`role_id`, `permission_id`),
+    unique key `uk_role_permission` (`role_id`, `permission_id`),
     index `idx_permission_id` (`permission_id`)
 ) engine = InnoDB
   default charset = utf8mb4 comment = '角色-权限关联表';
