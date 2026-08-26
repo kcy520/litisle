@@ -70,6 +70,8 @@ public class RateLimiterAspect {
                 "local count = redis.call('incr', KEYS[1]) " +
                 "if count == 1 then " +
                 "    redis.call('expire', KEYS[1], ARGV[1]) " +
+                "elseif redis.call('ttl', KEYS[1]) < 0 then " +
+                "    redis.call('expire', KEYS[1], ARGV[1]) " +
                 "end " +
                 "return count"
         );
@@ -122,10 +124,12 @@ public class RateLimiterAspect {
         long windowSeconds = rateLimiter.timeUnit().toSeconds(rateLimiter.time());
 
         // 5. 执行 Lua 脚本（原子操作：INCR + 首次 EXPIRE）
+        //    注意：windowSeconds 必须传数字类型，不能转成 String。
+        //    JSON 序列化器会把 String 再包一层引号（"60"），导致 Redis EXPIRE 收到非整数报错。
         Long currentCount = redisTemplate.execute(
                 RATE_LIMIT_SCRIPT,
                 Collections.singletonList(key),
-                String.valueOf(windowSeconds)
+                windowSeconds
         );
 
         // 6. 限流判断

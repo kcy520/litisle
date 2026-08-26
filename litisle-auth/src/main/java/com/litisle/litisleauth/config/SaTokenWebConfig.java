@@ -27,11 +27,19 @@ public class SaTokenWebConfig implements WebMvcConfigurer {
                         // 认证相关（匿名访问）
                         "/api/auth/login",
                         "/api/auth/register",
-                        "/api/auth/captcha",
+                        "/api/auth/captcha/**",
                         "/api/auth/refresh",
                         "/api/auth/oauth/**",
                         "/api/auth/sms/**",
-                        // 健康检查
+                        // ===== Knife4j 文档（全部放行）=====
+                        "/doc.html",
+                        "/v3/api-docs/**",
+                        "/webjars/**",
+                        "/swagger-resources/**",
+                        "/swagger-ui/**",
+                        "/favicon.ico",
+
+                        // ===== 健康检查 =====
                         "/actuator/**"
                 );
     }

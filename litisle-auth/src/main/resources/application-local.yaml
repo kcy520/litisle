@@ -6,7 +6,7 @@ litisle:
   db:
     host: localhost
     port: 3307
-    database: litisle_db
+    database: litisle_auth
     username: test_k.1
     # ✅ 与 .env 中 COMPOSE_MYSQL_PASSWORD 保持一致
     password: ${COMPOSE_MYSQL_PASSWORD:123}

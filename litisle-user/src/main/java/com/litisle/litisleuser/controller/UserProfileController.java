@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "用户资料接口", description = "当前登录用户资料 / 公开资料 / 修改基础资料")
 @RestController
-@RequestMapping("/user/profile")
+@RequestMapping("/api/user/profile")
 @SaCheckLogin//登录校验
 public class UserProfileController {
 

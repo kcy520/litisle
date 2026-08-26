@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Tag(name = "验证码接口", description = "图形验证码 / 邮箱验证码的获取与校验")
 @RestController
-@RequestMapping("/auth/captcha")
+@RequestMapping("/api/auth/captcha")
 @Slf4j
 public class CaptchaController {
 
@@ -53,7 +53,7 @@ public class CaptchaController {
      * @return uuid + base64 图片（不含验证码文本，防止前端/抓包直接读取）
      */
     @Operation(summary = "获取图形验证码")
-    @RateLimiter(time = 1, timeUnit = TimeUnit.MINUTES, count = 10, keyType = RateLimiter.KeyType.IP)
+    @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 10, keyType = RateLimiter.KeyType.IP)
     @GetMapping("/img")
     public Result<CaptchaImgVO> getImgCode() {
         CaptchaImgVO captchaImgVO = captchaService.generateImgCode();
@@ -67,7 +67,7 @@ public class CaptchaController {
      * @param request 用于获取客户端 IP（防刷）
      */
     @Operation(summary = "发送邮箱验证码")
-    @RateLimiter(time = 1, timeUnit = TimeUnit.MINUTES, count = 5, keyType = RateLimiter.KeyType.IP)
+    @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 5, keyType = RateLimiter.KeyType.IP)
     @PostMapping("/email")
     public Result<Void> sendEmailCode(@Valid @RequestBody SendEmailCodeDTO dto, HttpServletRequest request) {
         captchaService.sendEmailCode(dto.getEmail(), dto.getUsage(), IpUtil.getClientIp(request));
@@ -80,7 +80,7 @@ public class CaptchaController {
      * @param dto uuid + 验证码
      */
     @Operation(summary = "校验图形验证码(一次性)")
-    @RateLimiter(time = 1, timeUnit = TimeUnit.MINUTES, count = 30, keyType = RateLimiter.KeyType.IP)
+    @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 30, keyType = RateLimiter.KeyType.IP)
     @PostMapping("/img/verify")
     public Result<Void> verifyImgCode(@Valid @RequestBody VerifyImgCodeDTO dto) {
         captchaService.verifyImgCode(dto.getUuid(), dto.getCode());
@@ -93,7 +93,7 @@ public class CaptchaController {
      * @param dto 邮箱 + 用途 + 验证码
      */
     @Operation(summary = "校验邮箱验证码(一次性)")
-    @RateLimiter(time = 1, timeUnit = TimeUnit.MINUTES, count = 30, keyType = RateLimiter.KeyType.IP)
+    @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 30, keyType = RateLimiter.KeyType.IP)
     @PostMapping("/email/verify")
     public Result<Void> verifyEmailCode(@Valid @RequestBody VerifyEmailCodeDTO dto) {
         captchaService.verifyEmailCode(dto.getEmail(), dto.getUsage(), dto.getCode());

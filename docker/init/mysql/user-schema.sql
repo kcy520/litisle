@@ -1,30 +1,29 @@
---
--- 一、litisle-user 模块（数据库：litisleuser）
+-- 一、litisle-user 模块（数据库：litisle_user）
 -- 现状说明：现有 sys_role 仅初始化了 SUPER_ADMIN/ADMIN/USER 三个角色，与设计文档定义的 6 角色体系（READER/AUTHOR/LEGACY_AUTHOR/REVIEWER/ADMIN/SUPER_ADMIN）不完全匹配；sys_user 也缺 phone、bio、vip_expire_time 等字段。下面用 ALTER 补齐 + 新增扩展表，不破坏现有结构。
 --
 -- # ============================================================
 -- # 模块：litisle-user
--- # 数据库：litisleuser
+-- # 数据库：litisle_user
 -- # 说明：在现有 user-schema.sql 基础上补充角色与扩展资料
 -- # ============================================================
 
-CREATE DATABASE IF NOT EXISTS litisleuser
+CREATE DATABASE IF NOT EXISTS litisle_user
   DEFAULT CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
 
-use litisleuser;
+use litisle_user;
 # ============================================================
 # 模块：litisle-user
-# 数据库：litisleuser
+# 数据库：litisle_user
 # 说明：用户 / 角色 / 用户资料扩展 / OAuth 绑定 / 短信验证码
 # ============================================================
 
-create database if not exists litisleuser
+create database if not exists litisle_user
     character set utf8mb4
     collate utf8mb4_unicode_ci;
 
-use litisleuser;
+use litisle_user;
 
 /* ================= 1. 用户表 ================= */
 create table if not exists `sys_user`
@@ -49,8 +48,8 @@ create table if not exists `sys_user`
     unique key `uk_email_del` (`email`, `del_flag`),
     index `idx_username` (`username`),
     index `idx_create_time` (`create_time`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '用户表';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '用户表';
 
 # 2. 角色表
 create table if not exists `sys_role`
@@ -61,18 +60,19 @@ create table if not exists `sys_role`
     `role_type`   tinyint         not null default 2 comment '角色类型：1-系统内置 2-业务角色',
     `create_time` datetime        not null default current_timestamp comment '创建时间',
     unique key `uk_role_code` (`role_code`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '角色表';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '角色表';
 
 # 3. 用户-角色关联表
 create table if not exists `sys_user_role`
 (
+    `id`      bigint unsigned not null auto_increment primary key comment '主键ID',
     `user_id` bigint unsigned not null comment '用户ID',
     `role_id` bigint unsigned not null comment '角色ID',
-    primary key (`user_id`, `role_id`),
+    unique key `uk_user_role` (`user_id`, `role_id`),
     index `idx_role_id` (`role_id`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '用户-角色关联表';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '用户-角色关联表';
 
 # 4. 角色初始化数据
 insert ignore into `sys_role` (`role_code`, `role_name`, `role_type`) values
@@ -100,18 +100,19 @@ create table if not exists `sys_permission`
     `update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
     unique key `uk_perm_code` (`perm_code`),
     index `idx_parent_id` (`parent_id`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '权限表（菜单与按钮/API 统一管理，parent_id 自关联形成树形结构）';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '权限表（菜单与按钮/API 统一管理，parent_id 自关联形成树形结构）';
 
 # 6. 角色-权限关联表
 create table if not exists `sys_role_permission`
 (
+    `id`            bigint unsigned not null auto_increment primary key comment '主键ID',
     `role_id`       bigint unsigned not null comment '角色ID',
     `permission_id` bigint unsigned not null comment '权限ID',
-    primary key (`role_id`, `permission_id`),
+    unique key `uk_role_permission` (`role_id`, `permission_id`),
     index `idx_permission_id` (`permission_id`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '角色-权限关联表';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '角色-权限关联表';
 create table if not exists `sys_user_profile`
 (
     `id`           bigint unsigned not null auto_increment primary key,
@@ -124,8 +125,8 @@ create table if not exists `sys_user_profile`
     `update_time`  datetime        not null default current_timestamp on update current_timestamp,
     unique key `uk_pen_name` (`pen_name`), -- 【新增】唯一
     index `idx_user_id` (`user_id`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '用户资料扩展表（仅作家资料）';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '用户资料扩展表（仅作家资料）';
 
 # 8. 第三方 OAuth 绑定表（物理删除 + @AuditLog 审计 + app_id 预留）
 create table if not exists `sys_oauth_binding`
@@ -140,8 +141,8 @@ create table if not exists `sys_oauth_binding`
     `update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
     unique key `uk_provider_app_open` (`provider`, `app_id`, `open_id`),
     index `idx_user_id` (`user_id`)
-) engine = InnoDB
-  default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
 
 -- **设计原因**：
 --
@@ -172,7 +173,7 @@ create table if not exists `sys_oauth_binding`
 -- **OAuth 表设计说明**：
 --
 -- - **物理删除**：解绑操作直接 `DELETE FROM`，不留软删除痕迹，避免 openId 被"占位"导致无法重新绑定。
--- - **审计**：所有删除操作通过 `litisle-common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
+-- - **审计**：所有删除操作通过 `litisle_common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
 -- - **app_id 预留**：唯一索引 `(provider, app_id, open_id)` 预留 `app_id` 字段，默认值 `'default'`。当前单应用无影响，未来接入多个微信/QQ 应用时，同一 provider 下不同 app 的 openId 不会冲突。
 
 #初始化语句

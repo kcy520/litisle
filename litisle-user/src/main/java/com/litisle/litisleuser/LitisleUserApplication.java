@@ -22,6 +22,9 @@ docker-compose stop
  cd /d e:\NewJavaPro\LitIsle && docker-compose start
 
  ---------------------------------------------------------------------
+ docker exec -it litisle-redis redis-cli -a 123
+
+ ---------------------------------------------------------------------
  sentinel:
  cd /d E:\importantFile\sentinel && java -Dserver.port=8090 -Dcsp.sentinel.dashboard.server=localhost:8090 -Dproject.name=sentinel-dashboard -jar sentinel-dashboard-1.8.9.jar
 

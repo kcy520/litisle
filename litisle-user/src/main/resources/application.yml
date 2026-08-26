@@ -28,7 +28,7 @@ spring:
   data:
     redis:
       host: ${litisle.redis.host:localhost}
-      port: ${litisle.redis.port:6379}
+      port: ${litisle.redis.port:6380}
       password: ${litisle.redis.password:123}
       database: 0
       timeout: 3000ms

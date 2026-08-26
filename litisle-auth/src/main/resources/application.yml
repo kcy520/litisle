@@ -1,4 +1,44 @@
+server:
+  port: 8082
+
 spring:
+  application:
+    name: litisle-auth
+
+  profiles:
+    active: local
+
+  main:
+    allow-circular-references: true
+    allow-bean-definition-overriding: true
+
+
+  # ================================
+  #  MySQL 数据源配置
+  # ================================
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${litisle.db.host:localhost}:${litisle.db.port:3306}/${litisle.db.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: ${litisle.db.username:root}
+    password: ${litisle.db.password:123}
+
+  # ================================
+  # Redis 单机配置
+  # ================================
+  data:
+    redis:
+      host: ${litisle.redis.host:localhost}
+      port: ${litisle.redis.port:6380}
+      password: ${litisle.redis.password:123}
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-wait: -1ms
+          max-idle: 10
+          min-idle: 0
+
   mail:
     # 发送者邮箱（与 username 一致）
     username: ${litisle.mail.from:}
@@ -30,6 +70,48 @@ spring:
             port: 465
           # 调试模式，开发阶段开着很香
           debug: true
+
+
+  # ================================
+  # Redis 集群配置
+  # ================================
+  # data:
+  #   redis:
+  #     cluster:
+  #       nodes:
+  #         - redis-node1:6379
+  #         - redis-node2:6379
+  #         - redis-node3:6379
+  #         - redis-node4:6379
+  #         - redis-node5:6379
+  #         - redis-node6:6379
+  #       max-redirects: 3
+  #     password: ${litisle.redis.password:123}
+  #     lettuce:
+  #       pool:
+  #         max-active: 200
+  #         max-wait: -1ms
+  #         max-idle: 10
+  #         min-idle: 0
+
+# ================================
+# MyBatis ??
+# ================================
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.litisle.auth.entity
+
+# ================================
+# MyBatis-Plus 配置
+# ================================
+mybatis-plus:
+  configuration:
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    db-config:
+      update-strategy: not_null
+      id-type: auto
+
 
 litisle:
   # ===== 邮箱配置（业务层）=====

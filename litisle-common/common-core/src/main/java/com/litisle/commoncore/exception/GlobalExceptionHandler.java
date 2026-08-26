@@ -2,6 +2,7 @@ package com.litisle.commoncore.exception;
 
 
 import com.litisle.commoncore.result.Result;
+import io.swagger.v3.oas.annotations.Hidden;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -38,6 +39,7 @@ import java.util.stream.Collectors;
  * 
  * @author litisle
  */
+@Hidden              // ← 新增，告诉 springdoc 不扫描此 advice
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {

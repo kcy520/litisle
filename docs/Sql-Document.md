@@ -18,36 +18,36 @@ SQL
 角色编码	全大写下划线 SUPER_ADMIN
 关于 4.2 中间件落地矩阵：已按你要求仅保留 SeaweedFS，其余（Sentinel Dashboard / Zipkin / Prometheus / SkyWalking）从矩阵移除，后续不再展开。
 
-## 一、litisle-user 模块（数据库：litisleuser）
+## 一、litisle-user 模块（数据库：litisle_user）
 
 ```sql
 --
--- 一、litisle-user 模块（数据库：litisleuser）
+-- 一、litisle-user 模块（数据库：litisle_user）
 -- 现状说明：现有 sys_role 仅初始化了 SUPER_ADMIN/ADMIN/USER 三个角色，与设计文档定义的 6 角色体系（READER/AUTHOR/LEGACY_AUTHOR/REVIEWER/ADMIN/SUPER_ADMIN）不完全匹配；sys_user 也缺 phone、bio、vip_expire_time 等字段。下面用 ALTER 补齐 + 新增扩展表，不破坏现有结构。
 --
 -- # ============================================================
 -- # 模块：litisle-user
--- # 数据库：litisleuser
+-- # 数据库：litisle_user
 -- # 说明：在现有 user-schema.sql 基础上补充角色与扩展资料
 -- # ============================================================
 
-CREATE DATABASE IF NOT EXISTS litisleuser
+CREATE DATABASE IF NOT EXISTS litisle_user
   DEFAULT CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
 
-use litisleuser;
+use litisle_user;
 # ============================================================
 # 模块：litisle-user
-# 数据库：litisleuser
+# 数据库：litisle_user
 # 说明：用户 / 角色 / 用户资料扩展 / OAuth 绑定 / 短信验证码
 # ============================================================
 
-create database if not exists litisleuser
+create database if not exists litisle_user
     character set utf8mb4
     collate utf8mb4_unicode_ci;
 
-use litisleuser;
+use litisle_user;
 
 /* ================= 1. 用户表 ================= */
 create table if not exists `sys_user`
@@ -197,7 +197,7 @@ create table if not exists `sys_oauth_binding`
 -- **OAuth 表设计说明**：
 --
 -- - **物理删除**：解绑操作直接 `DELETE FROM`，不留软删除痕迹，避免 openId 被"占位"导致无法重新绑定。
--- - **审计**：所有删除操作通过 `litisle-common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
+-- - **审计**：所有删除操作通过 `litisle_common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
 -- - **app_id 预留**：唯一索引 `(provider, app_id, open_id)` 预留 `app_id` 字段，默认值 `'default'`。当前单应用无影响，未来接入多个微信/QQ 应用时，同一 provider 下不同 app 的 openId 不会冲突。
 
 #初始化语句
@@ -301,12 +301,12 @@ VALUES (1006);
 **OAuth 表设计说明**：
 
 - **物理删除**：解绑操作直接 `DELETE FROM`，不留软删除痕迹，避免 openId 被"占位"导致无法重新绑定。
-- **审计**：所有删除操作通过 `litisle-common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
+- **审计**：所有删除操作通过 `litisle_common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
 - **app_id 预留**：唯一索引 `(provider, app_id, open_id)` 预留 `app_id` 字段，默认值 `'default'`。当前单应用无影响，未来接入多个微信/QQ 应用时，同一 provider 下不同 app 的 openId 不会冲突。
 
 ```
 
-## 二、litisle-content 模块（数据库：litislecontent）
+## 二、litisle-content 模块（数据库：litisle_content）
 
 （草稿上的图片也能暂存在数据库中）
 
@@ -316,15 +316,15 @@ VALUES (1006);
 ```sql
 # ============================================================
 # 模块：litisle-content
-# 数据库：litislecontent
+# 数据库：litisle_content
 # 说明：文章 / 草稿 / 书籍 / 章节 / 图片 / 阅读进度
 # ============================================================
 
-create database if not exists litislecontent
+create database if not exists litisle_content
 character set utf8mb4
 collate utf8mb4_unicode_ci;
 
-use litislecontent;
+use litisle_content;
 
 # 1. 文章主表
 create table if not exists `article`
@@ -459,17 +459,17 @@ content_html 用 longtext：支持大篇幅切片前的完整正文。
 ```sql
 # ============================================================
 # 模块：litisle-social
-# 数据库：litislesocial
+# 数据库：litisle_social
 # 说明：关注 / 点赞 / 评论 / 收藏 / 佳句 / 私信
 # ============================================================
 
-create database if not exists litislesocial
+create database if not exists litisle_social
 character set utf8mb4
 collate utf8mb4_unicode_ci;
-​
-use litislesocial;
-​
-# 1. 关注表
+       
+use litisle_social;
+
+    # 1. 关注表
 create table if not exists `follow`
 (
 `follower_id` bigint unsigned not null comment '关注者ID',
@@ -623,7 +623,7 @@ quote_favorite 冗余 source_title / source_author：佳句需展示出处，冗
 
 favorite_item 加 user_id 冗余 + 唯一索引：防止同一用户重复收藏同一目标，权限校验也无需 join folder。
 
-## 四、litisle-review 模块（数据库：litislereview）
+## 四、litisle-review 模块（数据库：litisle_review）
 
 ```sql
 # ============================================================
@@ -632,13 +632,13 @@ favorite_item 加 user_id 冗余 + 唯一索引：防止同一用户重复收藏
 # 说明：审核任务 / 举报 / 申诉 / 违规分 / 敏感词库
 # ============================================================
 
-create database if not exists litislereview
+create database if not exists litisle_review
 character set utf8mb4
 collate utf8mb4_unicode_ci;
-​
-use litislereview;
-​
-# 1. 审核任务表（状态机核心，append-only 不可改不可删）
+
+use litisle_review;
+
+    # 1. 审核任务表（状态机核心，append-only 不可改不可删）
 create table if not exists `review_task`
 (
 `id`           bigint unsigned not null auto_increment primary key comment '任务ID',
@@ -754,23 +754,23 @@ violation_score 用 user_id 作主键：一用户一行，分数累加用乐观�
 
 author_apply 独立于 sys_user：申请记录需保留历史，多次申请形成流水。
 
-## 五、litisle-ai 模块（数据库：litisleai）
+## 五、litisle-ai 模块（数据库：litisle_ai）
 
 redis+mysql结合处理token相关。定时任务清理之前的token记录数据
 
 ```sql
 # ============================================================
 # 模块：litisle-ai
-# 数据库：litisleai
+# 数据库：litisle_ai
 # 说明：小月会话 / 消息 / 已保存会话 / Token 用量
 # ============================================================
-​
-create database if not exists litisleai
+
+create database if not exists litisle_ai
 character set utf8mb4
 collate utf8mb4_unicode_ci;
-​
-use litisleai;
-​
+
+use litisle_ai;
+
 # 1. AI 会话表（暂存区 LRU 淘汰）
 create table if not exists `ai_session`
 (
@@ -825,7 +825,7 @@ ai_message 不加 del_flag：消息跟随会话级联清理，避免冗余字段
 
 ai_token_usage 按 (user_id, usage_date) 唯一键：每日一行，支持 upsert 累加，便于限额校验。
 
-## 六、litisle-payment 模块（数据库：litislepayment）
+## 六、litisle-payment 模块（数据库：litisle_payment）
 
 ```sql
 # ============================================================
@@ -833,13 +833,13 @@ ai_token_usage 按 (user_id, usage_date) 唯一键：每日一行，支持 upser
 # 数据库：litislepayment
 # 说明：VIP 订单 / 小硬币账户 / 流水 / 赞赏 / 提现 / Seata
 # ============================================================
-​
+
 create database if not exists litislepayment
 character set utf8mb4
 collate utf8mb4_unicode_ci;
-​
+
 use litislepayment;
-​
+
 # 1. VIP 订单表
 create table if not exists `vip_order`
 (
@@ -857,7 +857,7 @@ index `idx_user_id` (`user_id`),
 index `idx_status` (`status`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = 'VIP 订单表';
-​
+
 # 2. 小硬币账户表（BIGINT 微币防精度丢失）
 create table if not exists `coin_account`
 (
@@ -867,7 +867,7 @@ create table if not exists `coin_account`
 `update_time`    datetime        not null default current_timestamp on update current_timestamp comment '更新时间'
 ) engine = InnoDB
 default charset = utf8mb4 comment = '小硬币账户表';
-​
+
 # 3. 流水表（append-only 不可改）
 create table if not exists `coin_transaction`
 (
@@ -940,21 +940,21 @@ reward_record 拆 amount_micro 与 platform_fee_micro：赞赏 10% 抽成透明�
 
 undo_log 表：Seata AT 模式硬性要求，每个参与全局事务的库都要有。
 
-## 七、litisle-notification 模块（数据库：litislenotification）
+## 七、litisle-notification 模块（数据库：litisle_notification）
 
 ```sql
 # ============================================================
 # 模块：litisle-notification
-# 数据库：litislenotification
+# 数据库：litisle_notification
 # 说明：通知 / 通知设置
 # ============================================================
-​
-create database if not exists litislenotification
+
+create database if not exists litisle_notification
 character set utf8mb4
 collate utf8mb4_unicode_ci;
-​
-use litislenotification;
-​
+
+use litisle_notification;
+
 # 1. 通知表
 create table if not exists `notification`
 (
@@ -991,21 +991,21 @@ notification 用 (user_id, is_read) 联合索引：高频查询"未读列表"，
 
 notification_setting 用 user_id 作主键：一用户一行，按需 upsert。
 
-## 八、litisle-file 模块（数据库：litislefile）
+## 八、litisle-file 模块（数据库：litisle_file）
 
 ```sql
 # ============================================================
 # 模块：litisle-file
-# 数据库：litislefile
+# 数据库：litisle_file
 # 说明：SeaweedFS 文件元数据
 # ============================================================
-​
-create database if not exists litislefile
+
+create database if not exists litisle_file
 character set utf8mb4
 collate utf8mb4_unicode_ci;
-​
-use litislefile;
-​
+
+use litisle_file;
+
 # 1. 文件元数据表
 create table if not exists `file_meta`
 (
@@ -1051,7 +1051,7 @@ align 放此表为冗余可选：实际对齐信息以 article_image 为准，�
 
 索引由 MQ 事件（content.published / social.liked）异步增量同步，无需关系表。
 
-## 十、litisle-shop 模块（数据库：litisleshop）
+## 十、litisle-shop 模块（数据库：litisle_shop）
 
 ```sql
 -- =============================================
@@ -1060,9 +1060,9 @@ align 放此表为冗余可选：实际对齐信息以 article_image 为准，�
 create database if not exists litisle_shop
 default character set utf8mb4
 default collate utf8mb4_unicode_ci;
-​
+
 use litisle_shop;
-​
+
 -- 1. 商品表
 create table if not exists shop_product
 (

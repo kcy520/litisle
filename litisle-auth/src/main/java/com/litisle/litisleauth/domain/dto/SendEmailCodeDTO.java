@@ -22,6 +22,6 @@ public class SendEmailCodeDTO {
     private String email;
 
     /** 验证码用途（REGISTER / LOGIN / CHANGE_EMAIL / RESET_PASSWORD / CANCEL_ACCOUNT） */
-    @NotNull(message = "验证码用途不能为空")
+    @NotNull(message = "验证码用途不能为空")  //用途不可为null，测试可以
     private EmailCodeUsage usage;
 }

@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.*;
  */
 @Tag(name = "用户敏感信息接口", description = "手机号/邮箱等明文敏感数据查看，本人查看与管理员查看物理隔离")
 @RestController
-@RequestMapping("/sensitive")
+@RequestMapping("/api/sensitive")
 @SaCheckLogin//登录校验
 public class UserSensitiveController {
 

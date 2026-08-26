@@ -40,13 +40,13 @@ public class RedissonConfig {
      * 【格式】redis://127.0.0.1:6379
      * 【注意】必须加 redis:// 前缀，否则 Redisson 无法识别
      */
-    @Value("${spring.data.redis.host:127.0.0.1}")
+    @Value("${litisle.redis.host:127.0.0.1}")
     private String host;
 
-    @Value("${spring.data.redis.port:6379}")
+    @Value("${litisle.redis.port:6380}")
     private int port;
 
-    @Value("${spring.data.redis.password:}")
+    @Value("${litisle.redis.password:}")
     private String password;
 
     /**

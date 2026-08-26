@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
 // 注册/登录/退出/刷新
 @Tag(name = "认证接口", description = "注册 / 登录 / 退出 / 令牌刷新 / 当前用户信息")
 @RestController
-@RequestMapping("/auth")
+@RequestMapping("/api/auth")
 public class AuthController {
 
     private final AuthService authService;
@@ -78,7 +78,8 @@ public class AuthController {
     @Operation(summary = "刷新令牌")
     @PostMapping("/refresh")
     public Result<TsuccessenVO> refresh(@Valid @RequestBody RefreshTsuccessenDTO dto) {
-        return Result.success(authService.refreshTsuccessen(dto));
+        TsuccessenVO tsuccessenVO = authService.refreshTsuccessen(dto);
+        return Result.success(tsuccessenVO);
     }
 
     /**

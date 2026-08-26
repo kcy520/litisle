@@ -16,7 +16,7 @@ litisle:
   # ================================
   redis:
     host: litisle-redis
-    port: 6379
+    port: 6380
     password: ${COMPOSE_REDIS_PASSWORD:123}
 
   # email 配置

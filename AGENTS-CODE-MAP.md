@@ -72,6 +72,7 @@ Spring Cloud版本：2025.0.0.0
 | Function-Document.md | LitIsle 功能设计文档 |
 | Sql-Document.md | 数据库表 SQL |
 | \Auth-Module-Development-Plan.md | 当前auth模块开发规划 |
+| Api-Gateway-Development-Plan.md | api与gateway模块文档 |
 
 
 
