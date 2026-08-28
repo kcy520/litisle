@@ -32,7 +32,8 @@ public class AuthController {
     @Operation(summary = "用户名密码注册")
     @PostMapping("/register")
     public Result<TsuccessenVO> register(@Valid @RequestBody RegisterRequestDTO dto) {
-        return Result.success(authService.register(dto));
+        TsuccessenVO register = authService.register(dto);
+        return Result.success(register);
     }
 
     /**
@@ -41,7 +42,8 @@ public class AuthController {
     @Operation(summary = "用户名密码登录")
     @PostMapping("/login")
     public Result<TsuccessenVO> login(@Valid @RequestBody PasswordLoginDTO dto) {
-        return Result.success(authService.passwordLogin(dto));
+        TsuccessenVO tsuccessenVO = authService.passwordLogin(dto);
+        return Result.success(tsuccessenVO);
     }
 
 //    /**
@@ -58,7 +60,8 @@ public class AuthController {
     @Operation(summary = "邮箱+验证码登录")
     @PostMapping("/login/sms")
     public Result<TsuccessenVO> loginBySms(@Valid @RequestBody EmailLoginDTO dto) {
-        return Result.success(authService.emailLogin(dto));
+        TsuccessenVO tsuccessenVO = authService.emailLogin(dto);
+        return Result.success(tsuccessenVO);
     }
 
     /**

@@ -2,22 +2,20 @@ package com.litisle.litisleauth.controller;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonredis.ratelimit.RateLimiter;
-import com.litisle.litisleauth.domain.dto.SendEmailCodeDTO;
 import com.litisle.litisleauth.domain.dto.VerifyEmailCodeDTO;
 import com.litisle.litisleauth.domain.dto.VerifyImgCodeDTO;
 import com.litisle.litisleauth.domain.vo.CaptchaImgVO;
+import com.litisle.litisleauth.enums.EmailCodeUsage;
 import com.litisle.litisleauth.service.CaptchaService;
 import com.litisle.litisleauth.utils.IpUtil;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Size;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.concurrent.TimeUnit;
 
@@ -63,14 +61,14 @@ public class CaptchaController {
     /**
      * 发送邮箱验证码
      *
-     * @param dto     邮箱 + 验证码用途
+     * @param email   目标邮箱
      * @param request 用于获取客户端 IP（防刷）
      */
     @Operation(summary = "发送邮箱验证码")
     @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 5, keyType = RateLimiter.KeyType.IP)
     @PostMapping("/email")
-    public Result<Void> sendEmailCode(@Valid @RequestBody SendEmailCodeDTO dto, HttpServletRequest request) {
-        captchaService.sendEmailCode(dto.getEmail(), dto.getUsage(), IpUtil.getClientIp(request));
+    public Result<Void> sendEmailCode(@RequestParam @Email @Size(max = 64) String email, HttpServletRequest request) {
+        captchaService.sendEmailCode(email, EmailCodeUsage.CHANGE_EMAIL, IpUtil.getClientIp(request));
         return Result.success();
     }
 
@@ -96,7 +94,7 @@ public class CaptchaController {
     @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 30, keyType = RateLimiter.KeyType.IP)
     @PostMapping("/email/verify")
     public Result<Void> verifyEmailCode(@Valid @RequestBody VerifyEmailCodeDTO dto) {
-        captchaService.verifyEmailCode(dto.getEmail(), dto.getUsage(), dto.getCode());
+        captchaService.verifyEmailCode(dto.getEmail(), EmailCodeUsage.LOGIN, dto.getCode());
         return Result.success();
     }
 }

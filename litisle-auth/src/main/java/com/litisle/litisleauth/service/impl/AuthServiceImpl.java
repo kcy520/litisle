@@ -1,5 +1,8 @@
 package com.litisle.litisleauth.service.impl;
 
+import com.litisle.commonredis.util.RedisUtil;
+import com.litisle.commonsecurity.crypto.PasswordCrypto;
+import com.litisle.litisleapi.feign.UserClient;
 import com.litisle.litisleauth.domain.dto.EmailLoginDTO;
 import com.litisle.litisleauth.domain.dto.PasswordLoginDTO;
 import com.litisle.litisleauth.domain.dto.RefreshTsuccessenDTO;
@@ -7,6 +10,7 @@ import com.litisle.litisleauth.domain.dto.RegisterRequestDTO;
 import com.litisle.litisleauth.domain.vo.LoginUserInfoVO;
 import com.litisle.litisleauth.domain.vo.TsuccessenVO;
 import com.litisle.litisleauth.service.AuthService;
+import com.litisle.litisleauth.service.CaptchaService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,10 +24,10 @@ public class AuthServiceImpl implements AuthService {
 
     // ==================== 依赖注入（@RequiredArgsConstructor 自动注入 final 字段） ====================
     // TODO 请按需注入以下依赖（取消注释并补 import）：
-    //  private final UserClient userClient;          // Feign 调用 user 模块（litisle-api）
-    //  private final CaptchaService captchaService;  // 验证码校验
-    //  private final RedisUtil redisUtil;            // refreshToken 存储
-    //  private final PasswordCrypto passwordCrypto;  // BCrypt 密码加密与校验
+      private final UserClient userClient;          // Feign 调用 user 模块（litisle-api）
+      private final CaptchaService captchaService;  // 验证码校验
+      private final RedisUtil redisUtil;            // refreshToken 存储
+      private final PasswordCrypto passwordCrypto;  // BCrypt 密码加密与校验
 
     @Override
     public TsuccessenVO register(RegisterRequestDTO dto) {
