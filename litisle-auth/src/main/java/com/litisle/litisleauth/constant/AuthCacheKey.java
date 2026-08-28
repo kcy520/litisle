@@ -14,4 +14,7 @@ public final class AuthCacheKey {
 
     /** 刷新令牌：auth:refresh:{refreshToken} → userId，TTL 7 天 */
     public static final String REFRESH_TOKEN = "auth:refresh:";
+
+    /** 用户→刷新令牌映射：auth:refresh:user:{userId} → refreshToken，便于退出时清理 */
+    public static final String USER_REFRESH = "auth:refresh:user:";
 }

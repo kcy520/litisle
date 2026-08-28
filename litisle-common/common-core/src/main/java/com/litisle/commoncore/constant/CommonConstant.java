@@ -37,4 +37,13 @@ public class CommonConstant {
      * 失败标识
      */
     public static final int FAIL = 1;
+
+    /**
+     * Bearer Token 类型（RFC 6750）
+     * 用于 HTTP Authorization 请求头：Authorization: Bearer <token>
+     * Bearer 来自 OAuth 2.0 规范（RFC 6750），全称是 Bearer Token。
+     * 英文 bear = 持有，bearer = 持有者。
+     * "谁持有这个 token，谁就是合法用户。"
+     */
+    public static final String TOKEN_TYPE_BEARER = "Bearer";
 }

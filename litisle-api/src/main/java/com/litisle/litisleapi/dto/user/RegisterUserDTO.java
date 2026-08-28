@@ -3,6 +3,7 @@ package com.litisle.litisleapi.dto.user;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import lombok.experimental.Accessors;
 
 import java.io.Serializable;
 
@@ -15,6 +16,7 @@ import java.io.Serializable;
  * 3. user 模块负责：用户名/手机号/邮箱唯一性校验 + 分配 READER 角色
  */
 @Data
+@Accessors(chain = true)//加上 @Accessors(chain = true) 后，Lombok 生成的 setter 方法会返回 this，从而支持链式调用。
 public class RegisterUserDTO implements Serializable {
 
     private static final long serialVersionUID = 1L;

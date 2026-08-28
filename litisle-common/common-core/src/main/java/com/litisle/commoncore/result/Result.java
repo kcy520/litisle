@@ -58,6 +58,15 @@ public class Result<T> implements Serializable {
      */
     private T data;
 
+    /**
+     * 判断请求是否成功
+     *
+     * @return true 表示成功（code == 0），false 表示失败
+     */
+    public boolean isSuccess() {
+        return this.code == ErrorCode.SUCCESS.getCode();
+    }
+
     // ==================== 成功响应 ====================
 
     /**

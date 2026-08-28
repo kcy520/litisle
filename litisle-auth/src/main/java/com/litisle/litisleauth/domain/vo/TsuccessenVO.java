@@ -38,6 +38,7 @@ public class TsuccessenVO {
     private String username;
 
     /** 是否新注册用户（前端可用于引导完善资料） */
+    //newUser 是一个业务标记位，让前端区分"刚注册"和"老用户登录"，从而决定要不要引导用户完善资料。
     private Boolean newUser;
 
     /** 令牌签发时间 */

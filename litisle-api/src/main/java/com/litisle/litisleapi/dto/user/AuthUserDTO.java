@@ -1,6 +1,7 @@
 package com.litisle.litisleapi.dto.user;
 
 import lombok.Data;
+import lombok.experimental.Accessors;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -14,6 +15,7 @@ import java.util.List;
  * 2. 密码为 BCrypt 哈希，仅用于 auth 模块校验密码
  * 3. 手机号/邮箱为明文（user 模块已解密），auth 模块展示时自行脱敏
  */
+@Accessors(chain = true)
 @Data
 public class AuthUserDTO implements Serializable {
 

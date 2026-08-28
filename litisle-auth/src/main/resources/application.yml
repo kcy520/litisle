@@ -133,6 +133,11 @@ litisle:
     # 邮箱验证码连续校验失败上限（防穷举爆破）
     max-verify-fails: 3
 
+  # ===== 认证模块配置（AuthProperties 绑定）=====
+  auth:
+    # Refresh Token 有效期（秒），默认 7 天（604800 秒）
+    refresh-token-expire: 604800
+
 # ================================
 # 安全加密配置（common-security）
 # ================================

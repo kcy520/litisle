@@ -33,16 +33,16 @@ import java.lang.annotation.Target;
  * public class UserVO {
  *     private Long userId;
  *
- *     @Sensitive(strategy = SensitiveStrategy.PHONE)
+       @Sensitive(strategy = SensitiveStrategy.PHONE)
  *     private String phone;        // 138****8888
  *
- *     @Sensitive(strategy = SensitiveStrategy.ID_CARD)
+       @Sensitive(strategy = SensitiveStrategy.ID_CARD)
  *     private String idCard;       // 110***********1234
  *
- *     @Sensitive(strategy = SensitiveStrategy.EMAIL)
+       @Sensitive(strategy = SensitiveStrategy.EMAIL)
  *     private String email;        // ex***@xx.com
  *
- *     @Sensitive(strategy = SensitiveStrategy.NAME)
+       @Sensitive(strategy = SensitiveStrategy.NAME)
  *     private String realName;     // 张**
  * }
  *

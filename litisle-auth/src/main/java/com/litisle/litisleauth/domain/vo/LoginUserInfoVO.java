@@ -1,6 +1,9 @@
 package com.litisle.litisleauth.domain.vo;
 
+import com.litisle.commonsecurity.desensitize.Sensitive;
+import com.litisle.commonsecurity.desensitize.SensitiveStrategy;
 import lombok.Data;
+import lombok.experimental.Accessors;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,6 +18,7 @@ import java.util.List;
  * 2. 敏感字段（手机号、邮箱）由服务端脱敏后返回
  * 3. 密码字段禁止出现在任何 VO 中
  */
+@Accessors(chain = true)
 @Data
 public class LoginUserInfoVO {
 
@@ -22,9 +26,11 @@ public class LoginUserInfoVO {
     private String username;
 
     /** 手机号（脱敏规则：保留前3后4，中间 ****，如 138****8888） */
+    @Sensitive(strategy = SensitiveStrategy.PHONE)
     private String phone;
 
     /** 邮箱（脱敏规则：保留首字符与域名，如 a***@xx.com） */
+    @Sensitive(strategy = SensitiveStrategy.EMAIL)
     private String email;
 
     /** 头像 URL */

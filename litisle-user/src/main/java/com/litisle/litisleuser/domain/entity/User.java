@@ -3,9 +3,10 @@ package com.litisle.litisleuser.domain.entity;
 import com.baomidou.mybatisplus.annotation.*;
 import com.litisle.litisleuser.enums.AvatarColor;
 import com.litisle.litisleuser.enums.DelFlag;
-import com.litisle.litisleuser.enums.UserStatus;
+import com.litisle.commoncore.enums.UserStatus;
 import jakarta.validation.constraints.*;
 import lombok.Data;
+import lombok.experimental.Accessors;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -14,6 +15,7 @@ import java.time.LocalDateTime;
  * 用户表
  */
 @Data
+@Accessors(chain = true)
 @TableName("sys_user")
 public class User implements Serializable {
 

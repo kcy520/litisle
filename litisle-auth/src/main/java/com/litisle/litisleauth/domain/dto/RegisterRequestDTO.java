@@ -35,6 +35,7 @@ public class RegisterRequestDTO {
     /** 邮箱（可选，脱敏规则：保留首字符与域名，如 a***@xx.com） */
     @Email(message = "邮箱格式不正确")
     @Size(max = 64, message = "邮箱长度不能超过 64 个字符")
+//    @NotBlank
     private String email;
 
     /** 图形验证码标识（Redis key = captcha:img:{uuid}） */

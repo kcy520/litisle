@@ -3,7 +3,7 @@ package com.litisle.litisleuser.domain.vo;
 import com.litisle.commonsecurity.desensitize.Sensitive;
 import com.litisle.commonsecurity.desensitize.SensitiveStrategy;
 import com.litisle.litisleuser.enums.AvatarColor;
-import com.litisle.litisleuser.enums.UserStatus;
+import com.litisle.commoncore.enums.UserStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

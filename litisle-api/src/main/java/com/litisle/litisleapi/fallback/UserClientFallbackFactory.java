@@ -8,6 +8,11 @@ import com.litisle.litisleapi.dto.user.UserDTO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
 
+/**
+ * 当 auth 模块通过 UserClient 远程调用 user 模块失败时，自动执行这里的代码，而不是让异常直接抛到上层。
+ * 如果走了 FallbackFactory，异常不会继续往上抛，异常处理器（@ExceptionHandler / @RestControllerAdvice）就“感知不到”这个远程异常了。
+ * 降级方法里如果抛了异常，FallbackFactory 就“兜不住了”，异常会直接穿透到业务层，然后被全局异常处理器（@RestControllerAdvice）捕获。
+ */
 @Slf4j
 public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
 
@@ -20,21 +25,57 @@ public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
                 return null;
             }
 
+            /**
+             * 不需要降级策略
+             * <p>
+             * 原因：注册是写操作，降级返回 null 会导致业务静默失败（用户以为注册成功实则未创建）。
+             * 异常应直接穿透到 auth 模块，由全局异常处理器返回明确的错误提示。
+             *
+             * @param dto 注册用户 DTO
+             * @return 永不返回（异常穿透）
+             */
             @Override
             public Result<AuthUserDTO> createUser(RegisterUserDTO dto) {
                 return null;
             }
 
+            /**
+             * 不需要降级策略
+             * <p>
+             * 原因：登录查询依赖实时用户数据，降级返回 null 会导致"用户不存在"的误判。
+             * 异常应直接穿透，由全局异常处理器返回"用户服务暂不可用"提示。
+             *
+             * @param account 用户名/手机号/邮箱
+             * @return 永不返回（异常穿透）
+             */
             @Override
             public Result<AuthUserDTO> findByAccount(String account) {
                 return null;
             }
 
+            /**
+             * 不需要降级策略
+             * <p>
+             * 原因：根据邮箱查询用户是读操作，降级返回 null 会导致业务静默失败（用户以为邮箱已注册实则未注册）。
+             * 异常应直接穿透到 auth 模块，由全局异常处理器返回明确的错误提示。
+             *
+             * @param email 邮箱
+             * @return 永不返回（异常穿透）
+             */
             @Override
             public Result<AuthUserDTO> findByEmail(String email) {
                 return null;
             }
 
+            /**
+             * 不需要降级策略
+             * <p>
+             * 原因：根据用户 ID查询用户是读操作，降级返回 null 会导致业务静默失败（用户以为用户存在实则不存在）。
+             * 异常应直接穿透到 auth 模块，由全局异常处理器返回明确的错误提示。
+             *
+             * @param userId 用户 ID
+             * @return 永不返回（异常穿透）
+             */
             @Override
             public Result<AuthUserDTO> getAuthUserInfo(Long userId) {
                 return null;

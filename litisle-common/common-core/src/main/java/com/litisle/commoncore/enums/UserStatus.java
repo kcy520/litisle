@@ -1,4 +1,4 @@
-package com.litisle.litisleuser.enums;
+package com.litisle.commoncore.enums;
 
 import com.baomidou.mybatisplus.annotation.EnumValue;
 import com.fasterxml.jackson.annotation.JsonCreator;
