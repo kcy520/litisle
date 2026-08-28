@@ -2,17 +2,21 @@ package com.litisle.litisleauth.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.litisle.commoncore.result.Result;
+import com.litisle.commonredis.ratelimit.RateLimiter;
+import com.litisle.litisleauth.constant.RateLimitConstant;
 import com.litisle.litisleauth.domain.dto.EmailLoginDTO;
 import com.litisle.litisleauth.domain.dto.PasswordLoginDTO;
-import com.litisle.litisleauth.domain.vo.TsuccessenVO;
-import com.litisle.litisleauth.domain.vo.LoginUserInfoVO;
-import com.litisle.litisleauth.domain.dto.RegisterRequestDTO;
 import com.litisle.litisleauth.domain.dto.RefreshTsuccessenDTO;
+import com.litisle.litisleauth.domain.dto.RegisterRequestDTO;
+import com.litisle.litisleauth.domain.vo.LoginUserInfoVO;
+import com.litisle.litisleauth.domain.vo.TsuccessenVO;
 import com.litisle.litisleauth.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.concurrent.TimeUnit;
 
 // 注册/登录/退出/刷新
 @Tag(name = "认证接口", description = "账号Auth")
@@ -31,6 +35,8 @@ public class AuthController {
      */
     @Operation(summary = "用户名密码注册")
     @PostMapping("/register")
+    @RateLimiter(time = RateLimitConstant.WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = RateLimitConstant.AUTH_REGISTER_MAX, keyType = RateLimiter.KeyType.IP)
     public Result<TsuccessenVO> register(@Valid @RequestBody RegisterRequestDTO dto) {
         TsuccessenVO register = authService.register(dto);
         return Result.success(register);
@@ -41,6 +47,8 @@ public class AuthController {
      */
     @Operation(summary = "用户名密码登录")
     @PostMapping("/login")
+    @RateLimiter(time = RateLimitConstant.WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = RateLimitConstant.AUTH_LOGIN_MAX, keyType = RateLimiter.KeyType.IP)
     public Result<TsuccessenVO> login(@Valid @RequestBody PasswordLoginDTO dto) {
         TsuccessenVO tsuccessenVO = authService.passwordLogin(dto);
         return Result.success(tsuccessenVO);
@@ -59,6 +67,8 @@ public class AuthController {
      */
     @Operation(summary = "邮箱+验证码登录")
     @PostMapping("/login/sms")
+    @RateLimiter(time = RateLimitConstant.WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = RateLimitConstant.AUTH_EMAIL_LOGIN_MAX, keyType = RateLimiter.KeyType.IP)
     public Result<TsuccessenVO> loginBySms(@Valid @RequestBody EmailLoginDTO dto) {
         TsuccessenVO tsuccessenVO = authService.emailLogin(dto);
         return Result.success(tsuccessenVO);

@@ -2,6 +2,7 @@ package com.litisle.litisleauth.controller;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonredis.ratelimit.RateLimiter;
+import com.litisle.litisleauth.constant.RateLimitConstant;
 import com.litisle.litisleauth.domain.dto.VerifyEmailCodeDTO;
 import com.litisle.litisleauth.domain.dto.VerifyImgCodeDTO;
 import com.litisle.litisleauth.domain.vo.CaptchaImgVO;
@@ -51,7 +52,8 @@ public class CaptchaController {
      * @return uuid + base64 图片（不含验证码文本，防止前端/抓包直接读取）
      */
     @Operation(summary = "获取图形验证码")
-    @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 10, keyType = RateLimiter.KeyType.IP)
+    @RateLimiter(time = RateLimitConstant.WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = RateLimitConstant.CAPTCHA_IMG_GET_MAX, keyType = RateLimiter.KeyType.IP)
     @GetMapping("/img")
     public Result<CaptchaImgVO> getImgCode() {
         CaptchaImgVO captchaImgVO = captchaService.generateImgCode();
@@ -65,7 +67,8 @@ public class CaptchaController {
      * @param request 用于获取客户端 IP（防刷）
      */
     @Operation(summary = "发送邮箱验证码")
-    @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 5, keyType = RateLimiter.KeyType.IP)
+    @RateLimiter(time = RateLimitConstant.WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = RateLimitConstant.CAPTCHA_EMAIL_SEND_MAX, keyType = RateLimiter.KeyType.IP)
     @PostMapping("/email")
     public Result<Void> sendEmailCode(@RequestParam @Email @Size(max = 64) String email, HttpServletRequest request) {
         captchaService.sendEmailCode(email, EmailCodeUsage.CHANGE_EMAIL, IpUtil.getClientIp(request));
@@ -78,7 +81,8 @@ public class CaptchaController {
      * @param dto uuid + 验证码
      */
     @Operation(summary = "校验图形验证码(一次性)")
-    @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 30, keyType = RateLimiter.KeyType.IP)
+    @RateLimiter(time = RateLimitConstant.WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = RateLimitConstant.CAPTCHA_VERIFY_MAX, keyType = RateLimiter.KeyType.IP)
     @PostMapping("/img/verify")
     public Result<Void> verifyImgCode(@Valid @RequestBody VerifyImgCodeDTO dto) {
         captchaService.verifyImgCode(dto.getUuid(), dto.getCode());
@@ -91,7 +95,8 @@ public class CaptchaController {
      * @param dto 邮箱 + 用途 + 验证码
      */
     @Operation(summary = "校验邮箱验证码(一次性)")
-    @RateLimiter(time = 10, timeUnit = TimeUnit.SECONDS, count = 30, keyType = RateLimiter.KeyType.IP)
+    @RateLimiter(time = RateLimitConstant.WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = RateLimitConstant.CAPTCHA_VERIFY_MAX, keyType = RateLimiter.KeyType.IP)
     @PostMapping("/email/verify")
     public Result<Void> verifyEmailCode(@Valid @RequestBody VerifyEmailCodeDTO dto) {
         captchaService.verifyEmailCode(dto.getEmail(), EmailCodeUsage.LOGIN, dto.getCode());
