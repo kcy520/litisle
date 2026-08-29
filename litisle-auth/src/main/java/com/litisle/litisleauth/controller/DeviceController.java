@@ -7,8 +7,11 @@ import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleauth.domain.vo.DeviceSessionVO;
 import com.litisle.litisleauth.service.DeviceSessionService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 
 import java.util.List;
 
@@ -27,6 +30,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/auth/devices")
+@Tag(name = "设备管理", description = "在线设备查询与踢出")
 @SaCheckLogin
 public class DeviceController {
 
@@ -46,6 +50,10 @@ public class DeviceController {
      *
      * @return 在线设备列表（按登录时间降序）
      */
+    @Operation(
+            summary = "在线设备列表",
+            description = "返回当前登录账号的所有在线设备，按登录时间降序排列。当前请求设备会标记为 current=true"
+    )
     @GetMapping
     public Result<List<DeviceSessionVO>> list() {
         List<DeviceSessionVO> deviceSessionVOS = deviceSessionService.listCurrentUserDevices();
@@ -60,6 +68,10 @@ public class DeviceController {
      *
      * @param deviceId 设备唯一标识（从列表接口获取）
      */
+    @Operation(
+            summary = "踢出指定设备",
+            description = "强制下线指定设备。不能踢出当前正在使用的设备。"
+    )
     @DeleteMapping("/{deviceId}")
     public Result<Void> kick(@PathVariable String deviceId) {
         // 后端校验：禁止踢出当前设备
