@@ -1,6 +1,7 @@
 package com.litisle.litisleauth.domain.vo;
 
 import lombok.Data;
+import lombok.experimental.Accessors;
 
 import java.time.LocalDateTime;
 
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
  *
  * @author litisle
  */
+@Accessors(chain = true)
 @Data
 public class DeviceSessionVO {
 

@@ -1,10 +1,13 @@
 package com.litisle.litisleauth.controller;
 
-
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import com.litisle.commoncore.constant.HeaderConstant;
+import com.litisle.commoncore.exception.BizException;
+import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleauth.domain.vo.DeviceSessionVO;
 import com.litisle.litisleauth.service.DeviceSessionService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -28,9 +31,11 @@ import java.util.List;
 public class DeviceController {
 
     private final DeviceSessionService deviceSessionService;
+    private final HttpServletRequest request;
 
-    public DeviceController(DeviceSessionService deviceSessionService) {
+    public DeviceController(DeviceSessionService deviceSessionService, HttpServletRequest request) {
         this.deviceSessionService = deviceSessionService;
+        this.request = request;
     }
 
     /**
@@ -43,19 +48,26 @@ public class DeviceController {
      */
     @GetMapping
     public Result<List<DeviceSessionVO>> list() {
-        return Result.success(deviceSessionService.listCurrentUserDevices());
+        List<DeviceSessionVO> deviceSessionVOS = deviceSessionService.listCurrentUserDevices();
+        return Result.success(deviceSessionVOS);
     }
 
     /**
      * 踢出指定设备
      * <p>
      * 删除指定设备的 Redis 记录，并使其 Sa-Token 会话立即下线。
-     * 不可踢出当前正在使用的设备（前端应自行控制）。
+     * 后端双重校验：不可踢出当前正在使用的设备（前端也应在 UI 层控制）
      *
      * @param deviceId 设备唯一标识（从列表接口获取）
      */
     @DeleteMapping("/{deviceId}")
     public Result<Void> kick(@PathVariable String deviceId) {
+        // 后端校验：禁止踢出当前设备
+        String currentDeviceId = request.getHeader(HeaderConstant.DEVICE_ID);
+        if (deviceId.equals(currentDeviceId)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "不能踢出当前设备");
+        }
+
         deviceSessionService.kickDevice(deviceId);
         return Result.success();
     }

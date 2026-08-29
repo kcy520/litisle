@@ -49,4 +49,11 @@ public class HeaderConstant {
      * 链路追踪ID（用于日志追踪，跨服务排查问题）
      */
     public static final String TRACE_ID = "X-Trace-Id";
+
+    /**
+     * 设备ID（标识当前请求来源设备，用于多设备登录管理）
+     * 登录时由 auth 模块生成并下发，客户端后续请求应在 Header 中携带
+     * 示例：X-Device-Id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+     */
+    public static final String DEVICE_ID = "X-Device-Id";
 }
