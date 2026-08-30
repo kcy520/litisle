@@ -43,7 +43,7 @@ common-security ❌ 不依赖 common-redis
 
 ---
 
-## 二、common-core 模块（18 个文件）
+## 二、common-core 模块（21 个文件）
 
 ### 2.1 异常处理
 
@@ -77,28 +77,47 @@ common-security ❌ 不依赖 common-redis
 | 类 | 说明 |
 |----|------|
 | `Result<T>` | 统一响应封装，含 code/message/data |
-| `PageResult<T>` | 分页响应封装，含 records/total/page/size |
+| `PageResult<T>` | 分页响应封装，含 pageNum/pageSize/total/list |
 
-### 2.3 常量与枚举
+**PageResult 派生只读字段**：
+- `totalPages`：总页数（= ceil(total / pageSize)，pageSize<=0 时为 0，避免除零）
+- `hasNext`：是否还有下一页（客户端可据此判断是否触发“加载更多”，简化前端分页逻辑）
+
+分页体系由 `PageQuery`（2.3）、`PageConstant`（2.4）、`PageUtil`（2.4）共同构成。
+
+### 2.3 分页查询基类
+
+| 类 | 说明 |
+|----|------|
+| `PageQuery` | 分页查询参数基类，供查询 DTO 继承（如 `UserQuery extends PageQuery`），含 pageNo/pageSize/sortBy/isAsc |
+
+**PageQuery 设计要点**：
+- 默认值：pageNo=1、pageSize=10，经 `normalizePageNo/normalizePageSize` 兜底钳制，防御 null/越界覆盖默认值，大小上限 100
+- 排序三级优先级：代码显式 `OrderItem` > 前端 sortBy > 默认按 `update_time` 降序
+- 排序走 OrderItem，不拼接 SQL 字符串，规避注入
+
+### 2.4 常量与枚举
 
 | 类 | 说明 |
 |----|------|
 | `CommonConstant` | 通用常量（缓存前缀、分隔符等） |
 | `HeaderConstant` | HTTP Header 常量（X-User-Id、X-Username、X-Roles、X-User-Permissions、X-Trace-Id） |
+| `PageConstant` | 分页常量（默认页码/条数、单页上限、常用排序列） |
+| `PageConstant` | 分页公共常量（默认页码=1、默认每页条数=10、上限=100、常用排序列 update_time/create_time） |
 | `DelFlagEnum` | 逻辑删除标志（0-正常、1-删除） |
 | `StatusEnum` | 状态枚举（启用/禁用） |
 | `AuditModule` | 审计模块枚举 |
 | `AuditOperation` | 审计操作类型枚举 |
 
-### 2.4 工具类
+### 2.5 工具类
 
 | 类 | 说明 |
 |----|------|
 | `AssertUtil` | 业务断言工具（断言失败抛 BizException） |
 | `JsonUtil` | JSON 序列化/反序列化工具（封装 Jackson） |
-| `PageUtil` | 分页工具（Page 转换） |
+| `PageUtil` | 分页工具（`IPage` → `PageResult` 转换） |
 
-### 2.5 配置类
+### 2.6 配置类
 
 | 类 | 说明 | 生效方式 |
 |----|------|---------|
@@ -106,7 +125,7 @@ common-security ❌ 不依赖 common-redis
 | `MyBatisPlusConfig` | MyBatis-Plus 配置（分页插件、自动填充、逻辑删除） | 自动 |
 | `CommonCoreAutoConfiguration` | common-core Bean 集中注册 | 自动 |
 
-### 2.6 依赖倒置接口
+### 2.7 依赖倒置接口
 
 | 类 | 说明 |
 |----|------|
@@ -226,6 +245,12 @@ login:lock:{identifier}  → 锁定标记（String，TTL 15min）
 - 原 Token 黑名单（`TokenBlacklistService`）已删除，由 Sa-Token 踢人下线机制替代
 
 **StpInterfaceImpl 设计**：从 Sa-Token Session 读取角色/权限（登录时由 litisle-auth 写入），避免每次鉴权查 DB，性能优先。
+
+**超级管理员放权**：
+- `getRoleList`：Session 的 roles 含 `SUPER_ADMIN` 时，返回全部角色编码（Sa-Token 角色校验不支持 `*` 通配，只能全量返回）
+- `getPermissionList`：Session 的 roles 含 `SUPER_ADMIN` 时，返回 `*` 通配符（Sa-Token 权限校验原生支持）
+- 性能：`getPermissionList` 仅一次获取 Session，同时判断超级管理员与权限列表，不重复查询
+- 前提：登录时 Session 的 roles 必须真实包含 `SUPER_ADMIN`，否则放权不生效
 
 **SaTokenUserIdResolver 设计**：通过 `StpUtil.getLoginIdDefaultNull()` 获取 userId，未登录返回 null，供 common-redis 幂等/限流切面使用。
 
@@ -732,7 +757,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 | `TraceIdFilter` | litisle-gateway（filter 包） | 链路入口：生成/复用 traceId，注入下游 Header + 响应 Header + MDC | 新增 |
 | `TraceIdFilter` | common-security（trace 包） | 链路承接：读 Header 写 MDC | 新增 |
 | `FeignAuthInterceptor` | common-security（feign 包） | 链路透传：从 MDC 读 traceId 透传下游 | 已有（见 4.3） |
-| `HeaderConstant` | common-core（constant 包） | 定义 `X-Trace-Id` Header 名 | 已有（见 2.3） |
+| `HeaderConstant` | common-core（constant 包） | 定义 `X-Trace-Id` Header 名 | 已有（见 2.4） |
 | `CommonSecurityAutoConfiguration` | common-security（config 包） | 注册 TraceIdFilter（FilterRegistrationBean，最高优先级） | 修改 |
 
 ### 10.4 各文件详细说明
@@ -792,7 +817,8 @@ common-core/src/main/java/com/litisle/commoncore/
 │   └── MyBatisPlusConfig.java
 ├── constant/
 │   ├── CommonConstant.java
-│   └── HeaderConstant.java
+│   ├── HeaderConstant.java
+│   └── PageConstant.java
 ├── enums/
 │   ├── AuditModule.java
 │   ├── AuditOperation.java
@@ -802,6 +828,8 @@ common-core/src/main/java/com/litisle/commoncore/
 │   ├── BizException.java
 │   ├── ErrorCode.java
 │   └── GlobalExceptionHandler.java
+├── query/
+│   └── PageQuery.java
 ├── resolver/
 │   └── UserIdResolver.java
 ├── result/

@@ -20,6 +20,8 @@ import java.util.List;
  * - pageSize：每页大小
  * - total：总记录数
  * - list：当前页数据列表
+ * - totalPages：总页数（只读派生值，= ceil(total / pageSize)，pageSize<=0 时为 0）
+ * - hasNext：是否还有下一页（只读派生值）
  * 
  * 【使用示例】
  * // Controller
@@ -69,5 +71,31 @@ public class PageResult<T> implements Serializable {
      */
     public static <T> PageResult<T> of(long pageNum, long pageSize, long total, List<T> list) {
         return new PageResult<>(pageNum, pageSize, total, list);
+    }
+
+    /**
+     * 总页数（只读派生属性）
+     * <p>
+     * 由 total 与 pageSize 向上取整计算得出；pageSize 非法（<=0）时返回 0，避免除零。
+     *
+     * @return 总页数
+     */
+    public long getTotalPages() {
+        if (pageSize <= 0) {
+            return 0;
+        }
+        return (total + pageSize - 1) / pageSize;
+    }
+
+    /**
+     * 是否还有下一页（只读派生属性）
+     * <p>
+     * 客户端可据此判断是否触发“加载更多”请求，简化前端分页逻辑。
+     *
+     * @return true=存在下一页，false=已是最后一页或无数据
+     */
+    public boolean getHasNext() {
+        long totalPages = getTotalPages();
+        return totalPages > 0 && pageNum < totalPages;
     }
 }

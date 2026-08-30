@@ -1,128 +1,115 @@
-//package com.litisle.litisleuser.controller;
-//
-//
-//import com.litisle.commonsecurity.role.RequireRole;
-//import com.litisle.litisleuser.enums.RoleType;
-//import org.springframework.web.bind.annotation.RequestMapping;
-//import org.springframework.web.bind.annotation.RestController;
-//
-////后台管理用户，不建议和前台资料接口混在一个类里。URL 可以加 /admin。
-//@RestController
-//@RequestMapping("/user/admin/users")
-////@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
-//@RequireRole(roles = {Role, "EDITOR"}, logical = RequireRole.Logical.OR)
-//public class UserAdminController {
-//
-//    private final UserAdminService userAdminService;
-//
-//    public UserAdminController(UserAdminService userAdminService) {
-//        this.userAdminService = userAdminService;
-//    }
-//
-//    /**
-//     * 分页查询用户
-//     */
-//    @GetMapping
-//    public CommonResult<PageVO<UserAdminVO>> page(@Valid UserQueryDTO query) {
-//        return CommonResult.ok(userAdminService.page(query));
-//    }
-//
-//    /**
-//     * 查看用户详情
-//     */
-//    @GetMapping("/{userId}")
-//    public CommonResult<UserAdminDetailVO> detail(@PathVariable Long userId) {
-//        return CommonResult.ok(userAdminService.detail(userId));
-//    }
-//
-//    /**
-//     * 管理员修改用户资料
-//     */
-//    @PutMapping("/{userId}")
-//    public CommonResult<Void> updateByAdmin(
-//            @PathVariable Long userId,
-//            @Valid @RequestBody UserAdminUpdateDTO dto
-//    ) {
-//        userAdminService.updateByAdmin(userId, dto);
-//        return CommonResult.ok();
-//    }
-//
-//    /**
-//     * 冻结/解冻用户
-//     */
-//    @PatchMapping("/{userId}/status")
-//    public CommonResult<Void> changeStatus(
-//            @PathVariable Long userId,
-//            @Valid @RequestBody UserStatusChangeDTO dto
-//    ) {
-//        userAdminService.changeStatus(userId, dto);
-//        return CommonResult.ok();
-//    }
-//
-//    /**
-//     * 逻辑注销用户，后台强制注销也可用
-//     */
-//    @DeleteMapping("/{userId}")
-//    public CommonResult<Void> logicDelete(@PathVariable Long userId) {
-//        userAdminService.logicDelete(userId);
-//        return CommonResult.ok();
-//    }
-//
-//    /**
-//     * 管理员临时查看明文手机号
-//     */
-//    @GetMapping("/{userId}/phone-clear")
-//    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
-//    @AuditLog(action = "ADMIN_VIEW_USER_PHONE_PLAINTEXT")
-//    public CommonResult<String> adminViewPlainPhone(@PathVariable Long userId) {
-//        return CommonResult.ok(userAdminService.viewPlainPhone(userId));
-//    }
+package com.litisle.litisleuser.controller;
 
-/* ================= 管理员查看 ================= */
-//
-///**
-// * 管理员查看指定用户手机号
-// */
-//@GetMapping("/users/{userId}/phone")
-//@RequirePermission(perms = {PermissionEnum.SENSITIVE_PHONE_READ})
-//@AuditLog(
-//        moudle = AuditModule.SENSITIVE,
-//        operation = AuditOperation.USER_VIEW_PHONE_ADMIN,
-//        saveRequestData = false,
-//        saveResponseData = false
-//)
-//public Result<String> userPhone(@PathVariable Long userId) {
-//    return Result.success(userProfileService.viewUserPlainPhone(userId));
-//}
-//
-///**
-// * 管理员查看指定用户邮箱
-// */
-//@GetMapping("/users/{userId}/email")
-//@RequirePermission(perms = {PermissionEnum.SENSITIVE_EMAIL_READ})
-//@AuditLog(
-//        moudle = AuditModule.SENSITIVE,
-//        operation = AuditOperation.USER_VIEW_EMAIL_ADMIN,
-//        saveRequestData = false,
-//        saveResponseData = false
-//)
-//public Result<String> userEmail(@PathVariable Long userId) {
-//    return Result.success(userProfileService.viewUserPlainEmail(userId));
-//}
-//
-///**
-// * 管理员查看指定用户密码
-// */
-//@GetMapping("/users/{userId}/password")
-////    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
-//@RequirePermission(perms = {PermissionEnum.SENSITIVE_PASSWORD_READ})
-//@AuditLog(
-//        moudle = AuditModule.SENSITIVE,
-//        operation = AuditOperation.USER_VIEW_PASSWORD_ADMIN,
-//        saveRequestData = false,
-//        saveResponseData = false
-//)
-//public Result<String> userPassword(@PathVariable Long userId) {
-//    return Result.success(userProfileService.viewUserPlainPassword(userId));
-//}
-//}
+import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaCheckRole;
+import com.litisle.commoncore.result.PageResult;
+import com.litisle.commoncore.result.Result;
+import com.litisle.commonsecurity.constant.PermissionCode;
+import com.litisle.commonsecurity.constant.RoleCode;
+import com.litisle.commonsecurity.enums.RoleCodeEnum;
+import com.litisle.litisleuser.domain.dto.UserQueryDTO;
+import com.litisle.litisleuser.domain.dto.UserStatusChangeDTO;
+import com.litisle.litisleuser.domain.vo.UserAdminDetailVO;
+import com.litisle.litisleuser.domain.vo.UserAdminVO;
+import com.litisle.litisleuser.service.UserAdminService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
+
+/**
+ * 后台管理员 - 用户管理
+ * <p>
+ * 面向后台管理员（ADMIN / SUPER_ADMIN），与前台用户资料接口物理隔离。
+ * 明文敏感数据（手机号/邮箱）查看请走 UserSensitiveController，本类不重复提供。
+ *
+ * 【整合后的接口清单】
+ * 1. GET    /api/admin/users/page         分页查询用户列表    USER_READ
+ * 2. GET    /api/admin/users/{id}         查询用户详情        USER_READ
+ * 3. PUT    /api/admin/users/{id}         管理员修改用户资料   USER_UPDATE
+ * 4. PATCH  /api/admin/users/{id}/status  启用/禁用/冻结       USER_BAN
+ * 5. PUT    /api/admin/users/{id}/roles   分配角色            ROLE_ASSIGN（仅SUPER_ADMIN）
+ * 6. PUT    /api/admin/users/{id}/vip     设置/延长/取消VIP    USER_UPDATE
+ * 7. DELETE /api/admin/users/{id}         注销用户（软删除）  USER_DELETE
+ */
+@Tag(name = "后台用户管理", description = "仅供 ADMIN / SUPER_ADMIN，普通用户管理接口")
+@RestController
+@RequestMapping("/api/admin/users")
+@SaCheckRole(RoleCode.ADMIN)
+public class UserAdminController {
+
+    private final UserAdminService userAdminService;
+
+    public UserAdminController(UserAdminService userAdminService) {
+        this.userAdminService = userAdminService;
+    }
+
+    /**
+     * 1. 分页查询用户列表（按用户名/状态/角色/时间筛选）
+     */
+    @Operation(summary = "分页查询用户列表")
+    @GetMapping("/page")
+    @SaCheckPermission(PermissionCode.USER_READ)
+    public Result<PageResult<UserAdminVO>> page(@Valid UserQueryDTO query) {
+        PageResult<UserAdminVO> page = userAdminService.page(query);
+        return Result.success(page);
+    }
+
+    /**
+     * 2. 查询用户详情（聚合角色、VIP、作者扩展资料）
+     */
+    @Operation(summary = "查询用户详情")
+    @GetMapping("/{userId}")
+    @SaCheckPermission(PermissionCode.USER_READ)
+    public Result<UserAdminDetailVO> detail(@PathVariable Long userId) {
+        UserAdminDetailVO detail = userAdminService.detail(userId);
+        return Result.success(detail);
+    }
+
+
+
+    /**
+     * 4. 变更用户状态（启用/禁用/冻结，含 frozenUntil）
+     */
+    @Operation(summary = "启用/禁用/冻结用户")
+    @PatchMapping("/{userId}/status")
+    @SaCheckPermission(PermissionCode.USER_BAN)
+    public Result<Void> changeStatus(@PathVariable Long userId, @Valid @RequestBody UserStatusChangeDTO dto) {
+        userAdminService.changeStatus(userId, dto);
+        return Result.success();
+    }
+
+    /**
+     * 5. 分配角色（如 READER → AUTHOR），仅 SUPER_ADMIN
+     */
+    @Operation(summary = "分配用户角色")
+    @PutMapping("/{userId}/roles")
+    @SaCheckRole("SUPER_ADMIN")
+    public Result<Void> assignRoles(@PathVariable Long userId, @Valid @RequestBody RoleAssignDTO dto) {
+        userAdminService.assignRoles(userId, dto);
+        return Result.success();
+    }
+
+    /**
+     * 6. 管理 VIP（设置/延长/取消到期时间）
+     */
+    @Operation(summary = "管理用户 VIP")
+    @PutMapping("/{userId}/vip")
+    @SaCheckPermission(PermissionCode.USER_UPDATE)
+    public Result<Void> manageVip(@PathVariable Long userId, @Valid @RequestBody VipUpdateDTO dto) {
+        userAdminService.manageVip(userId, dto);
+        return Result.success();
+    }
+
+    /**
+     * 7. 注销用户（软删除，ADMIN）
+     */
+    @Operation(summary = "注销用户")
+    @DeleteMapping("/{userId}")
+    @SaCheckPermission(PermissionCode.USER_DELETE)
+    public Result<Void> logicDelete(@PathVariable Long userId) {
+        userAdminService.logicDelete(userId);
+        return Result.success();
+    }
+
+}

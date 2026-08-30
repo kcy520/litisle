@@ -168,6 +168,25 @@ create table if not exists `sys_oauth_binding`
 ) engine = InnoDB
   default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
 
+
+# 封号/解封审计日志表
+create table if not exists `sys_user_ban_log`
+(
+    `id`            bigint unsigned not null auto_increment primary key comment '主键ID',
+    `user_id`       bigint unsigned not null comment '被操作用户ID',
+    `username`      varchar(32)     not null comment '被操作用户名（操作时快照）',
+    `role_code`     varchar(255)    null comment '被操作用户角色快照（逗号分隔）',
+    `action`        varchar(16)     not null comment '操作类型：BAN-封号 UNBAN-解封',
+    `reason`        varchar(255)    null comment '封号原因（封号时必填；解封可为空）',
+    `frozen_until`  datetime        null comment '解封时间（封号时记录；解封时为空）',
+    `operator_id`   bigint unsigned not null comment '操作者ID（自动解封为0表示系统）',
+    `operator_name` varchar(32)     null comment '操作者用户名（快照）',
+    `create_time`   datetime        not null default current_timestamp comment '操作时间',
+    index `idx_user_id` (`user_id`),
+    index `idx_create_time` (`create_time`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '用户封号/解封审计日志表';
+
 -- **设计原因**：
 --
 -- - `sys_user_profile` 与 `sys_user` 拆分：主表保留高频鉴权字段，扩展资料单独表，避免列过多影响查询效率。
