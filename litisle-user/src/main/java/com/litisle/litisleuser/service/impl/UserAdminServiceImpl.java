@@ -14,17 +14,20 @@ import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
 import com.litisle.litisleuser.constant.UserInfoConstant;
 import com.litisle.commonsecurity.enums.RoleCodeEnum;
 import com.litisle.commonsecurity.enums.RoleLevel;
+import com.litisle.commonsecurity.utils.SaRoleHelper;
 import com.litisle.litisleuser.domain.dto.UserQueryDTO;
 import com.litisle.litisleuser.domain.dto.UserStatusChangeDTO;
 import com.litisle.litisleuser.domain.entity.Role;
 import com.litisle.litisleuser.domain.entity.User;
 import com.litisle.litisleuser.domain.entity.UserBanLog;
+import com.litisle.litisleuser.domain.entity.UserCancelLog;
 import com.litisle.litisleuser.domain.entity.UserProfile;
 import com.litisle.litisleuser.domain.entity.UserRole;
 import com.litisle.litisleuser.domain.vo.UserAdminDetailVO;
 import com.litisle.litisleuser.domain.vo.UserAdminVO;
 import com.litisle.litisleuser.enums.DelFlag;
 import com.litisle.litisleuser.enums.UserBanAction;
+import com.litisle.litisleuser.enums.UserCancelSource;
 import com.litisle.litisleuser.service.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -54,6 +57,7 @@ public class UserAdminServiceImpl implements UserAdminService {
     private final UserRoleService userRoleService;
     private final UserProfileService userProfileService;
     private final UserBanLogService userBanLogService;
+    private final UserCancelLogService userCancelLogService;
     private final Aes256GcmCrypto aes256GcmCrypto;
 
     public UserAdminServiceImpl(UserService userService,
@@ -61,12 +65,14 @@ public class UserAdminServiceImpl implements UserAdminService {
                                 UserRoleService userRoleService,
                                 UserProfileService userProfileService,
                                 UserBanLogService userBanLogService,
+                                UserCancelLogService userCancelLogService,
                                 Aes256GcmCrypto aes256GcmCrypto) {
         this.userService = userService;
         this.roleService = roleService;
         this.userRoleService = userRoleService;
         this.userProfileService = userProfileService;
         this.userBanLogService = userBanLogService;
+        this.userCancelLogService = userCancelLogService;
         this.aes256GcmCrypto = aes256GcmCrypto;
     }
 
@@ -246,19 +252,15 @@ public class UserAdminServiceImpl implements UserAdminService {
         // 4. 乐观锁更新，成功后记录业务日志（审计日志由切面完成）
 
         // 1. 查询目标用户并校验
-        User user = userService.getById(userId);
-        if (user == null || user.getStatus() == UserStatus.CANCELLED) {
+        User user = userService.getExistingUser(userId);
+        if (user.getStatus() == UserStatus.CANCELLED) {
             throw new BizException(ErrorCode.USER_NOT_FOUND);
         }
 
         // 2. 等级校验：禁止操作同级或上级管理员，防止越权提权
-        Long operatorId = StpUtil.getLoginIdAsLong();
-        RoleLevel operatorLevel = maxRoleLevel(getRoleCodes(operatorId));
-        RoleLevel targetLevel = maxRoleLevel(getRoleCodes(user.getId()));
-        if (targetLevel.ordinal() >= operatorLevel.ordinal()) {
-            throw new BizException(ErrorCode.FORBIDDEN);
-        }
+        SaRoleHelper.checkNotSameOrHigherLevel(getRoleCodes(user.getId()));
         // 2.1 取操作者用户名（审计快照）
+        Long operatorId = StpUtil.getLoginIdAsLong();
         User operator = userService.getById(operatorId);
         String operatorName = operator != null ? operator.getUsername() : null;
 
@@ -322,31 +324,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         return time.isAfter(today3AM) ? today3AM.plusDays(1) : today3AM;
     }
 
-    /**
-     * 取一组角色编码中的最高等级，用于越权校验
-     */
-    private RoleLevel maxRoleLevel(List<String> roleCodes) {
-        return roleCodes.stream()
-                .map(RoleCodeEnum::of)
-                .filter(Objects::nonNull)
-                .map(RoleCodeEnum::getLevel)
-                .max(Comparator.comparingInt(Enum::ordinal))
-                .orElse(RoleLevel.NORMAL);
-    }
 
-    /**
-     * 分配用户角色
-     */
-    @Override
-    public void assignRoles(Long userId, RoleAssignDTO dto) {
-        // 【实现思路】
-        // 1. 校验 dto.getRoleCodes() 不能包含 SUPER_ADMIN（SUPER_ADMIN 角色由系统/Boot阶段初始化，不可后台授予）
-        // 2. 校验角色编码合法性：逐个 roleService.getByRoleCode，不存在则抛 BizException
-        // 3. 全量覆盖：删除该用户旧 user_role -> 批量插入新 user_role（建议 @Transactional）
-        // 4. 若授予/移除 AUTHOR/LEGACY_AUTHOR，联动处理 user_profile（存在/删除作者扩展资料）及头像标识
-        // TODO 待实现
-        throw new UnsupportedOperationException("UserAdminService.assignRoles 待实现");
-    }
 
     /**
      * 管理用户 VIP
@@ -365,16 +343,165 @@ public class UserAdminServiceImpl implements UserAdminService {
     }
 
     /**
+     * 添加用户角色（增量）
+     */
+    @Override
+    public void addRoles(Long userId, List<String> roleCodes) {
+        // 入参校验：非空 + distinct() 去重 + RoleCodeEnum.exists() 逐项校验，非法编码抛 PARAM_ERROR。
+        // 目标用户校验：复用 getExistingUser；已注销抛 USER_NOT_FOUND。
+        // 等级校验：SaRoleHelper.checkNotSameOrHigherLevel 禁止对同级/上级分配角色。
+        // 安全限制：禁止授予 SUPER_ADMIN（仅系统/Boot 初始化）→ FORBIDDEN。
+        // 增量插入：过滤已拥有的角色（避免重复），roleService.getByRoleCode 反查 roleId，saveBatch 批量新增；全部已拥有则幂等返回。
+        // 日志：记录操作者/目标/新增角色。
+        
+        // 1. 入参校验：roleCodes 非空；去重后逐项校验合法，非法编码抛 PARAM_ERROR
+        if (roleCodes == null || roleCodes.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_ERROR);
+        }
+        List<String> distinctCodes = roleCodes.stream().distinct().collect(Collectors.toList());
+        for (String code : distinctCodes) {
+            if (!RoleCodeEnum.exists(code)) {
+                throw new BizException(ErrorCode.PARAM_ERROR);
+            }
+        }
+
+        // 2. 查询目标用户（复用 getExistingUser），已注销用户不允许操作
+        User user = userService.getExistingUser(userId);
+        if (user.getStatus() == UserStatus.CANCELLED) {
+            throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        // 3. 等级校验：禁止对同级/上级用户分配角色，防止越权提权
+        SaRoleHelper.checkNotSameOrHigherLevel(getRoleCodes(userId));
+
+        // 4. 安全校验：禁止授予 SUPER_ADMIN（仅系统/Boot 阶段初始化）
+        if (distinctCodes.stream().anyMatch(code -> RoleCodeEnum.of(code).isSuperAdmin())) {
+            throw new BizException(ErrorCode.FORBIDDEN);
+        }
+
+        // 5. 增量插入：过滤目标用户已拥有的角色（去重），按 roleCode 反查 roleId 后批量新增
+        List<String> ownedCodes = getRoleCodes(userId);
+        List<String> toAdd = distinctCodes.stream()
+                .filter(code -> !ownedCodes.contains(code))
+                .collect(Collectors.toList());
+        if (toAdd.isEmpty()) {
+            log.info("用户 [{}] 已拥有全部目标角色，幂等返回", userId);
+            return;
+        }
+        List<UserRole> userRoles = toAdd.stream().map(code -> {
+            Role role = roleService.getByRoleCode(code);
+            UserRole ur = new UserRole();
+            ur.setUserId(userId);
+            ur.setRoleId(role.getId());
+            return ur;
+        }).collect(Collectors.toList());
+        userRoleService.saveBatch(userRoles);
+
+        // 6. 业务日志（角色变更审计表待接入）
+        log.info("管理员 [{}] 为用户 [{}] 增量添加角色 [{}]",
+                StpUtil.getLoginIdAsLong(), userId, toAdd);
+    }
+
+    /**
+     * 移除用户角色（增量）
+     */
+    @Override
+    public void removeRoles(Long userId, List<String> roleCodes) {
+        
+        // 入参校验：与 addRoles 相同。
+        // 目标用户校验：同 addRoles。
+        // 等级校验：同 addRoles。
+        // 安全限制：禁止移除 SUPER_ADMIN 与 READER（isNormalRole()，保证基础角色不被清空）→ FORBIDDEN。
+        // 增量删除：反查 roleId 后，lambdaUpdate().eq(userId).in(roleIds).remove() 仅删该用户实际拥有的关联记录。
+        // 日志：记录操作者/目标/移除角色。
+        
+        // 1. 入参校验：roleCodes 非空；去重后逐项校验合法，非法编码抛 PARAM_ERROR
+        if (roleCodes == null || roleCodes.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_ERROR);
+        }
+        List<String> distinctCodes = roleCodes.stream().distinct().collect(Collectors.toList());
+        for (String code : distinctCodes) {
+            if (!RoleCodeEnum.exists(code)) {
+                throw new BizException(ErrorCode.PARAM_ERROR);
+            }
+        }
+
+        // 2. 查询目标用户（复用 getExistingUser），已注销用户不允许操作
+        User user = userService.getExistingUser(userId);
+        if (user.getStatus() == UserStatus.CANCELLED) {
+            throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        // 3. 等级校验：禁止移除同级/上级用户的角色
+        SaRoleHelper.checkNotSameOrHigherLevel(getRoleCodes(userId));
+
+        // 4. 安全校验：禁止移除 SUPER_ADMIN 与 READER 基础角色（保证基础角色不被清空）
+        if (distinctCodes.stream().anyMatch(code -> {
+            RoleCodeEnum r = RoleCodeEnum.of(code);
+            return r.isSuperAdmin() || r.isNormalRole();
+        })) {
+            throw new BizException(ErrorCode.FORBIDDEN);
+        }
+
+        // 5. 增量删除：按 roleCode 反查 roleId，仅删除该用户实际拥有的 user_role
+        List<Long> roleIds = distinctCodes.stream()
+                .map(code -> roleService.getByRoleCode(code))
+                .filter(Objects::nonNull)
+                .map(Role::getId)
+                .collect(Collectors.toList());
+        if (roleIds.isEmpty()) {
+            log.info("用户 [{}] 目标角色不存在，幂等返回", userId);
+            return;
+        }
+        userRoleService.lambdaUpdate()
+                .eq(UserRole::getUserId, userId)
+                .in(UserRole::getRoleId, roleIds)
+                .remove();
+
+        // 6. 业务日志（角色变更审计表待接入）
+        log.info("管理员 [{}] 为用户 [{}] 增量移除角色 [{}]",
+                StpUtil.getLoginIdAsLong(), userId, distinctCodes);
+    }
+
+    /**
      * 注销用户
      */
     @Override
-    public void logicDelete(Long userId) {
-        // 【实现思路】
-        // 1. 查询用户，为空或已注销则直接返回/抛异常
-        // 2. 设置注销时间 cancel_time=now()、status=CANCELED、delFlag=DELETED，乐观锁更新
-        // 3. 若为作者，清零/保留其资产（此处理留钩子，由 account 模块兜底）
-        // 4. 清理其在线会话（调 auth 侧退出接口或记录待清理），移除 Redis 中的设备/refreshToken
-        // TODO 待实现
-        throw new UnsupportedOperationException("UserAdminService.logicDelete 待实现");
+    public void logicDeleteUserByAdmin(Long userId) {
+        // 1. 查询目标用户并校验：不存在抛 USER_NOT_FOUND；已注销则幂等返回，避免重复产生日志
+        User user = userService.getExistingUser(userId);
+        if (user.getStatus() == UserStatus.CANCELLED) {
+            log.info("用户 [{}] 已被注销，操作幂等返回", userId);
+            return;
+        }
+
+        // 2. 等级校验：禁止注销同级或上级管理员，复用封号越权校验逻辑
+        SaRoleHelper.checkNotSameOrHigherLevel(getRoleCodes(user.getId()));
+        Long operatorId = StpUtil.getLoginIdAsLong();
+        User operator = userService.getById(operatorId);
+        String operatorName = operator != null ? operator.getUsername() : null;
+
+        // 3. 软删除：置注销状态与注销时间、删除标志，乐观锁更新
+        user.setStatus(UserStatus.CANCELLED);
+        user.setCancelTime(LocalDateTime.now());
+        user.setDelFlag(DelFlag.DELETED);
+        if (!userService.updateById(user)) {
+            throw new BizException(ErrorCode.FORBIDDEN);
+        }
+
+        // 4. 记录管理员强制注销审计日志（快照：用户名/角色/来源/操作者/操作时间）
+        userCancelLogService.record(UserCancelLog.builder()
+                .userId(user.getId())
+                .username(user.getUsername())
+                .roleCode(String.join(",", getRoleCodes(user.getId())))
+                .source(UserCancelSource.ADMIN)
+                .operatorId(operatorId)
+                .operatorName(operatorName)
+                .build());
+
+        // 5. 清理其在线会话与登录态（调 auth 侧退出/移除 Redis 设备与 refreshToken）
+        //    TODO 待接入 auth 模块 RPC，此处仅保留业务钩子
+        //“在注销业务流程中，提前预留了一个‘挂载点’/‘扩展点’，等以后接入 auth 模块时，把清理会话的逻辑‘挂’到这里来执行。”
+        log.info("管理员 [{}] 注销用户 [{}] 成功", operatorId, userId);
     }
 }

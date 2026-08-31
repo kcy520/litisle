@@ -2,6 +2,8 @@ package com.litisle.litisleuser.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import cn.dev33.satoken.stp.StpUtil;
+
 import com.litisle.commoncore.result.PageResult;
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonsecurity.constant.PermissionCode;
@@ -16,6 +18,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * 后台管理员 - 用户管理
@@ -80,13 +84,26 @@ public class UserAdminController {
     }
 
     /**
-     * 5. 分配角色（如 READER → AUTHOR），仅 SUPER_ADMIN
+     * 6. 添加用户角色（增量）
      */
-    @Operation(summary = "分配用户角色")
-    @PutMapping("/{userId}/roles")
-    @SaCheckRole("SUPER_ADMIN")
-    public Result<Void> assignRoles(@PathVariable Long userId, @Valid @RequestBody RoleAssignDTO dto) {
-        userAdminService.assignRoles(userId, dto);
+    @Operation(summary = "添加用户角色")
+    @PostMapping("/{userId}/roles")
+    @SaCheckPermission(PermissionCode.ROLE_ASSIGN)
+    public Result<Void> addRoles(@PathVariable Long userId,
+                                 @RequestBody List<String> roleCodes) {
+        userAdminService.addRoles(userId, roleCodes);
+        return Result.success();
+    }
+
+    /**
+     * 7. 移除用户角色（增量）
+     */
+    @Operation(summary = "移除用户角色")
+    @DeleteMapping("/{userId}/roles")
+    @SaCheckPermission(PermissionCode.ROLE_ASSIGN)
+    public Result<Void> removeRoles(@PathVariable Long userId,
+                                    @RequestBody List<String> roleCodes) {
+        userAdminService.removeRoles(userId, roleCodes);
         return Result.success();
     }
 
@@ -107,8 +124,9 @@ public class UserAdminController {
     @Operation(summary = "注销用户")
     @DeleteMapping("/{userId}")
     @SaCheckPermission(PermissionCode.USER_DELETE)
-    public Result<Void> logicDelete(@PathVariable Long userId) {
-        userAdminService.logicDelete(userId);
+    public Result<Void> deactivateUser(@PathVariable Long userId) {
+        //deactivate-停用/注销
+        userAdminService.logicDeleteUserByAdmin(userId);
         return Result.success();
     }
 

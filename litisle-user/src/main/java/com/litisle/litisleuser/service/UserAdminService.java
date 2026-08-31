@@ -10,6 +10,8 @@ import com.litisle.litisleuser.domain.vo.UserAdminDetailVO;
 import com.litisle.litisleuser.domain.vo.UserAdminVO;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 /**
  * 后台管理员 - 用户管理业务接口
  * <p>
@@ -74,6 +76,26 @@ public interface UserAdminService {
     void assignRoles(Long userId, RoleAssignDTO dto);
 
     /**
+     * 添加用户角色（增量）
+     * <p>
+     * 在目标用户现有角色基础上追加角色；校验角色合法性与操作等级，禁止授予 SUPER_ADMIN。
+     *
+     * @param userId    用户ID
+     * @param roleCodes 待添加的角色编码集合
+     */
+    void addRoles(Long userId, List<String> roleCodes);
+
+    /**
+     * 移除用户角色（增量）
+     * <p>
+     * 仅移除目标用户实际拥有的角色；禁止移除 SUPER_ADMIN 与 READER 基础角色。
+     *
+     * @param userId    用户ID
+     * @param roleCodes 待移除的角色编码集合
+     */
+    void removeRoles(Long userId, List<String> roleCodes);
+
+    /**
      * 管理用户 VIP（设置/延长/取消到期时间）
      * <p>
      * 已注销用户不允许操作；延长基于现有到期时间累加。
@@ -90,5 +112,5 @@ public interface UserAdminService {
      *
      * @param userId 用户ID
      */
-    void logicDelete(Long userId);
+    void logicDeleteUserByAdmin(Long userId);
 }

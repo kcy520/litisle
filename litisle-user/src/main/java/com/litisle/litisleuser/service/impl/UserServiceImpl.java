@@ -1,6 +1,8 @@
 package com.litisle.litisleuser.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.litisle.commoncore.exception.BizException;
+import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litisleapi.dto.user.UserDTO;
 
 import com.litisle.litisleuser.domain.entity.User;
@@ -34,5 +36,14 @@ public class UserServiceImpl
         dto.setStatus(user.getStatus() == null ? null : user.getStatus().getCode());
         dto.setCreatedAt(user.getCreateTime());
         return dto;
+    }
+
+    @Override
+    public User getExistingUser(Long userId) {
+        User user = getById(userId);
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+        return user;
     }
 }

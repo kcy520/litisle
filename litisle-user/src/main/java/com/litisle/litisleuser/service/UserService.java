@@ -12,4 +12,9 @@ public interface UserService extends IService<User> {
      * 查询用户 DTO（供 Feign 使用）
      */
     UserDTO getDtoById(Long userId);
+
+    /**
+     * 获取存在的用户，不存在抛 USER_NOT_FOUND
+     */
+    User getExistingUser(Long userId);
 }

@@ -1,7 +1,14 @@
 package com.litisle.commonsecurity.utils;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.litisle.commoncore.exception.BizException;
+import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commonsecurity.enums.RoleCodeEnum;
+import com.litisle.commonsecurity.enums.RoleLevel;
+
+import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
 
 public class SaRoleHelper {
 
@@ -35,5 +42,32 @@ public class SaRoleHelper {
                 RoleCodeEnum.ADMIN.getCode(),
                 RoleCodeEnum.SUPER_ADMIN.getCode()
         );
+    }
+
+    /* ================= 越权校验（管理操作） ================= */
+
+    /**
+     * 计算一组角色编码中的最高等级（用于越权校验）
+     */
+    public static RoleLevel maxRoleLevel(List<String> roleCodes) {
+        return roleCodes.stream()
+                .map(RoleCodeEnum::of)
+                .filter(Objects::nonNull)
+                .map(RoleCodeEnum::getLevel)
+                .max(Comparator.comparingInt(Enum::ordinal))
+                .orElse(RoleLevel.NORMAL);
+    }
+
+    /**
+     * 越权校验：禁止对同级或更高等级的目标用户执行管理操作（防止越权提权）
+     *
+     * @param targetRoleCodes 目标用户角色编码集合（由调用方从 DB 聚合传入）
+     */
+    public static void checkNotSameOrHigherLevel(List<String> targetRoleCodes) {
+        RoleLevel operatorLevel = maxRoleLevel(StpUtil.getRoleList());
+        RoleLevel targetLevel = maxRoleLevel(targetRoleCodes);
+        if (targetLevel.ordinal() >= operatorLevel.ordinal()) {
+            throw new BizException(ErrorCode.FORBIDDEN);
+        }
     }
 }

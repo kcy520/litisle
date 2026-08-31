@@ -187,6 +187,22 @@ create table if not exists `sys_user_ban_log`
     ) engine = InnoDB
     default charset = utf8mb4 comment = '用户封号/解封审计日志表';
 
+#注销账号日志表
+create table if not exists `sys_user_cancel_log`
+(
+    `id`            bigint unsigned not null auto_increment primary key comment '主键ID',
+    `user_id`       bigint unsigned not null comment '被注销用户ID',
+    `username`      varchar(32)     not null comment '被注销用户名（操作时快照）',
+    `role_code`     varchar(255)    null comment '被注销用户角色快照（逗号分隔）',
+    `source`        varchar(16)     not null comment '注销来源：SELF-用户自助注销 ADMIN-管理员强制注销',
+    `reason`        varchar(255)    null comment '注销原因（管理员强制注销时必填；自助注销可为空）',
+    `operator_id`   bigint unsigned not null comment '操作者ID（自助注销为本人；管理员注销为操作管理员ID）',
+    `operator_name` varchar(32)     null comment '操作者用户名（快照）',
+    `create_time`   datetime        not null default current_timestamp comment '注销操作时间',
+    index `idx_user_id` (`user_id`),
+    index `idx_create_time` (`create_time`)
+) engine = InnoDB default charset = utf8mb4 comment = '用户注销审计日志表';
+
 -- **设计原因**：
 --
 -- - `sys_user_profile` 与 `sys_user` 拆分：主表保留高频鉴权字段，扩展资料单独表，避免列过多影响查询效率。
