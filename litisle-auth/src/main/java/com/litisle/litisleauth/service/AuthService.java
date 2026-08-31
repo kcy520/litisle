@@ -79,6 +79,20 @@ public interface AuthService {
     void logout(String tsuccessen);
 
     /**
+     * 强制下线指定用户（管理员触发，非本人操作）
+     *
+     * 【流程】
+     * 1. 清理 Redis 中该用户的 refreshToken（auth:refresh:* 与映射键）
+     * 2. 清理该用户全部在线设备记录（DeviceSessionService.kickAllDevices）
+     * 3. 注销其全部 Sa-Token 会话（StpUtil.logout(userId)）
+     * <p>
+     * 供 user 模块在管理员注销/封禁用户时通过 Feign 调用，实现离线清理。
+     *
+     * @param userId 目标用户 ID
+     */
+    void forceLogout(Long userId);
+
+    /**
      * 刷新令牌（令牌轮换）
      *
      * 【流程】

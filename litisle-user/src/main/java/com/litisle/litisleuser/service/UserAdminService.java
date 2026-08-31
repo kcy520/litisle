@@ -1,11 +1,8 @@
 package com.litisle.litisleuser.service;
 
 import com.litisle.commoncore.result.PageResult;
-import com.litisle.litisleuser.domain.dto.RoleAssignDTO;
-import com.litisle.litisleuser.domain.dto.UserAdminUpdateDTO;
 import com.litisle.litisleuser.domain.dto.UserQueryDTO;
 import com.litisle.litisleuser.domain.dto.UserStatusChangeDTO;
-import com.litisle.litisleuser.domain.dto.VipUpdateDTO;
 import com.litisle.litisleuser.domain.vo.UserAdminDetailVO;
 import com.litisle.litisleuser.domain.vo.UserAdminVO;
 import org.springframework.transaction.annotation.Transactional;
@@ -65,15 +62,6 @@ public interface UserAdminService {
      */
     void changeStatus(Long userId, UserStatusChangeDTO dto);
 
-    /**
-     * 分配用户角色
-     * <p>
-     * 全量覆盖式重新分配角色，校验不能为 SUPER_ADMIN 授权，防止越权提权。
-     *
-     * @param userId 用户ID
-     * @param dto    目标角色编码集合
-     */
-    void assignRoles(Long userId, RoleAssignDTO dto);
 
     /**
      * 添加用户角色（增量）
@@ -95,15 +83,15 @@ public interface UserAdminService {
      */
     void removeRoles(Long userId, List<String> roleCodes);
 
-    /**
-     * 管理用户 VIP（设置/延长/取消到期时间）
-     * <p>
-     * 已注销用户不允许操作；延长基于现有到期时间累加。
-     *
-     * @param userId 用户ID
-     * @param dto    VIP 操作参数
-     */
-    void manageVip(Long userId, VipUpdateDTO dto);
+//    /**
+//     * 管理用户 VIP（设置/延长/取消到期时间）
+//     * <p>
+//     * 已注销用户不允许操作；延长基于现有到期时间累加。
+//     *
+//     * @param userId 用户ID
+//     * @param dto    VIP 操作参数
+//     */
+//    void manageVip(Long userId, VipUpdateDTO dto);
 
     /**
      * 注销用户（软删除）

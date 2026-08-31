@@ -20,6 +20,7 @@ import com.litisle.litisleauth.domain.vo.TsuccessenVO;
 import com.litisle.litisleauth.enums.EmailCodeUsage;
 import com.litisle.litisleauth.service.AuthService;
 import com.litisle.litisleauth.service.CaptchaService;
+import com.litisle.litisleauth.service.DeviceSessionService;
 import com.litisle.commoncore.constant.CommonConstant;
 import com.litisle.commoncore.enums.UserStatus;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class AuthServiceImpl implements AuthService {
 
     private final UserClient userClient;
     private final CaptchaService captchaService;
+    private final DeviceSessionService deviceSessionService;
     private final RedisUtil redisUtil;
     private final PasswordCrypto passwordCrypto;
     private final AuthProperties authProperties;
@@ -167,6 +169,26 @@ public class AuthServiceImpl implements AuthService {
         // 3. Sa-Token 注销登录态（服务端会话失效，无需额外黑名单）
         StpUtil.logout();
         log.info("用户已退出登录: userId={}", userId);
+    }
+
+    // ==================== 强制下线（管理员触发） ====================
+
+    @Override
+    public void forceLogout(Long userId) {
+        log.info("管理员{}强制下线用户: userId={}", StpUtil.getLoginId(), userId);
+
+        // 1. 清理该用户 refreshToken（Redis）
+        String refreshToken = redisUtil.get(AuthCacheKey.USER_REFRESH + userId);
+        if (refreshToken != null) {
+            redisUtil.delete(AuthCacheKey.REFRESH_TOKEN + refreshToken);
+            redisUtil.delete(AuthCacheKey.USER_REFRESH + userId);
+            log.debug("已清除强制下线用户的 refreshToken: userId={}", userId);
+        }
+
+        // 2. 清理全部在线设备并注销 Sa-Token 会话（尽力而为，内部已容错）
+        deviceSessionService.kickAllDevices(userId);
+
+        log.info("用户已强制下线: userId={}", userId);
     }
 
     // ==================== 刷新令牌 ====================

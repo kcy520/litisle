@@ -43,5 +43,19 @@ public interface DeviceSessionService {
      * @throws com.litisle.commoncore.exception.BizException 设备不存在或无权限操作时抛出
      */
     void kickDevice(String deviceId);
+
+    /**
+     * 强制下线指定用户的全部在线设备
+     * <p>
+     * 1. 读取 Redis 集合 auth:user:devices:{userId} 获取全部 deviceId
+     * 2. 批量删除各设备 Hash auth:device:{deviceId}
+     * 3. 删除用户设备索引 Set
+     * 4. 调用 Sa-Token 注销该账号全部会话（StpUtil.logout(userId)）
+     * <p>
+     * 供管理员注销/封禁用户时清理在线状态使用（尽力而为）。
+     *
+     * @param userId 目标用户 ID
+     */
+    void kickAllDevices(Long userId);
 }
 

@@ -4,6 +4,8 @@ package com.litisle.commoncore.utils;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 
+import java.util.Collection;
+
 /**
  * 断言工具类
  * 
@@ -56,6 +58,19 @@ public class AssertUtil {
             throw new BizException(errorCode);
         }
     }
+
+
+//    /**
+//     * 断言集合不为 null 且不为空，否则抛出业务异常
+//     *
+//     * @param collection 待检查集合
+//     */
+//    public static void notEmpty(String... params) {
+//        if (collection == null || collection.isEmpty()) {
+//            throw new BizException(ErrorCode.PARAM_ERROR);
+//        }
+//    }
+
 
     /**
      * 断言条件为 true，否则抛出业务异常

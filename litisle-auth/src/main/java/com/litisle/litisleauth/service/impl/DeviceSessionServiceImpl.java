@@ -167,6 +167,41 @@ public class DeviceSessionServiceImpl implements DeviceSessionService {
         log.info("设备踢出完成: deviceId={}, userId={}", deviceId, userId);
     }
 
+    /**
+     * 强制下线指定用户的全部在线设备
+     * <p>
+     * 用于管理员注销/封禁用户时清理其在线的所有会话与设备记录。
+     * 逐个删除设备 Hash 与用户设备索引，最后注销该账号全部 Sa-Token 会话。
+     * 删除类操作具幂等性，脏数据（Hash 已丢但 Set 残留）会被一并清理。
+     *
+     * @param userId 目标用户 ID
+     */
+    @Override
+    public void kickAllDevices(Long userId) {
+        // 1. 读取该用户全部在线设备 ID
+        Set<String> deviceIds = redisUtil.sMembers(AuthCacheKey.USER_DEVICES + userId);
+        if (deviceIds.isEmpty()) {
+            log.info("用户无在线设备，跳过清理: userId={}", userId);
+            return;
+        }
+
+        // 2. 批量删除各设备 Hash + 清设备索引 Set
+        for (String deviceId : deviceIds) {
+            redisUtil.delete(AuthCacheKey.DEVICE_SESSION + deviceId);
+        }
+        redisUtil.delete(AuthCacheKey.USER_DEVICES + userId);
+
+        // 3. 注销该账号全部 Sa-Token 会话（覆盖所有 token）
+        try {
+            StpUtil.logout(userId);
+        } catch (Exception e) {
+            // 会话可能已过期或已被注销，不影响核心逻辑
+            log.warn("注销账号会话异常（可能已下线）: userId={}, error={}", userId, e.getMessage());
+        }
+
+        log.info("强制下线完成: userId={}, 清理设备数={}", userId, deviceIds.size());
+    }
+
     // ==================== 私有方法 ====================
 
     /**

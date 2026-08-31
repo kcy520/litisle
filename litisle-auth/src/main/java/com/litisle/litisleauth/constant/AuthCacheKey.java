@@ -12,10 +12,14 @@ public final class AuthCacheKey {
     private AuthCacheKey() {
     }
 
-    /** 刷新令牌：auth:refresh:{refreshToken} → userId，TTL 7 天 */
+    /** 刷新令牌：auth:refresh:{refreshToken} → userId，TTL 7 天
+     * refreshToken → 用户信息的映射
+     * */
     public static final String REFRESH_TOKEN = "auth:refresh:";
 
-    /** 用户→刷新令牌映射：auth:refresh:user:{userId} → refreshToken，便于退出时清理 */
+    /** 用户→刷新令牌映射：auth:refresh:user:{userId} → refreshToken，便于退出时清理
+     * 用户 → refreshToken 的映射
+     * */
     public static final String USER_REFRESH = "auth:refresh:user:";
 
     /** 设备会话：auth:device:{deviceId} → Hash {userId, tokenValue, deviceName, ip, loginTime, lastActiveTime} */

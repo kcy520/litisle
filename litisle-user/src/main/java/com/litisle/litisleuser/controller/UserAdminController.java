@@ -107,16 +107,16 @@ public class UserAdminController {
         return Result.success();
     }
 
-    /**
-     * 6. 管理 VIP（设置/延长/取消到期时间）
-     */
-    @Operation(summary = "管理用户 VIP")
-    @PutMapping("/{userId}/vip")
-    @SaCheckPermission(PermissionCode.USER_UPDATE)
-    public Result<Void> manageVip(@PathVariable Long userId, @Valid @RequestBody VipUpdateDTO dto) {
-        userAdminService.manageVip(userId, dto);
-        return Result.success();
-    }
+//    /**
+//     *  todo 6. 管理 VIP（设置/延长/取消到期时间）
+//     */
+//    @Operation(summary = "管理用户 VIP")
+//    @PutMapping("/{userId}/vip")
+//    @SaCheckPermission(PermissionCode.USER_UPDATE)
+//    public Result<Void> manageVip(@PathVariable Long userId, @Valid @RequestBody VipUpdateDTO dto) {
+//        userAdminService.manageVip(userId, dto);
+//        return Result.success();
+//    }
 
     /**
      * 7. 注销用户（软删除，ADMIN）

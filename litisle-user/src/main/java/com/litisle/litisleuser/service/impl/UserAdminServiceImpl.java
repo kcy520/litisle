@@ -9,6 +9,7 @@ import com.litisle.commoncore.enums.UserStatus;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.PageResult;
+import com.litisle.commoncore.utils.AssertUtil;
 import com.litisle.commoncore.utils.PageUtil;
 import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
 import com.litisle.litisleuser.constant.UserInfoConstant;
@@ -28,6 +29,7 @@ import com.litisle.litisleuser.domain.vo.UserAdminVO;
 import com.litisle.litisleuser.enums.DelFlag;
 import com.litisle.litisleuser.enums.UserBanAction;
 import com.litisle.litisleuser.enums.UserCancelSource;
+import com.litisle.litisleapi.feign.AuthClient;
 import com.litisle.litisleuser.service.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -59,6 +61,7 @@ public class UserAdminServiceImpl implements UserAdminService {
     private final UserBanLogService userBanLogService;
     private final UserCancelLogService userCancelLogService;
     private final Aes256GcmCrypto aes256GcmCrypto;
+    private final AuthClient authClient;
 
     public UserAdminServiceImpl(UserService userService,
                                 RoleService roleService,
@@ -66,7 +69,8 @@ public class UserAdminServiceImpl implements UserAdminService {
                                 UserProfileService userProfileService,
                                 UserBanLogService userBanLogService,
                                 UserCancelLogService userCancelLogService,
-                                Aes256GcmCrypto aes256GcmCrypto) {
+                                Aes256GcmCrypto aes256GcmCrypto,
+                                AuthClient authClient) {
         this.userService = userService;
         this.roleService = roleService;
         this.userRoleService = userRoleService;
@@ -74,6 +78,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         this.userBanLogService = userBanLogService;
         this.userCancelLogService = userCancelLogService;
         this.aes256GcmCrypto = aes256GcmCrypto;
+        this.authClient = authClient;
     }
 
     /**
@@ -309,6 +314,14 @@ public class UserAdminServiceImpl implements UserAdminService {
             .build();
         userBanLogService.record(banLog);
 
+        // 5.1 封号时强制下线目标用户（清理其在线会话/设备/refreshToken）
+        //     通过 Feign AuthClient 远程调用 auth 模块；auth 不可用时由 FallbackFactory 兑底放行，不影响封号主流程。
+        if (target != UserStatus.NORMAL) {
+            log.info("管理员 [{}] 封号触发强制下线用户 [{}]", operatorId, userId);
+            authClient.forceLogout(userId);
+        }
+        
+            //日志记录
         log.info("管理员 [{}] 将用户 [{}] 状态变更为 [{}]，frozenUntil=[{}]",
                 operatorId, userId, target, user.getFrozenUntil());
     }
@@ -326,21 +339,21 @@ public class UserAdminServiceImpl implements UserAdminService {
 
 
 
-    /**
-     * 管理用户 VIP
-     */
-    @Override
-    public void manageVip(Long userId, VipUpdateDTO dto) {
-        // 【实现思路】
-        // 1. 查询用户，已注销用户不允许操作 VIP
-        // 2. 按 dto.getOp() 分支处理：
-        //    - SET：直接设置 vipExpireTime=dto.getVipExpireTime()
-        //    - EXTEND：新到期时间 = max(now, 现有到期时间).plusDays(days)
-        //    - CANCEL：vipExpireTime=null
-        // 3. 乐观锁更新，写日志
-        // TODO 待实现
-        throw new UnsupportedOperationException("UserAdminService.manageVip 待实现");
-    }
+//    /**
+//     * 管理用户 VIP
+//     */
+//    @Override
+//    public void manageVip(Long userId, VipUpdateDTO dto) {
+//        // 【实现思路】
+//        // 1. 查询用户，已注销用户不允许操作 VIP
+//        // 2. 按 dto.getOp() 分支处理：
+//        //    - SET：直接设置 vipExpireTime=dto.getVipExpireTime()
+//        //    - EXTEND：新到期时间 = max(now, 现有到期时间).plusDays(days)
+//        //    - CANCEL：vipExpireTime=null
+//        // 3. 乐观锁更新，写日志
+//        //  待实现
+//        throw new UnsupportedOperationException("UserAdminService.manageVip 待实现");
+//    }
 
     /**
      * 添加用户角色（增量）
@@ -408,12 +421,12 @@ public class UserAdminServiceImpl implements UserAdminService {
     @Override
     public void removeRoles(Long userId, List<String> roleCodes) {
         
-        // 入参校验：与 addRoles 相同。
-        // 目标用户校验：同 addRoles。
-        // 等级校验：同 addRoles。
-        // 安全限制：禁止移除 SUPER_ADMIN 与 READER（isNormalRole()，保证基础角色不被清空）→ FORBIDDEN。
-        // 增量删除：反查 roleId 后，lambdaUpdate().eq(userId).in(roleIds).remove() 仅删该用户实际拥有的关联记录。
-        // 日志：记录操作者/目标/移除角色。
+        // 1.入参校验：与 addRoles 相同。
+        // 2.目标用户校验：同 addRoles。
+        // 3.等级校验：同 addRoles。
+        // 4.安全限制：禁止移除 SUPER_ADMIN 与 READER（isNormalRole()，保证基础角色不被清空）→ FORBIDDEN。
+        // 5.增量删除：反查 roleId 后，lambdaUpdate().eq(userId).in(roleIds).remove() 仅删该用户实际拥有的关联记录。
+        // 6.日志：记录操作者/目标/移除角色。
         
         // 1. 入参校验：roleCodes 非空；去重后逐项校验合法，非法编码抛 PARAM_ERROR
         if (roleCodes == null || roleCodes.isEmpty()) {
@@ -425,6 +438,7 @@ public class UserAdminServiceImpl implements UserAdminService {
                 throw new BizException(ErrorCode.PARAM_ERROR);
             }
         }
+
 
         // 2. 查询目标用户（复用 getExistingUser），已注销用户不允许操作
         User user = userService.getExistingUser(userId);
@@ -500,8 +514,12 @@ public class UserAdminServiceImpl implements UserAdminService {
                 .build());
 
         // 5. 清理其在线会话与登录态（调 auth 侧退出/移除 Redis 设备与 refreshToken）
-        //    TODO 待接入 auth 模块 RPC，此处仅保留业务钩子
-        //“在注销业务流程中，提前预留了一个‘挂载点’/‘扩展点’，等以后接入 auth 模块时，把清理会话的逻辑‘挂’到这里来执行。”
+        //    通过 Feign AuthClient 远程调用 auth 模块强制下线该用户；auth 不可用时由 FallbackFactory 兜底放行，不影响主流程。
+        // todo 后续可以考虑添加角色变更审计表，暂不考虑，后续手动实现
+
+        // RPC：远程过程调用（Remote Procedure Call）—— user 侧作为调用方，auth 侧提供 crouch 实现 AuthClient 前述接口
+        log.info("管理员 [{}] 调用 auth 强制下线用户 [{}]", operatorId, userId);
+        authClient.forceLogout(userId);
         log.info("管理员 [{}] 注销用户 [{}] 成功", operatorId, userId);
     }
 }
