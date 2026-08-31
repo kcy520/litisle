@@ -12,6 +12,30 @@ spring:
     allow-circular-references: true
     allow-bean-definition-overriding: true
 
+  # ================================
+  # Nacos 配置中心 + 服务注册发现
+  # ================================
+  config:
+    import:
+      # 服务专属配置（Data ID: litisle-auth.yaml）
+      #optional: 前缀的作用：如果 Nacos 里还没有这个配置，服务不会启动失败，只是跳过拉取。所以现在即使没创建，auth/user 也能正常启动和互相调用。
+      - optional:nacos:${spring.application.name}.yaml
+      # 公共共享配置模板-抽取到nacos的共享配置（Data ID: litisle-shared.yaml，与 common 模块无关）
+      - optional:nacos:litisle-shared.yaml
+  cloud:
+    nacos:
+      # 连接信息：环境特定值在 application-local/dev.yaml 的 litisle.nacos 中定义
+      server-addr: ${litisle.nacos.server-addr:localhost:8848}
+      username: ${litisle.nacos.username:nacos}
+      password: ${litisle.nacos.password:nacos}
+      discovery:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+      config:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+        file-extension: yaml
+
 
   # ================================
   # Redis 单机配置

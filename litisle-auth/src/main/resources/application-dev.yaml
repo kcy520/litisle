@@ -1,5 +1,16 @@
 litisle:
   # ================================
+  # Nacos 配置（Docker 环境：使用容器名）
+  # 容器名：litisle-nacos，容器内端口 8848
+  # ================================
+  nacos:
+    server-addr: litisle-nacos:8848
+    username: nacos
+    password: nacos
+    namespace: ''
+    group: DEFAULT_GROUP
+
+  # ================================
   # MySQL 配置（Docker 环境：使用容器名）
   # 容器名：litisle-mysql，容器内端口 3306
   # ================================

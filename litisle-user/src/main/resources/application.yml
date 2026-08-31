@@ -12,13 +12,38 @@ spring:
     allow-circular-references: true
     allow-bean-definition-overriding: true
 
+  # ================================
+  # Nacos 配置中心 + 服务注册发现
+  # ================================
+  config:
+    import:
+      # 服务专属配置（Data ID: litisle-user.yaml）
+      - optional:nacos:${spring.application.name}.yaml
+      # 公共共享配置模板（Data ID: litisle-shared.yaml，与 common 模块无关）
+      - optional:nacos:litisle-shared.yaml
+  cloud:
+    nacos:
+      # 连接信息：环境特定值在 application-local/dev.yaml 的 litisle.nacos 中定义
+      server-addr: ${litisle.nacos.server-addr:localhost:8848}
+      username: ${litisle.nacos.username:nacos}
+      password: ${litisle.nacos.password:nacos}
+      discovery:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+      config:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+        file-extension: yaml
+
 
   # ================================
   #  MySQL 数据源配置
   # ================================
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${litisle.db.host:localhost}:${litisle.db.port:3306}/${litisle.db.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    # 字符集：characterEncoding 用大写 UTF-8，并追加 connectionCollation 强制 utf8mb4，
+    # 防止 Connector/J 8.x 回退到默认 latin1 导致中文乱码
+    url: "jdbc:mysql://${litisle.db.host:localhost}:${litisle.db.port:3306}/${litisle.db.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
     username: ${litisle.db.username:root}
     password: ${litisle.db.password:123}
 

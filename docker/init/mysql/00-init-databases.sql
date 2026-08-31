@@ -27,5 +27,7 @@ CREATE DATABASE IF NOT EXISTS litisle_content
 -- 生产环境应限制为具体 IP 或容器名，这里用 % 适配开发/Docker 环境
 GRANT ALL PRIVILEGES ON litisle_user.*   TO 'test_k.1'@'%';
 GRANT ALL PRIVILEGES ON litisle_content.* TO 'test_k.1'@'%';
+-- Nacos 配置库授权（nacos_config 库由 docker/init/nacos/mysql-schema.sql 创建）
+GRANT ALL PRIVILEGES ON nacos_config.* TO 'test_k.1'@'%';
 
 FLUSH PRIVILEGES;

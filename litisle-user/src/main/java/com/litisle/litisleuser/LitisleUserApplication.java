@@ -11,6 +11,9 @@ cd /d e:\NewJavaPro\LitIsle  &&  docker-compose up -d
 *一键关闭docker容器
 docker-compose stop
 
+重新挂载
+ docker-compose down -v
+ docker-compose up -d
 
 
  /**
@@ -57,7 +60,15 @@ docker-compose stop
  8.18.8
  网络：
  es-net
+
+ ---------------------------------------------------------------------
+
+ 执行初始化sql
+ docker exec -i litisle-mysql mysql -uroot -pverysecret < docker/init/nacos/mysql-schema.sql
+
+
  */
+
 
 
 

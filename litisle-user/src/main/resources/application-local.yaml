@@ -1,5 +1,15 @@
 litisle:
   # ================================
+  # Nacos 配置（本地环境：宿主机映射端口 8848）
+  # ================================
+  nacos:
+    server-addr: localhost:8848
+    username: nacos
+    password: nacos
+    namespace: ''
+    group: DEFAULT_GROUP
+
+  # ================================
   # MySQL 配置（IDEA 本地运行：连宿主机映射端口）
   # 注意：docker-compose.yml 中业务数据库宿主机端口是 3307
   # ================================
