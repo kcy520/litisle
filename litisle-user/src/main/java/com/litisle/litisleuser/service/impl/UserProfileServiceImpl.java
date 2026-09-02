@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWra
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.commoncore.utils.AssertUtil;
 import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
 import com.litisle.commonsecurity.utils.SaRoleHelper;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
@@ -170,10 +171,12 @@ public class UserProfileServiceImpl
      */
     @Override
     public UserPublicVO searchByUid(String uid) {
-        // 1. 参数校验
-        if (uid == null || uid.isBlank()) {
-            throw new BizException(ErrorCode.PARAM_ERROR);
-        }
+        // 1. 参数校验（同时校验 null 与 blank）
+        
+        // if (uid == null || uid.isBlank()) {
+        //     throw new BizException(ErrorCode.PARAM_ERROR);
+        // }
+        AssertUtil.notBlank(uid);
 
         // 2. 按 uid 精确查询未删除用户（命中 uk_uid 索引）
         User user = userMapper.selectOne(
