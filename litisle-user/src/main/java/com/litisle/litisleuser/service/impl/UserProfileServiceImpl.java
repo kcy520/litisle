@@ -259,7 +259,7 @@ public class UserProfileServiceImpl
         // ===== 1. 获取当前登录用户 ID =====
         Long userId = StpUtil.getLoginIdAsLong();
 
-        // ===== 2. 查询当前用户并断言存在（含未删除） =====
+        // ===== 2. 查询当前用户并断言存在（未删除） =====
         User current = userMapper.selectOne(
                 new LambdaQueryWrapper<User>()
                         .eq(User::getId, userId)
