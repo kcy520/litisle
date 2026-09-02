@@ -39,6 +39,11 @@ public class UserSelfVO {
     private Long userId;
 
     /**
+     * 对外UID（用户间搜索唯一标识）
+     */
+    private String uid;
+
+    /**
      * 用户名
      */
     private String username;

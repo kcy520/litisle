@@ -2,6 +2,8 @@ package com.litisle.litisleuser.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.litisle.litisleuser.domain.dto.UserProfileUpdateDTO;
+import com.litisle.litisleuser.domain.dto.BindEmailDTO;
+import com.litisle.litisleuser.domain.dto.UpdateEmailDTO;
 import com.litisle.litisleuser.domain.entity.UserProfile;
 import com.litisle.litisleuser.domain.vo.UserPublicVO;
 import com.litisle.litisleuser.domain.vo.UserSelfVO;
@@ -18,16 +20,48 @@ public interface UserProfileService extends IService<UserProfile> {
     UserSelfVO currentUserProfile();
 
     /**
-     * 获取用户公开资料
+     * 获取指定用户的公开资料
+     *
+     * @param userId 目标用户ID
      * @return
      */
-    UserPublicVO publicProfile();
+    UserPublicVO publicProfile(Long userId);
+
+    /**
+     * 按对外 UID 精确搜索用户公开资料
+     * <p>
+     * 走 uk_uid 唯一索引，仅查未删除用户；不存在抛 BizException
+     *
+     * @param uid 对外 UID
+     * @return 目标用户公开资料
+     */
+    UserPublicVO searchByUid(String uid);
 
     /**
      * 用户资料修改
      * @param dto
      */
     UserUpdateProfileVO updateCurrentUserProfile(@Valid UserProfileUpdateDTO dto);
+
+    /* ================= 邮箱绑定 / 更换（双码校验，跨模块验验证码） ================= */
+
+    /**
+     * 初次绑定邮箱（注册后可补绑）
+     * <p>
+     * 校验：图形验证码 → 邮箱验证码（CHANGE_EMAIL）→ 新邮箱唯一性；存 AES 密文
+     *
+     * @param dto 新邮箱 + 图形验证码 + 邮箱验证码
+     */
+    void bindEmail(@Valid BindEmailDTO dto);
+
+    /**
+     * 更换已绑定邮箱
+     * <p>
+     * 校验：已绑定判定 → 图形验证码 → 邮箱验证码（CHANGE_EMAIL）→ 新邮箱唯一性；存 AES 密文
+     *
+     * @param dto 新邮箱 + 图形验证码 + 新邮箱验证码
+     */
+    void updateEmail(@Valid UpdateEmailDTO dto);
 
     /* ================= 本人敏感信息（明文） ================= */
 

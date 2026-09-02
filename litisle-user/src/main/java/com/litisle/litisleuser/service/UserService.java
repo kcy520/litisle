@@ -17,4 +17,10 @@ public interface UserService extends IService<User> {
      * 获取存在的用户，不存在抛 USER_NOT_FOUND
      */
     User getExistingUser(Long userId);
+
+    /**
+     * 查询未删除用户（仅查 id + email），不存在抛 USER_NOT_EXIST_OR_CANCELLED
+     * 供邮箱绑定/更换等敏感操作复用
+     */
+    User getActiveUserWithEmail(Long userId);
 }

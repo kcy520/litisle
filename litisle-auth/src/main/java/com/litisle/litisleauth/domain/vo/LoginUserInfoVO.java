@@ -25,6 +25,9 @@ public class LoginUserInfoVO {
     /** 用户名 */
     private String username;
 
+    /** 对外UID（用户间搜索唯一标识） */
+    private String uid;
+
     /** 手机号（脱敏规则：保留前3后4，中间 ****，如 138****8888） */
     @Sensitive(strategy = SensitiveStrategy.PHONE)
     private String phone;

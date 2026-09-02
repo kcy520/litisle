@@ -19,6 +19,9 @@ public class UserQueryDTO extends PageQuery {
     /** 用户名（模糊匹配） */
     private String username;
 
+    /** 对外UID（精确匹配） */
+    private String uid;
+
     /** 用户状态筛选 */
     private UserStatus status;
 

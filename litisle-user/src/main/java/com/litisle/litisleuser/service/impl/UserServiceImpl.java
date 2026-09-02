@@ -1,11 +1,13 @@
 package com.litisle.litisleuser.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litisleapi.dto.user.UserDTO;
 
 import com.litisle.litisleuser.domain.entity.User;
+import com.litisle.litisleuser.enums.DelFlag;
 import com.litisle.litisleuser.mapper.UserMapper;
 import com.litisle.litisleuser.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +45,20 @@ public class UserServiceImpl
         User user = getById(userId);
         if (user == null) {
             throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+        return user;
+    }
+
+    @Override
+    public User getActiveUserWithEmail(Long userId) {
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getId, User::getEmail)
+        );
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
         }
         return user;
     }

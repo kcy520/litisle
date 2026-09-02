@@ -4,6 +4,7 @@ import com.litisle.commoncore.enums.UserStatus;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
+import com.litisle.commoncore.utils.UidGenerator;
 import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
 import com.litisle.commonsecurity.enums.RoleCodeEnum;
 import com.litisle.commonsecurity.utils.SaRoleHelper;
@@ -31,7 +32,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -95,6 +98,7 @@ public class UserFeignProviderController implements UserClient {
         // 4. 构建 User 实体并保存（avatar/avatarColor 由数据库默认值填充）
         User user = new User()
                 .setUsername(dto.getUsername())
+                .setUid(generateUniqueUid())
                 .setPassword(dto.getPassword()) // 已由 auth 模块 BCrypt 加密
                 .setPhone(encryptedPhone)
                 .setEmail(encryptedEmail)
@@ -229,6 +233,22 @@ public class UserFeignProviderController implements UserClient {
 
     // ==================== 私有方法 ====================
 
+    
+    /**
+     * 生成全局唯一 UID（利用 uk_uid 唯一索引做存在性判重的兜底）
+     * <p>
+     * 同秒内 17 位随机序列理论上可碰撞，此处若碰撞则重新生成，避免唯一键冲突写库失败
+     *
+     * @return 唯一且未被占用的对外 UID
+     */
+    private String generateUniqueUid() {
+        String uid;
+        do {
+            uid = UidGenerator.generate();
+        } while (userService.lambdaQuery().eq(User::getUid, uid).count() > 0);
+        return uid;
+    }
+
     /**
      * 构建认证用户聚合 DTO
      * <p>
@@ -242,11 +262,30 @@ public class UserFeignProviderController implements UserClient {
         List<UserRole> userRoles = userRoleService.lambdaQuery()
                 .eq(UserRole::getUserId, user.getId())
                 .list();
-        List<String> roleCodes = userRoles.stream()
-                .map(ur -> roleService.getById(ur.getRoleId()))
-                .filter(Objects::nonNull)
-                .map(Role::getRoleCode)
-                .collect(Collectors.toList());
+
+        // 1.1 批量查询角色（避免 N+1：循环内逐条 getById 改为一次 in 查询）
+
+        List<String> roleCodes = Collections.emptyList();
+        if (!userRoles.isEmpty()) {
+
+                    // 第一步：把所有 roleId 收集到一个 List 里
+            List<Long> roleIds = userRoles.stream()
+                    .map(UserRole::getRoleId)
+                    .distinct()
+                    .collect(Collectors.toList());
+
+                    // 第二步：一次 IN 查询，把所有 role 捞出来
+            Map<Long, Role> roleMap = roleService.listByIds(roleIds).stream()
+                    .collect(Collectors.toMap(Role::getId, Function.identity()));
+                    //Function.identity()一个返回自 : 身的函数，x → x，告诉 toMap "value 就用元素自己"
+                    
+                    // 第三步：从内存 Map 里取，不再查数据库
+            roleCodes = userRoles.stream()
+                    .map(ur -> roleMap.get(ur.getRoleId()))
+                    .filter(Objects::nonNull)
+                    .map(Role::getRoleCode)
+                    .collect(Collectors.toList());
+        }
 
         // 2. 获取权限列表
         List<String> permCodes = Collections.emptyList();
@@ -274,6 +313,7 @@ public class UserFeignProviderController implements UserClient {
         // 3. 构建 AuthUserDTO
         AuthUserDTO authUser = new AuthUserDTO()
                 .setUserId(user.getId())
+                .setUid(user.getUid())
                 .setUsername(user.getUsername())
                 .setPassword(user.getPassword())
                 .setPhone(user.getPhone())

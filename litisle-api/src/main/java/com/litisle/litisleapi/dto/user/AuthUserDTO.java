@@ -24,6 +24,9 @@ public class AuthUserDTO implements Serializable {
     /** 用户ID */
     private Long userId;
 
+    /** 对外UID（用户间搜索唯一标识，随机生成，永久不变） */
+    private String uid;
+
     /** 用户名 */
     private String username;
 

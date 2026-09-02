@@ -32,6 +32,11 @@ public class User implements Serializable {
     @TableField("username")
     private String username;
 
+    /** 对外UID（用户间搜索唯一标识，随机生成，永久不变） */
+    @Size(max = 16, message = "UID长度不能超过 16 个字符")
+    @TableField("uid")
+    private String uid;
+
     /** 密码（BCrypt 哈希） */
     @NotBlank(message = "密码不能为空")
     @Size(min = 3, max = 32, message = "密码长度 3-32 位")

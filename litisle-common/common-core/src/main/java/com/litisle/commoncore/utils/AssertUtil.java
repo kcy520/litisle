@@ -59,6 +59,70 @@ public class AssertUtil {
         }
     }
 
+    /**
+     * 断言所有字符串参数均不为 null（可变参数），错误码默认 PARAM_ERROR
+     *
+     * 【使用示例】
+     * AssertUtil.notNull(uid, email);
+     *
+     * @param params 待检查的字符串参数们
+     */
+    public static void notNull(String... params) {
+        notNull(ErrorCode.PARAM_ERROR, params);
+    }
+
+    /**
+     * 断言所有字符串参数均不为 null，可指定错误码
+     *
+     * 【使用示例】
+     * AssertUtil.notNull(ErrorCode.PARAM_ERROR, uid, email);
+     *
+     * @param errorCode 错误码枚举
+     * @param params    待检查的字符串参数们
+     */
+    public static void notNull(ErrorCode errorCode, String... params) {
+        if (params == null) {
+            throw new BizException(errorCode);
+        }
+        for (String param : params) {
+            if (param == null) {
+                throw new BizException(errorCode);
+            }
+        }
+    }
+
+    /**
+     * 断言所有字符串参数均不为空白（可变参数），错误码默认 PARAM_ERROR
+     *
+     * 【使用示例】
+     * AssertUtil.notBlank(uid, email);
+     *
+     * @param params 待检查的字符串参数们
+     */
+    public static void notBlank(String... params) {
+        notBlank(ErrorCode.PARAM_ERROR, params);
+    }
+
+    /**
+     * 断言所有字符串参数均不为空白，可指定错误码
+     *
+     * 【使用示例】
+     * AssertUtil.notBlank(ErrorCode.PARAM_ERROR, uid, email);
+     *
+     * @param errorCode 错误码枚举
+     * @param params    待检查的字符串参数们
+     */
+    public static void notBlank(ErrorCode errorCode, String... params) {
+        if (params == null) {
+            throw new BizException(errorCode);
+        }
+        for (String param : params) {
+            if (param == null || param.trim().isEmpty()) {
+                throw new BizException(errorCode);
+            }
+        }
+    }
+
 
 //    /**
 //     * 断言集合不为 null 且不为空，否则抛出业务异常

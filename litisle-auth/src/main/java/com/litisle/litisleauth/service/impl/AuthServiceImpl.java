@@ -85,7 +85,7 @@ public class AuthServiceImpl implements AuthService {
         String username = authUser.getUsername();
 
         // 5. 签发双 Token
-        return buildTsuccessenResponse(userId, username, true);
+        return buildTsuccessenResponse(userId, username, true, authUser.getUid());
     }
 
     // ==================== 密码登录 ====================
@@ -117,7 +117,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // 4. 签发双 Token
-        return buildTsuccessenResponse(userId, username, false);
+        return buildTsuccessenResponse(userId, username, false, authUser.getUid());
     }
 
     // ==================== 邮箱验证码登录 ====================
@@ -145,10 +145,10 @@ public class AuthServiceImpl implements AuthService {
         validateUserStatus(status, frozenUntil);
 
         // 4. 签发双 Token
-        return buildTsuccessenResponse(userId, username, false);
+        return buildTsuccessenResponse(userId, username, false, authUser.getUid());
     }
 
-    // ==================== 退出登录 ====================
+    // ==================== 刷新令牌 ====================
 
     @SuppressWarnings("unused")
     @Override
@@ -212,8 +212,8 @@ public class AuthServiceImpl implements AuthService {
         redisUtil.delete(redisKey);
         redisUtil.delete(AuthCacheKey.USER_REFRESH + userId);
 
-        // 4. 签发新双 Token
-        return buildTsuccessenResponse(userId, null, false);
+        // 4. 签发新双 Token（refresh 无用户对象，uid 由前端持历史值即可，传 null）
+        return buildTsuccessenResponse(userId, null, false, null);
     }
 
     // ==================== 当前用户信息 ====================
@@ -235,6 +235,7 @@ public class AuthServiceImpl implements AuthService {
         // 3. 组装 LoginUserInfoVO（脱敏处理 + 作家扩展资料）
         LoginUserInfoVO vo = new LoginUserInfoVO()
                 .setUsername(authUser.getUsername())
+                .setUid(authUser.getUid())
                 .setPhone(desensitizePhone(authUser.getPhone()))
                 .setEmail(desensitizeEmail(authUser.getEmail()))
                 .setAvatar(authUser.getAvatar())
@@ -265,9 +266,10 @@ public class AuthServiceImpl implements AuthService {
      * @param userId   用户 ID
      * @param username 用户名
      * @param newUser  是否新注册用户
+     * @param uid      对外UID（注册/登录场景回传；刷新令牌场景可能为 null）
      * @return 令牌响应 VO
      */
-    private TsuccessenVO buildTsuccessenResponse(Long userId, String username, boolean newUser) {
+    private TsuccessenVO buildTsuccessenResponse(Long userId, String username, boolean newUser, String uid) {
         // 1. Sa-Token 建立登录态
         StpUtil.login(userId);
 
@@ -299,6 +301,7 @@ public class AuthServiceImpl implements AuthService {
                 .expiresIn(expiresIn)
                 .tokenType(CommonConstant.TOKEN_TYPE_BEARER)
                 .username(username)
+                .uid(uid)
                 .newUser(newUser)
                 .issuedAt(LocalDateTime.now())
                 .build();

@@ -8,6 +8,10 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
 import com.litisle.commonsecurity.utils.SaRoleHelper;
+import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
+import com.litisle.litisleapi.feign.AuthClient;
+import com.litisle.litisleuser.domain.dto.BindEmailDTO;
+import com.litisle.litisleuser.domain.dto.UpdateEmailDTO;
 import com.litisle.litisleuser.domain.dto.UserProfileUpdateDTO;
 import com.litisle.litisleuser.domain.entity.User;
 import com.litisle.litisleuser.domain.entity.UserProfile;
@@ -18,6 +22,7 @@ import com.litisle.litisleuser.enums.DelFlag;
 import com.litisle.litisleuser.mapper.UserMapper;
 import com.litisle.litisleuser.mapper.UserProfileMapper;
 import com.litisle.litisleuser.service.UserProfileService;
+import com.litisle.litisleuser.utils.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,6 +39,10 @@ public class UserProfileServiceImpl
     private final UserProfileMapper userProfileMapper;
     private final UserMapper userMapper;
     private final Aes256GcmCrypto aes256GcmCrypto;
+    private final RoleUtils roleUtils;
+
+    /** 跨模块验证码校验（auth 模块提供，验证码发送/校验集中在该模块） */
+    private final AuthClient authClient;
 
     /**
      * 获取当前登录用户资料
@@ -50,10 +59,11 @@ public class UserProfileServiceImpl
                 new LambdaQueryWrapper<User>()
                         .eq(User::getId, userId)
                         .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
-                        .select(User::getId, User::getUsername, User::getPhone,
+                        .select(User::getId, User::getUsername, User::getUid, User::getPhone,
                                 User::getAvatar, User::getBio, User::getVipExpireTime,
                                 User::getStatus, User::getFrozenUntil,
-                                User::getCancelTime, User::getCreateTime)
+                                User::getCancelTime, User::getCreateTime,
+                                User::getAvatarColor)
         );
 
         //用户存在校验
@@ -78,6 +88,7 @@ public class UserProfileServiceImpl
 
         return UserSelfVO.builder()
                 .userId(user.getId())
+                .uid(user.getUid())
                 .username(user.getUsername())
                 .phone(user.getPhone())
                 .avatar(user.getAvatar())
@@ -100,21 +111,20 @@ public class UserProfileServiceImpl
     }
 
     /**
-     * 获取用户公开资料
+     * 获取指定用户的公开资料
+     *
+     * @param userId 目标用户ID
      * @return
      */
     @Override
-    public UserPublicVO publicProfile() {
+    public UserPublicVO publicProfile(Long userId) {
 
-        //用户id（Sa-Token 登录态）
-        Long userId = StpUtil.getLoginIdAsLong();
-
-        //查询用户信息
+        //查询目标用户信息
         User user = userMapper.selectOne(
                 new LambdaQueryWrapper<User>()
                         .eq(User::getId, userId)
                         .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
-                .select(User::getId, User::getUsername,
+                .select(User::getId, User::getUsername, User::getUid,
                                 User::getAvatar, User::getBio, User::getCreateTime,User::getAvatarColor)
         );
 
@@ -122,10 +132,12 @@ public class UserProfileServiceImpl
             throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
         }
 
+        //判断目标用户是否拥有作者角色（聚合其角色编码，而非当前登录态）
+        boolean isAuthor = roleUtils.isAuthor(userId);
 
-        //如果用户拥有作者角色，就查询用户概述
+        //如果目标用户拥有作者角色，就查询用户概述
         UserProfile profile = null;
-        if (SaRoleHelper.isAuthor()){
+        if (isAuthor){
              profile = userProfileMapper.selectOne(
                     new LambdaQueryWrapper<UserProfile>()
                             .eq(UserProfile::getUserId, userId)
@@ -138,6 +150,7 @@ public class UserProfileServiceImpl
 
         return UserPublicVO.builder()
                 .userId(user.getId())
+                .uid(user.getUid())
                 .username(user.getUsername())
                 .avatar(user.getAvatar())
                 .bio(user.getBio())
@@ -148,6 +161,152 @@ public class UserProfileServiceImpl
 //                .avatarColor(profile != null ? user.getAvatarColor() : null)
                 .createTime(user.getCreateTime())
                 .build();
+    }
+
+    /**
+     * 按对外 UID 精确搜索用户公开资料
+     * <p>
+     * 走 uk_uid 唯一索引；仅查询未删除用户；复用 publicProfile 保证与主页展示一致
+     */
+    @Override
+    public UserPublicVO searchByUid(String uid) {
+        // 1. 参数校验
+        if (uid == null || uid.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_ERROR);
+        }
+
+        // 2. 按 uid 精确查询未删除用户（命中 uk_uid 索引）
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getUid, uid.trim())
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+        );
+
+        // 3. 不存在抛出业务异常
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        // 4. 复用公开资料组装逻辑
+        return publicProfile(user.getId());
+    }
+
+    /**
+     * 初次绑定邮箱（注册后可补绑）
+     * <p>
+     * 高危敏感操作：需先人机识别（图形码）再归属校验（邮箱码，用途 CHANGE_EMAIL），
+     * 新邮箱存 AES 密文，不落明文；限流在 Controller 层以 IP 维度控制。
+     *
+     * @param dto 新邮箱 + 图形验证码 + 邮箱验证码
+     */
+    @Override
+    public void bindEmail(BindEmailDTO dto) {
+        // ===== 1. 获取当前登录用户 ID =====
+        Long userId = StpUtil.getLoginIdAsLong();
+
+        // ===== 2. 查询当前用户并断言存在（含未删除） =====
+        User current = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getId, User::getEmail)
+        );
+        if (current == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+        }
+
+        // ===== 3. 校验未绑定邮箱：已绑定则拒绝，防止覆盖 =====
+        if (current.getEmail() != null && !current.getEmail().isBlank()) {
+            throw new BizException(ErrorCode.EMAIL_ALREADY_BOUND);
+        }
+
+        ChangeEmailVerifyDTO verifyDTO = new ChangeEmailVerifyDTO()
+                .setImgUuid(dto.getImgUuid())
+                .setImgCode(dto.getImgCode())
+                .setEmail(dto.getNewEmail())
+                .setEmailCode(dto.getEmailCode());
+
+        authClient.verifyChangeEmail(verifyDTO);
+
+        // ===== 5. 校验新邮箱唯一性（密文比对，命中 uk 判断占用） =====
+        String encryptedEmail = aes256GcmCrypto.encrypt(dto.getNewEmail());
+        Long exists = userMapper.selectCount(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getEmail, encryptedEmail)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+        );
+        if (exists != null && exists > 0) {
+            throw new BizException(ErrorCode.EMAIL_EXISTS);
+        }
+
+        // ===== 6. 写入 AES 密文（不落明文） =====
+        new LambdaUpdateChainWrapper<>(userMapper)
+                .eq(User::getId, userId)
+                .set(User::getEmail, encryptedEmail)
+                .update();
+    }
+
+    /**
+     * 更换已绑定邮箱
+     * <p>
+     * 高危敏感操作：需已绑定判定 → 人机识别（图形码）→ 归属校验（新邮箱码）
+     * → 新旧邮箱不得相同 → 新邮箱唯一性；存 AES 密文。
+     *
+     * @param dto 新邮箱 + 图形验证码 + 新邮箱验证码
+     */
+    @Override
+    public void updateEmail(UpdateEmailDTO dto) {
+        // ===== 1. 获取当前登录用户 ID =====
+        Long userId = StpUtil.getLoginIdAsLong();
+
+        // ===== 2. 查询当前用户并断言存在（含未删除） =====
+        User current = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getId, User::getEmail)
+        );
+        if (current == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+        }
+
+        // ===== 3. 校验已绑定邮箱：未绑定则需先走 bindEmail =====
+        if (current.getEmail() == null || current.getEmail().isBlank()) {
+            throw new BizException(ErrorCode.EMAIL_NOT_BOUND);
+        }
+
+        // ===== 4. 校验新旧邮箱不得相同 =====
+        String oldPlain = aes256GcmCrypto.decrypt(current.getEmail());
+        if (oldPlain != null && oldPlain.equals(dto.getNewEmail())) {
+            throw new BizException(ErrorCode.PARAM_ERROR);
+        }
+
+        // ===== 5. 远程校验双码（图形验→邮箱验，失败由 auth 端抛异常） =====
+        ChangeEmailVerifyDTO verifyDTO = new ChangeEmailVerifyDTO()
+                .setImgUuid(dto.getImgUuid())
+                .setImgCode(dto.getImgCode())
+                .setEmail(dto.getNewEmail())
+                .setEmailCode(dto.getEmailCode());
+
+        authClient.verifyChangeEmail(verifyDTO);
+
+        // ===== 6. 校验新邮箱唯一性（密文比对，排除自身） =====
+        String encryptedEmail = aes256GcmCrypto.encrypt(dto.getNewEmail());
+        Long exists = userMapper.selectCount(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getEmail, encryptedEmail)
+                        .ne(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+        );
+        if (exists != null && exists > 0) {
+            throw new BizException(ErrorCode.EMAIL_EXISTS);
+        }
+
+        // ===== 7. 更新邮箱为 AES 密文 =====
+        new LambdaUpdateChainWrapper<>(userMapper)
+                .eq(User::getId, userId)
+                .set(User::getEmail, encryptedEmail)
+                .update();
     }
 
     /**

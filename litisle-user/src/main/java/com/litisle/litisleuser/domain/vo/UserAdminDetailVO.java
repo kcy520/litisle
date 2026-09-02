@@ -27,6 +27,9 @@ public class UserAdminDetailVO implements Serializable {
     /** 用户名 */
     private String username;
 
+    /** 对外UID（用户间搜索唯一标识） */
+    private String uid;
+
     /** 头像URL */
     private String avatar;
 

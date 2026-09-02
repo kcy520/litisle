@@ -35,9 +35,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.litisle.litisleuser.constant.UserInfoConstant.DEFAULT_BAN_DAYS;
@@ -106,6 +109,9 @@ public class UserAdminServiceImpl implements UserAdminService {
         if (query.getUsername() != null && !query.getUsername().isBlank()) {
             wrapper.like(User::getUsername, query.getUsername().trim());
         }
+        if (query.getUid() != null && !query.getUid().isBlank()) {
+            wrapper.eq(User::getUid, query.getUid().trim());
+        }
         if (query.getStatus() != null) {
             wrapper.eq(User::getStatus, query.getStatus());
         }
@@ -155,6 +161,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         return new UserAdminVO()
                 .setId(user.getId())
                 .setUsername(user.getUsername())
+                .setUid(user.getUid())
                 .setAvatar(user.getAvatar())
                 .setAvatarColor(user.getAvatarColor() != null ? user.getAvatarColor().getCode() : null)
                 .setBio(user.getBio())
@@ -198,6 +205,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         return new UserAdminDetailVO()
                 .setId(user.getId())
                 .setUsername(user.getUsername())
+                .setUid(user.getUid())
                 .setAvatar(user.getAvatar())
                 .setAvatarColor(user.getAvatarColor() != null ? user.getAvatarColor().getCode() : null)
                 .setBio(user.getBio())
@@ -219,11 +227,22 @@ public class UserAdminServiceImpl implements UserAdminService {
      * 复用逻辑：列表页（toAdminVO）与详情页均依赖，抽取为私有方法避免重复实现。
      */
     private List<String> getRoleCodes(Long userId) {
-        return userRoleService.lambdaQuery()
+        // 1. 查询用户-角色关联
+        List<UserRole> userRoles = userRoleService.lambdaQuery()
                 .eq(UserRole::getUserId, userId)
-                .list()
-                .stream()
-                .map(ur -> roleService.getById(ur.getRoleId()))
+                .list();
+        if (userRoles.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // 2. 一次 IN 查询取出所有角色，避免循环内逐条 getById（N+1）
+        List<Long> roleIds = userRoles.stream()
+                .map(UserRole::getRoleId)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, Role> roleMap = roleService.listByIds(roleIds).stream()
+                .collect(Collectors.toMap(Role::getId, Function.identity()));
+        return userRoles.stream()
+                .map(ur -> roleMap.get(ur.getRoleId()))
                 .filter(Objects::nonNull)
                 .map(Role::getRoleCode)
                 .collect(Collectors.toList());

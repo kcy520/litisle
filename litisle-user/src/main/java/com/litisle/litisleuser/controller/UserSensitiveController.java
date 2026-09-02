@@ -51,7 +51,7 @@ public class UserSensitiveController {
     )
     public Result<String> myPhone() {
         String phone = userProfileService.viewCurrentUserPlainPhone();
-        return Result.success();
+        return Result.success(phone);
     }
 
     /**

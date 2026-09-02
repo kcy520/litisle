@@ -2,10 +2,13 @@ package com.litisle.litisleapi.feign;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.config.FeignApiConfig;
+import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
 import com.litisle.litisleapi.fallback.AuthClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 
 /**
  * 认证服务 Feign 客户端
@@ -36,5 +39,17 @@ public interface AuthClient {
      */
     @DeleteMapping("/api/feign/user/{userId}/sessions")
     Result<Void> forceLogout(@PathVariable("userId") Long userId);
+
+    /**
+     * 校验“改绑邮箱”双码（图形验证码 → 邮箱验证码，用途 CHANGE_EMAIL，含防爆破）
+     * <p>
+     * 作用于：user 模块初次绑定邮箱 / 更换邮箱前，远程校验验证码。
+     * 两次校验均一次性消费：图形码防暴力穷举，邮箱码失败达阈值自动失效强制重发。
+     *
+     * @param dto 图形码 uuid+code 与目标邮箱的邮箱验证码
+     * @return 校验通过返回成功；任一校验不通过由 auth 端抛 BizException
+     */
+    @PostMapping("/api/feign/captcha/change-email/verify")
+    Result<Void> verifyChangeEmail(@RequestBody ChangeEmailVerifyDTO dto);
 
 }
