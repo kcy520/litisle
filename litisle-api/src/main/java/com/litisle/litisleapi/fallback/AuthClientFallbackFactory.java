@@ -1,6 +1,7 @@
 package com.litisle.litisleapi.fallback;
 
 import com.litisle.commoncore.result.Result;
+import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
 import com.litisle.litisleapi.feign.AuthClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
@@ -25,6 +26,11 @@ public class AuthClientFallbackFactory implements FallbackFactory<AuthClient> {
             public Result<Void> forceLogout(Long userId) {
                 log.error("远程调用 auth 模块强制下线失败！userId = {}, 将以降级策略放行", userId, cause);
                 return Result.success();
+            }
+
+            @Override
+            public Result<Void> verifyChangeEmail(ChangeEmailVerifyDTO dto) {
+                return null;
             }
         };
     }
