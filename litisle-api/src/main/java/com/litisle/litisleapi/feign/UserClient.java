@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 /**
  * 用户服务 Feign 客户端
  * 供微服务内部调用
+ * 提供方异常 → 全局处理器转 Result.fail(200) → Feign 正常解码 → 不降级；网络层失败/5xx → 触发降级 → 降级方法内再抛异常 → 穿透到调用方 → 全局异常处理器兜底。
  */
 @FeignClient(
         name = "litisle-user",

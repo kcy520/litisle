@@ -222,8 +222,9 @@ public class CacheConstant {
 
     /**
      * 幂等请求 Key 前缀
-     * 格式：idempotent:{userId}:{methodPath}:{argsMd5}
+     * 格式：idempotent:{userKey}:{methodPath}:{argsMd5}
      * 用途：配合 @Idempotent 注解，防止重复提交
+     *       userKey：登录用户为 userId，匿名用户为 anonymous:{IP}
      *       完整 key 示例：idempotent:1001:OrderController:createOrder:a1b2c3
      */
     public static final String IDEMPOTENT = "idempotent:";

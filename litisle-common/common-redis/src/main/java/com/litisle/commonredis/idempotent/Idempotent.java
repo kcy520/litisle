@@ -76,4 +76,22 @@ public @interface Idempotent {
      * - 场景：每日签到无需参数纳入 key，下单需要参数纳入 key
      */
     boolean includeArgs() default true;
+
+    /**
+     * 业务幂等键（SpEL 表达式，可选）
+     * 【说明】
+     * - 优先级高于 includeArgs 的参数 MD5 摘要
+     * - 支持引用方法参数名或索引：#dto.orderNo、#requestId、#p0、#a0
+     * - 场景：客户端携带 requestId 重试、按订单号/流水号幂等
+     * - 为空时回退到参数 MD5 摘要
+     */
+    String key() default "";
+
+    /**
+     * 业务执行失败时是否释放幂等 key
+     * 【说明】
+     * - true（默认）：方法抛异常时删除 key，允许用户立即重试
+     * - false：无论成功失败，key 都保留到 TTL 过期（严格防重）
+     */
+    boolean releaseOnError() default true;
 }

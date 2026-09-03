@@ -1,6 +1,7 @@
 package com.litisle.commonredis.idempotent;
 
 
+import com.litisle.commoncore.utils.JsonUtil;
 import com.litisle.commonredis.constant.CacheConstant;
 import org.springframework.util.DigestUtils;
 
@@ -42,27 +43,46 @@ public class IdempotentKeyBuilder {
     /**
      * 构建幂等 key
      *
-     * @param userId      用户ID（未登录传 null，内部转为 "anonymous"）
+     * @param userKey     用户标识（登录用户为 userId，匿名用户为 anonymous:IP）
      * @param methodPath  接口路径（如 OrderController:createOrder）
      * @param args        方法参数（用于计算摘要）
      * @param includeArgs 是否将参数纳入 key
-     * @return Redis key，格式：idempotent:{userId}:{methodPath}:{argsMd5}
+     * @return Redis key，格式：idempotent:{userKey}:{methodPath}:{argsMd5}
      */
-    public String build(Long userId, String methodPath, Object[] args, boolean includeArgs) {
-        // 1. 用户标识（null 转为 anonymous）
-        String userKey = (userId != null) ? String.valueOf(userId) : "anonymous";
-
-        // 2. 计算参数摘要
+    public String build(String userKey, String methodPath, Object[] args, boolean includeArgs) {
+        // 1. 计算参数摘要（用 JsonUtil 序列化，避免 toString 输出对象地址导致 MD5 每次不同）
         String argsDigest = "";
         if (includeArgs && args != null && args.length > 0) {
-            StringBuilder sb = new StringBuilder();
-            for (Object arg : args) {
-                sb.append(arg != null ? arg.toString() : "null").append("|");
-            }
-            argsDigest = DigestUtils.md5DigestAsHex(sb.toString().getBytes(StandardCharsets.UTF_8));
+            argsDigest = digestArgs(args);
         }
 
-        // 3. 拼接 key
+        // 2. 拼接 key
         return IDEMPOTENT_KEY_PREFIX + userKey + ":" + methodPath + ":" + argsDigest;
+    }
+
+    /**
+     * 构建幂等 key（显式业务键：SpEL 表达式结果 / 客户端 requestId）
+     *
+     * @param userKey     用户标识（登录用户为 userId，匿名用户为 anonymous:IP）
+     * @param methodPath  接口路径（如 OrderController:createOrder）
+     * @param businessKey 业务键（如订单号、requestId）
+     * @return Redis key，格式：idempotent:{userKey}:{methodPath}:{businessKey}
+     */
+    public String buildWithBusinessKey(String userKey, String methodPath, String businessKey) {
+        return IDEMPOTENT_KEY_PREFIX + userKey + ":" + methodPath + ":" + businessKey;
+    }
+
+    /**
+     * 参数摘要
+     * 【修复】用 JsonUtil 序列化参数，避免 toString() 输出对象地址（如 com.xxx.OrderDTO@1a2b3c）
+     *        导致相同参数每次 MD5 不同、幂等失效
+     */
+    private String digestArgs(Object[] args) {
+        StringBuilder sb = new StringBuilder();
+        for (Object arg : args) {
+            String json = JsonUtil.toJson(arg);
+            sb.append(json != null ? json : "null").append("|");
+        }
+        return DigestUtils.md5DigestAsHex(sb.toString().getBytes(StandardCharsets.UTF_8));
     }
 }

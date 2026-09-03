@@ -1,5 +1,7 @@
 package com.litisle.litisleapi.fallback;
 
+import com.litisle.commoncore.exception.BizException;
+import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.user.AuthUserDTO;
 import com.litisle.litisleapi.dto.user.RegisterUserDTO;
@@ -22,7 +24,7 @@ public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
             @Override
             public Result<UserDTO> getUserById(Long userId) {
                 log.error("远程调用 user 模块 getUserById 失败！id = {}", userId, cause);
-                return null;
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "用户服务暂不可用，请稍后重试", cause);
             }
 
             /**
@@ -36,7 +38,8 @@ public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
              */
             @Override
             public Result<AuthUserDTO> createUser(RegisterUserDTO dto) {
-                return null;
+                log.error("远程调用 user 模块 createUser 失败！username = {}", dto.getUsername(), cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "用户服务暂不可用，注册失败，请稍后重试", cause);
             }
 
             /**
@@ -50,7 +53,8 @@ public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
              */
             @Override
             public Result<AuthUserDTO> findByAccount(String account) {
-                return null;
+                log.error("远程调用 user 模块 findByAccount 失败！account = {}", account, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "用户服务暂不可用，请稍后重试", cause);
             }
 
             /**
@@ -64,7 +68,8 @@ public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
              */
             @Override
             public Result<AuthUserDTO> findByEmail(String email) {
-                return null;
+                log.error("远程调用 user 模块 findByEmail 失败！email = {}", email, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "用户服务暂不可用，请稍后重试", cause);
             }
 
             /**
@@ -78,7 +83,8 @@ public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
              */
             @Override
             public Result<AuthUserDTO> getAuthUserInfo(Long userId) {
-                return null;
+                log.error("远程调用 user 模块 getAuthUserInfo 失败！userId = {}", userId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "用户服务暂不可用，请稍后重试", cause);
             }
 
 

@@ -56,4 +56,15 @@ public class HeaderConstant {
      * 示例：X-Device-Id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
      */
     public static final String DEVICE_ID = "X-Device-Id";
+
+    /**
+     * 客户端真实 IP 请求头（支持多级代理，多级时取首个）
+     * 优先级：X-Forwarded-For > X-Real-IP > RemoteAddr
+     */
+    public static final String X_FORWARDED_FOR = "X-Forwarded-For";
+
+    /**
+     * 反向代理真实 IP 请求头
+     */
+    public static final String X_REAL_IP = "X-Real-IP";
 }
