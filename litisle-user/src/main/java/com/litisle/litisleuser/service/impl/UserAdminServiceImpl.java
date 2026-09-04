@@ -374,6 +374,9 @@ public class UserAdminServiceImpl implements UserAdminService {
 //        throw new UnsupportedOperationException("UserAdminService.manageVip 待实现");
 //    }
 
+//企业安全角度的共识是：角色变更（尤其是提权/降权）宁可牺牲一次在线体验，也要保证权限立即生效——降权场景如果等 Session 自然过期才生效，被降权用户可能长期持有已撤销的权限，这是安全漏洞。
+
+
     /**
      * 添加用户角色（增量）
      */
@@ -432,6 +435,10 @@ public class UserAdminServiceImpl implements UserAdminService {
         // 6. 业务日志（角色变更审计表待接入）
         log.info("管理员 [{}] 为用户 [{}] 增量添加角色 [{}]",
                 StpUtil.getLoginIdAsLong(), userId, toAdd);
+
+        // 7. 变更生效：Session 中的角色/权限是登录时快照，需调 auth 强制下线，
+        //    目标用户重新登录后由 buildTsuccessenResponse 写入最新角色（auth 不可用时由 FallbackFactory 兜底放行）
+        refreshRoleSession(userId, "添加角色 " + toAdd);
     }
 
     /**
@@ -494,6 +501,11 @@ public class UserAdminServiceImpl implements UserAdminService {
         // 6. 业务日志（角色变更审计表待接入）
         log.info("管理员 [{}] 为用户 [{}] 增量移除角色 [{}]",
                 StpUtil.getLoginIdAsLong(), userId, distinctCodes);
+
+        // 7. 变更生效：Session 中的角色/权限是登录时快照，需调 auth 强制下线，
+        //    目标用户重新登录后由 buildTsuccessenResponse 写入最新角色（auth 不可用时由 FallbackFactory 兜底放行）
+        refreshRoleSession(userId, "移除角色 " + distinctCodes);
+
     }
 
     /**
@@ -540,5 +552,24 @@ public class UserAdminServiceImpl implements UserAdminService {
         log.info("管理员 [{}] 调用 auth 强制下线用户 [{}]", operatorId, userId);
         authClient.forceLogout(userId);
         log.info("管理员 [{}] 注销用户 [{}] 成功", operatorId, userId);
+    }
+
+    /**
+     * 角色变更生效：强制目标用户下线，重新登录后由 auth 侧写入最新角色/权限快照
+     *
+     * 【设计说明】
+     * 1. Session 中的角色/权限是登录时快照，DB 变更不会自动同步，必须踢下线刷新
+     * 2. 所有新增角色变更入口（如作家认证审批授予 AUTHOR）都必须调用本方法，
+     *    确保变更立即生效，避免被降权用户长期持有已撤销权限
+     * 3. auth 不可用时由 AuthClientFallbackFactory 兜底放行，不阻断管理操作主流程
+     *
+     * @param userId   目标用户 ID
+     * @param changeLog 变更描述（用于审计日志，如 "添加角色 [AUTHOR]"）
+     */
+    private void refreshRoleSession(Long userId, String changeLog) {
+        Long operatorId = StpUtil.getLoginIdAsLong();
+        log.info("管理员 [{}] 变更用户 [{}] 角色（{}），调用 auth 强制下线以刷新权限快照", operatorId, userId, changeLog);
+        authClient.forceLogout(userId);
+        log.info("已触发用户 [{}] 强制下线，重新登录后角色变更生效", userId);
     }
 }

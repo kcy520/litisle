@@ -1,6 +1,8 @@
 package com.litisle.litisleauth.service.impl;
 
+import cn.dev33.satoken.session.SaSession;
 import cn.dev33.satoken.stp.StpUtil;
+import com.litisle.commoncore.constant.SaTokenSessionKeyConstant;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
@@ -29,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -85,7 +88,8 @@ public class AuthServiceImpl implements AuthService {
         String username = authUser.getUsername();
 
         // 5. 签发双 Token
-        return buildTsuccessenResponse(userId, username, true, authUser.getUid());
+        return buildTsuccessenResponse(userId, username, true, authUser.getUid(),
+                authUser.getRoles(), authUser.getPermissions());
     }
 
     // ==================== 密码登录 ====================
@@ -117,7 +121,8 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // 4. 签发双 Token
-        return buildTsuccessenResponse(userId, username, false, authUser.getUid());
+        return buildTsuccessenResponse(userId, username, false, authUser.getUid(),
+                authUser.getRoles(), authUser.getPermissions());
     }
 
     // ==================== 邮箱验证码登录 ====================
@@ -145,10 +150,11 @@ public class AuthServiceImpl implements AuthService {
         validateUserStatus(status, frozenUntil);
 
         // 4. 签发双 Token
-        return buildTsuccessenResponse(userId, username, false, authUser.getUid());
+        return buildTsuccessenResponse(userId, username, false, authUser.getUid(),
+                authUser.getRoles(), authUser.getPermissions());
     }
 
-    // ==================== 刷新令牌 ====================
+    // ==================== 邮箱验证码登录 ====================
 
     @SuppressWarnings("unused")
     @Override
@@ -213,7 +219,7 @@ public class AuthServiceImpl implements AuthService {
         redisUtil.delete(AuthCacheKey.USER_REFRESH + userId);
 
         // 4. 签发新双 Token（refresh 无用户对象，uid 由前端持历史值即可，传 null）
-        return buildTsuccessenResponse(userId, null, false, null);
+        return buildTsuccessenResponse(userId, null, false, null, null, null);
     }
 
     // ==================== 当前用户信息 ====================
@@ -269,9 +275,23 @@ public class AuthServiceImpl implements AuthService {
      * @param uid      对外UID（注册/登录场景回传；刷新令牌场景可能为 null）
      * @return 令牌响应 VO
      */
-    private TsuccessenVO buildTsuccessenResponse(Long userId, String username, boolean newUser, String uid) {
+    private TsuccessenVO buildTsuccessenResponse(Long userId, String username, boolean newUser, String uid,
+                                                  List<String> roles, List<String> permissions) {
         // 1. Sa-Token 建立登录态
         StpUtil.login(userId);
+
+        // 1.1 角色/权限写入 Sa-Token Session（供 common-security 的 StpInterfaceImpl 鉴权时读取）
+        //     键名统一引用 SaTokenSessionKeyConstant，与读取方保持一致
+        //     刷新令牌场景传 null：Session 随登录态已存在且未变更，无需重写
+        if (roles != null || permissions != null) {
+            SaSession session = StpUtil.getSession();
+            if (roles != null) {
+                session.set(SaTokenSessionKeyConstant.ROLES, roles);
+            }
+            if (permissions != null) {
+                session.set(SaTokenSessionKeyConstant.PERMISSIONS, permissions);
+            }
+        }
 
         // 2. 获取 Sa-Token 生成的 accessToken —— Sa-Token 生成的访问令牌
         String accessToken = StpUtil.getTokenValue();

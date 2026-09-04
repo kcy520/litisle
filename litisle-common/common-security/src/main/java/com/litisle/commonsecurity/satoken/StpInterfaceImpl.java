@@ -3,6 +3,7 @@ package com.litisle.commonsecurity.satoken;
 import cn.dev33.satoken.session.SaSession;
 import cn.dev33.satoken.stp.StpInterface;
 import cn.dev33.satoken.stp.StpUtil;
+import com.litisle.commoncore.constant.SaTokenSessionKeyConstant;
 import com.litisle.commonsecurity.enums.RoleCodeEnum;
 import lombok.extern.slf4j.Slf4j;
 
@@ -61,7 +62,7 @@ public class StpInterfaceImpl implements StpInterface {
             return Collections.emptyList();
         }
 
-        Object rolesObj = session.get("roles");
+        Object rolesObj = session.get(SaTokenSessionKeyConstant.ROLES);
         if (rolesObj instanceof List<?> list) {
             @SuppressWarnings("unchecked")
             List<String> roles = (List<String>) list;
@@ -105,13 +106,13 @@ public class StpInterfaceImpl implements StpInterface {
 
         // 超级管理员拥有所有权限：返回 Sa-Token 通配符 "*"，任何权限校验均直接通过
         // 本实现从 Session 的 roles 列表判断，所以 litisle-auth 登录时，超级管理员的角色列表必须包含 "SUPER_ADMIN"（写入 session.set("roles", ...)），否则判断不生效。
-        Object rolesObj = session.get("roles");
+        Object rolesObj = session.get(SaTokenSessionKeyConstant.ROLES);
         if (rolesObj instanceof List<?> roleList && roleList.contains(RoleCodeEnum.SUPER_ADMIN.getCode())) {
             log.debug("用户 {} 为超级管理员，授予全部权限", loginId);
             return List.of("*");
         }
 
-        Object permsObj = session.get("permissions");
+        Object permsObj = session.get(SaTokenSessionKeyConstant.PERMISSIONS);
         if (permsObj instanceof List<?> list) {
             @SuppressWarnings("unchecked")
             List<String> permissions = (List<String>) list;

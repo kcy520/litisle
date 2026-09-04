@@ -46,6 +46,47 @@ import java.util.concurrent.TimeUnit;
  * @PostMapping("/article/{id}/like")
  * public Result<Void> like(@PathVariable Long id) { ... }
  *
+ * // ==================== 按使用场景补充示例 ====================
+ *
+ * // 示例3：每日签到 —— 无参幂等（includeArgs = false）
+ * 【使用场景】同一用户一天内只需提交一次，接口本身无业务参数（或参数不影响幂等判断）
+ * 【配置要点】includeArgs = false：同一用户对同一接口在 TTL 内只允许调用一次，不区分参数
+ * @Idempotent(expire = 10, timeUnit = TimeUnit.SECONDS, includeArgs = false, message = "今日已签到，请勿重复提交")
+ * @PostMapping("/user/checkin")
+ * public Result<Void> checkin() { ... }
+ *
+ * // 示例4：支付扣款 —— 严格防重（releaseOnError = false）
+ * 【使用场景】资金操作，即使业务失败也不允许立即重试，防止“扣款中”状态被并发重复触发
+ * 【配置要点】releaseOnError = false：无论成功失败，key 都保留到 TTL 过期，重试需等 TTL 结束
+ * @Idempotent(expire = 30, timeUnit = TimeUnit.SECONDS, releaseOnError = false, message = "支付处理中，请勿重复提交")
+ * @PostMapping("/order/{orderNo}/pay")
+ * public Result<Void> pay(@PathVariable String orderNo) { ... }
+ *
+ * // 示例5：客户端携带 requestId 重试 —— SpEL 业务幂等键（key）
+ * idempotent:{userId}:{接口名}:{前端传来的requestId}
+ * SpEL #requestId 从方法参数里取，方法参数从请求头 @RequestHeader("X-Request-Id") 来。链路通的，没问题 👍
+ * 【使用场景】前端超时重试、弱网环境重发请求：客户端生成唯一 requestId，服务端按 requestId 幂等
+ * 【配置要点】key 优先级高于 includeArgs 的参数 MD5，同一 requestId 重复提交直接拒绝     requestid一般为uuID格式
+ * @Idempotent(expire = 60, timeUnit = TimeUnit.SECONDS, key = "#requestId", message = "请求处理中，请勿重复提交")
+ * @PostMapping("/article/comment")
+ * public Result<Void> comment(@RequestBody CommentDTO dto, @RequestHeader("X-Request-Id") String requestId) { ... }
+ *
+ * // 示例6：按业务单号幂等 —— SpEL 引用嵌套属性
+ * 【使用场景】同一订单号只允许创建一次售后单，与“谁提交的/何时提交的”无关
+ * 【配置要点】支持 #p0、#dto.orderNo 等写法引用方法参数及属性，天然跨用户幂等
+ * @Idempotent(expire = 300, timeUnit = TimeUnit.SECONDS, key = "#dto.orderNo", message = "该订单已提交售后申请")
+ * @PostMapping("/after-sale/apply")
+ * public Result<Void> applyAfterSale(@RequestBody AfterSaleDTO dto) { ... }
+ *
+ * // ==================== 场景选型速查 ====================
+ * | 场景                     | expire      | includeArgs | key   | releaseOnError |
+ * |--------------------------|-------------|-------------|-------|----------------|
+ * | 表单防重复点击（下单/评论）| 3~10 秒     | true        | 空    | true           |
+ * | 高频操作限流式防重（点赞）| 1 秒        | true        | 空    | true           |
+ * | 每日一次类操作（签到）    | 10 秒左右    | false       | 空    | true           |
+ * | 资金操作（支付/提现）    | ≥ 业务耗时   | true        | 可选  | false          |
+ * | 客户端重试幂等           | 覆盖重试窗口 | 无关        | 必填  | true           |
+ *
  * @author litisle
  */
 @Target(ElementType.METHOD)

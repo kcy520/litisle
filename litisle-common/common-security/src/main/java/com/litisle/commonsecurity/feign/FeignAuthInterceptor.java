@@ -4,6 +4,7 @@ package com.litisle.commonsecurity.feign;
 import cn.dev33.satoken.session.SaSession;
 import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.constant.HeaderConstant;
+import com.litisle.commoncore.constant.SaTokenSessionKeyConstant;
 import feign.RequestInterceptor;
 import feign.RequestTemplate;
 import lombok.extern.slf4j.Slf4j;
@@ -75,7 +76,7 @@ public class FeignAuthInterceptor implements RequestInterceptor {
 
         // 4. 注入用户名（从 Sa-Token Session 获取，登录时业务侧 session.set("username", xxx)）
         SaSession session = StpUtil.getSession();
-        String username = (String) session.get("username");
+        String username = (String) session.get(SaTokenSessionKeyConstant.USERNAME);
         if (username != null) {
             template.header(HeaderConstant.USERNAME, username);
         }
