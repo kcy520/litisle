@@ -155,7 +155,7 @@ public class UserAdminServiceImpl implements UserAdminService {
      */
     private UserAdminVO toAdminVO(User user) {
         // 1. 聚合角色编码（复用，与详情页逻辑保持一致）
-        List<String> roleCodes = getRoleCodes(user.getId());
+        List<String> roleCodes = userRoleService.getRoleCodes(user.getId());
 
         // 2. 组装 VO
         return new UserAdminVO()
@@ -188,7 +188,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         }
 
         // 2. 聚合角色编码
-        List<String> roleCodes = getRoleCodes(user.getId());
+        List<String> roleCodes = userRoleService.getRoleCodes(user.getId());
 
         // 3. 作者扩展资料（仅作者角色才查，降低非作者用户的 DB 开销）
         UserProfile profile = roleCodes.stream()
@@ -219,33 +219,6 @@ public class UserAdminServiceImpl implements UserAdminService {
                 .setPenName(profile != null ? profile.getPenName() : null)
                 .setCreationDir(profile != null ? profile.getCreationDir() : null)
                 .setMasterpiece(profile != null ? profile.getMasterpiece() : null);
-    }
-
-    /**
-     * 聚合用户角色编码列表
-     * <p>
-     * 复用逻辑：列表页（toAdminVO）与详情页均依赖，抽取为私有方法避免重复实现。
-     */
-    private List<String> getRoleCodes(Long userId) {
-        // 1. 查询用户-角色关联
-        List<UserRole> userRoles = userRoleService.lambdaQuery()
-                .eq(UserRole::getUserId, userId)
-                .list();
-        if (userRoles.isEmpty()) {
-            return Collections.emptyList();
-        }
-        // 2. 一次 IN 查询取出所有角色，避免循环内逐条 getById（N+1）
-        List<Long> roleIds = userRoles.stream()
-                .map(UserRole::getRoleId)
-                .distinct()
-                .collect(Collectors.toList());
-        Map<Long, Role> roleMap = roleService.listByIds(roleIds).stream()
-                .collect(Collectors.toMap(Role::getId, Function.identity()));
-        return userRoles.stream()
-                .map(ur -> roleMap.get(ur.getRoleId()))
-                .filter(Objects::nonNull)
-                .map(Role::getRoleCode)
-                .collect(Collectors.toList());
     }
 
 //    /**
@@ -282,7 +255,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         }
 
         // 2. 等级校验：禁止操作同级或上级管理员，防止越权提权
-        SaRoleHelper.checkNotSameOrHigherLevel(getRoleCodes(user.getId()));
+        SaRoleHelper.checkNotSameOrHigherLevel(userRoleService.getRoleCodes(user.getId()));
         // 2.1 取操作者用户名（审计快照）
         Long operatorId = StpUtil.getLoginIdAsLong();
         User operator = userService.getById(operatorId);
@@ -324,7 +297,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         UserBanLog banLog = UserBanLog.builder()
             .userId(user.getId())
             .username(user.getUsername())
-            .roleCode(String.join(",", getRoleCodes(user.getId())))
+            .roleCode(String.join(",", userRoleService.getRoleCodes(user.getId())))
             .action(target == UserStatus.NORMAL ? UserBanAction.UNBAN : UserBanAction.BAN)
             .reason(dto.getReason())
             .frozenUntil(user.getFrozenUntil())
@@ -407,7 +380,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         }
 
         // 3. 等级校验：禁止对同级/上级用户分配角色，防止越权提权
-        SaRoleHelper.checkNotSameOrHigherLevel(getRoleCodes(userId));
+        SaRoleHelper.checkNotSameOrHigherLevel(userRoleService.getRoleCodes(userId));
 
         // 4. 安全校验：禁止授予 SUPER_ADMIN（仅系统/Boot 阶段初始化）
         if (distinctCodes.stream().anyMatch(code -> RoleCodeEnum.of(code).isSuperAdmin())) {
@@ -415,7 +388,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         }
 
         // 5. 增量插入：过滤目标用户已拥有的角色（去重），按 roleCode 反查 roleId 后批量新增
-        List<String> ownedCodes = getRoleCodes(userId);
+        List<String> ownedCodes = userRoleService.getRoleCodes(userId);
         List<String> toAdd = distinctCodes.stream()
                 .filter(code -> !ownedCodes.contains(code))
                 .collect(Collectors.toList());
@@ -473,7 +446,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         }
 
         // 3. 等级校验：禁止移除同级/上级用户的角色
-        SaRoleHelper.checkNotSameOrHigherLevel(getRoleCodes(userId));
+        SaRoleHelper.checkNotSameOrHigherLevel(userRoleService.getRoleCodes(userId));
 
         // 4. 安全校验：禁止移除 SUPER_ADMIN 与 READER 基础角色（保证基础角色不被清空）
         if (distinctCodes.stream().anyMatch(code -> {
@@ -521,7 +494,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         }
 
         // 2. 等级校验：禁止注销同级或上级管理员，复用封号越权校验逻辑
-        SaRoleHelper.checkNotSameOrHigherLevel(getRoleCodes(user.getId()));
+        SaRoleHelper.checkNotSameOrHigherLevel(userRoleService.getRoleCodes(user.getId()));
         Long operatorId = StpUtil.getLoginIdAsLong();
         User operator = userService.getById(operatorId);
         String operatorName = operator != null ? operator.getUsername() : null;
@@ -538,7 +511,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         userCancelLogService.record(UserCancelLog.builder()
                 .userId(user.getId())
                 .username(user.getUsername())
-                .roleCode(String.join(",", getRoleCodes(user.getId())))
+                .roleCode(String.join(",", userRoleService.getRoleCodes(user.getId())))
                 .source(UserCancelSource.ADMIN)
                 .operatorId(operatorId)
                 .operatorName(operatorName)

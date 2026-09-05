@@ -38,6 +38,30 @@ import java.util.List;
 @Slf4j
 public class StpInterfaceImpl implements StpInterface {
 
+
+
+    /**
+     * 会话注入流程
+     * ① 查库聚合（user 模块）
+     *    UserFeignProviderController#buildAuthUserDTO (L260-288)
+     *    查 user_role 表 → 批量 IN 查 role 表 → 取 roleCode + 权限列表
+     *    → 封装进 AuthUserDTO 返回给 auth
+     *         │
+     *         ▼  Feign：findByAccount / findByEmail / getAuthUserInfo
+     * ② 接收并传递（auth 模块）
+     *    AuthServiceImpl 各登录入口（注册 L113 / 密码登录 / 邮箱登录）
+     *    从 AuthUserDTO 取出 getRoles() / getPermissions() 传入 buildTsuccessenResponse
+     *         │
+     *         ▼
+     * ③ 写入 Session（auth 模块）★ 上上轮修复落地点
+     *    AuthServiceImpl#buildTsuccessenResponse (L279-292)
+     *    StpUtil.login(userId) 之后：
+     *    session.set(SaTokenSessionKeyConstant.ROLES, roles)
+     *    session.set(SaTokenSessionKeyConstant.PERMISSIONS, permissions)
+     *    → Sa-Token 自动持久化到 Redis，随登录态存活
+    * */
+
+
     /**
      * 返回指定 loginId 的角色列表
      *
@@ -64,6 +88,7 @@ public class StpInterfaceImpl implements StpInterface {
 
         Object rolesObj = session.get(SaTokenSessionKeyConstant.ROLES);
         if (rolesObj instanceof List<?> list) {
+            //常见于泛型类型转换时，编译器无法确定泛型类型在运行时是否安全，因此会提示：
             @SuppressWarnings("unchecked")
             List<String> roles = (List<String>) list;
             // 超级管理员拥有所有角色：返回全部角色编码，任何角色校验均直接通过

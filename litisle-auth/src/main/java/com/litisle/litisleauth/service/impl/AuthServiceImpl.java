@@ -224,6 +224,10 @@ public class AuthServiceImpl implements AuthService {
 
     // ==================== 当前用户信息 ====================
 
+    /**
+     * 获取当前登录用户信息
+     * @return
+     */
     @Override
     public LoginUserInfoVO currentLoginUser() {
         // 1. 获取当前登录 userId
@@ -242,8 +246,10 @@ public class AuthServiceImpl implements AuthService {
         LoginUserInfoVO vo = new LoginUserInfoVO()
                 .setUsername(authUser.getUsername())
                 .setUid(authUser.getUid())
-                .setPhone(desensitizePhone(authUser.getPhone()))
-                .setEmail(desensitizeEmail(authUser.getEmail()))
+//                .setPhone(desensitizePhone(authUser.getPhone()))
+//                .setEmail(desensitizeEmail(authUser.getEmail()))
+                .setPhone(authUser.getPhone())
+                .setEmail(authUser.getEmail())
                 .setAvatar(authUser.getAvatar())
                 .setAvatarColor(authUser.getAvatarColor())
                 .setBio(authUser.getBio())
@@ -268,6 +274,8 @@ public class AuthServiceImpl implements AuthService {
 
     /**
      * 签发双 Token（accessToken + refreshToken）
+     *
+     * z注入用户信息至session
      *
      * @param userId   用户 ID
      * @param username 用户名
@@ -354,30 +362,30 @@ public class AuthServiceImpl implements AuthService {
 
     // ==================== 脱敏方法 ====================
 
-    /**
-     * 手机号脱敏：保留前3后4，中间 ****
-     * 如 138****8888
-     */
-    private String desensitizePhone(String phone) {
-        if (phone == null || phone.length() < 7) {
-            return phone;
-        }
-        return phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
-    }
-
-    /**
-     * 邮箱脱敏：保留首字符与域名，如 a***@xx.com
-     */
-    private String desensitizeEmail(String email) {
-        if (email == null || !email.contains("@")) {
-            return email;
-        }
-        int atIndex = email.indexOf("@");
-        String name = email.substring(0, atIndex);
-        String domain = email.substring(atIndex);
-        if (name.length() <= 1) {
-            return name + "***" + domain;
-        }
-        return name.charAt(0) + "***" + domain;
-    }
+//    /**
+//     * 手机号脱敏：保留前3后4，中间 ****
+//     * 如 138****8888
+//     */
+//    private String desensitizePhone(String phone) {
+//        if (phone == null || phone.length() < 7) {
+//            return phone;
+//        }
+//        return phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
+//    }
+//
+//    /**
+//     * 邮箱脱敏：保留首字符与域名，如 a***@xx.com
+//     */
+//    private String desensitizeEmail(String email) {
+//        if (email == null || !email.contains("@")) {
+//            return email;
+//        }
+//        int atIndex = email.indexOf("@");
+//        String name = email.substring(0, atIndex);
+//        String domain = email.substring(atIndex);
+//        if (name.length() <= 1) {
+//            return name + "***" + domain;
+//        }
+//        return name.charAt(0) + "***" + domain;
+//    }
 }

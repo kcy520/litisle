@@ -26,8 +26,8 @@ public class RoleVO implements Serializable {
     /** 角色显示名称（如 "作者"） */
     private String name;
 
-    /** 角色描述 */
-    private String description;
+//    /** 角色描述 */
+//    private String description;
 
     /** 角色层级（如 BUSINESS） */
     private RoleLevel level;

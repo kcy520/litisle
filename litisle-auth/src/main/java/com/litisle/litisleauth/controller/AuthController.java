@@ -102,6 +102,7 @@ public class AuthController {
     @GetMapping("/me")
     @SaCheckLogin
     public Result<LoginUserInfoVO> me() {
-        return Result.success(authService.currentLoginUser());
+        LoginUserInfoVO loginUserInfoVO = authService.currentLoginUser();
+        return Result.success(loginUserInfoVO);
     }
 }
