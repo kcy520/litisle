@@ -32,5 +32,7 @@ public interface UserRoleService extends IService<UserRole> {
      */
     List<String> getRoleCodes(Long userId);
 
+    List<RoleVO> userRoles(Long userId);
+
 //    List<String> getRoleCodesByUserId(Long userId);
 }

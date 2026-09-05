@@ -4,12 +4,14 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.litisle.commonsecurity.enums.RoleCodeEnum;
 import com.litisle.litisleuser.domain.entity.Role;
+import com.litisle.litisleuser.domain.entity.User;
 import com.litisle.litisleuser.domain.entity.UserRole;
 import com.litisle.litisleuser.domain.vo.RoleVO;
 import com.litisle.litisleuser.mapper.RoleMapper;
 import com.litisle.litisleuser.mapper.UserRoleMapper;
 import com.litisle.litisleuser.service.RoleService;
 import com.litisle.litisleuser.service.UserRoleService;
+import com.litisle.litisleuser.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,7 +33,7 @@ public class UserRoleServiceImpl
         extends ServiceImpl<UserRoleMapper, UserRole>
         implements UserRoleService {
 
-    private final UserRoleService userRoleService ;
+    private final UserService userService;
     private final RoleMapper roleMapper ;
 
 
@@ -66,8 +68,7 @@ public class UserRoleServiceImpl
         // 1. 从 SaToken 取当前登录用户 ID
         Long userId = StpUtil.getLoginIdAsLong();
 
-        // 2. 复用已有的 getRoleCodes 逻辑（或者直接内联，看你怎么组织代码）
-        //    如果你把 getRoleCodes 提取到了 UserRoleService 里，直接调：
+        // 2. 复用已有的 getRoleCodes 逻辑
         List<String> roleCodes = getRoleCodes(userId);
 
         if (roleCodes.isEmpty()) {
@@ -75,7 +76,7 @@ public class UserRoleServiceImpl
         }
 
         // 3. 通过 RoleCodeEnum 转成 RoleVO
-        return roleCodes.stream()
+        List<RoleVO> list = roleCodes.stream()
                 .map(RoleCodeEnum::of)
                 .filter(Objects::nonNull)
                 .map(role -> new RoleVO()
@@ -84,6 +85,8 @@ public class UserRoleServiceImpl
                         .setLevel(role.getLevel())
                 )
                 .toList();
+
+        return list;
     }
 
     /**
@@ -113,6 +116,39 @@ public class UserRoleServiceImpl
                 .filter(Objects::nonNull)
                 .map(Role::getRoleCode)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 根据id查询用户角色
+     * @param userId
+     * @return
+     */
+    @Override
+    public List<RoleVO> userRoles(Long userId) {
+
+        //userRoles() 这个接口本身不应该做“用户存在 / 注销”校验。
+        //查角色是「只读查询」，不是「业务写操作」，不应该为一次只读查询额外承担用户生命周期校验的成本。
+
+        //查询此用户对应角色
+        List<String> roleCodes = getRoleCodes(userId);
+
+        if (roleCodes.isEmpty()) {
+            return List.of();
+        }
+
+        // 2. 通过 RoleCodeEnum 转成 RoleVO
+        List<RoleVO> list = roleCodes.stream()
+                .map(RoleCodeEnum::of)
+                .filter(Objects::nonNull)
+                .map(role -> new RoleVO()
+                        .setCode(role.getCode())
+                        .setName(role.getDesc())
+                        .setLevel(role.getLevel())
+                )
+                .toList();
+
+
+        return list;
     }
 
 //    @Override

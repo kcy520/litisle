@@ -56,7 +56,8 @@ public class UserRoleController {
             mode = SaMode.OR
     )
     public Result<List<RoleVO>> userRoles(@PathVariable Long userId) {
-        return Result.success(userRoleService.userRoles(userId));
+        List<RoleVO> roleVOS = userRoleService.userRoles(userId);
+        return Result.success(roleVOS);
     }
 
 //    /**
