@@ -37,9 +37,9 @@ public class AuthController {
     @PostMapping("/register")
     @RateLimiter(time = RateLimitConstant.WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
             count = RateLimitConstant.AUTH_REGISTER_MAX, keyType = RateLimiter.KeyType.IP)
-    public Result<TsuccessenVO> register(@Valid @RequestBody RegisterRequestDTO dto) {
-        TsuccessenVO register = authService.register(dto);
-        return Result.success(register);
+    public Result<Void> register(@Valid @RequestBody RegisterRequestDTO dto) {
+        authService.register(dto);
+        return Result.success();
     }
 
     /**

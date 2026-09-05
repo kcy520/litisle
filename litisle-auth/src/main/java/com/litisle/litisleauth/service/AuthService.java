@@ -29,12 +29,11 @@ public interface AuthService {
      * 1. 校验图形验证码 + 邮箱验证码（CaptchaService，一次性）
      * 2. BCrypt 加密密码
      * 3. Feign 调用 userClient.createUser() 创建用户（user 模块负责唯一性校验 + AES 加密手机号/邮箱 + 分配 READER 角色）
-     * 4. 签发双 Token，refreshToken 存 Redis（TTL 7 天）
+     * 4. 注册完成即返回，不签发 Token；用户需重新调用登录接口建立会话
      *
      * @param dto 注册请求
-     * @return 令牌响应（newUser=true）
      */
-    TsuccessenVO register(RegisterRequestDTO dto);
+    void register(RegisterRequestDTO dto);
 
     /**
      * 用户名密码登录（兼容用户名/手机号/邮箱）

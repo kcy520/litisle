@@ -53,7 +53,7 @@ public class AuthServiceImpl implements AuthService {
     // ==================== 注册 ====================
 
     @Override
-    public TsuccessenVO register(RegisterRequestDTO dto) {
+    public void register(RegisterRequestDTO dto) {
         log.info("用户注册请求: username={}, email={}", dto.getUsername(), dto.getEmail());
 
         // 1. 校验图形验证码（一次性）
@@ -83,13 +83,9 @@ public class AuthServiceImpl implements AuthService {
             throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, errorMsg);
         }
 
-        AuthUserDTO authUser = result.getData();
-        Long userId = authUser.getUserId();
-        String username = authUser.getUsername();
-
-        // 5. 签发双 Token
-        return buildTsuccessenResponse(userId, username, true, authUser.getUid(),
-                authUser.getRoles(), authUser.getPermissions());
+        // 5. 注册完成即返回，不签发 Token（登录需重新调用 /api/auth/login 建立会话）
+        log.info("用户注册成功: userId={}, username={}",
+                result.getData().getUserId(), result.getData().getUsername());
     }
 
     // ==================== 密码登录 ====================

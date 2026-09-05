@@ -1,6 +1,7 @@
 package com.litisle.litisleuser.domain.dto;
 
 import com.litisle.commoncore.enums.UserStatus;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -31,5 +32,6 @@ public class UserStatusChangeDTO implements Serializable {
 
     /** 封号原因（封号时必填，用于审计日志；解封时可为空） */
     @Size(max = 255, message = "封号原因不能超过255个字符")
+    @NotBlank
     private String reason;
 }

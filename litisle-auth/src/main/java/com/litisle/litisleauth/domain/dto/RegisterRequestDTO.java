@@ -1,5 +1,6 @@
 package com.litisle.litisleauth.domain.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
@@ -52,6 +53,14 @@ public class RegisterRequestDTO {
     @Size(min = 4, max = 6, message = "验证码长度 4-6 位")
     private String emailCode;
 
-    /** 注册来源（WEB / APP / MINI_PROGRAM），默认 WEB */
+    /** 注册来源（WEB / APP / MINI_PROGRAM），默认 WEB
+     *
+     * todo 需要枚举，并校验
+     * WEB：网页端
+     *APP：手机 App
+     *MINI_PROGRAM：微信小程序
+     * */
+//    @Schema(hidden = true)
+            //在swagger接口的页面隐藏此字段
     private String source = "WEB";
 }

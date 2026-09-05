@@ -38,6 +38,7 @@ public class UserSearchController {
     @Operation(summary = "按 UID 搜索用户公开资料")
     @GetMapping("/{uid}")
     public Result<UserPublicVO> searchByUid(@PathVariable String uid) {
-        return Result.success(userProfileService.searchByUid(uid));
+        UserPublicVO userPublicVO = userProfileService.searchByUid(uid);
+        return Result.success(userPublicVO);
     }
 }

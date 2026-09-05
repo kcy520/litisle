@@ -499,7 +499,6 @@ public class UserProfileServiceImpl
                 new LambdaQueryWrapper<User>()
                         .eq(User::getId, userId)
                         .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
-                        .select(User::getPhone)
         );
         if (user == null) {
             throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
@@ -520,7 +519,6 @@ public class UserProfileServiceImpl
                 new LambdaQueryWrapper<User>()
                         .eq(User::getId, userId)
                         .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
-                        .select(User::getEmail)
         );
         if (user == null) {
             throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);

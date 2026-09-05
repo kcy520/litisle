@@ -33,7 +33,7 @@ create table if not exists `sys_user`
     `uid`             varchar(16)     not null comment '对外UID，用户间搜索唯一标识',
     `password`        varchar(128)    not null comment '密码（BCrypt）',
     `email`           varchar(64)     null comment '邮箱',
-    `phone`           varchar(20)     not null comment '手机号',
+    `phone`           varchar(255)     not null comment '手机号',
     `avatar`          varchar(255)    not null default 'default-avatar-url' comment '头像URL',
     `avatar_color`    tinyint         not null default 0 comment '头像标识：0-无 1-金 2-白', -- 【修改】
     `bio`             varchar(200)    null comment '个人简介',
