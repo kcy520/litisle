@@ -35,13 +35,12 @@
 
 | 功能 | 说明 |
 |------|------|
-| Feign 接口定义 | `UserFeignApi` / `ContentFeignApi` / `SocialFeignApi` / `PaymentFeignApi` / `ShopFeignApi` 等 |
-| 跨服务 DTO | `UserBriefDTO` / `ArticleCardDTO` / `ReviewResultDTO` / `CoinDeductionDTO` 等 |
-| 跨服务 VO | `UserProfileVO` / `ApiResultVO` 等（响应给前端的视图对象） |
-| 事件 Schema | `ArticlePublishedEvent` / `ReviewDecidedEvent` / `ShopOrderCreatedEvent` 等（MQ 消息体定义） |
-| 共享枚举 | `RoleEnum` / `ZoneEnum` / `RiskLevelEnum` / `SceneEnum` / `OrderStatusEnum` / `TransactionTypeEnum` 等 |
-| 跨服务常量 | `MqConstant`（交换机/队列/路由键）、`CacheConstant`（Redis key 前缀）、`FeignConstant`（服务名/超时值） |
-| 错误码枚举 | `ErrorCode` 集中维护，全局统一错误码 |
+| Feign 接口定义 | `UserClient` / `AuthClient`（✅ 已实现，含 fallback 降级工厂）；Content/Social/Payment/Shop 等（⏳ 待实现） |
+| 跨服务 DTO | `RegisterUserDTO` / `AuthUserDTO` / `UserDTO` 等（✅ 已实现）；其余待实现 |
+| 事件 Schema | `UserRegisteredEvent`（⚠️ 空类，字段待补）；`ArticlePublishedEvent` 等待实现 |
+| 共享枚举 | `RegisterSourceEnum`（✅ 已实现）；`RoleEnum` 等待实现 |
+| 跨服务常量 | `MqConstant`（交换机/队列/路由键）、`BizCacheKey`（`biz:` 前缀缓存 Key）、`FeignConstant`（服务名；Header 名复用 common-core） |
+| 错误码枚举 | `ErrorCode` 由 common-core 集中维护，全局统一错误码 |
 
 **效果**：服务间解耦，接口变更只需修改 `litisle-api`，不侵入各服务内部代码。
 
@@ -92,19 +91,19 @@
 
 ## 5. litisle-auth（认证服务）
 
-**定位**：负责用户身份认证、注册登录、OAuth2 第三方登录、JWT 签发。
+**定位**：负责用户身份认证、注册登录、OAuth2 第三方登录（未实现）、Sa-Token 登录态签发。
 
 **功能清单**：
 
 | 功能 | 说明 |
 |------|------|
 | 账号密码注册/登录 | 用户名 + 密码（BCrypt 加密），图形验证码防刷 |
-| 手机验证码登录 | 手机号 + 短信验证码，验证码有效期 5 分钟 |
-| OAuth2 第三方登录 | 微信 / QQ 扫码登录，绑定已有账号或直接注册新账号 |
-| JWT 双 Token | 短效 Token（30 分钟）+ 长效 Refresh Token（7 天），支持「记住我」 |
-| 在线设备管理 | 同一账号最多 2 端在线，新设备登录自动踢出最旧设备 |
-| 退出登录 | Token 加入 Redis 黑名单，清除 session |
-| 风控策略 | 连续 5 次密码错误锁定 15 分钟 |
+| 邮箱验证码登录 | 邮箱 + 邮箱验证码，验证码有效期 5 分钟（短信通道预留未实现） |
+| OAuth2 第三方登录 | 微信 / QQ 扫码登录，绑定已有账号或直接注册新账号（未实现，预留） |
+| Sa-Token 登录态 | Sa-Token 会话管理（Token 1 天 + 记住我 7 天）+ 自研 refreshToken 轮换（7 天，一次性） |
+| 在线设备管理 | 同一账号最多 2 端在线（max-login-count=2），新设备登录自动踢出最旧设备 |
+| 退出登录 | StpUtil.logout() 服务端会话失效即下线，并清理 refreshToken / 设备会话 |
+| 风控策略 | 接口级限流 @RateLimiter（10 秒窗口）；连续密码错误锁定（设计保留，暂未落地） |
 
 **效果**：用户可选择多种方式登录，安全策略完善，同一账号多端管理。
 
@@ -121,10 +120,14 @@
 | 用户资料管理 | 昵称、头像（SeaweedFS）、手机号（加密存储）、邮箱、简介、笔名 |
 | 角色体系 | 6 角色：READER（读者）/ AUTHOR（作家）/ LEGACY_AUTHOR（纪念作家）/ REVIEWER（审核员）/ ADMIN（管理员）/ SUPER_ADMIN（超级管理员） |
 | 角色叠加校验 | 同一用户可同时拥有多个角色，组合规则（如 LEGACY_AUTHOR 与 AUTHOR 互斥） |
-| VIP 状态 | 购买 VIP 后到期时间自动计算，到期前 7 天站内信提醒，到期后自动冻结 VIP 权益 |
-| 头像标识 | 普通用户无标识、作家金色头像框、纪念作家白色头像框 |
-| 注销账号 | 逻辑注销（`del_flag=1`），不可恢复，需二次确认 |
-| 关注/粉丝计数 | Redis String 存储，异步落库 |
+| VIP 状态 | 购买 VIP 后到期时间自动计算，到期前 7 天站内信提醒，到期后自动冻结 VIP 权益（控制器未实现） |
+| 头像标识 | 普通用户无标识、作家金色头像框、纪念作家白色头像框（avatarColor 存主表 sys_user） |
+| 管理员用户管理 | /api/admin/users：分页/详情/改状态/角色分配/注销用户 |
+| 封禁/解封 | 写 sys_user_ban_log + frozen_until，联动强制下线；到期 UserUnbanTask 自动解封 |
+| RBAC 权限 | sys_permission / sys_role_permission 权限体系，角色-权限关联 |
+| UID 搜索 | sys_user.uid 对外唯一标识，按 UID/用户名搜索用户 |
+| 注销账号 | 逻辑注销（`del_flag=1`），不可恢复，需二次确认（控制器未实现） |
+| 关注/粉丝计数 | Redis String 存储，异步落库（控制器未实现） |
 
 **效果**：用户有丰富的角色成长体系，VIP 状态管理自动化，隐私数据脱敏保护。
 

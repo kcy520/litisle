@@ -97,8 +97,8 @@ e:\NewJavaPro\LitIsle\BaseDesign-document\Auth-User-Architecture.md
 
 - **无独立数据库**：复用 `litisleuser` 库，无独立表（验证码/会话/黑名单均走 Redis）。
 - **无独立实体**：用户实体复用 `litisle-user` 模块的 `SysUser`，OAuth 绑定复用 `SysOAuthBinding`。
-- **状态化凭证**：JWT 本身无状态，但通过 Redis 维护会话列表与黑名单，实现"踢出设备""退出失效"等有状态能力。
-- **多入口登录**：账密 + 手机验证码 + OAuth2（微信/QQ）三种方式统一归一化处理。
+- **状态化凭证**：登录态由 **Sa-Token** 服务端会话管理（token 存 Redis），天然支持"踢出设备""退出失效"等有状态能力，无需自建 Token 黑名单。
+- **多入口登录**：账密 + 邮箱验证码 + OAuth2（微信/QQ）三种方式统一归一化处理。
 
 ### 2.2 功能清单
 
@@ -107,9 +107,9 @@ e:\NewJavaPro\LitIsle\BaseDesign-document\Auth-User-Architecture.md
 | 账号密码注册/登录 | 用户名 + 密码（BCrypt 加密），图形验证码防刷                 |
 | 邮箱验证码登录    | 邮箱 + 邮箱验证码，验证码有效期 5 分钟                       |
 | OAuth2 第三方登录 | 微信 / QQ 扫码登录，绑定已有账号或直接注册新账号（暂不开发，跳过） |
-| JWT 双 Token      | 短效 Token（30 分钟）+ 长效 Refresh Token（7 天），支持「记住我」 |
-| 在线设备管理      | 同一账号最多 2 端在线，新设备登录自动踢出最旧设备            |
-| 退出登录          | Token 加入 Redis 黑名单，清除 session                        |
+| Sa-Token 登录态   | Sa-Token 会话管理（Token 1 天 + 记住我 7 天），无需自建 JWT   |
+| 在线设备管理      | 同一账号最多 2 端在线（max-login-count=2），超出自动踢出最旧设备 |
+| 退出登录          | StpUtil.logout() 服务端会话失效即下线，并清理 refreshToken/设备会话 |
 | 风控策略          | 连续 5 次密码错误锁定 15 分钟                                |
 | Token 刷新        | Refresh Token 换取新的 Access Token，旧 Refresh 失效         |
 | 图形验证码        | 注册前下发图形验证码，Redis 缓存，防暴力破解（登录不需要，方便测试） |
@@ -118,37 +118,28 @@ e:\NewJavaPro\LitIsle\BaseDesign-document\Auth-User-Architecture.md
 
 ```
 litisle-auth
-├── controller/        # AuthController / OAuth2Controller
-│   ├── AuthController        # 注册/登录/退出/刷新/图形验证码
-│   └── OAuth2Controller      # 微信/QQ OAuth2 登录入口
-├── service/           # AuthService / SmsCodeService / CaptchaService
-│   ├── AuthService           # 认证主流程（注册/登录/退出/刷新）
-│   ├── SmsCodeService        # 短信验证码生成/校验/限流
-│   └── CaptchaService        # 图形验证码生成/校验
+├── controller/        # AuthController / CaptchaController / DeviceController / feign 提供方
+│   ├── AuthController        # 注册/账密登录/邮箱验证码登录/退出/刷新/GET /me
+│   ├── CaptchaController     # 图形验证码下发校验 + 邮箱验证码发送校验
+│   ├── DeviceController      # 在线设备列表 / 踢出指定设备
+│   ├── OAuth2Controller      # 第三方登录入口（未实现，已注释保留）
+│   ├── SmsController         # 短信验证码（未实现，已注释保留）
+│   └── feign/AuthFeignProviderController  # 实现 AuthClient 契约：forceLogout / verifyChangeEmail
+├── service/
+│   ├── AuthService           # 认证主流程（注册/登录/退出/刷新/me/强制下线）
+│   ├── CaptchaService        # 图形验证码 + 邮箱验证码（发送/校验/防爆破阈值）
+│   ├── DeviceSessionService  # 在线设备会话管理（基于 Sa-Token 会话）
+│   └── oauth2/OAuth2LoginService  # 第三方登录（未实现，预留）
 ├── domain/
-│   ├── entity/        # （复用 user 库实体，无本服务独立实体）
-│   ├── dto/           # LoginDTO / RefreshDTO / RegisterDTO / SmsLoginDTO
-│   └── vo/            # TokenVO / CaptchaVO / LoginUserVO
-├── enums/             # （本服务无私有枚举，使用 api 共享）
-├── constant/          # AuthConstant（Token 有效期、黑名单 TTL、缓存 Key 前缀等）
-├── security/          # JwtTokenProvider / SessionManager
-│   ├── JwtTokenProvider      # JWT 签发/解析/校验
-│   └── SessionManager       # 在线会话列表管理（踢出设备）
-├── oauth/             # OAuth2LoginHandler（策略模式） / WechatHandler / QQHandler
-│   ├── OAuth2LoginHandler    # 策略接口
-│   ├── WechatHandler         # 微信扫码实现
-│   ├── QQHandler             # QQ 扫码实现
-│   └── OAuth2StateCache      # state 防 CSRF（Redis）
-├── redis/             # TokenBlacklist / SessionCache / SmsCodeCache / CaptchaCache
-│   ├── TokenBlacklist        # 退出 Token 黑名单（TTL=Token 剩余寿命）
-│   ├── SessionCache          # 用户会话列表（Redis List）
-│   ├── SmsCodeCache          # 短信验证码（Key=sms:code:{phone}:{scene}，TTL=5分钟）
-│   ├── SmsCodeLimitCache     # 短信发送限流（60秒内不可重发，IP/手机号双维度）
-│   ├── CaptchaCache          # 图形验证码（Key=captcha:{key}，TTL=2分钟，一次性）
-│   └── LoginFailCounter     # 登录失败计数器（Redis）
-└── config/            # AuthProperties（yml + JavaBean） / AuthConfig
-    ├── AuthProperties       # @ConfigurationProperties 绑定
-    └── AuthConfig           # Bean 装配（BCryptPasswordEncoder 等）
+│   ├── dto/           # RegisterRequestDTO / PasswordLoginDTO / EmailLoginDTO / RefreshTsuccessenDTO / Verify*DTO
+│   └── vo/            # TsuccessenVO / CaptchaImgVO / DeviceSessionVO / LoginUserInfoVO
+├── enums/             # EmailCodeUsage / EmailRedisKey（邮箱验证码用途与 Redis Key）
+├── constant/          # AuthCacheKey / CaptchaConstant / MailConstant / RateLimitConstant
+├── utils/             # CaptchaCodeUtil / IpUtil
+└── config/            # SaTokenWebConfig / AuthProperties / CaptchaProperties
+    ├── SaTokenWebConfig      # SaInterceptor 登录校验拦截器
+    ├── AuthProperties       # @ConfigurationProperties 绑定（认证参数）
+    └── CaptchaProperties    # 验证码参数绑定
 ```
 
 
@@ -159,26 +150,25 @@ litisle-auth
 
 ### 2.4 核心组件说明
 
-| 组件                 | 类型       | 职责                                                         |
-| -------------------- | ---------- | ------------------------------------------------------------ |
-| `AuthController`     | Controller | 暴露注册/登录/退出/刷新/图形验证码接口                       |
-| `OAuth2Controller`   | Controller | 暴露微信/QQ OAuth2 登录入口                                  |
-| `AuthService`        | Service    | 认证主流程编排，协调 user Feign、JWT、Session、黑名单        |
-| `SmsCodeService`     | Service    | 短信验证码生成、发送（对接短信网关）、校验、限流（基于 Redis，不落库） |
-| `CaptchaService`     | Service    | 图形验证码生成（Base64）、Redis 缓存、一次性校验             |
-| `JwtTokenProvider`   | Security   | JWT 签发（Access + Refresh）、解析 Claims、校验签名与过期    |
-| `SessionManager`     | Security   | 基于 Redis List 维护用户在线设备列表，新登录踢出超额设备     |
-| `OAuth2LoginHandler` | Strategy   | OAuth2 策略接口，统一定义微信/QQ 登录处理规范                |
-| `WechatHandler`      | Strategy   | 微信扫码登录实现：换取 access_token → 获取 openId/userInfo   |
-| `QQHandler`          | Strategy   | QQ 扫码登录实现                                              |
-| `TokenBlacklist`     | Redis      | 退出时将 Token 加入黑名单，TTL = Token 剩余寿命，自动过期清理 |
-| `SessionCache`       | Redis      | 用户会话列表存储（List 结构，按登录时间排序）                |
-| `SmsCodeCache`       | Redis      | 短信验证码存储，Key=`sms:code:{phone}:{scene}`，TTL=5分钟，校验后立即删除 |
-| `SmsCodeLimitCache`  | Redis      | 短信发送限流，60秒内同手机号/IP 不可重发，防刷                |
-| `CaptchaCache`       | Redis      | 图形验证码存储，Key=`captcha:{key}`，TTL=2分钟，一次性使用    |
-| `LoginFailCounter`   | Redis      | 登录失败次数计数，达到阈值后锁定账号                         |
-| `AuthProperties`     | Config     | yml 配置绑定 JavaBean，集中管理 JWT/Session/Login/Anonymous 参数 |
-| `AuthConfig`         | Config     | 装配 BCryptPasswordEncoder、JWT 解析器等 Bean                |
+> **⚠️ 登录态实现变更**：登录态由 **Sa-Token**（`StpUtil.login / logout / logoutByTokenValue`）管理，服务端会话失效即下线，**无需自建 Token 黑名单**。原设计的 `JwtTokenProvider` / `SessionManager` / `TokenBlacklist` / `SessionCache` 等自研 JWT 组件已废弃，不再实现。
+
+| 组件                           | 类型       | 职责                                                         |
+| ------------------------------ | ---------- | ------------------------------------------------------------ |
+| `AuthController`               | Controller | 注册 / 账密登录 / 邮箱验证码登录 / 退出 / 刷新 Token / GET /me |
+| `CaptchaController`            | Controller | 图形验证码下发与校验、邮箱验证码发送与校验                    |
+| `DeviceController`             | Controller | 在线设备列表、踢出指定设备                                    |
+| `OAuth2Controller`             | Controller | 第三方登录入口（**未实现，已注释保留**）                      |
+| `SmsController`                | Controller | 短信验证码（**未实现，已注释保留**）                          |
+| `AuthFeignProviderController`  | Controller | 实现 AuthClient 契约：forceLogout / verifyChangeEmail        |
+| `AuthService`                  | Service    | 认证主流程编排：注册校验、登录、Sa-Token 登录态、聚合用户信息 |
+| `CaptchaService`               | Service    | 图形验证码（Base64/一次性）+ 邮箱验证码（发送/校验/失败阈值自动失效强制重发） |
+| `DeviceSessionService`         | Service    | 在线设备会话管理，基于 Sa-Token 会话实现设备列表与踢出逻辑    |
+| `OAuth2LoginService`           | Service    | 第三方登录（**未实现，预留**）                                |
+| `SaTokenWebConfig`             | Config     | SaInterceptor 登录校验拦截器（白名单路径放行）                |
+| `AuthProperties`               | Config     | yml 配置绑定 JavaBean，集中管理认证/会话/锁定参数             |
+| `CaptchaProperties`            | Config     | 验证码参数绑定（TTL、长度、防爆破阈值等）                     |
+| `AuthCacheKey` / `EmailRedisKey` | Constant | Redis Key 规范（验证码、失败计数等临时态 Key）                |
+| `MailConstant` / `CaptchaConstant` / `RateLimitConstant` | Constant | 邮件模板与签名 / 验证码常量 / 限流阈值常量                |
 
 ### 2.5 数据模型（复用 user 库 + Redis 临时态）
 
@@ -193,44 +183,58 @@ litisle-auth
 
 **Redis 临时态（不落库，TTL 自动过期）**：
 
-| Key 模式                              | TTL     | 用途                                       |
-| ------------------------------------- | ------- | ------------------------------------------ |
-| `sms:code:{phone}:{scene}`            | 5 分钟  | 短信验证码（校验后立即 DEL）               |
-| `sms:limit:{phone}` / `sms:limit:{ip}`| 60 秒   | 短信发送限流（防刷）                       |
-| `captcha:{key}`                       | 2 分钟  | 图形验证码（一次性使用）                   |
-| `session:{userId}` (List)             | 7 天    | 在线设备会话列表                           |
-| `blacklist:token:{jti}`               | 剩余寿命 | 退出/踢出的 Token 黑名单                   |
-| `login:fail:{username}`               | 15 分钟 | 登录失败计数                               |
-| `login:lock:{username}`               | 15 分钟 | 账号锁定标志                               |
+| Key 模式                                              | TTL    | 用途                                            |
+| ---------------------------------------------------- | ------ | ----------------------------------------------- |
+| `ms:user:email:{usage}:{email}`                      | 5 分钟 | 邮箱验证码（一次性，连续错 3 次即失效强制重发） |
+| `ms:user:email:limit:email:{email}` / `limit:ip:{ip}` | 60 秒 | 邮箱验证码发送限流（防刷）                      |
+| `captcha:{key}`（Key 常量在 common-redis CacheConstant） | 3 分钟 | 图形验证码（一次性使用）                     |
+| `auth:refresh:{refreshToken}`                        | 7 天   | refreshToken → userId 映射（轮换一次性使用）    |
+| `auth:refresh:user:{userId}`                         | 7 天   | userId → refreshToken 映射（退出时清理）        |
+| `auth:device:{deviceId}` (Hash)                      | 随会话 | 设备会话 {userId, tokenValue, deviceName, ip…}  |
+| `auth:user:devices:{userId}` (Set)                   | 随会话 | 用户在线设备集合                                |
+
+> Sa-Token 会话本体（token、登录设备列表、踢出标记）由框架托管（timeout=86400 / max-login-count=2），不在业务 Key 范围内。
 
 > **设计原因**：
 > - auth 与 user 共享用户库，避免跨服务事务；
 > - 验证码/会话/黑名单等临时态数据走 Redis，TTL 自动过期，无需定时清理任务；
-> - 短信验证码不落库，避免写库压力与垃圾数据，如需审计可后续通过 MQ 异步入日志服务。
+> - 邮箱验证码不落库，避免写库压力与垃圾数据，如需审计可后续通过 MQ 异步入日志服务。
 
 ### 2.6 配置管理
 
-#### 2.6.1 AuthProperties 配置项
+#### 2.6.1 配置项（CaptchaProperties / AuthProperties / sa-token）
 
-使用 `@ConfigurationProperties(prefix = "litisle.security")` 将 yml 配置绑定到 JavaBean：
+**`@ConfigurationProperties(prefix = "litisle.captcha")` → CaptchaProperties**：
 
-| 配置路径                                    | 字段                     | 默认值 | 说明                       |
-| ------------------------------------------- | ------------------------ | ------ | -------------------------- |
-| `litisle.security.jwt.secret`               | `jwt.secret`             | -      | JWT 签名密钥（≥256 bits）  |
-| `litisle.security.jwt.access-token-expire`  | `jwt.accessTokenExpire`  | 1800   | Access Token 有效期（秒）  |
-| `litisle.security.jwt.remember-me-expire`   | `jwt.rememberMeExpire`   | 604800 | 记住我模式 Token TTL（秒） |
-| `litisle.security.jwt.refresh-token-expire` | `jwt.refreshTokenExpire` | 604800 | Refresh Token 有效期（秒） |
-| `litisle.security.session.max-concurrent`   | `session.maxConcurrent`  | 2      | 同账号最大在线数           |
-| `litisle.security.session.session-timeout`  | `session.sessionTimeout` | 604800 | 会话过期时间（秒）         |
-| `litisle.security.login.max-fail-count`     | `login.maxFailCount`     | 5      | 连续失败阈值               |
-| `litisle.security.login.lock-minutes`       | `login.lockMinutes`      | 15     | 锁定时长（分钟）           |
-| `litisle.security.anonymous.paths`          | `anonymous.paths`        | []     | 匿名访问白名单（兜底）     |
+| 配置路径                           | 字段             | 默认值 | 说明                                   |
+| ---------------------------------- | ---------------- | ------ | -------------------------------------- |
+| `litisle.captcha.img-ttl`          | `imgTtl`         | 180    | 图形验证码 TTL（秒）                   |
+| `litisle.captcha.email-ttl`        | `emailTtl`       | 300    | 邮箱验证码 TTL（秒）                   |
+| `litisle.captcha.limit-ttl`        | `limitTtl`       | 60     | 防刷窗口 TTL（秒）                     |
+| `litisle.captcha.limit-max`        | `limitMax`       | 5      | 窗口内最大发送次数                     |
+| `litisle.captcha.max-verify-fails` | `maxVerifyFails` | 3      | 邮箱码连续校验失败上限（防穷举爆破）   |
+
+**`@ConfigurationProperties(prefix = "litisle.auth")` → AuthProperties**：
+
+| 配置路径                            | 字段                 | 默认值 | 说明                      |
+| ----------------------------------- | -------------------- | ------ | ------------------------- |
+| `litisle.auth.refresh-token-expire` | `refreshTokenExpire` | 604800 | refreshToken 有效期（秒） |
+
+**`sa-token.*` → Sa-Token 框架配置**（application.yml）：
+
+| 配置项               | 当前值                  | 说明                       |
+| -------------------- | ----------------------- | -------------------------- |
+| `token-name/prefix`  | Authorization / Bearer  | 请求头与前缀               |
+| `timeout`            | 86400                   | Token 有效期（秒，1 天）   |
+| `active-timeout`     | 604800                  | 记住我有效期（秒，7 天）   |
+| `is-concurrent`      | true                    | 允许同账号多端登录         |
+| `max-login-count`    | 2                       | 同账号最大登录数，超出踢最旧 |
 
 #### 2.6.2 当前 yml 实现状态
 
-[litisle-auth/src/main/resources/application.yml](file:///e:/NewJavaPro/LitIsle/litisle-auth/src/main/resources/application.yml) 当前已配置基础项（JWT secret、access-token-expire、remember-me-expire、session.max-concurrent、login.max-fail-count），其余项依赖 `AuthProperties` 字段默认值。
+[litisle-auth/src/main/resources/application.yml](file:///e:/NewJavaPro/LitIsle/litisle-auth/src/main/resources/application.yml) 当前已配置：sa-token 全套参数、`litisle.captcha.*`（CaptchaProperties）、`litisle.auth.refresh-token-expire`（AuthProperties）、AES 加密密钥（common-security `crypto.key`）、邮件 SMTP（QQ 邮箱）。
 
-> **待办**：`AuthProperties` JavaBean 类尚未创建，开发 auth 模块时需先创建该类承载配置。
+> **待办**：`sa-token.jwt-secret-key` 当前为占位值，生产环境需通过环境变量 `LITISLE_JWT_SECRET` 注入；环境特定值（Nacos/Redis/邮箱）在 application-local 中维护。
 
 ### 2.7 关键业务流程
 
@@ -238,27 +242,21 @@ litisle-auth
 
 ```
 客户端
-  │ POST /auth/register（username + password + phone + captcha）
+  │ POST /auth/register（username + password + phone/email + captcha）
   ▼
 AuthController
   │
   ▼
 AuthService.register()
-  ├─① CaptchaService.verify(captchaKey, captcha)   # 校验图形验证码
+  ├─① CaptchaService.verifyImgCode()               # 校验图形验证码（一次性）
   ├─② DFA 校验用户名（敏感词过滤，复用 common-core）
-  ├─③ UserFeign.queryByPhone(phone, delFlag=0)     # 检查手机号是否已注册
-  │     └─ 存在 → 抛 USER_PHONE_EXISTS
-  ├─④ 检查冷却期：查询 (phone, 1) 注销记录
-  │     └─ cancel_time + 30天 > now() → 抛 USER_IN_COOLDOWN
-  │     └─ 冷却期已过 → 删除旧注销记录
-  ├─⑤ BCrypt 加密密码
-  ├─⑥ UserFeign.createUser(SysUser)                # 落库 sys_user
-  ├─⑦ 默认分配 READER 角色（UserFeign.bindDefaultRole）
-  └─⑧ JwtTokenProvider.issueTokens(userId, roles)  # 签发双 Token
-        └─ SessionManager.recordSession(userId, deviceId, token)
-              └─ 超过 max-concurrent → 踢出最旧设备（加入黑名单）
+  └─③ UserClient.createUser(RegisterUserDTO)       # 以下全部在 user 端一步完成：
+        ├─ 用户名/手机号/邮箱唯一性校验
+        ├─ AES-256-GCM 加密手机号/邮箱
+        ├─ BCrypt 加密密码，落库
+        └─ 默认分配 READER 角色
   ▼
-返回 TokenVO（accessToken + refreshToken + expiresIn）
+返回（注册成功不签发 Token，引导用户重新登录）
 ```
 
 #### 2.7.2 登录流程（三种方式归一化）
@@ -266,32 +264,26 @@ AuthService.register()
 **方式一：账号密码登录**
 
 ```
-POST /auth/login（username + password + captcha + rememberMe）
-  ├─① CaptchaService.verify()
-  ├─② LoginFailCounter.checkLocked(username)       # 检查是否锁定
-  ├─③ UserFeign.queryByUsername(username)
-  ├─④ BCrypt 校验密码
-  │     └─ 失败 → LoginFailCounter.incr(username)
-  │              └─ 达到 max-fail-count → 设置锁定 15 分钟
-  ├─⑤ 状态校验：status != NORMAL → 抛 USER_FROZEN/USER_CANCELLED
-  ├─⑥ UserFeign.queryRoles(userId)                 # 查角色列表
-  └─⑦ 签发 Token（rememberMe=true → remember-me-expire，否则 access-token-expire）
+POST /auth/login（username + password）
+  ├─① UserClient.findByAccount(username)           # 兼容用户名/手机号/邮箱聚合查询（含密码哈希/状态/角色/权限）
+  ├─② BCrypt 校验密码（common-security）
+  ├─③ 状态校验：status != NORMAL → 抛 USER_FROZEN/USER_CANCELLED
+  └─④ StpUtil.login(userId)                        # Sa-Token 登录（见下方统一登录动作）
 ```
 
 **方式二：手机验证码登录**
 
 ```
-POST /auth/sms-login（phone + smsCode）
-  ├─① SmsCodeService.verify(phone, code, scene=LOGIN)
-  │     └─ 失败/过期 → 抛 SMS_CODE_INVALID
-  ├─② UserFeign.queryByPhone(phone, delFlag=0)
-  │     └─ 不存在 → 抛 USER_NOT_FOUND（手机验证码登录不支持自动注册，需先注册）
+POST /auth/login/sms（email + emailCode，实际为邮箱验证码登录，路径名待调整）
+  ├─① CaptchaService.verifyEmailCode(usage=LOGIN)  # 邮箱验证码，一次性
+  │     └─ 失败/过期/连续错 3 次 → 抛验证码无效
+  ├─② UserClient.findByEmail(email)
+  │     └─ 不存在 → 抛 USER_NOT_FOUND（邮箱验证码登录不支持自动注册，需先注册）
   ├─③ 状态校验
-  ├─④ 查角色
-  └─⑤ 签发 Token
+  └─④ StpUtil.login(userId)
 ```
 
-**方式三：OAuth2 登录（策略模式）**
+**方式三：OAuth2 登录（策略模式，未实现，保留设计）**
 
 ```
 GET /auth/oauth/{provider}?code=xxx&state=xxx
@@ -304,19 +296,19 @@ GET /auth/oauth/{provider}?code=xxx&state=xxx
   │     └─ 未绑定 → 返回临时 token，前端引导绑定/注册新账号
   │                  └─ POST /auth/oauth/bind（tempToken + userId/phone）
   └─⑥ 签发 Token
+
+> **统一登录动作（三种方式共用）**：`StpUtil.login(userId)` → 同账号超 `max-login-count=2` 时框架自动踢出最旧会话 → SaSession 写入角色/权限等登录态 → 生成 refreshToken（`auth:refresh:*`，7 天，可轮换）→ 返回 `TsuccessenVO`（accessToken + refreshToken + expiresIn）。
 ```
 
 #### 2.7.3 Token 刷新流程
 
 ```
 POST /auth/refresh（refreshToken）
-  ├─① JwtTokenProvider.parse(refreshToken)
-  │     └─ 过期 → 抛 REFRESH_TOKEN_EXPIRED，前端跳登录
-  ├─② TokenBlacklist.contains(refreshToken)        # 检查黑名单
-  │     └─ 在黑名单 → 抛 TOKEN_INVALID
-  ├─③ UserFeign.queryRoles(userId)                 # 重新查角色（可能变更）
-  ├─④ 旧 refreshToken 加入黑名单（一次性使用）
-  └─⑤ 签发新双 Token
+  ├─① 查 Redis auth:refresh:{refreshToken} → userId
+  │     └─ 不存在（过期或已轮换）→ 抛 REFRESH_TOKEN_EXPIRED，前端跳登录
+  ├─② UserClient.getAuthUserInfo(userId)           # 重新查角色/权限（可能变更）
+  ├─③ 删除旧 refreshToken，生成新 refreshToken 写回（轮换，一次性使用）
+  └─④ 返回 TsuccessenVO（accessToken 为 Sa-Token 当前会话 token）
 ```
 
 
@@ -325,27 +317,24 @@ POST /auth/refresh（refreshToken）
 
 ```
 POST /auth/logout（Authorization: Bearer xxx）
-  ├─① JwtTokenProvider.parse(accessToken)
-  ├─② TokenBlacklist.add(accessToken, ttl=剩余寿命)
-  ├─③ TokenBlacklist.add(refreshToken, ttl=剩余寿命)
-  └─④ SessionManager.removeSession(userId, deviceId)
+  ├─① 删除 auth:refresh:user:{userId} 与 auth:refresh:{refreshToken}
+  ├─② StpUtil.logout()                             # 服务端会话失效，token 立即不可用，无需黑名单
+  └─③ 清理设备会话（auth:device:{deviceId} / auth:user:devices:{userId}）
 
 ```
 
 #### 2.7.5 在线设备管理流程
 
 ```
-SessionManager.recordSession(userId, deviceId, token)
-  ├─① Redis List: session:{userId}  RPUSH {deviceId:token:loginTime}
-  ├─② LLEN 检查长度
-  ├─③ 超过 max-concurrent：
-  │     └─ LPOP 取最旧会话
-  │     └─ 该会话的 Token 加入黑名单（TTL=剩余寿命）
-  │     └─ 发布踢出事件（可选：WebSocket 通知前端）
-  └─④ 更新会话过期时间
+登录成功后 DeviceSessionService 记录设备会话
+  ├─① SADD auth:user:devices:{userId} {deviceId}
+  ├─② HSET auth:device:{deviceId} {userId, tokenValue, deviceName, ip, loginTime, lastActiveTime}
+  ├─③ 同账号并发数由 Sa-Token 托管（max-login-count=2）：
+  │     └─ 超出时框架自动踢出最旧会话
+  └─④ 踢出指定设备 → logoutByTokenValue(tokenValue) + 移除设备会话记录
 ```
 
-#### 2.7.6 登录失败锁定流程
+#### 2.7.6 登录失败锁定流程（设计保留，暂未落地）
 
 ```
 LoginFailCounter.incr(username)
@@ -362,11 +351,12 @@ LoginFailCounter.incr(username)
 | 安全项           | 实现方式                                                |
 | ---------------- | ------------------------------------------------------- |
 | 密码存储         | BCrypt 加盐哈希（cost=10），不存明文                    |
-| Token 短效       | Access Token 30 分钟，降低泄露风险                      |
-| Refresh 一次性   | 刷新即失效旧 Refresh Token，防止重放                    |
-| 黑名单机制       | 退出/踢出的 Token 加入 Redis 黑名单，TTL=Token 剩余寿命 |
-| OAuth2 防 CSRF   | state 参数随机生成 + Redis 缓存，校验后销毁             |
-| 图形验证码       | 登录/注册强制，一次性使用，防止暴力破解                 |
+| Token 短效       | Sa-Token timeout=86400（1 天），active-timeout=604800（记住我 7 天） |
+| Refresh 轮换     | 刷新即删除旧 refreshToken 并生成新值（auth:refresh:* 一次性使用），防重放 |
+| 会话注销机制     | 退出/踢出走 Sa-Token 服务端会话注销（logout / logoutByTokenValue），无需黑名单 |
+| OAuth2 防 CSRF   | state 参数随机生成 + Redis 缓存，校验后销毁（未实现，保留设计） |
+| 图形验证码       | 注册强制、登录按需，一次性使用，防止暴力破解            |
+| 接口限流         | @RateLimiter 统一参数（RateLimitConstant，10 秒窗口/IP 维度） |
 | 登录失败锁定     | 连续 5 次失败锁定 15 分钟，Redis 计数                   |
 | 手机号脱敏       | 响应 VO 通过 `@Sensitive(strategy=PHONE)` 自动脱敏      |
 | 敏感 Header 过滤 | 网关层移除客户端伪造的 X-User-Id/X-Roles                |
@@ -407,59 +397,82 @@ LoginFailCounter.incr(username)
 | 角色叠加校验   | 同一用户可同时拥有多个角色，组合规则（如 LEGACY_AUTHOR 与 AUTHOR 互斥） |
 | VIP 状态       | 购买 VIP 后到期时间自动计算，到期前 7 天站内信提醒，到期后自动冻结 VIP 权益 |
 | 头像标识       | 普通用户无标识、作家金色头像框、纪念作家白色头像框           |
-| 注销账号       | 逻辑注销（`del_flag=1`），不可恢复，需二次确认，30 天冷却期  |
-| 关注/粉丝计数  | Redis String 存储，异步落库                                  |
+| 注销账号       | 逻辑注销（`del_flag=1`），不可恢复，需二次确认，30 天冷却期（控制器未实现） |
+| 关注/粉丝计数  | Redis String 存储，异步落库（控制器未实现）                  |
 | 角色申请审核   | READER 申请 AUTHOR → review 审核 → 通过则绑定角色 + 清缓存   |
-| 手机号明文查看 | 临时解密 + 审计日志（@AuditLog）                             |
+| 手机号/邮箱明文查看 | 临时解密 + 审计日志（@AuditLog，UserSensitiveController） |
+| 管理员用户管理 | /api/admin/users：分页/详情/改状态/角色分配/注销用户（UserAdminController） |
+| 封禁/解封      | 写 ban_log + frozen_until，联动 AuthClient.forceLogout 强制下线；到期 UserUnbanTask 自动解封 |
+| RBAC 权限      | sys_permission / sys_role_permission 权限体系，角色-权限关联查询 |
+| UID 搜索       | sys_user.uid 对外唯一标识，按 UID/用户名搜索用户（UserSearchController） |
 
 ### 3.3 代码架构（包结构）
 
 ```
 litisle-user
-├── controller/        # UserController / ProfileController
-│   ├── UserController        # 用户简要信息查询、角色查询、注销
-│   └── ProfileController     # 资料增改查、头像上传
-├── service/           # UserService / RoleService / VipStateService
-│   ├── UserService           # 账号增改查、注销、冷却期校验
-│   ├── RoleService           # 角色绑定/解绑、叠加校验、角色缓存
-│   └── VipStateService       # VIP 到期检查、冻结、到期提醒
-├── mapper/            # SysUserMapper / SysRoleMapper / SysUserRoleMapper / SysUserProfileMapper / SysOAuthBindingMapper
+├── controller/
+│   ├── UserProfileController        # 资料增改查、绑定/改绑邮箱
+│   ├── UserRoleController           # 角色列表、我的角色、查用户角色
+│   ├── UserAdminController          # /api/admin/users：分页/详情/改状态/封禁/解封/角色分配/注销用户
+│   ├── UserSearchController         # 按 UID/用户名搜索用户
+│   ├── UserSensitiveController      # 手机号/邮箱明文查看（@AuditLog 审计）
+│   ├── UserFeignProviderController  # 实现 UserClient 契约（getUserById/createUser/findByAccount/findByEmail/getAuthUserInfo）
+│   ├── AccountCancelController      # 注销账号（未实现，已注释保留）
+│   ├── VipController                # VIP 状态（未实现，已注释保留）
+│   └── FollowController             # 关注/粉丝计数（未实现，已注释保留）
+├── service/
+│   ├── UserService           # 注册（唯一性校验/AES 加密/READER 分配）、账号查询聚合
+│   ├── UserProfileService    # 资料管理
+│   ├── UserRoleService       # 用户角色查询/分配
+│   ├── UserAdminService      # 管理员侧：封禁/解封（联动 AuthClient.forceLogout）、注销用户
+│   ├── RoleService / PermissionService / RolePermissionService  # RBAC 角色-权限
+│   ├── OAuthBindingService   # OAuth 绑定（未实现，预留）
+│   └── UserBanLogService / UserCancelLogService  # 封禁/注销审计日志
+├── mapper/            # 9 张实体表对应 Mapper
 ├── domain/
-│   ├── entity/        # SysUser / SysRole / SysUserRole / SysUserProfile / SysOAuthBinding（已实现）
-│   ├── dto/           # UserUpdateDTO / RoleBindDTO / VipPurchaseDTO
-│   └── vo/            # UserDetailVO / UserProfileVO / UserBriefVO / RoleVO
-├── enums/             # UserStatus / AvatarColor / RoleType（已实现）
-├── constant/          # UserBizConstant（VIP 时长、默认头像、冷却期天数等）
-├── redis/             # RoleCache / VipCache / FollowCounter / FansCounter
-└── config/            # UserConfig
+│   ├── entity/        # User / UserProfile / Role / UserRole / OAuthBinding / Permission / RolePermission / UserBanLog / UserCancelLog（已实现）
+│   ├── dto/           # RegisterUserDTO / 管理员管理系列 DTO / Verify*DTO
+│   └── vo/            # 用户详情/简要/角色/权限 VO
+├── enums/             # AvatarColor / DelFlag / RoleType / PermTypeEnum / PermStatusEnum / UserBanAction / UserBanReason / UserCancelSource（UserStatus 已迁 common-core）
+├── constant/          # UserInfoConstant / UserLimitConstant
+├── utils/             # RoleUtils（角色聚合/判定工具）
+├── task/              # UserUnbanTask（封禁到期自动解封定时任务）
+└── config/            # AuditMetaObjectHandler（create_time/update_time 自动填充）
 ```
 
 ### 3.4 核心组件说明
 
-| 组件                | 类型       | 职责                                                |
-| ------------------- | ---------- | --------------------------------------------------- |
-| `UserController`    | Controller | 用户简要信息、角色查询、注销账号                    |
-| `ProfileController` | Controller | 资料增改查、头像上传（对接 litisle-file）           |
-| `UserService`       | Service    | 账号增改查、注销流程、冷却期校验、手机号加密/解密   |
-| `RoleService`       | Service    | 角色绑定/解绑、叠加规则校验、角色缓存维护           |
-| `VipStateService`   | Service    | VIP 到期检查（定时任务）、到期前 7 天提醒、到期冻结 |
-| `RoleCache`         | Redis      | 用户角色列表缓存（Set 结构），角色变更时清除        |
-| `VipCache`          | Redis      | VIP 状态缓存，避免频繁查库                          |
-| `FollowCounter`     | Redis      | 关注计数（String incr/decr），异步落库              |
-| `FansCounter`       | Redis      | 粉丝计数（String incr/decr），异步落库              |
-| `UserConfig`        | Config     | 装配 Bean（密码加密器、手机号加密密钥等）           |
+| 组件                            | 类型       | 职责                                                         |
+| ------------------------------- | ---------- | ------------------------------------------------------------ |
+| `UserProfileController`         | Controller | 资料增改查、绑定/改绑邮箱                                     |
+| `UserRoleController`            | Controller | 角色列表、我的角色、查用户角色                                |
+| `UserAdminController`           | Controller | 管理员侧：分页/详情/改状态/封禁/解封/角色分配/注销用户        |
+| `UserSearchController`          | Controller | 按 UID/用户名搜索用户                                         |
+| `UserSensitiveController`       | Controller | 手机号/邮箱明文查看（@AuditLog 审计）                         |
+| `UserFeignProviderController`   | Controller | 实现 UserClient 契约五个方法                                  |
+| `UserService`                   | Service    | 注册（唯一性校验/AES 加密/READER 分配）、账号查询聚合         |
+| `UserAdminService`              | Service    | 封禁/解封（写 ban_log + frozen_until，联动 forceLogout）、注销用户（写 cancel_log） |
+| `RoleService` / `PermissionService` / `RolePermissionService` | Service | RBAC：角色、权限、角色-权限关联                    |
+| `UserBanLogService` / `UserCancelLogService` | Service | 封禁/注销审计日志落库                        |
+| `RoleUtils`                     | Utils      | 角色聚合与判定工具                                            |
+| `UserUnbanTask`                 | Task       | 封禁到期自动解封定时任务                                      |
+| `AuditMetaObjectHandler`        | Config     | MyBatis-Plus create_time/update_time 自动填充                 |
 
 ### 3.5 数据模型
 
 #### 3.5.1 表清单
 
-| 表名                | 已实现实体        | 说明                                     |
-| ------------------- | ----------------- | ---------------------------------------- |
-| `sys_user`          | ✅ SysUser         | 用户主表（账号/密码/手机号/状态）        |
-| `sys_role`          | ✅ SysRole         | 角色表（6 角色初始化数据）               |
-| `sys_user_role`     | ✅ SysUserRole     | 用户-角色关联表（多对多）                |
-| `sys_user_profile`  | ✅ SysUserProfile  | 用户资料扩展表（笔名/创作方向/头像标识） |
-| `sys_oauth_binding` | ✅ SysOAuthBinding | OAuth 绑定表（物理删除 + 审计）          |
+| 表名                  | 已实现实体      | 说明                                        |
+| --------------------- | --------------- | ------------------------------------------- |
+| `sys_user`            | ✅ User          | 用户主表（账号/密码/uid/手机号/邮箱/状态/头像标识/封禁截止） |
+| `sys_role`            | ✅ Role          | 角色表（6 角色初始化数据）                  |
+| `sys_user_role`       | ✅ UserRole      | 用户-角色关联表（多对多，独立 id 主键）     |
+| `sys_user_profile`    | ✅ UserProfile   | 用户资料扩展表（笔名/创作方向，avatarColor 已迁主表） |
+| `sys_oauth_binding`   | ✅ OAuthBinding  | OAuth 绑定表（物理删除 + 审计，未实现预留） |
+| `sys_permission`      | ✅ Permission    | RBAC 权限表（permCode/permType/path/component，树形菜单） |
+| `sys_role_permission` | ✅ RolePermission | 角色-权限关联表                          |
+| `sys_user_ban_log`    | ✅ UserBanLog    | 封禁审计表（动作/原因/截止时间/操作人）     |
+| `sys_user_cancel_log` | ✅ UserCancelLog | 注销审计表（来源/原因/操作人）              |
 
 #### 3.5.2 实体关系图
 
@@ -473,6 +486,8 @@ litisle-user
 │ phone (加密)  │     │ role_type    │
 │ email        │     │ create_time  │
 │ avatar       │     └──────┬───────┘
+│ uid          │            │
+│ avatar_color │            │
 │ bio          │            │
 │ vip_expire   │            │ M:N
 │ frozen_until │            │
@@ -493,8 +508,9 @@ litisle-user
 │ pen_name         │
 │ creation_dir     │
 │ masterpiece      │
-│ avatar_color     │
 │ version          │
+
+> 注：avatar_color 已从 profile 表迁入 sys_user 主表。
 └──────────────────┘
 
        │ 1:N
@@ -518,40 +534,62 @@ litisle-user
 
 #### 3.5.3 已实现的实体字段映射（与 SQL 对齐）
 
-**SysUser**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/SysUser.java)）：
+**User**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/User.java)）：
 
-- 字段：id / username / password / phone / avatar / bio / vipExpireTime / frozenUntil / cancelTime / status / delFlag / version / createTime / updateTime
-- `status` 用 `UserStatus` 枚举（DISABLED/NORMAL/CANCELLED），`@EnumValue` 映射
-- `version` 用 `@Version` 乐观锁
-- 校验注解：用户名/密码/手机号格式（jakarta.validation）
+- 字段：id / username / **uid（对外唯一标识，随机生成永久不变）** / password / phone / email / avatar / **avatarColor** / bio / vipExpireTime / frozenUntil / cancelTime / status / delFlag / version / createTime / updateTime
+- `status` 用 `UserStatus` 枚举（**已迁 common-core**），`delFlag` 用 `DelFlag` 枚举（user 模块），`@EnumValue` 映射
+- `avatarColor` 用 `AvatarColor` 枚举（NONE/GOLD/WHITE），**已从 profile 表迁入主表**
+- `version` 用 `@Version` 乐观锁；`createTime/updateTime` 由 `AuditMetaObjectHandler` 自动填充
+- 校验注解：用户名/密码格式、手机号 @Pattern、邮箱 @Email（jakarta.validation）
 
-**SysUserProfile**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/SysUserProfile.java)）：
+**UserProfile**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/UserProfile.java)）：
 
-- 字段：id / userId / penName / creationDir / masterpiece / avatarColor / version / createTime / updateTime
-- `avatarColor` 用 `AvatarColor` 枚举（NONE/GOLD/WHITE），`@EnumValue` 映射
-- **不设 del_flag**（删除状态以主表为准）
+- 字段：id / userId / penName / creationDir / masterpiece / version / createTime / updateTime
+- `avatarColor` 已移除（迁入主表）；**不设 del_flag**（删除状态以主表为准）
 
-**SysOAuthBinding**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/SysOAuthBinding.java)）：
+**Role**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/Role.java)）：
+
+- 字段：id / roleCode / roleName / roleType / createTime
+
+**UserRole**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/UserRole.java)）：
+
+- 字段：id / userId / roleId（**独立 id 主键**，非复合主键）
+
+**OAuthBinding**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/OAuthBinding.java)）：
 
 - 字段：id / userId / provider / appId / openId / unionId / createTime / updateTime
 - **物理删除**（解绑直接 DELETE），由 `@AuditLog` 记录审计
 
-**SysRole**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/SysRole.java)）：
+**Permission**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/Permission.java)）：
 
-- 字段：id / roleCode / roleName / roleType / createTime
-- `roleType` 用 `RoleType` 枚举（SYSTEM/BUSINESS）
+- 字段：id / parentId / permCode / permName / permType / path / component / icon / sort / status / createTime / updateTime
+- RBAC 权限表，parentId 支持树形菜单结构
 
-**SysUserRole**（[查看代码](file:///e:/NewJavaPro/LitIsle/lit-isle-user/src/main/java/com/litisle/litisleuser/domain/entity/SysUserRole.java)）：
+**RolePermission**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/RolePermission.java)）：
 
-- 复合主键（userId + roleId），无独立 id
+- 字段：roleId / permissionId（角色-权限关联）
+
+**UserBanLog**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/UserBanLog.java)）：
+
+- 字段：id / userId / username / roleCode / action / reason / frozenUntil / operatorId / operatorName / createTime
+
+**UserCancelLog**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/UserCancelLog.java)）：
+
+- 字段：id / userId / username / roleCode / source / reason / operatorId / operatorName / createTime
 
 #### 3.5.4 已实现的枚举
 
-| 枚举          | 位置                                                         | 值                                     |
-| ------------- | ------------------------------------------------------------ | -------------------------------------- |
-| `UserStatus`  | [enums/UserStatus.java](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/enums/UserStatus.java) | DISABLED(0) / NORMAL(1) / CANCELLED(2) |
-| `AvatarColor` | [enums/AvatarColor.java](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/enums/AvatarColor.java) | NONE(0) / GOLD(1) / WHITE(2)           |
-| `RoleType`    | [enums/RoleType.java](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/enums/RoleType.java) | SYSTEM(1) / BUSINESS(2)                |
+| 枚举               | 位置             | 值                                     |
+| ------------------ | ---------------- | -------------------------------------- |
+| `UserStatus`       | **common-core**  | DISABLED(0) / NORMAL(1) / CANCELLED(2) |
+| `DelFlag`          | user 模块 enums  | 0-未删除 / 1-已删除                    |
+| `AvatarColor`      | user 模块 enums  | NONE(0) / GOLD(1) / WHITE(2)           |
+| `RoleType`         | user 模块 enums  | SYSTEM(1) / BUSINESS(2)                |
+| `PermTypeEnum`     | user 模块 enums  | 权限类型（详见代码）                   |
+| `PermStatusEnum`   | user 模块 enums  | 权限状态（详见代码）                   |
+| `UserBanAction`    | user 模块 enums  | 封禁动作（详见代码）                   |
+| `UserBanReason`    | user 模块 enums  | 封禁原因（详见代码）                   |
+| `UserCancelSource` | user 模块 enums  | 注销来源（详见代码）                   |
 
 ### 3.6 关键业务流程
 
@@ -674,6 +712,19 @@ FollowService.follow(A, B)（social 服务发起）
   └─ 优先读 Redis，未命中读库并回填
 ```
 
+#### 3.6.6 管理员封禁/解封流程
+
+```
+管理员封禁（POST /api/admin/users/{id}/ban）
+  ├─① 写 sys_user_ban_log（action/reason/frozenUntil/operator）
+  ├─② UPDATE sys_user SET frozen_until=截止时间, status=DISABLED（乐观锁）
+  ├─③ 调 AuthClient.forceLogout(userId) 强制下线全部在线会话
+  └─④ 到期自动解封：UserUnbanTask 定时扫描 frozen_until < now()
+        └─ 恢复 status=NORMAL、清 frozen_until、补写解封 ban_log
+
+注销用户（管理员侧）：写 sys_user_cancel_log（source=ADMIN）+ 逻辑注销 + 强制下线
+```
+
 ### 3.7 安全策略
 
 | 安全项           | 实现方式                                                     |
@@ -692,7 +743,7 @@ FollowService.follow(A, B)（social 服务发起）
 
 | 交互对象          | 方式       | 内容                                                    |
 | ----------------- | ---------- | ------------------------------------------------------- |
-| `litisle-auth`    | Feign 被调 | 提供用户查询/创建、角色查询、OAuth 绑定                 |
+| `litisle-auth`    | Feign 双向 | user 提供 UserClient（查询/创建/聚合查询）；user 调 auth 的 AuthClient（forceLogout 强制下线/verifyChangeEmail 验码） |
 | `litisle-content` | Feign 被调 | 提供作者信息、头像标识                                  |
 | `litisle-social`  | Feign 被调 | 提供用户简要信息（关注/粉丝列表展示）                   |
 | `litisle-payment` | Feign 被调 | VIP 激活通知（payment 购买 VIP 后调用 VipStateService） |
@@ -717,47 +768,47 @@ FollowService.follow(A, B)（social 服务发起）
 │  sys_user_profile  ← user 管理（主）     │
 │  sys_oauth_binding ← user 管理实体       │
 │                    ← auth 读写绑定关系   │
+│  sys_permission / sys_role_permission ← user 管理 │
+│  sys_user_ban_log / sys_user_cancel_log ← user 管理 │
 └─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
 │           Redis（临时态，不落库）        │
 │─────────────────────────────────────────│
-│  sms:code:*        ← auth 独占（验证码）  │
-│  captcha:*         ← auth 独占（图形码）  │
-│  session:*         ← auth 独占（会话列表）│
-│  blacklist:token:* ← auth 独占（黑名单）  │
-│  login:fail/lock:* ← auth 独占（锁定）    │
+│  ms:user:email:*   ← auth 独占（邮箱验证码+限流）│
+│  captcha:*         ← auth 独占（图形码，Key 在 common-redis）│
+│  auth:refresh:*    ← auth 独占（refreshToken 轮换）│
+│  auth:device:*     ← auth 独占（设备会话）│
+│  （Sa-Token 会话本体由框架托管）          │
 └─────────────────────────────────────────┘
 ```
 
 **共享规则**：
 - 持久化表的"主管理者"负责实体定义与 DDL 维护
 - auth 模块复用 user 的实体类（通过 litisle-api 共享或直接依赖）
-- 短信验证码 / 图形验证码 / 会话 / 黑名单 / 登录失败计数均走 Redis，不落库，由 auth 独占管理
-- 如需对短信发送记录做审计/运营商对账，后续通过 MQ 异步入日志服务，不影响主流程
+- 邮箱验证码 / 图形验证码 / refreshToken / 设备会话均走 Redis，不落库，由 auth 独占管理
+- 如需对验证码发送记录做审计，后续通过 MQ 异步入日志服务，不影响主流程
 
 ### 4.2 Feign 调用链
 
 ````
 litisle-auth                              litisle-user
     │                                          │
-    │  UserFeignApi.queryByUsername(username)  │
-    │─────────────────────────────────────────▶│ UserService.queryByUsername
+    │  UserClient.getUserById(userId)          │
+    │─────────────────────────────────────────▶│ UserFeignProviderController
+    │  UserClient.createUser(RegisterUserDTO)  │
+    │─────────────────────────────────────────▶│ 唯一性校验+AES 加密+READER 分配
+    │  UserClient.findByAccount(account)       │
+    │─────────────────────────────────────────▶│ 聚合认证信息（密码哈希/状态/角色/权限）
+    │  UserClient.findByEmail(email)           │
+    │─────────────────────────────────────────▶│ 邮箱验证码登录查账号
+    │  UserClient.getAuthUserInfo(userId)      │
+    │─────────────────────────────────────────▶│ /auth/me 聚合（角色/权限/作家资料）
     │                                          │
-    │  UserFeignApi.queryByPhone(phone, del)   │
-    │─────────────────────────────────────────▶│ UserService.queryByPhone
-    │                                          │
-    │  UserFeignApi.createUser(SysUser)        │
-    │─────────────────────────────────────────▶│ UserService.create
-    │                                          │
-    │  UserFeignApi.queryRoles(userId)         │
-    │─────────────────────────────────────────▶│ RoleService.queryByUserId
-    │                                          │
-    │  UserFeignApi.bindOAuth(binding)         │
-    │─────────────────────────────────────────▶│ OAuthBindingService.bind
-    │                                          │
-    │  UserFeignApi.checkCooldown(phone)       │
-    │─────────────────────────────────────────▶│ UserService.checkCooldown
+    │  AuthClient.forceLogout(userId)          │
+    │◀─────────────────────────────────────────│ UserAdminService（封禁/注销用户）
+    │  AuthClient.verifyChangeEmail(dto)       │
+    │◀─────────────────────────────────────────│ UserProfileService（改绑邮箱）
     ▼                                          ▼
 
 ```

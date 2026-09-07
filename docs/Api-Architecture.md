@@ -114,42 +114,25 @@
 
 ### 2.1 现状
 
-| 内容                   | 状态     | 位置                       |
-| ---------------------- | -------- | -------------------------- |
-| pom.xml                | ✅ 已配置 | pom.xml                    |
-| LitisleApiApplication  | ✅ 已实现 | LitisleApiApplication.java |
-| application.properties | ✅ 空配置 | application.properties     |
-| feign/ 包              | ⏳ 待实现 | -                          |
-| dto/ 包                | ⏳ 待实现 | -                          |
-| vo/ 包                 | ⏳ 待实现 | -                          |
-| event/ 包              | ⏳ 待实现 | -                          |
-| enums/ 包              | ⏳ 待实现 | -                          |
-| constant/ 包           | ⏳ 待实现 | -                          |
-| result/ 包             | ⏳ 待实现 | -                          |
+| 内容            | 状态 | 说明                                             |
+| --------------- | ---- | ------------------------------------------------ |
+| pom.xml         | ✅   | 纯 jar 契约库（无 boot 插件/启动依赖）           |
+| 启动类/配置文件 | ✅   | 已删除                                           |
+| feign/ 包       | ✅   | UserClient / AuthClient（含 fallback 降级）      |
+| config/ 包      | ✅   | FeignApiConfig（超时/重试统一配置）              |
+| fallback/ 包    | ✅   | AuthClientFallbackFactory / UserClientFallbackFactory |
+| dto/ 包         | ✅   | auth / captcha / user 子包                       |
+| vo/ 包          | ⚠️   | 未独立成包（TokenVO/OAuthAuthorizeVO 暂放 dto/auth） |
+| event/ 包       | ⚠️   | 仅 UserRegisteredEvent（空类，字段待补）         |
+| enums/ 包       | ⚠️   | 仅 RegisterSourceEnum，其余共享枚举待实现        |
+| constant/ 包    | ✅   | MqConstant / BizCacheKey / FeignConstant         |
+| result/ 包      | ❌   | 不再需要（ErrorCode 由 common-core 统一维护）    |
 
 ### 2.2 待修正项
 
-**⚠️ 启动类问题**：LitisleApiApplication.java 含 `@SpringBootApplication`，但 `litisle-api` 是契约库（jar 依赖），不是独立运行的微服务。
+**✅ 已全部完成**：启动类/application.properties 已删除，pom.xml 已移除 spring-boot-maven-plugin 与 spring-boot-starter，Feign/Jackson/Validation/Lombok 依赖已补齐（另依赖 common-security、spring-web）。
 
-**建议**：
-
-- 
-
-  删除 `LitisleApiApplication.java`
-
-- 
-
-  删除 `application.properties`
-
-- 
-
-  pom.xml 移除 `spring-boot-maven-plugin`
-
-- 
-
-  pom.xml 移除 `spring-boot-starter`，改为依赖 `spring-cloud-openfeign-core` + `lombok`
-
-**⚠️ 依赖缺失**：pom.xml 未引入 Feign、Jackson、Validation、Lombok 等契约库必需依赖。
+> **残留待清理**：test 目录下的 `LitisleApiApplicationTests.java` 仍引用已删除的启动类，编译会报错，需确认后处理。
 
 ------
 
@@ -161,115 +144,51 @@ litisle-api
 
 ├── feign/
 
-│   ├── UserFeignApi
+│   ├── UserClient            # ✅ 用户服务契约
 
-│   ├── ContentFeignApi
+│   ├── AuthClient            # ✅ 认证服务契约
 
-│   ├── ReviewFeignApi
+│   ├── ContentFeignApi       # ⏳ 待实现
 
-│   ├── AiFeignApi
+│   ├── ReviewFeignApi / AiFeignApi / SocialFeignApi / PaymentFeignApi / ShopFeignApi / FileFeignApi / NotificationFeignApi  # ⏳ 待实现
 
-│   ├── SocialFeignApi
+│   └── ...
 
-│   ├── PaymentFeignApi
+├── config/
 
-│   ├── ShopFeignApi
+│   └── FeignApiConfig        # ✅ 超时/重试统一配置
 
-│   ├── FileFeignApi
+├── fallback/
 
-│   ├── NotificationFeignApi
+│   ├── AuthClientFallbackFactory   # ✅
 
-│   └── config/
-
-│       └── FeignApiConfig
+│   └── UserClientFallbackFactory   # ✅（UserClient 当前未启用，待统一）
 
 ├── dto/
 
-│   ├── user/
+│   ├── auth/                 # ✅ RegisterUserDTO 等（TokenVO/OAuthAuthorizeVO 暂放此处）
 
-│   ├── content/
+│   ├── captcha/              # ✅
 
-│   ├── review/
+│   ├── user/                 # ✅
 
-│   ├── ai/
-
-│   ├── social/
-
-│   ├── payment/
-
-│   ├── shop/
-
-│   └── file/
-
-├── vo/
-
-│   ├── user/
-
-│   ├── content/
-
-│   ├── review/
-
-│   ├── ai/
-
-│   ├── social/
-
-│   ├── payment/
-
-│   └── file/
+│   └── content/ review/ ...  # ⏳ 待实现
 
 ├── event/
 
-│   ├── content/
-
-│   ├── review/
-
-│   ├── user/
-
-│   ├── social/
-
-│   ├── payment/
-
-│   └── notification/
+│   └── user/UserRegisteredEvent  # ⚠️ 空类，eventId/eventTime/traceId 字段待补
 
 ├── enums/
 
-│   ├── RoleEnum
+│   └── RegisterSourceEnum    # ✅ WEB/APP/MINI_PROGRAM（其余共享枚举待实现）
 
-│   ├── ZoneEnum
+└── constant/
 
-│   ├── RiskLevelEnum
+    ├── MqConstant            # ✅
 
-│   ├── SceneEnum
+    ├── BizCacheKey           # ✅ biz: 前缀业务缓存 Key
 
-│   ├── ArticleStatusEnum
-
-│   ├── BookStatusEnum
-
-│   ├── ReviewStateEnum
-
-│   ├── OrderStatusEnum
-
-│   ├── MessageTypeEnum
-
-│   ├── AgentTypeEnum
-
-│   ├── ProviderEnum
-
-│   └── BizTypeEnum
-
-├── constant/
-
-│   ├── MqConstant
-
-│   ├── CacheConstant
-
-│   ├── HeaderConstant
-
-│   └── FeignConstant
-
-└── result/
-
-└── ErrorCode
+    └── FeignConstant         # ✅ 服务名常量（Header 名复用 common-core HeaderConstant）
 
 ------
 
@@ -277,27 +196,40 @@ litisle-api
 
 ### 4.1 设计规范
 
-| 规范项   | 说明                                  |
-| -------- | ------------------------------------- |
-| 接口命名 | `{Service}FeignApi`                   |
-| 服务名   | `@FeignClient(name = "litisle-user")` |
-| 路径前缀 | `/api/feign/{service}`                |
-| 返回值   | `Result<T>`                           |
-| 入参     | 可序列化                              |
-| 文件传输 | 通过 `fileId`                         |
-| 幂等性   | 调用方加 `@Idempotent`                |
+| 规范项       | 说明                                                    |
+| ------------ | ------------------------------------------------------- |
+| 接口命名     | `{Service}Client`（如 `UserClient` / `AuthClient`）      |
+| 服务名       | `@FeignClient(name = "litisle-user")`                   |
+| 配置         | `configuration = FeignApiConfig.class`（超时/重试统一） |
+| 路径前缀     | `/api/feign/{service}`                                  |
+| 返回值       | `Result<T>`                                             |
+| 入参         | 可序列化                                                |
+| 降级         | `fallbackFactory` 指向 `fallback/` 包的工厂类（见下）   |
+| 文件传输     | 通过 `fileId`                                           |
+| 幂等性       | 调用方加 `@Idempotent`                                  |
 
-### 4.2 UserFeignApi（用户服务契约）
+> **降级语义**：提供方业务异常 → 全局异常处理器转 `Result.fail` → Feign 正常解码，**不触发降级**；网络层失败 / 5xx → 触发 `XxxClientFallbackFactory`，降级方法内抛 `BizException` 穿透到调用方，由调用方全局异常处理器兜底。
 
-| 方法              | 路径                                         | 入参            | 出参          | 说明           |
-| ----------------- | -------------------------------------------- | --------------- | ------------- | -------------- |
-| `queryById`       | GET `/api/feign/user/{id}`                   | id              | `UserBriefVO` | 查用户简要信息 |
-| `queryByUsername` | GET `/api/feign/user/username/{username}`    | username        | `UserBriefVO` | 登录查账号     |
-| `queryByPhone`    | GET `/api/feign/user/phone/{phone}`          | phone           | `UserBriefVO` | 手机号查询     |
-| `createUser`      | POST `/api/feign/user`                       | `UserCreateDTO` | Long          | 注册用户       |
-| `queryRoles`      | GET `/api/feign/user/{id}/roles`             | id              | `UserRolesVO` | 查角色         |
-| `bindRole`        | POST `/api/feign/user/{id}/roles/{roleCode}` | id, roleCode    | Void          | 绑定角色       |
-| `cancelAccount`   | POST `/api/feign/user/{id}/cancel`           | id              | Void          | 注销账号       |
+### 4.2 UserClient（用户服务契约，由 litisle-user 实现提供方）
+
+| 方法              | 路径                                    | 入参              | 出参          | 说明                                                |
+| ----------------- | --------------------------------------- | ----------------- | ------------- | --------------------------------------------------- |
+| `getUserById`     | GET `/api/feign/user/{userId}`          | userId            | `UserDTO`     | 查用户基本信息                                      |
+| `createUser`      | POST `/api/feign/user`                  | `RegisterUserDTO` | `AuthUserDTO` | 注册：唯一性校验 + AES 加密手机/邮箱 + 分配 READER  |
+| `findByAccount`   | GET `/api/feign/user/account/{account}` | account           | `AuthUserDTO` | 兼容用户名/手机号/邮箱，返回认证聚合信息（含密码哈希、状态、角色、权限） |
+| `findByEmail`     | GET `/api/feign/user/email/{email}`     | email             | `AuthUserDTO` | 邮箱验证码登录查账号                                |
+| `getAuthUserInfo` | GET `/api/feign/user/auth/{userId}`     | userId            | `AuthUserDTO` | `/auth/me` 用：角色、权限、作家扩展资料             |
+
+> OAuth 相关契约（`findByOAuth` / `createUserByOAuth` / `bindOAuth` / `unbindOAuth`）已预留注释，暂不实现。
+
+### 4.3 AuthClient（认证服务契约，由 litisle-auth 实现提供方）
+
+| 方法                | 路径                                          | 入参                    | 出参 | 说明                                                         |
+| ------------------- | --------------------------------------------- | ----------------------- | ---- | ------------------------------------------------------------ |
+| `forceLogout`       | DELETE `/api/feign/user/{userId}/sessions`    | userId                  | Void | 强制下线全部在线会话（Sa-Token 会话 + 设备记录 + refreshToken），user 管理员注销/封号时调用 |
+| `verifyChangeEmail` | POST `/api/feign/captcha/change-email/verify` | `ChangeEmailVerifyDTO`  | Void | 改绑邮箱双码校验（图形码 → 邮箱码，均一次性消费，防爆破）    |
+
+> **调用方向变更**：auth ⇄ user 为**双向 Feign**——auth 调 `UserClient` 查/建用户；user 调 `AuthClient` 强制下线/验码。
 
 ------
 
@@ -383,19 +315,16 @@ SUPER_ADMIN("SUPER_ADMIN", "超级管理员")
 
 ## 九、共享常量设计
 
-### 9.1 HeaderConstant 示例
+### 9.1 HeaderConstant（复用 common-core）
 
-X-User-Id
+Header 名统一由 common-core 的 `HeaderConstant` 维护（X-User-Id / X-Roles / X-Trace-Id），litisle-api 不重复定义。
 
-X-Roles
+### 9.2 BizCacheKey（biz: 前缀规范）
 
-X-Trace-Id
+业务缓存 Key 统一 `biz:` 前缀，与 common 层通用 Key（如 captcha:）分层：
 
-### 9.2 CacheConstant 示例
-
-user:role:
-
-article:hot:
+- `biz:user:role:{userId}` — 用户角色缓存
+- 内容类 Key（如 article:hot:）待 content 模块落地时补充
 
 ------
 
