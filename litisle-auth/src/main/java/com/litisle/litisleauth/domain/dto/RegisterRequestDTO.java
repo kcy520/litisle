@@ -1,5 +1,6 @@
 package com.litisle.litisleauth.domain.dto;
 
+import com.litisle.litisleapi.enums.RegisterSourceEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 import lombok.Data;
@@ -62,5 +63,7 @@ public class RegisterRequestDTO {
      * */
 //    @Schema(hidden = true)
             //在swagger接口的页面隐藏此字段
-    private String source = "WEB";
+//    private String source = "WEB";
+    @Schema(description = "注册来源", implementation = RegisterSourceEnum.class)
+    private RegisterSourceEnum source = RegisterSourceEnum.WEB;
 }

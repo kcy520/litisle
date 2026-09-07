@@ -1,5 +1,6 @@
 package com.litisle.litisleapi.dto.user;
 
+import com.litisle.litisleapi.enums.RegisterSourceEnum;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -38,5 +39,5 @@ public class RegisterUserDTO implements Serializable {
     private String email;
 
     /** 注册来源（WEB / APP / MINI_PROGRAM） */
-    private String source;
+    private RegisterSourceEnum source;
 }

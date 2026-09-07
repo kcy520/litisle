@@ -72,6 +72,7 @@ public class AuthServiceImpl implements AuthService {
                 .setPhone(dto.getPhone())
                 .setEmail(dto.getEmail())
                 .setSource(dto.getSource());
+
         Result<AuthUserDTO> result = userClient.createUser(registerUser);
 
         if (!result.isSuccess() || result.getData() == null) {
