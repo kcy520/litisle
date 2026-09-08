@@ -38,6 +38,9 @@ docker-compose stop
  docker-compose down
  docker-compose up -d
 
+ //sentinel
+ docker compose --profile obs up -d litisle-sentinel
+
  //自动创建缺失的容器
  cd /d e:\NewJavaPro\LitIsle &&  docker-compose up -d
 

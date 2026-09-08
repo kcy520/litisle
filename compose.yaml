@@ -103,6 +103,28 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # --------------------------------------------------------------------------
+  # Sentinel Dashboard - 流控/熔断控制台（obs 组，按需启动）
+  # 控制台地址：http://localhost:8090
+  # 启动方式：docker compose --profile obs up -d litisle-sentinel
+  # --------------------------------------------------------------------------
+  litisle-sentinel:
+    build:
+      context: ./docker/init/sentinel
+      dockerfile: Dockerfile
+    image: sentinel-dashboard:1.8.9
+    container_name: litisle-sentinel
+    profiles:
+      - obs
+    networks:
+      - litisle-network
+    environment:
+      # SERVER_PORT：Spring Boot 原生识别的环境变量，确保容器内监听端口与映射一致
+      - SERVER_PORT=8090
+    ports:
+      - "8090:8090"
+    restart: unless-stopped
+
 # ============================================================================
 # 网络配置
 # ============================================================================

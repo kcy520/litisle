@@ -191,6 +191,9 @@ logging:
   pattern:
     # 控制台日志格式（%X{traceId} 输出链路追踪 ID）
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
+  level:
+    # Feign 客户端日志（配合 FeignApiConfig 的 Logger.Level.BASIC 才会输出请求方法/URL/状态码/耗时）
+    com.litisle.litisleapi.feign: DEBUG
 
 # ================================
 # Knife4j API 文档配置
