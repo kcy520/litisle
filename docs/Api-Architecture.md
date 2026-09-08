@@ -205,10 +205,16 @@ litisle-api
 | 返回值       | `Result<T>`                                             |
 | 入参         | 可序列化                                                |
 | 降级         | `fallbackFactory` 指向 `fallback/` 包的工厂类（见下）   |
+| 生效前提     | ① 调用方启用 Sentinel Feign 适配：pom 添加 `spring-cloud-starter-alibaba-sentinel`，yml 配置 `spring.cloud.openfeign.sentinel.enabled: true`（建议放 Nacos 共享模板）；② 降级工厂 Bean 由 litisle-api 的 `FeignFallbackAutoConfiguration` 自动注册（`META-INF/spring/...AutoConfiguration.imports`），业务服务零改动 |
+| 判码规范     | 调用方必须手动判 `result.isSuccess()`（或 `result.getCode()`），**禁止把 `Result.fail` 当成功数据处理** |
+| 降级错误码   | 工厂内统一抛 `ErrorCode.REMOTE_SERVICE_ERROR`，不伪造业务错误码；登录链路降级禁止返回"用户不存在"语义 |
+| 写操作降级   | 核心写操作 fail-fast 穿透，禁止静默降级为成功；旁路写操作（如 forceLogout）可"尽力而为"，需注释说明并确保有后续兜底 |
 | 文件传输     | 通过 `fileId`                                           |
 | 幂等性       | 调用方加 `@Idempotent`                                  |
 
 > **降级语义**：提供方业务异常 → 全局异常处理器转 `Result.fail` → Feign 正常解码，**不触发降级**；网络层失败 / 5xx → 触发 `XxxClientFallbackFactory`，降级方法内抛 `BizException` 穿透到调用方，由调用方全局异常处理器兜底。
+>
+> **判码示例**（auth 服务现有写法）：`Result<AuthUserDTO> result = userClient.findByAccount(account); if (!result.isSuccess() || result.getData() == null) { ... }` —— 所有 Feign 调用点必须如此判码。
 
 ### 4.2 UserClient（用户服务契约，由 litisle-user 实现提供方）
 

@@ -50,6 +50,13 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- ✅ Spring Boot 自动配置（FeignFallbackAutoConfiguration 的 @ConditionalOn* 注解） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- ✅ Spring Web（@RequestMapping / @RestController） -->
         <dependency>
             <groupId>org.springframework</groupId>

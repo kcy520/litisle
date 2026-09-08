@@ -19,6 +19,11 @@ import org.springframework.context.annotation.Bean;
  *     com.litisle.litisleapi.feign: DEBUG
  * 放client的这个包
  *
+ * FeignApiConfig 没有 @Configuration
+不会被 @ComponentScan 扫到
+它是 Feign 自己通过 FeignClientsConfiguration 机制加载的
+作用范围：只影响当前 Feign Client 
+ * 
  * @author litisle
  */
 public class FeignApiConfig {

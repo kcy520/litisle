@@ -7,6 +7,7 @@ import com.litisle.litisleapi.dto.user.AuthUserDTO;
 import com.litisle.litisleapi.dto.user.RegisterUserDTO;
 import com.litisle.litisleapi.dto.user.UserDTO;
 import com.litisle.litisleapi.config.FeignApiConfig;
+import com.litisle.litisleapi.fallback.UserClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,8 +21,8 @@ import org.springframework.web.bind.annotation.RequestBody;
  */
 @FeignClient(
         name = "litisle-user",
-        configuration = FeignApiConfig.class
-        //      fallbackFactory = UserClientFallbackFactory.class
+        configuration = FeignApiConfig.class,
+        fallbackFactory = UserClientFallbackFactory.class
 )
 public interface UserClient {
 

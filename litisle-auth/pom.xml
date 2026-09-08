@@ -70,6 +70,12 @@
 <!--            <version>1.16.6</version>-->
 <!--        </dependency>-->
 
+        <!--服务熔断-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+
         <!-- 邮箱发送：版本由父 POM 的 spring-boot-starter-parent 3.5.15 统一管理，严禁写 <version> -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
