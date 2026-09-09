@@ -4,6 +4,8 @@ package com.litisle.commoncore.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.cfg.CoercionAction;
+import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer;
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
@@ -51,6 +53,9 @@ public class JacksonConfig {
     @Bean
     public Jackson2ObjectMapperBuilderCustomizer jackson2ObjectMapperBuilderCustomizer() {
         return builder -> {
+                // ✅ 1️⃣ 把 LocalDateTime 从「默认格式」改成「自定义字符串格式」
+                // ✅ 2️⃣ 禁止把日期序列化成「时间戳」（ 时间戳（毫秒），  "createTime": 1725868800000)
+                // ✅ 3️⃣ 全局生效，业务代码零侵入
             // 注册 Java 8 日期时间模块
             JavaTimeModule javaTimeModule = new JavaTimeModule();
             
@@ -66,6 +71,13 @@ public class JacksonConfig {
             
             // 禁用将日期序列化为时间戳（使用字符串格式）
             builder.featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+            // 枚举反序列化容错：空字符串 "" 一律按 null 处理（企业规范：库层全局兑底，业务零侵入）
+            // 解决前端传 "source": "" 时抛出 Cannot coerce empty String to enum
+            // 作用于所有枚举类型（Enum.class），jackson-databind 2.12+ 支持，当前 2.21.4
+            builder.postConfigurer(objectMapper ->
+                    objectMapper.coercionConfigFor(Enum.class)
+                            .setCoercion(CoercionInputShape.EmptyString, CoercionAction.AsNull));
         };
     }
 }

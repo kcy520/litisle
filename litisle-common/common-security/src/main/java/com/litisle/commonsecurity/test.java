@@ -19,7 +19,7 @@ public class test {
                         String plainText = "123";
                         String encrypted = crypto.encrypt(plainText);
                         System.out.println("明文: " + plainText);
-                        System.out.println("密文: " + encrypted);
+                        System.out.println("密文: " + encrypted);//XkZkpb1Qznwy1keeWjqeYKysTiKmQIKwo1wwm1eHhA
 
                         // 4. 解密
                         String decrypted = crypto.decrypt(encrypted);

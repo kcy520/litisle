@@ -75,6 +75,10 @@
         <!-- JJWT -->
         <jjwt.version>0.12.6</jjwt.version>
 
+        <!-- Jackson 版本锁定（与 Boot 3.5.15 托管版本一致） -->
+        <!-- 显式导入 jackson-bom，避免被 spring-cloud / spring-cloud-alibaba BOM 干扰 -->
+        <jackson-bom.version>2.21.4</jackson-bom.version>
+
     </properties>
 
 
@@ -95,6 +99,16 @@
                 <groupId>com.alibaba.cloud</groupId>
                 <artifactId>spring-cloud-alibaba-dependencies</artifactId>
                 <version>${spring-cloud-alibaba.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!--Jackson BOM：全工程统一 Jackson 版本（含 databind/core/annotations/datatype）-->
+            <!-- 为什么版本写 2.21.4 这是 Spring Boot 3.5.15 官方托管的 jackson-databind 版本，与父 POM 的默认值保持一致——导入 jackson-bom 的目的不是「升级」，而是「显式锁定」，让版本不受其他 BOM 导入顺序、本地缓存的影响。将来升级 Boot 时只需同步改这一个属性。 -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson-bom.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
