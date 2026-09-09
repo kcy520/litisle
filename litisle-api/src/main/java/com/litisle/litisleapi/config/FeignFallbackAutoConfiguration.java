@@ -23,8 +23,10 @@ import org.springframework.context.annotation.Configuration;
  * - 调用方必须启用 Sentinel 的 Feign 适配，否则 fallbackFactory 不生效（缺适配时降级是"死"的）：
  *   ① pom 添加 spring-cloud-starter-alibaba-sentinel（版本由父 pom 的 spring-cloud-alibaba 管理）
  *   ② yml 开关（建议放 Nacos 共享模板）：
- *      spring.cloud.openfeign.sentinel.enabled: true
- *      部分老版本属性名为 feign.sentinel.enabled，两个都配上最稳妥（多配不报错）
+ *      feign.sentinel.enabled: true
+ *      ★ 唯一生效的属性名（SentinelFeignAutoConfiguration 源码 @ConditionalOnProperty 实证），
+ *      位于顶层 feign.* 而非 spring.cloud.openfeign 下；
+ *      spring.cloud.openfeign.sentinel.enabled 无效但无害，可留作向前兼容 ---------建议核对此处注释
  * - Sentinel 无 TimeLimiter 问题，慢调用治理走 Dashboard 的 RT 熔断规则；
  *   注意熔断规则默认不持久化，需接 Nacos 数据源（sentinel-datasource-nacos）
  *

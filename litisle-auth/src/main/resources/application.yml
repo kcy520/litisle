@@ -1,6 +1,10 @@
 server:
   port: 8082
 
+# feign:
+#   sentinel:
+#     enabled: true
+
 spring:
   application:
     name: litisle-auth
