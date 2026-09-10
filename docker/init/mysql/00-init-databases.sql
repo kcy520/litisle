@@ -15,6 +15,13 @@ CREATE DATABASE IF NOT EXISTS litisle_content
   DEFAULT CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
+-- Nacos 配置中心数据库（表结构由挂载的官方 mysql-schema.sql 创建：
+--   ./docker/init/nacos/mysql-schema.sql → 容器内 10-nacos-schema.sql，
+--   该脚本只有 CREATE TABLE，库必须在这里提前建好，否则首次初始化报 No database selected）
+CREATE DATABASE IF NOT EXISTS nacos_config
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
 -- 后续模块按需追加：
 -- CREATE DATABASE IF NOT EXISTS litisle_social
 --   DEFAULT CHARACTER SET utf8mb4
@@ -28,6 +35,7 @@ CREATE DATABASE IF NOT EXISTS litisle_content
 GRANT ALL PRIVILEGES ON litisle_user.*   TO 'test_k.1'@'%';
 GRANT ALL PRIVILEGES ON litisle_content.* TO 'test_k.1'@'%';
 -- Nacos 配置库授权（nacos_config 库由 docker/init/nacos/mysql-schema.sql 创建）
-GRANT ALL PRIVILEGES ON nacos_config.* TO 'test_k.1'@'%';
+-- 另外， 00-init-databases.sql 里这行已过时（Nacos 现在用专用账号`nacos` ，不再用业务账号连配置库）：
+-- GRANT ALL PRIVILEGES ON nacos_config.* TO 'test_k.1'@'%';
 
 FLUSH PRIVILEGES;

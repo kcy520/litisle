@@ -68,8 +68,9 @@ services:
 
   # --------------------------------------------------------------------------
   # Nacos - 服务注册与配置中心
-  # 控制台地址：http://localhost:8848/nacos  默认账号：nacos/nacos
+  # 控制台地址：http://localhost:8080 （Nacos 3 独立控制台，默认账号：nacos/nacos）
   # 说明：复用 litisle-mysql 实例，nacos_config 库由 10-nacos-schema.sql 创建
+  #       数据库连接使用 Nacos 专用账号（NACOS_DB_USER，最小权限仅 nacos_config 库）
   #       鉴权相关变量见 .env（docker/init/nacos/mysql-schema.sql）
   # --------------------------------------------------------------------------
   litisle-nacos:
@@ -84,8 +85,13 @@ services:
       - MYSQL_SERVICE_HOST=litisle-mysql
       - MYSQL_SERVICE_PORT=3306
       - MYSQL_SERVICE_DB_NAME=nacos_config
-      - MYSQL_SERVICE_USER=${MYSQL_USER}
-      - MYSQL_SERVICE_PASSWORD=${COMPOSE_MYSQL_PASSWORD}
+      # Nacos 专用账号（不与业务账号混用）：需有 nacos_config 库的 DDL 权限，3.x 启动迁移器要建表
+      - MYSQL_SERVICE_USER=${NACOS_DB_USER}
+      - MYSQL_SERVICE_PASSWORD=${NACOS_DB_PASSWORD}
+      # 跳过 2.x→3.x 命名空间兼容性预检（官方临时方案，新集群适用）：
+      # 已知缺陷，空库/单库权限下也会误报 config_info namespace migrate pre check failed
+      # 详见 alibaba/nacos#13488、#13569、#15172
+      - NACOS_CONFIG_NAMESPACE_COMPATIBLE_MODE=false
       # 鉴权配置（token 需为 base64 且至少 32 字节）
       - NACOS_AUTH_ENABLE=true
       - NACOS_AUTH_IDENTITY_KEY=${NACOS_AUTH_KEY:-serverIdentity}
