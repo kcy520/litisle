@@ -1,0 +1,34 @@
+{
+  "users": [
+    {
+      "name": "guest",
+      "password": "guest",
+      "tags": "administrator"
+    },
+    {
+      "name": "litisle",
+      "password": "litisle_pass",
+      "tags": "administrator"
+    }
+  ],
+  "vhosts": [
+    { "name": "/" },
+    { "name": "/litisle" }
+  ],
+  "permissions": [
+    {
+      "user": "guest",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    },
+    {
+      "user": "litisle",
+      "vhost": "/litisle",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ]
+}

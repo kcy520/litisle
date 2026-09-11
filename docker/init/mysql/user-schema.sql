@@ -20,6 +20,7 @@ create database if not exists litisle_user
 
 use litisle_user;
 
+    /*seata 的 undolog表 */
 CREATE TABLE IF NOT EXISTS `undo_log`
 (
     `branch_id`     BIGINT       NOT NULL COMMENT 'branch transaction id',
