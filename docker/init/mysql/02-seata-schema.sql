@@ -95,28 +95,8 @@ CREATE TABLE IF NOT EXISTS `vgroup_table`
 
 
 -- ============================================================================
--- Client 端 undo_log 建表脚本 (AT 模式必需)
--- 来源: https://github.com/apache/incubator-seata/blob/2.5.0/script/client/at/db/mysql.sql
--- 每个参与分布式事务的业务数据库都需要此表
+-- Client 端 undo_log 建表说明 (AT 模式必需)
+-- 每个参与分布式事务的业务数据库都需要 undo_log 表，随各业务库 schema 脚本维护：
+--   - litisle_user：见 user-schema.sql（已建）
+--   - litisle_payment / litisle_shop：建库时追加（积分商城 AT 事务参与方）
 -- ============================================================================
-
--- test-service 业务库
-CREATE DATABASE IF NOT EXISTS microservices_demo_test
-    CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
-
-USE microservices_demo_test;
-
-CREATE TABLE IF NOT EXISTS `undo_log`
-(
-    `branch_id`     BIGINT       NOT NULL COMMENT 'branch transaction id',
-    `xid`           VARCHAR(128) NOT NULL COMMENT 'global transaction id',
-    `context`       VARCHAR(128) NOT NULL COMMENT 'undo_log context,such as serialization',
-    `rollback_info` LONGBLOB     NOT NULL COMMENT 'rollback info',
-    `log_status`    INT(11)      NOT NULL COMMENT '0:normal status,1:defense status',
-    `log_created`   DATETIME(6)  NOT NULL COMMENT 'create datetime',
-    `log_modified`  DATETIME(6)  NOT NULL COMMENT 'modify datetime',
-    UNIQUE KEY `ux_undo_log` (`xid`, `branch_id`)
-) ENGINE = InnoDB AUTO_INCREMENT = 1 DEFAULT CHARSET = utf8mb4 COMMENT = 'AT transaction mode undo table';
-
-ALTER TABLE `undo_log` ADD INDEX `ix_log_created` (`log_created`);

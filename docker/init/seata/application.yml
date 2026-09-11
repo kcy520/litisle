@@ -42,7 +42,7 @@ seata:
     type: nacos
     nacos:
       application: seata-server
-      server-addr: ms-demo-nacos:8848
+      server-addr: litisle-nacos:8848
       username: nacos
       password: nacos
       group: DEFAULT_GROUP
@@ -55,9 +55,9 @@ seata:
       datasource: druid
       dbType: mysql
       driverClassName: com.mysql.cj.jdbc.Driver
-      url: jdbc:mysql://ms-demo-mysql:3306/seata_server?useUnicode=true&characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true
-      user: root
-      password: ${SEATA_DB_PASSWORD:verysecret}
+      url: jdbc:mysql://litisle-mysql:3306/seata_server?useUnicode=true&characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true
+      user: ${SEATA_DB_USER:seata}
+      password: ${SEATA_DB_PASSWORD:seata_pass}
   security:
     secretKey: SeataSecretKey0c382ef121d778043159209298fd40bf3850a017
     tokenValidityInMilliseconds: 1800000

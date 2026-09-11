@@ -33,6 +33,7 @@ services:
       - ./docker/init/mysql:/docker-entrypoint-initdb.d
       # Nacos 官方建表脚本（创建 nacos_config 库及全部表，首次初始化时执行）
       - ./docker/init/nacos/mysql-schema.sql:/docker-entrypoint-initdb.d/10-nacos-schema.sql:ro
+      # （Seata 建表脚本无需单独挂载：docker/init/mysql/02-seata-schema.sql 随目录挂载自动执行）
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -130,6 +131,38 @@ services:
       - SERVER_PORT=8090
     ports:
       - "8090:8090"
+    restart: unless-stopped
+    # 容器在退出时自动重启，除非你手动 stop 过它。
+
+  # --------------------------------------------------------------------------
+  # Seata TC Server - 分布式事务协调者（AT 模式，积分商城扣款+下单强一致性依赖它）
+  # 控制台地址：http://localhost:7091 （默认账号：seata / seata）
+  # TC 服务端口：8091（客户端连接）
+  # 说明：复用 litisle-mysql 实例，seata_server 库由 30-seata-schema.sql 创建
+  #       数据库连接使用 Seata 专用账号（SEATA_DB_USER，最小权限仅 seata_server 库）
+  #       服务注册到 litisle-nacos，客户端通过服务发现连接 TC
+  # --------------------------------------------------------------------------
+  litisle-seata:
+    build:
+      context: ./docker/init/seata
+      dockerfile: Dockerfile
+    image: seata-server:2.5.0
+    container_name: litisle-seata
+    networks:
+      - litisle-network
+    environment:
+      - SEATA_DB_USER=${SEATA_DB_USER}
+      - SEATA_DB_PASSWORD=${SEATA_DB_PASSWORD}
+    ports:
+      - "7091:7091"   # 控制台
+      - "8091:8091"   # TC 服务端口
+    volumes:
+      - ./docker/init/seata/application.yml:/seata-server/resources/application.yml
+    depends_on:
+      litisle-mysql:
+        condition: service_healthy
+      litisle-nacos:
+        condition: service_started
     restart: unless-stopped
 
 # ============================================================================
