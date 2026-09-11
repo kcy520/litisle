@@ -27,4 +27,7 @@ public class AuthProperties {
     /** Refresh Token 有效期（秒），默认 7 天（604800 秒） */
     //默认值，只有 yml 里没配这个 key 时才会用
     private long refreshTokenExpire = 604800L;
+
+    /** 单用户最大在线设备数，超限自动踢出最旧设备，默认 5 台 */
+    private int maxDevices = 5;
 }

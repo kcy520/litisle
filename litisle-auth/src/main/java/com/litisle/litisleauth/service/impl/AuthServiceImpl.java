@@ -169,6 +169,9 @@ public class AuthServiceImpl implements AuthService {
             log.debug("已清除 refreshToken: userId={}", userId);
         }
 
+        // 2.1 清理当前设备会话记录（尽力而为，不阻塞退出主流程）
+        deviceSessionService.removeCurrentDevice(userId);
+
         // 3. Sa-Token 注销登录态（服务端会话失效，无需额外黑名单）
         StpUtil.logout();
         log.info("用户已退出登录: userId={}", userId);
@@ -314,6 +317,10 @@ public class AuthServiceImpl implements AuthService {
         redisUtil.set(AuthCacheKey.USER_REFRESH + userId,
                 refreshToken, ttl, TimeUnit.SECONDS);
 
+        // 5.1 注册/更新当前设备会话（deviceId 优先取请求头 X-Device-Id，未携带则服务端生成；
+        //     刷新令牌场景复用同一 deviceId，仅更新 tokenValue）
+        String deviceId = deviceSessionService.registerDevice(userId, accessToken);
+
         // 6. 获取 accessToken 剩余有效期（秒）
         long expiresIn = StpUtil.getTokenTimeout();
 
@@ -327,6 +334,7 @@ public class AuthServiceImpl implements AuthService {
                 .tokenType(CommonConstant.TOKEN_TYPE_BEARER)
                 .username(username)
                 .uid(uid)
+                .deviceId(deviceId)
                 .newUser(newUser)
                 .issuedAt(LocalDateTime.now())
                 .build();

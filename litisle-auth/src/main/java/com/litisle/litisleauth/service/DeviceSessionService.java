@@ -32,6 +32,28 @@ public interface DeviceSessionService {
     List<DeviceSessionVO> listCurrentUserDevices();
 
     /**
+     * 登录/刷新令牌时注册或更新当前设备会话
+     * <p>
+     * 1. deviceId 优先取客户端请求头 X-Device-Id，未携带则服务端生成 UUID
+     * 2. 设备已存在且归属同一用户（刷新令牌场景）：仅更新 tokenValue 与 lastActiveTime
+     * 3. 新设备：写入设备 Hash + 加入用户设备索引 Set + 执行设备数量上限检查
+     *
+     * @param userId     登录用户 ID
+     * @param tokenValue 本次登录签发的 accessToken
+     * @return deviceId（随 TsuccessenVO 回传前端）
+     */
+    String registerDevice(Long userId, String tokenValue);
+
+    /**
+     * 退出登录时清理当前设备会话记录（尽力而为）
+     * <p>
+     * 校验设备归属后删除设备 Hash 与用户设备索引 Set 成员。
+     *
+     * @param userId 当前登录用户 ID
+     */
+    void removeCurrentDevice(Long userId);
+
+    /**
      * 踢出指定设备
      * <p>
      * 1. 从 Redis 查询 device Hash 获取 userId

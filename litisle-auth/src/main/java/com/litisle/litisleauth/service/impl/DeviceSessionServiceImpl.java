@@ -5,6 +5,7 @@ import com.litisle.commoncore.constant.HeaderConstant;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commonredis.util.RedisUtil;
+import com.litisle.litisleauth.config.AuthProperties;
 import com.litisle.litisleauth.constant.AuthCacheKey;
 import com.litisle.litisleauth.domain.vo.DeviceSessionVO;
 import com.litisle.litisleauth.service.DeviceSessionService;
@@ -19,6 +20,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -54,6 +57,8 @@ import java.util.stream.Collectors;
 public class DeviceSessionServiceImpl implements DeviceSessionService {
 
     private final RedisUtil redisUtil;
+
+    private final AuthProperties authProperties;
 
     private final HttpServletRequest request;
 
@@ -111,6 +116,96 @@ public class DeviceSessionServiceImpl implements DeviceSessionService {
         });
 
         return list;
+    }
+
+    /**
+     * 登录/刷新令牌时注册或更新当前设备会话
+     * <p>
+     * deviceId 优先取客户端请求头 X-Device-Id，未携带则服务端生成 UUID。
+     * 设备已存在且归属同一用户（刷新令牌场景）时仅更新 tokenValue 与 lastActiveTime；
+     * 新设备则完整写入 Hash 并执行设备数量上限检查（超限踢出最旧设备）。
+     *
+     * @param userId     登录用户 ID
+     * @param tokenValue 本次登录签发的 accessToken
+     * @return deviceId
+     */
+    @Override
+    public String registerDevice(Long userId, String tokenValue) {
+        // 1. 解析 deviceId：客户端请求头优先，未携带则服务端生成
+        String deviceId = request.getHeader(HeaderConstant.DEVICE_ID);
+        if (deviceId == null || deviceId.isBlank()) {
+            deviceId = UUID.randomUUID().toString().replace("-", "");
+        }
+
+        String deviceKey = AuthCacheKey.DEVICE_SESSION + deviceId;
+        String userDevicesKey = AuthCacheKey.USER_DEVICES + userId;
+        String now = LocalDateTime.now().format(DT_FMT);
+
+        // 2. 设备已存在且归属同一用户：仅更新 tokenValue 与最后活跃时间（刷新令牌场景）
+        Map<String, Object> existing = redisUtil.hGetAll(deviceKey);
+        if (!existing.isEmpty()
+                && String.valueOf(existing.get(AuthCacheKey.DeviceHashField.USER_ID))
+                        .equals(String.valueOf(userId))) {
+            redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.TOKEN_VALUE, tokenValue);
+            redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.LAST_ACTIVE_TIME, now);
+            redisUtil.expire(deviceKey, authProperties.getRefreshTokenExpire(), TimeUnit.SECONDS);
+            redisUtil.sAdd(userDevicesKey, deviceId);
+            return deviceId;
+        }
+
+        // 3. 设备被其他账号占用（同一物理设备换号登录）：从原账号设备索引中移除
+        if (!existing.isEmpty()) {
+            String ownerUserId = (String) existing.get(AuthCacheKey.DeviceHashField.USER_ID);
+            if (ownerUserId != null) {
+                redisUtil.sRemove(AuthCacheKey.USER_DEVICES + ownerUserId, deviceId);
+            }
+        }
+
+        // 4. 新设备：写入设备 Hash（设备名从 User-Agent 解析，IP 优先取网关透传头）
+        redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.USER_ID, String.valueOf(userId));
+        redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.TOKEN_VALUE, tokenValue);
+        redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.DEVICE_NAME,
+                resolveDeviceName(request.getHeader("User-Agent")));
+        redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.IP, resolveIp());
+        redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.LOGIN_TIME, now);
+        redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.LAST_ACTIVE_TIME, now);
+        redisUtil.expire(deviceKey, authProperties.getRefreshTokenExpire(), TimeUnit.SECONDS);
+
+        // 5. 加入用户设备索引 Set，并执行设备数量上限检查
+        redisUtil.sAdd(userDevicesKey, deviceId);
+        evictOldestDeviceIfExceeded(userId, deviceId);
+
+        log.info("设备会话注册完成: userId={}, deviceId={}", userId, deviceId);
+        return deviceId;
+    }
+
+    /**
+     * 退出登录时清理当前设备会话记录（尽力而为）
+     * <p>
+     * 校验设备归属后删除设备 Hash 与用户设备索引 Set 成员，
+     * 设备不存在或归属不符时静默跳过，不影响退出主流程。
+     *
+     * @param userId 当前登录用户 ID
+     */
+    @Override
+    public void removeCurrentDevice(Long userId) {
+        // 1. 读取当前请求设备 ID，未携带则无需清理
+        String deviceId = request.getHeader(HeaderConstant.DEVICE_ID);
+        if (deviceId == null || deviceId.isBlank()) {
+            return;
+        }
+
+        // 2. 校验设备归属后删除记录（容忍脏数据）
+        Map<String, Object> deviceMap = redisUtil.hGetAll(AuthCacheKey.DEVICE_SESSION + deviceId);
+        if (deviceMap.isEmpty()) {
+            return;
+        }
+        String ownerUserId = (String) deviceMap.get(AuthCacheKey.DeviceHashField.USER_ID);
+        if (ownerUserId != null && ownerUserId.equals(String.valueOf(userId))) {
+            redisUtil.delete(AuthCacheKey.DEVICE_SESSION + deviceId);
+            redisUtil.sRemove(AuthCacheKey.USER_DEVICES + userId, deviceId);
+            log.debug("已清理当前设备会话记录: userId={}, deviceId={}", userId, deviceId);
+        }
     }
 
 
@@ -203,6 +298,124 @@ public class DeviceSessionServiceImpl implements DeviceSessionService {
     }
 
     // ==================== 私有方法 ====================
+
+    /**
+     * 设备数量超限检查：超过 maxDevices 时按 loginTime 踢出最旧设备（排除当前设备）
+     *
+     * @param userId          用户 ID
+     * @param currentDeviceId 当前刚注册的设备 ID（不参与淘汰）
+     */
+    private void evictOldestDeviceIfExceeded(Long userId, String currentDeviceId) {
+        // 1. 读取用户全部在线设备
+        Set<String> deviceIds = redisUtil.sMembers(AuthCacheKey.USER_DEVICES + userId);
+        int maxDevices = authProperties.getMaxDevices();
+        if (deviceIds.size() <= maxDevices) {
+            return;
+        }
+
+        // 2. 按 loginTime 升序找出最旧设备（Hash 丢失或时间无法解析的脏数据优先清理）
+        String oldestDeviceId = null;
+        LocalDateTime oldestTime = null;
+        for (String deviceId : deviceIds) {
+            if (deviceId.equals(currentDeviceId)) {
+                continue;
+            }
+            Map<String, Object> deviceMap = redisUtil.hGetAll(AuthCacheKey.DEVICE_SESSION + deviceId);
+            String loginTimeStr = deviceMap.isEmpty()
+                    ? null : (String) deviceMap.get(AuthCacheKey.DeviceHashField.LOGIN_TIME);
+            LocalDateTime loginTime = parseDateTime(loginTimeStr);
+            if (loginTime == null) {
+                oldestDeviceId = deviceId;
+                break;
+            }
+            if (oldestTime == null || loginTime.isBefore(oldestTime)) {
+                oldestTime = loginTime;
+                oldestDeviceId = deviceId;
+            }
+        }
+
+        // 3. 踢出最旧设备
+        if (oldestDeviceId != null) {
+            log.info("设备数超限，踢出最旧设备: userId={}, deviceId={}, max={}",
+                    userId, oldestDeviceId, maxDevices);
+            removeDeviceRecord(oldestDeviceId);
+        }
+    }
+
+    /**
+     * 删除设备记录并注销其会话（供超限踢出使用，尽力而为）
+     *
+     * @param deviceId 目标设备 ID
+     */
+    private void removeDeviceRecord(String deviceId) {
+        // 1. 读取设备 Hash 中的 tokenValue 与归属用户（可能已丢失）
+        Map<String, Object> deviceMap = redisUtil.hGetAll(AuthCacheKey.DEVICE_SESSION + deviceId);
+        String tokenValue = deviceMap.isEmpty()
+                ? null : (String) deviceMap.get(AuthCacheKey.DeviceHashField.TOKEN_VALUE);
+        String ownerUserId = deviceMap.isEmpty()
+                ? null : (String) deviceMap.get(AuthCacheKey.DeviceHashField.USER_ID);
+
+        // 2. 删除设备 Hash 并从归属用户的设备索引 Set 中移除
+        redisUtil.delete(AuthCacheKey.DEVICE_SESSION + deviceId);
+        if (ownerUserId != null) {
+            redisUtil.sRemove(AuthCacheKey.USER_DEVICES + ownerUserId, deviceId);
+        }
+
+        // 3. 注销该设备 token（尽力而为，已过期不影响核心逻辑）
+        if (tokenValue != null) {
+            try {
+                StpUtil.logoutByTokenValue(tokenValue);
+            } catch (Exception e) {
+                log.warn("超限踢出设备时注销 token 异常（可能已过期）: deviceId={}, error={}",
+                        deviceId, e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 从 User-Agent 解析设备名称（简化版，主流浏览器识别）
+     *
+     * @param userAgent User-Agent 请求头，可能为 null
+     * @return 设备名称
+     */
+    private String resolveDeviceName(String userAgent) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return "未知设备";
+        }
+        if (userAgent.contains("Edg/")) {
+            return "Edge 浏览器";
+        }
+        if (userAgent.contains("Chrome/")) {
+            return "Chrome 浏览器";
+        }
+        if (userAgent.contains("Firefox/")) {
+            return "Firefox 浏览器";
+        }
+        if (userAgent.contains("Safari/")) {
+            return "Safari 浏览器";
+        }
+        return userAgent.length() > 32 ? userAgent.substring(0, 32) : userAgent;
+    }
+
+    /**
+     * 解析客户端真实 IP：优先网关透传头，回退直连地址
+     *
+     * @return 客户端 IP
+     */
+    private String resolveIp() {
+        // 1. 网关透传的 X-Forwarded-For 首段为原始客户端 IP
+        String xff = request.getHeader(HeaderConstant.X_FORWARDED_FOR);
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+
+        // 2. 依次回退 X-Real-IP、直连地址
+        String realIp = request.getHeader(HeaderConstant.X_REAL_IP);
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp;
+        }
+        return request.getRemoteAddr();
+    }
 
     /**
      * 解析 ISO 日期时间字符串为 LocalDateTime

@@ -40,6 +40,9 @@ public class TsuccessenVO {
     /** 对外UID（用户间搜索唯一标识，随机生成，永久不变） */
     private String uid;
 
+    /** 设备唯一标识（前端需存储并在后续请求头 X-Device-Id 中携带） */
+    private String deviceId;
+
     /** 是否新注册用户（前端可用于引导完善资料） */
     //newUser 是一个业务标记位，让前端区分"刚注册"和"老用户登录"，从而决定要不要引导用户完善资料。
     private Boolean newUser;
