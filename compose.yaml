@@ -1,7 +1,7 @@
 # ============================================================================
 # Litisle 项目 Docker Compose 配置
 # ============================================================================
-# 包含：MySQL、Redis
+# 包含：MySQL、Redis、Nacos、Sentinel(obs)、Seata、RabbitMQ、Elasticsearch、Kibana(es)
 # 使用方法：docker-compose up -d
 # 停止服务：docker-compose down
 # 查看日志：docker-compose logs -f [服务名]
@@ -187,6 +187,64 @@ services:
       - rabbitmq-data:/var/lib/rabbitmq
     restart: unless-stopped
 
+  # --------------------------------------------------------------------------
+  # Elasticsearch - 搜索引擎（带 IK 中文分词插件 8.18.8，与 elasticsearch-java 客户端同版本）
+  # 连接地址：http://localhost:9200 （开发环境已关闭安全认证）
+  # 说明：litisle-search 模块使用；IK 插件由 Dockerfile 构建时装入，版本必须与镜像严格一致
+  #       首次启动注意：WSL2 需先执行 sudo sysctl -w vm.max_map_count=262144（重启后失效，
+  #       可写入 /etc/sysctl.conf 持久化），否则报 max virtual memory areas 错误
+  # --------------------------------------------------------------------------
+  litisle-elasticsearch:
+    build:
+      context: ./docker/init/elasticsearch
+      dockerfile: Dockerfile
+    image: elasticsearch:8.18.8-ik
+    container_name: litisle-elasticsearch
+    networks:
+      - litisle-network
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - cluster.name=litisle-es-cluster
+    ports:
+      - "9200:9200"   # REST API
+      - "9300:9300"   # 节点通信（单节点预留）
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Kibana - ES 可视化管理界面（es 组，按需启动，避免常驻占内存）
+  # 控制台地址：http://localhost:5601
+  # 启动方式：docker compose --profile es up -d litisle-kibana
+  # --------------------------------------------------------------------------
+  litisle-kibana:
+    image: kibana:8.18.8
+    container_name: litisle-kibana
+    profiles:
+      - es
+    networks:
+      - litisle-network
+    environment:
+      - ELASTICSEARCH_HOSTS=http://litisle-elasticsearch:9200
+      - I18N_LOCALE=zh-CN
+    ports:
+      - "5601:5601"
+    depends_on:
+      litisle-elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
 # ============================================================================
 # 网络配置
 # ============================================================================
@@ -201,6 +259,7 @@ volumes:
   mysql-data:
   redis-data:
   rabbitmq-data:
+  elasticsearch-data:
 
 
 # ============================================================================

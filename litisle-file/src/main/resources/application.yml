@@ -1,0 +1,133 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: litisle-file
+
+  profiles:
+    active: local
+
+  main:
+    allow-circular-references: true
+    allow-bean-definition-overriding: true
+
+  # ================================
+  # Nacos 配置中心 + 服务注册发现
+  # ================================
+  config:
+    import:
+      # 服务专属配置（Data ID: litisle-file.yaml）
+      - optional:nacos:${spring.application.name}.yaml
+      # 公共共享配置模板（Data ID: litisle-shared.yaml，与 common 模块无关）
+      - optional:nacos:litisle-shared.yaml
+  cloud:
+    nacos:
+      # 连接信息：环境特定值在 application-local/dev.yaml 的 litisle.nacos 中定义
+      server-addr: ${litisle.nacos.server-addr:localhost:8848}
+      username: ${litisle.nacos.username:nacos}
+      password: ${litisle.nacos.password:nacos}
+      discovery:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+      config:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+        file-extension: yaml
+
+  # ================================
+  #  MySQL 数据源配置（litisle_file 库：file_meta 元数据表）
+  # ================================
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 字符集：characterEncoding 用大写 UTF-8，并追加 connectionCollation 强制 utf8mb4，
+    # 防止 Connector/J 8.x 回退到默认 latin1 导致中文乱码
+    url: "jdbc:mysql://${litisle.db.host:localhost}:${litisle.db.port:3306}/${litisle.db.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+    username: ${litisle.db.username:root}
+    password: ${litisle.db.password:123}
+
+  # ================================
+  # Redis 单机配置（去重锁 / 元数据缓存）
+  # ================================
+  data:
+    redis:
+      host: ${litisle.redis.host:localhost}
+      port: ${litisle.redis.port:6380}
+      password: ${litisle.redis.password:123}
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-wait: -1ms
+          max-idle: 10
+          min-idle: 0
+
+# ================================
+# MyBatis-Plus 配置
+# ================================
+mybatis-plus:
+  configuration:
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    db-config:
+      update-strategy: not_null
+      id-type: auto
+
+# ================================
+# 日志配置
+# ================================
+logging:
+  level:
+    com.litisle.litislefile: debug
+    com.litisle.litisleapi.feign: DEBUG
+  pattern:
+    dateformat: HH:mm:ss:SSS
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
+  file:
+    path: "logs/${spring.application.name}"
+
+# ================================
+# litisle-file 业务配置
+# ================================
+litisle:
+  file:
+    # SeaweedFS S3 兼容配置（对接 Filer 的 S3 网关）
+    seaweedfs:
+      # S3 网关地址（Filer S3 API 默认端口 8333）
+      endpoint: http://${litisle.seaweed.host:localhost}:${litisle.seaweed.s3-port:8333}
+      # S3 访问凭证（SeaweedFS s3.json / -s3.config 中配置）
+      access-key: ${LITISLE_S3_ACCESS_KEY:admin}
+      secret-key: ${LITISLE_S3_SECRET_KEY:admin123}
+      # 预签名短时效 URL 有效期（分钟）：私有文件（授权文件等）鉴权下载
+      presign-expire-minutes: 30
+      # 业务 collection 划分（对应 Volume Server replication=001 副本策略）
+      collections:
+        avatar: avatar
+        cover: cover
+        article-img: article
+        license: license
+    # 上传限制：限制图片大小（字节，默认 10MB）
+    upload:
+      max-image-size: 10485760
+    # 缩略图配置（头像/封面场景按需生成）
+    thumbnail:
+      enabled: true
+      width: 300
+      height: 300
+
+# ================================
+# Knife4j API 文档配置
+# ================================
+knife4j:
+  enable: true
+  openapi:
+    title: litisle-file 接口文档
+    description: "Litisle-file：SeaweedFS 文件接入（上传/直链/预签名/删除）"
+    version: v1.0.0
+    group:
+      default:
+        group-name: default
+        api-rule: package
+        api-rule-resources:
+          - com.litisle.litislefile.controller

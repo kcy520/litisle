@@ -1,0 +1,39 @@
+litisle:
+  # ================================
+  # Nacos 配置（本地环境：宿主机映射端口 8848）
+  # ================================
+  nacos:
+    server-addr: localhost:8848
+    username: nacos
+    password: nacos
+    namespace: ''
+    group: DEFAULT_GROUP
+
+  # ================================
+  # MySQL 配置（IDEA 本地运行：连宿主机映射端口）
+  # 注意：docker-compose.yml 中业务数据库宿主机端口是 3307
+  # ================================
+  db:
+    host: localhost
+    port: 3307
+    database: litisle_file
+    username: test_k.1
+    # ✅ 与 .env 中 COMPOSE_MYSQL_PASSWORD 保持一致
+    password: ${COMPOSE_MYSQL_PASSWORD:123}
+
+  # ================================
+  # Redis 配置（IDEA 本地运行：使用宿主机映射端口）
+  # 注意：docker-compose.yml 中 Redis 宿主机端口是 6380
+  # ================================
+  redis:
+    host: localhost
+    port: 6380
+    password: ${COMPOSE_REDIS_PASSWORD:123}
+
+  # ================================
+  # SeaweedFS 配置（IDEA 本地运行：使用宿主机映射端口）
+  # 注意：docker-compose.yml 中 SeaweedFS S3 网关宿主机端口需按实际映射填写
+  # ================================
+  seaweed:
+    host: localhost
+    s3-port: 8333
