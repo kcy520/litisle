@@ -95,7 +95,7 @@ public class UserFeignProviderController implements UserClient {
             }
         }
 
-        // 4. 构建 User 实体并保存（avatar/avatarColor 由数据库默认值填充）
+        // 4. 构建 User 实体并保存（avatarColor 由数据库默认值填充；avatarFileId 无默认值，待上传头像后写入）
         User user = new User()
                 .setUsername(dto.getUsername())
                 .setUid(generateUniqueUid())
@@ -318,7 +318,7 @@ public class UserFeignProviderController implements UserClient {
                 .setPassword(user.getPassword())
                 .setPhone(user.getPhone())
                 .setEmail(user.getEmail())
-                .setAvatar(user.getAvatar())
+                .setAvatarFileId(user.getAvatarFileId())
                 .setAvatarColor(user.getAvatarColor() != null ? user.getAvatarColor().getCode() : null)
                 .setBio(user.getBio())
                 .setVip(user.getVipExpireTime() != null && user.getVipExpireTime().isAfter(LocalDateTime.now()))

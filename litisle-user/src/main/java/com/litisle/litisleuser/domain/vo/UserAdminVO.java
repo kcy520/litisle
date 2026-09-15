@@ -28,8 +28,8 @@ public class UserAdminVO implements Serializable {
     /** 对外UID（用户间搜索唯一标识） */
     private String uid;
 
-    /** 头像URL */
-    private String avatar;
+    /** 头像文件ID（过渡期透传 fileId；FileService 落地后由服务层拼接为 avatarUrl） */
+    private String avatarFileId;
 
     /** 头像标识（0-无 1-金 2-白） */
     private Integer avatarColor;

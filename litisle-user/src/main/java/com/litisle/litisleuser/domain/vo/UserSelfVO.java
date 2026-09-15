@@ -61,9 +61,9 @@ public class UserSelfVO {
     private String phone;
 
     /**
-     * 头像 URL（已拼接完整访问地址）
+     * 头像文件ID（过渡期透传 fileId；FileService 落地后由服务层拼接为 avatarUrl）
      */
-    private String avatar;
+    private String avatarFileId;
 
     /**
      * 个人简介

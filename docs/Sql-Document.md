@@ -57,7 +57,7 @@ create table if not exists `sys_user`
     `password`        varchar(128)    not null comment '密码（BCrypt）',
     `email`           varchar(64)     null comment '邮箱',
     `phone`           varchar(255)     not null comment '手机号',
-    `avatar`          varchar(255)    not null default 'default-avatar-url' comment '头像URL',
+    `avatar_file_id`  varchar(64)     null comment '头像文件ID（SeaweedFS fileId，URL 运行时通过 FileService 批量反查拼接；默认头像走代码常量兜底，不落库）',
     `avatar_color`    tinyint         not null default 0 comment '头像标识：0-无 1-金 2-白', -- 【修改】
     `bio`             varchar(200)    null comment '个人简介',
     `vip_expire_time` datetime        null comment 'VIP 到期时间',

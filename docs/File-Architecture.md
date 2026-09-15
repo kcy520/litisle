@@ -65,7 +65,7 @@ litisle-file
 | sha256 去重（秒传） | 同一文件只存一份   | 上传前计算 SHA256 → 查 `file_meta.idx_sha256` → 命中直接复用 fileId |
 | 直链生成            | 公共文件访问       | 头像/封面等 `access=1` 文件走直链（CDN 友好）                |
 | 预签名 URL          | 私有文件鉴权下载   | `access=0` 文件签发 30 分钟短时效 URL                        |
-| 缩略图              | 头像/封面按需生成  | ThumbnailGenerator，默认 300×300                             |
+| 缩略图              | 头像/封面按需生成  | ThumbnailGenerator，默认 300×300；路径由原图 path 派生，不落库（见 §4.1 设计要点 5） |
 | 图片对齐信息        | 正文图片 5 种对齐  | align 冗余存 `file_meta`，实际以 content `article_image` 为准 |
 | 删除                | 软删除 + 定时清理  | `del_flag=1`，定时任务清理 SeaweedFS 本体与元数据            |
 
@@ -128,7 +128,10 @@ FileMetaVO   { fileId, ownerId, bizType, access, mime, size, width, height, alig
 
 - 上传需登录（网关 JWT 校验后 `X-User-Id` 注入 owner_id）
 - bizType 决定 collection：`AVATAR→avatar`、`COVER→cover`、`ARTICLE_IMG→article`、`LICENSE→license`
-- LICENSE 类文件强制 `access=PRIVATE`（纪念作家授权等敏感文件）
+- LICENSE 类文件强制 `access=PRIVATE`（纪念作家授权等敏感文件）。纵深防御：
+  - **服务层强制覆盖**（唯一真相源是 bizType）：`if (bizType == LICENSE) access = PRIVATE`，DB 的 `default 0` 仅防漏传、防不了显式传 1
+  - **预签名接口二次校验**：`getPresignedUrl` 时再查一次 bizType，LICENSE 拒绝超出限时的签发
+  - **（可选）定时审计**：扫 `access=1 AND biz_type='LICENSE'` 脏数据并告警
 - 删除校验 owner 或 ADMIN 角色，否则抛 `BizException(NO_PERMISSION)`
 
 ### 3.2 内部 Service（供其他服务依赖注入）
@@ -176,6 +179,7 @@ public interface FileService {
 2. `sha256` 索引：秒传与去重的查询入口
 3. `access` 区分公私：一张表支撑 CDN 直链 + 安全预签名两种访问模式
 4. 文件本体存 SeaweedFS，元数据存 MySQL——职责分离，便于业务查询与权限控制
+5. **缩略图不落库**：缩略图是原图的确定性派生物，路径按约定生成（`原图 path + _thumb_{width}_{height}`，如 `/avatar/1001.jpg` → `/avatar/1001.jpg_thumb_300_300`），运行时拼接；不设 `thumb_file_id` 字段，避免多尺寸时字段爆炸。若未来改为异步生成，仅需补 `thumb_status` 一列标记生成状态
 
 ### 4.2 图片对齐归属（跨模块约定）
 

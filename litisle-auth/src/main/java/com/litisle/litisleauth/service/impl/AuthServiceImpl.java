@@ -250,7 +250,7 @@ public class AuthServiceImpl implements AuthService {
 //                .setEmail(desensitizeEmail(authUser.getEmail()))
                 .setPhone(authUser.getPhone())
                 .setEmail(authUser.getEmail())
-                .setAvatar(authUser.getAvatar())
+                .setAvatarFileId(authUser.getAvatarFileId())
                 .setAvatarColor(authUser.getAvatarColor())
                 .setBio(authUser.getBio())
                 .setVip(authUser.getVip())

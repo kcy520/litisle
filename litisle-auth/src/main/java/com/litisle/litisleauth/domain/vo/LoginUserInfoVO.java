@@ -36,8 +36,8 @@ public class LoginUserInfoVO {
     @Sensitive(strategy = SensitiveStrategy.EMAIL)
     private String email;
 
-    /** 头像 URL */
-    private String avatar;
+    /** 头像文件ID（SeaweedFS fileId，过渡期透传；FileService 落地后由服务层拼接为 avatarUrl） */
+    private String avatarFileId;
 
     /** 头像标识：0-无 1-金色（作家）2-白色（纪念作家） */
     private Integer avatarColor;

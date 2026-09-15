@@ -21,7 +21,7 @@
             user.username         as username,
             user.phone            as phone,
             user.bio              as bio,
-            user.avatar           as avatar,
+            user.avatar_file_id   as avatarFileId,
             user.avatar_color     as avatarColor,
 
             -- VIP 状态（数据库时间戳 → 布尔值）
@@ -54,7 +54,7 @@
             user.username         as username,
             user.phone            as phone,
             user.bio              as bio,
-            user.avatar           as avatar,
+            user.avatar_file_id   as avatarFileId,
             user.avatar_color     as avatarColor,
 
             -- VIP 状态

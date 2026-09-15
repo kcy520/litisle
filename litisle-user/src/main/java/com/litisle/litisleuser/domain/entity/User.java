@@ -60,10 +60,10 @@ public class User implements Serializable {
     @TableField("email")
     private String email;
 
-    /** 头像URL */
-    @Size(max = 255, message = "头像URL长度不能超过 255 个字符")
-    @TableField("avatar")
-    private String avatar;
+    /** 头像文件ID（SeaweedFS fileId，URL 运行时通过 FileService 反查拼接；默认头像走代码常量兜底） */
+    @Size(max = 64, message = "头像文件ID长度不能超过 64 个字符")
+    @TableField("avatar_file_id")
+    private String avatarFileId;
 
     /** 头像标识：0-无 1-金色（作家）2-白色（纪念作家） */
     @TableField("avatar_color")

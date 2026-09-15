@@ -61,7 +61,7 @@ public class UserProfileServiceImpl
                         .eq(User::getId, userId)
                         .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
                         .select(User::getId, User::getUsername, User::getUid, User::getPhone,
-                                User::getAvatar, User::getBio, User::getVipExpireTime,
+                                User::getAvatarFileId, User::getBio, User::getVipExpireTime,
                                 User::getStatus, User::getFrozenUntil,
                                 User::getCancelTime, User::getCreateTime,
                                 User::getAvatarColor)
@@ -92,7 +92,7 @@ public class UserProfileServiceImpl
                 .uid(user.getUid())
                 .username(user.getUsername())
                 .phone(user.getPhone())
-                .avatar(user.getAvatar())
+                .avatarFileId(user.getAvatarFileId())
                 .bio(user.getBio())
                 .vip(user.getVipExpireTime() != null && user.getVipExpireTime().isAfter(now))
                 .vipExpireTime(user.getVipExpireTime())
@@ -126,7 +126,7 @@ public class UserProfileServiceImpl
                         .eq(User::getId, userId)
                         .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
                 .select(User::getId, User::getUsername, User::getUid,
-                                User::getAvatar, User::getBio, User::getCreateTime,User::getAvatarColor)
+                                User::getAvatarFileId, User::getBio, User::getCreateTime,User::getAvatarColor)
         );
 
         if (user == null) {
@@ -153,7 +153,7 @@ public class UserProfileServiceImpl
                 .userId(user.getId())
                 .uid(user.getUid())
                 .username(user.getUsername())
-                .avatar(user.getAvatar())
+                .avatarFileId(user.getAvatarFileId())
                 .bio(user.getBio())
                 .avatarColor(user.getAvatarColor())
                 .penName(profile != null ? profile.getPenName() : null)

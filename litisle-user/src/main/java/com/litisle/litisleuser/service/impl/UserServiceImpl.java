@@ -32,8 +32,8 @@ public class UserServiceImpl
         UserDTO dto = new UserDTO();
         dto.setUserId(user.getId());
         dto.setUsername(user.getUsername());
-        // User 实体无 avatarFileId 字段，头像为 URL（avatar），按需映射
-        dto.setAvatarFileId(user.getAvatar());
+        // 头像为 fileId（过渡期直接透传，FileService 落地后由调用方拼接 URL）
+        dto.setAvatarFileId(user.getAvatarFileId());
         // 枚举字段转数据库 int 值（UserStatus.code）
         dto.setStatus(user.getStatus() == null ? null : user.getStatus().getCode());
         dto.setCreatedAt(user.getCreateTime());

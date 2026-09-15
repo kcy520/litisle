@@ -39,8 +39,8 @@ public class AuthUserDTO implements Serializable {
     /** 邮箱（明文，展示时脱敏） */
     private String email;
 
-    /** 头像 URL */
-    private String avatar;
+    /** 头像文件ID（SeaweedFS fileId，URL 由调用方拼接） */
+    private String avatarFileId;
 
     /** 头像标识：0-无 1-金色（作家）2-白色（纪念作家） */
     private Integer avatarColor;
