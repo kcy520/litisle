@@ -79,6 +79,9 @@
         <!-- 显式导入 jackson-bom，避免被 spring-cloud / spring-cloud-alibaba BOM 干扰 -->
         <jackson-bom.version>2.21.4</jackson-bom.version>
 
+        <!-- AWS SDK v2（litisle-file 对接 SeaweedFS S3 网关） -->
+        <aws-sdk.version>2.32.6</aws-sdk.version>
+
     </properties>
 
 
@@ -158,6 +161,17 @@
                 <artifactId>hutool-all</artifactId>
                 <version>${hutool.version}</version>
             </dependency>
+
+            <!-- AWS SDK BOM：统一管理 s3/regions/auth 等模块版本 -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws-sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+
 
 <!--            &lt;!&ndash; JJWT（JWT 令牌签发与验证） &ndash;&gt;-->
 <!--            <dependency>-->

@@ -245,6 +245,32 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # --------------------------------------------------------------------------
+  # SeaweedFS - 分布式文件存储（开发环境单容器模式：master + volume + filer + s3 合一进程）
+  # S3 API：http://localhost:8333（litisle-file 只对接此端口）
+  # Filer：http://localhost:8888 ；Master UI：http://localhost:9333
+  # 凭证由 docker/init/seaweedfs/s3.json 静态配置（单一真相源，同 RabbitMQ definitions.json 思路）
+  # 说明：生产/联调环境切换 Master×3 + Volume×3 完整拓扑，对 litisle-file 透明（只依赖 S3 API）
+  # --------------------------------------------------------------------------
+  litisle-seaweedfs:
+    image: chrislusf/seaweedfs:4.46
+    container_name: litisle-seaweedfs
+    networks:
+      - litisle-network
+    command: >
+      server -dir=/data -master -volume -filer -s3
+      -master.port=9333 -volume.port=8080 -filer.port=8888 -s3.port=8333
+      -s3.config=/etc/seaweedfs/s3.json -volume.max=0
+    ports:
+      - "9333:9333"   # Master UI/API
+      - "8333:8333"   # S3 API（业务入口）
+      - "8888:8888"   # Filer
+      - "18080:8080"  # Volume
+    volumes:
+      - seaweed-data:/data
+      - ./docker/init/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    restart: unless-stopped
+
 # ============================================================================
 # 网络配置
 # ============================================================================
@@ -260,6 +286,7 @@ volumes:
   redis-data:
   rabbitmq-data:
   elasticsearch-data:
+  seaweed-data:
 
 
 # ============================================================================

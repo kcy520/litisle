@@ -11,6 +11,8 @@ cd /d e:\NewJavaPro\LitIsle  &&  docker-compose up -d
 *一键关闭docker容器
 docker-compose stop
 
+ cd /d e:\NewJavaPro\LitIsle
+
 重新挂载
  docker-compose down -v
  docker-compose up -d
