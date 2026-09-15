@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "litisle",
+      "actions": ["Admin", "Read", "Write"],
+      "credentials": [
+        {
+          "accessKey": "litisle",
+          "secretKey": "litisle_s3_pass"
+        }
+      ]
+    }
+  ]
+}
