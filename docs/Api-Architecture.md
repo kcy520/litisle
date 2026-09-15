@@ -275,7 +275,7 @@ User 模块关键 DTO 如下：
 
 | VO              | 字段                 | 用途         |
 | --------------- | -------------------- | ------------ |
-| `UserBriefVO`   | id, nickname, avatar | 用户简要信息 |
+| `UserBriefVO`   | id, nickname, avatarFileId | 用户简要信息 |
 | `ArticleCardVO` | id, title, coverUrl  | 文章卡片     |
 
 ------

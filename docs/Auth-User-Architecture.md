@@ -485,7 +485,7 @@ litisle-user
 │ password     │     │ role_name    │
 │ phone (加密)  │     │ role_type    │
 │ email        │     │ create_time  │
-│ avatar       │     └──────┬───────┘
+│avatar_file_id│     └──────┬───────┘
 │ uid          │            │
 │ avatar_color │            │
 │ bio          │            │
@@ -536,7 +536,7 @@ litisle-user
 
 **User**（[查看代码](file:///e:/NewJavaPro/LitIsle/litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/User.java)）：
 
-- 字段：id / username / **uid（对外唯一标识，随机生成永久不变）** / password / phone / email / avatar / **avatarColor** / bio / vipExpireTime / frozenUntil / cancelTime / status / delFlag / version / createTime / updateTime
+- 字段：id / username / **uid（对外唯一标识，随机生成永久不变）** / password / phone / email / avatarFileId / **avatarColor** / bio / vipExpireTime / frozenUntil / cancelTime / status / delFlag / version / createTime / updateTime
 - `status` 用 `UserStatus` 枚举（**已迁 common-core**），`delFlag` 用 `DelFlag` 枚举（user 模块），`@EnumValue` 映射
 - `avatarColor` 用 `AvatarColor` 枚举（NONE/GOLD/WHITE），**已从 profile 表迁入主表**
 - `version` 用 `@Version` 乐观锁；`createTime/updateTime` 由 `AuditMetaObjectHandler` 自动填充
