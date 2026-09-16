@@ -15,7 +15,9 @@ import java.time.Duration;
  * 实现要点：
  * 1. 客户端构造（通常由 Spring @Bean 注入）
  *    - endpointOverride：指向 SeaweedFS Filer S3 网关（如 http://localhost:8333）
- *    - pathStyleAccess(true)【必须】：SeaweedFS 不支持 bucket 虚拟主机风格，桶名只能放在路径中
+ *      ⚠️ 此地址是 SDK 内部地址（上传/删除/预签名用），不等于给前端的公开直链地址
+ *      公开直链用 FileProperties.publicUrlBase 拼接（见 AccessLevelEnum）
+ *    - pathStyleAccess(true)【必须】：SeaweedFS 不支持 bucket 虚拟主机风格，筒名只能放在路径中
  *    - credentials：StaticCredentialsProvider，access-key/secret-key 来自 FileProperties，
  *      需与 docker/init/seaweedfs/s3.json 中配置保持一致
  *    - 签名算法：SigV4，Region 可任意填写（如 us-east-1），SeaweedFS 不校验 Region
@@ -37,9 +39,12 @@ import java.time.Duration;
  * <p>
  * 5. presign（生成预签名 URL）
  *    - 基于 GetObjectRequest + Duration 生成临时可访问 URL
- *    - 不暴露 AK/SK，适用于前端直传/直读、CDN 回源等场景
+ *    - 不暴露 AK/SK，适用于私有文件（如 LICENSE）的限时下载
+ *    - ⚠️ presign 是纯本地签名计算，不联网，不保证对象存在（file_meta 已查即可）
  *    - ⚠️ 调用前必须由 Service 层进行业务校验（如 bizType、权限、配额）
  *      示例：LICENSE 文件在超限时拒绝签发，属于纵深防御
+ *    - 注意区分：公开文件走 public-url-base 直链拼接（不走 presign），
+ *      CDN 回源是公开桶的匿名读机制，与预签名是两套独立访问模式
  * <p>
  * 6. 统一异常处理
  *    - 所有 SdkException 均在此层捕获并转换为 BizException

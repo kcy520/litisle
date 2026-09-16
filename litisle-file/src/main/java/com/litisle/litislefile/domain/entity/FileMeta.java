@@ -10,7 +10,8 @@ package com.litisle.litislefile.domain.entity;
  * path          varchar(255)  —— Filer 路径：{yyyy/MM/dd}/{fileId}.{ext}
  * mime/size     —— 类型与字节数
  * width/height  int           —— 图片尺寸（解析图片头获取）
- * align         AlignEnum     —— 文件维度冗余；对齐权威来源在 content 的 article_image  对齐方式枚举，比如：LEFT / CENTER / RIGHT。
+ * align         AlignEnum     —— 文件维度冗余；对齐权威来源在 content 的 article_image 表
+ *                  LEFT(1) / LEFT_CENTER(2) / CENTER(3) / RIGHT_CENTER(4) / RIGHT(5)，见 File-Architecture.md §2.2
  * access        AccessLevelEnum —— 0-私有/1-公开；LICENSE 强制 PRIVATE（服务层覆盖，default 0 仅兼底）
  * sha256        varchar(64) IDX —— 去重/秒传查询入口
  * delFlag       —— 软删除标记；定时任务扫 del_flag=1 且超 7 天 → 物理清理

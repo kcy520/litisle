@@ -95,7 +95,12 @@ litisle:
     # SeaweedFS S3 兼容配置（对接 Filer 的 S3 网关）
     seaweedfs:
       # S3 网关地址（Filer S3 API 默认端口 8333）
+      # ⚠️ SDK 内部地址：上传/删除/预签名用，不等于给前端的公开直链地址
       endpoint: http://${litisle.seaweed.host:localhost}:${litisle.seaweed.s3-port:8333}
+      # 公开直链拼接基址（给前端用）
+      # dev 阶段 = endpoint（同一个 8333）；接 CDN 后改为 CDN 域名（如 https://img.litisle.com）
+      # 详见 AccessLevelEnum / FileProperties 设计说明
+      public-url-base: http://${litisle.seaweed.host:localhost}:${litisle.seaweed.s3-port:8333}
       # S3 访问凭证（与 docker/init/seaweedfs/s3.json 保持一致）
       # s3.json 里写死了 accessKey / secretKey
       # 生产环境通过环境变量 LITISLE_S3_ACCESS_KEY / LITISLE_S3_SECRET_KEY 覆盖

@@ -35,5 +35,5 @@ litisle:
   # 容器名按 docker-compose.yml 中实际服务名填写
   # ================================
   seaweed:
-    host: litisle-seaweed-s3
+    host: litisle-seaweedfs
     s3-port: 8333
