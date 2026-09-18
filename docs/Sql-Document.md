@@ -1,4 +1,38 @@
 # ============================================================
+# 【待办】内容安全整改操作清单（企业规范落地）
+# 说明：以下修改须 in-place 应用到「四、litisle-review」与「八、litisle-file」模块的原始建表语句，
+#       不要改成本块下方的简化版（简化版丢失了 layer2_risk/assignee/opinion/handler/level/白名单等设计，
+#       以模块段定稿为准）。本块仅作清单速查，全部改完后整块删除。
+# -----------------------------------------------------------
+# ① review_task（见 review 模块 #1）：
+#    a) biz_type 补枚举：5-私信 6-文件/图片；biz_id 注明 biz_type=6 时为 file_meta 主键
+#    b) scene 补 IMAGE
+#    c) layer1_hit 后新增列：hit_words varchar(255) null 'DFA 命中词快照（逗号分隔，审核时固化，
+#       不随词库热更新变化，供人工复核回溯）'
+# ② report（见 review 模块 #2）：
+#    a) target_type 补枚举：4-私信 5-图片/文件
+#    b) 删除 evidence_file_ids 列（逗号分隔违反 1NF）
+#    c) 表后新增关联表 report_evidence：(report_id, file_id) 唯一键 + idx_file_id，
+#       用途：JOIN file_meta 校验证据图归属与 safe_flag，证据图先过安全闸口再展示给审核员
+# ③ appeal（见 review 模块 #3）：punish_id 注释改为 '关联处罚记录ID（punish_log.id）'
+# ④ violation_score（见 review 模块 #4）：表注释标注 '窄状态表：只存当前态，历史流水见 punish_log'
+#    （不新增 punish_id 列，最近处罚按 punish_log.user_id 倒序取一条，避免双写不一致）
+# ⑤ 新增 punish_log 表（见 review 模块 #4 后）：append-only 处罚流水，与状态表分离；
+#    字段：user_id / action(1-禁言 2-封禁 3-内容下架 4-警告) / reason / biz_type+biz_id(关联违规业务) /
+#    review_task_id(回溯审核链路) / expire_time / operator_id(0-系统) / operator_name / create_time；
+#    索引：idx_user_id、idx_review_task_id
+# ⑥ sensitive_word_library（见 review 模块 #5）：
+#    a) 删 idx_word，加唯一约束 uk_scene_word (scene, word)：防同场景重复插入导致 DFA 重复加载、Pub 重复消费
+#    b) 表注释声明：update_time 作为 DFA 双 buffer 热更新版本依据（Redis Pub 消费端按版本比对，
+#       防乱序/重复 Pub 导致旧词库覆盖新词库）
+#    （保留 level / is_blacklist / updated_by —— 命中分级、黑白名单策略、词库审计均依赖这些列，不可删）
+# ⑦ file_meta（见 file 模块 #1）：
+#    a) safe_flag 三态化 default-deny：0-违规（禁止访问） 1-正常 2-待检测（default 2）
+#    b) 链路：status=1 后异步消息 → 病毒/违规检测 → 写本列；getUrl/batchGetUrls 返回前校验
+#    c) 闸口按曝光面分层放行：高曝光（ARTICLE_IMG/COVER）仅 1 放行、2 展示占位图；
+#       低曝光（AVATAR）2 放行、检出违规置 0 并强制刷新（见 seaweedfs笔记.md §3.6/§3.6.3）
+#    d) 同步更新模块段下方 safe_flag 设计说明段落（原'default 1 不影响现有逻辑'改为三态 rationale）
+# ============================================================# ============================================================
 # 内容安全整改 DDL（企业规范落地）
 # 整改点：
 #   1) review_task：biz_type 补枚举（5-私信 6-文件/图片），新增 DFA 命中词快照 hit_words
@@ -7,118 +41,6 @@
 #   4) 敏感词库：scene+word 唯一约束，update_time 作为 DFA 热更新版本依据
 #   5) file_meta.safe_flag：三态化 default-deny（default 2）
 # ============================================================
-
-# 1. 审核任务表
-create table if not exists `review_task`
-(
-`id`           bigint unsigned not null auto_increment primary key comment '主键ID',
-`biz_type`     tinyint         not null comment '业务类型：1-文章 2-评论 3-用户名 4-作家申请 5-私信 6-文件/图片（违规图审核任务挂载）',
-`biz_id`       bigint unsigned not null comment '业务ID（biz_type=6 时为 file_meta 主键）',
-`scene`        varchar(20)     not null comment '审核场景：ARTICLE_FEATURED/ARTICLE_COMMUNITY/COMMENT/USERNAME/MESSAGE/IMAGE',
-`layer1_hit`   tinyint         not null default 0 comment 'DFA 命中：0-未命中 1-HIGH 2-MID',
-`hit_words`    varchar(255)    null comment 'DFA 命中词快照（逗号分隔，审核时固化，不随词库热更新变化，供人工复核回溯）',
-`status`       tinyint         not null default 0 comment '审核状态：0-待审核 1-通过 2-拒绝',
-`create_time`  datetime        not null default current_timestamp comment '创建时间',
-`update_time`  datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
-index `idx_biz` (`biz_type`, `biz_id`),
-index `idx_scene_status` (`scene`, `status`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '审核任务表';
-
-# 2. 举报表
-create table if not exists `report`
-(
-`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
-`reporter_id` bigint unsigned not null comment '举报人ID',
-`target_type` tinyint         not null comment '目标类型：1-文章 2-评论 3-用户 4-私信 5-图片/文件',
-`target_id`   bigint unsigned not null comment '目标ID',
-`reason`      varchar(200)    not null comment '举报理由',
-`status`      tinyint         not null default 0 comment '处理状态：0-待处理 1-已处理',
-`create_time` datetime        not null default current_timestamp comment '举报时间',
-`update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
-index `idx_target` (`target_type`, `target_id`),
-index `idx_reporter` (`reporter_id`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '举报表';
-
-# 2.1 举报证据关联表（替代逗号分隔存储：可 JOIN file_meta 校验文件归属与 safe_flag，证据图先过安全闸口再展示给审核员）
-create table if not exists `report_evidence`
-(
-`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
-`report_id`   bigint unsigned not null comment '举报ID',
-`file_id`     varchar(64)     not null comment '证据文件ID（file_meta.file_id）',
-`create_time` datetime        not null default current_timestamp comment '上传时间',
-unique key `uk_report_file` (`report_id`, `file_id`),
-index `idx_file_id` (`file_id`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '举报证据关联表';
-
-# 3. 敏感词库表
-create table if not exists `sensitive_word`
-(
-`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
-`word`        varchar(64)     not null comment '敏感词',
-`scene`       varchar(20)     not null comment '应用场景：ARTICLE/COMMENT/USERNAME/MESSAGE 等',
-`status`      tinyint         not null default 1 comment '状态：0-禁用 1-启用',
-`create_time` datetime        not null default current_timestamp comment '创建时间',
-`update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间（DFA 热更新版本依据）',
-unique key `uk_scene_word` (`scene`, `word`),
-index `idx_scene_status` (`scene`, `status`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '敏感词库表（update_time 作为 DFA 双 buffer 热更新的版本依据：Redis Pub 消费端按版本比对，防乱序/重复 Pub 导致旧词库覆盖新词库）';
-
-# 4. 违规分累积表
-create table if not exists `violation_score`
-(
-`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
-`user_id`     bigint unsigned not null comment '用户ID',
-`score`       int             not null default 0 comment '当前违规分',
-`punish_id`   bigint unsigned null comment '关联处罚记录ID（punish_log.id）',
-`update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
-unique key `uk_user_id` (`user_id`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '违规分累积表（窄状态表：只存当前态，历史流水见 punish_log）';
-
-# 4.1 处罚流水表（append-only；状态表与流水表分离，处罚历史不可覆盖，申诉依据）
-create table if not exists `punish_log`
-(
-`id`             bigint unsigned not null auto_increment primary key comment '处罚ID',
-`user_id`        bigint unsigned not null comment '被处罚用户ID',
-`action`         tinyint         not null comment '处罚动作：1-禁言 2-封禁 3-内容下架 4-警告',
-`reason`         varchar(255)    not null comment '处罚原因（含违规内容摘要）',
-`biz_type`       tinyint         null comment '关联违规业务类型：1-文章 2-评论 3-用户名 5-私信 6-文件/图片',
-`biz_id`         bigint unsigned null comment '关联违规业务ID',
-`review_task_id` bigint unsigned null comment '关联审核任务ID（回溯审核链路）',
-`expire_time`    datetime        null comment '处罚截止时间（禁言/封禁；无固定期限为 null）',
-`operator_id`    bigint unsigned not null comment '操作者ID（0-系统自动）',
-`operator_name`  varchar(32)     null comment '操作者用户名（快照）',
-`create_time`    datetime        not null default current_timestamp comment '处罚时间',
-index `idx_user_id` (`user_id`),
-index `idx_review_task_id` (`review_task_id`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '处罚流水表（append-only 不可修改删除）';
-
-# 5. 文件元数据表
-create table if not exists `file_meta`
-(
-`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
-`file_id`     varchar(64)     not null comment '文件唯一ID',
-`user_id`     bigint unsigned not null comment '上传用户ID',
-`file_name`   varchar(255)    not null comment '原始文件名',
-`file_size`   bigint          not null comment '文件大小（字节）',
-`mime_type`   varchar(100)    not null comment 'MIME 类型',
-`scene`       varchar(20)     not null comment '上传场景：AVATAR/COVER/ARTICLE_IMG 等（曝光面分层放行依据）',
-`status`      tinyint         not null default 0 comment '上传状态：0-上传中 1-已完成',
-`safe_flag`   tinyint         not null default 2 comment '违规信息审核三态（default-deny）：0-违规（禁止访问） 1-正常 2-待检测（默认）；链路：status=1 后异步消息 → 病毒/违规检测 → 写本列；getUrl/batchGetUrls 按曝光面分层放行：高曝光（ARTICLE_IMG/COVER）仅 1 放行、2 展示占位图，低曝光（AVATAR）2 放行、检出违规置 0 并强制刷新（访问闸口，见 seaweedfs笔记.md §3.6/§3.6.3）',
-`create_time` datetime        not null default current_timestamp comment '创建时间',
-`update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
-unique key `uk_file_id` (`file_id`),
-index `idx_user_id` (`user_id`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '文件元数据表';
-
-safe_flag 三态列（0-违规 1-正常 2-待检测）：default 2 遵循 default-deny——公开资源检测完成（=1）才放行，消除异步检测窗口内"未检测即放行"的竞态；闸口按资源曝光面分层放行（详见建表注释）；启用仅需 MQ 异步消费写本列，主链路零改动（设计见 seaweedfs笔记.md §3.6）。SQL
-我先分析一下你现有 user-schema.sql 的风格特征，再据此风格给出各模块建表语句。
 
 修改！
 我这个项目只有一个数据库，不需要分库！并且需要修改数据库的库名！不是ms-demo！！！）
