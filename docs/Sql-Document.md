@@ -1,54 +1,57 @@
 # ============================================================
-# 【待办】内容安全整改操作清单（企业规范落地）
-# 说明：以下修改须 in-place 应用到「四、litisle-review」与「八、litisle-file」模块的原始建表语句，
-#       以模块段定稿为准。本块仅作清单速查（已合并原简版 DDL 块，全文档仅此一份），
-#       全部改完后整块删除。
+# 【待办】全库优化整改清单（第二轮，企业规范落地）
+# 说明：以下修改须 in-place 应用到各模块原始建表语句，以模块段定稿为准；
+#       全部改完后整块删除。优先级：P0 功能失效 > P1 资金/合规 > P2 语义/统一 > P3 顺手优化
 # -----------------------------------------------------------
-# ① review_task（见 review 模块 #1）：
-#    a) biz_type 补枚举：5-私信 6-文件/图片；biz_id 注明 biz_type=6 时为 file_meta 主键
-#    b) scene 补 IMAGE
-#    c) layer1_hit 后新增列：hit_words text null 'DFA 命中词快照（逗号分隔，审核时固化，
-#       不随词库热更新变化，供人工复核回溯）'；用 text 而非 varchar(255)：strict mode 下超长
-#       varchar 会报错中断审核写入，审核证据宁可存不下不可丢；无需索引、按任务一读全取
-# ② report（见 review 模块 #2）：
-#    a) target_type 补枚举：4-私信 5-图片/文件；target_type=5 时 target_id = file_meta.id
-#       （bigint，与其余 target 对齐，勿用 file_id 字符串）
-#    b) 删除 evidence_file_ids 列（逗号分隔违反 1NF）
-#    c) 表后新增关联表 report_evidence：(report_id, file_id) 唯一键 + idx_file_id；
-#       注意 file_id 为 varchar(64) 引用 file_meta.file_id（业务主键），与 ①a 的 file_meta.id
-#       是两套引用，勿混淆；
-#       用途：JOIN file_meta 校验证据图归属与 safe_flag，证据图先过安全闸口再展示给审核员
-# ③ appeal（见 review 模块 #3）：punish_id 注释改为 '关联处罚记录ID（punish_log.id）'
-# ④ violation_score（见 review 模块 #4）：表注释标注 '窄状态表：只存当前态，历史流水见 punish_log'；
-#    last_punish_action(0-无 1-禁言 2-封禁) 只记影响登录态的处罚，punish_log.action 的
-#    3-内容下架 / 4-警告 仅落流水不改状态表（枚举不对齐系有意设计，注释写明）；
-#    （不新增 punish_id 列，最近处罚按 punish_log.user_id 倒序取一条，避免双写不一致）
-# ⑤ 新增 punish_log 表（见 review 模块 #4 后）：append-only 处罚流水，与状态表分离；
-#    字段：user_id / action(1-禁言 2-封禁 3-内容下架 4-警告) / reason / biz_type+biz_id(关联违规业务) /
-#    review_task_id(回溯审核链路) / expire_time / operator_id(0-系统) / operator_name / create_time /
-#    status(1-生效 2-已撤销) / revoke_time(撤销时间)；
-#    申诉撤销闭环：appeal 裁决=2-撤销 时 punish_log.status 置 2 + violation_score 重算，
-#    历史行保留不删（append-only）；
-#    索引：idx_user_id、idx_review_task_id
-# ⑥ sensitive_word_library（见 review 模块 #5）：
-#    a) 删 idx_word，加唯一约束 uk_scene_word (scene, word)：防同场景重复插入导致 DFA 重复加载、
-#       Pub 重复消费；唯一键与逻辑删除互斥 → 词库改物理删除：删 del_flag 列
-#       （配置类小表、可全量重建、updated_by 留审计痕）
-#    b) 新增 version bigint not null default 0 'DFA 词库版本：每次批量导入整体 +1，Redis Pub 消息体
-#       携带 version，消费端 newVersion > curVersion 才重建，防乱序/重复 Pub 旧覆盖新'；
-#       不用 update_time 作版本依据：秒级精度，同秒多次变更/批量导入多行同值，版本比对失效
-#    （保留 level / is_blacklist / updated_by —— 命中分级、黑白名单策略、词库审计均依赖这些列，不可删）
-# ⑦ file_meta（见 file 模块 #1）：
-#    a) safe_flag 三态化 default-deny：0-违规（禁止访问） 1-正常 2-待检测（default 2）
-#    b) 链路：status=1 后异步消息 → 病毒/违规检测 → 写本列；getUrl/batchGetUrls 返回前校验
-#    c) 闸口按曝光面分层放行：高曝光（ARTICLE_IMG/COVER）仅 1 放行、2 展示占位图；
-#       低曝光（AVATAR / LICENSE，私有仅本人/管理员可见）2 放行、检出违规置 0 并强制刷新
-#       （见 seaweedfs笔记.md §3.6/§3.6.3）
-#    d) 同步更新模块段下方 safe_flag 设计说明段落（原'default 1 不影响现有逻辑'改为三态 rationale）
+# ①【P0】sys_user 手机号加密与唯一索引互斥（见 user 模块 #1）：
+#    改动：a) 新增 phone_hash varchar(64) null '手机号 HMAC-SHA256 摘要（独立密钥）；唯一约束与
+#           查重走 hash 列，phone 密文列只管存储'；uk_phone_del(phone,del_flag) 改为
+#           uk_phone_hash_del(phone_hash,del_flag)；email 同理加 email_hash + uk_email_hash_del；
+#           b) phone 改 null（DDL not null 与设计说明'允许为空是期望行为'矛盾）；
+#    原因：AES 加密若用随机 IV，同一手机号每次密文不同，唯一索引永不命中 → 查重/防重复注册失效；
+#           hash 列（HMAC 确定性）解决碰撞检测，密文列保留加密收益；这是密态存储的标准拆分做法
+# ②【P0】article DDL 与设计原因段落脱节（见 content 模块 #1）：
+#    改动：a) 补列 publish_batch_id bigint unsigned null '批量发布批次ID（同批次共享）' +
+#           索引 idx_publish_batch；b) 补列 access_password varchar(128) null
+#           '访问密码（visibility=4 时 BCrypt 存储）'；c) visibility 补枚举：3-仅关注者可见 4-密码访问；
+#           d) zone 补枚举：3-推荐流（运营/算法推荐内容）；
+#    原因：设计原因段落已承诺这 4 项（批量发布/密码访问/4 种可见性/zone=3），DDL 缺失会导致
+#           落地时不知道以哪边为准，且功能文档明确承诺了这些能力
+# ③【P1】shop_product.image_url 直链落库（见 shop 模块 #1）：
+#    改动：image_url varchar(500) 改为 image_file_id varchar(64) '商品图片文件ID（file_meta.file_id），
+#           URL 运行时经 FileService 反查拼接，永不落库'；
+#    原因：违反 file 模块'业务层只持 fileId'核心原则；直链落库会绕过 safe_flag 违规图闸口，
+#           且文件迁移/换桶即全量坏链（与 sys_user.avatar_file_id 的做法对齐）
+# ④【P1】coin_transaction 流水类型不覆盖全部资金变动（见 payment 模块 #3）：
+#    改动：tx_type 补枚举：6-商城消费 7-商城退款 8-提现驳回退币；
+#    原因：金融流水表必须穷举所有资金变动场景；shop 扣币走 Seata AT 但无类型可落账，
+#           withdraw_request 有驳回态但退币无类型，账目对不上即资金链路漏洞
+# ⑤【P1】shipping 收件人 PII 明文（见 shop 模块 #3）：
+#    改动：receiver_phone varchar(20) 改 varchar(255) '收件人电话（AES 加密存储，展示脱敏，
+#           发货场景走安全通道解密）'；receiver_name/receiver_address 注明加密或脱敏策略；
+#    原因：敏感数据保护标准全库一致（user 模块手机号已加密）；运单收件人同属 PII，
+#           明文存储不合规，泄露面最大（快递信息可直接用于线下诈骗）
+# ⑥【P2】book.status 默认值语义错误（见 content 模块 #4）：
+#    改动：default 1 改 default 0；
+#    原因：1-已完结，新建书默认已完结语义错误，应为 0-连载中
+# ⑦【P2】shop 模块命名风格与全库不统一（见 shop 模块全部）：
+#    改动：a) deleted → del_flag（全库统一）；b) 主键 bigint → bigint unsigned（全库统一）；
+#           c) key → index、engine=innodb → engine = InnoDB（风格统一）；
+#    原因：单库多模块命名/类型统一是 ORM 映射与公共代码复用的前提
+# ⑧【P2】ai_message 悬空决策注释（见 ai 模块 #2）：
+#    改动：拍板'记录'：补列 prompt_tokens int null / completion_tokens int null '本条消息
+#           token 消耗（与 ai_token_usage 对账）'，删除'#应该记录token吗'注释；
+#    原因：逐条记录 token 与日汇总表对账，防统计口径漂移；限额校验与 VIP 权益核算需要明细支撑
+# ⑨【P3】comment 列表查询索引优化（见 social 模块 #3）：
+#    改动：idx_article_id(article_id) 改为 (article_id, status, create_time)；
+#    原因：高频查询是'某文章的正常评论分页'，复合索引可过滤+排序一步到位，避免回表
+# ⑩【P3】vip_order 缺订单号（见 payment 模块 #1）：
+#    改动：补列 order_no varchar(32) not null '订单号（唯一，支付回调幂等/第三方对账用）' +
+#           unique key uk_order_no(order_no)；
+#    原因：支付回调幂等、与支付渠道对账都需唯一交易号（与 shop_order.order_no 对齐）
 # ============================================================
 
 
-我这个项目只有一个数据库，不需要分库！
 
 现有 SQL 风格归纳
 维度	风格
@@ -535,7 +538,7 @@ book_chapter 用 (book_id, chapter_no) 唯一索引：保证章节序号不重�
 
 content_html 用 longtext：支持大篇幅切片前的完整正文。
 
-## 三、litisle-social 模块（数据库：litislesocial）
+## 三、litisle-social 模块（数据库：litisle_social）
 
 ```sql
 # ============================================================
@@ -709,7 +712,7 @@ favorite_item 加 user_id 冗余 + 唯一索引：防止同一用户重复收藏
 ```sql
 # ============================================================
 # 模块：litisle-review
-# 数据库：litislereview
+# 数据库：litisle_review
 # 说明：审核任务 / 举报 / 申诉 / 违规分 / 敏感词库
 # ============================================================
 
@@ -723,10 +726,11 @@ use litisle_review;
 create table if not exists `review_task`
 (
 `id`           bigint unsigned not null auto_increment primary key comment '任务ID',
-`biz_type`     tinyint         not null comment '业务类型：1-文章 2-评论 3-用户名 4-作家申请',
+`biz_type`     tinyint         not null comment '业务类型：1-文章 2-评论 3-用户名 4-作家申请 5-私信 6-文件/图片（biz_type=6 时 biz_id = file_meta.id）',
 `biz_id`       bigint unsigned not null comment '业务ID',
-`scene`        varchar(20)     not null comment '审核场景：ARTICLE_FEATURED/ARTICLE_COMMUNITY/COMMENT/USERNAME/MESSAGE',
+`scene`        varchar(20)     not null comment '审核场景：ARTICLE_FEATURED/ARTICLE_COMMUNITY/COMMENT/USERNAME/MESSAGE/IMAGE',
 `layer1_hit`   tinyint         not null default 0 comment 'DFA 命中：0-未命中 1-HIGH 2-MID',
+`hit_words`    text            null comment 'DFA 命中词快照（逗号分隔，审核时固化，不随词库热更新变化，供人工复核回溯；用 text：strict mode 下超长 varchar 报错会中断审核写入，证据宁存不下不可丢）',
 `layer2_risk`  tinyint         not null default 0 comment '小审风险：0-未送审 1-低 2-中 3-高',
 `status`       tinyint         not null default 0 comment '状态：0-待审 1-自动通过 2-人工待审 3-通过 4-驳回',
 `assignee`     bigint unsigned null comment '认领审核员ID',
@@ -745,10 +749,9 @@ create table if not exists `report`
 (
 `id`               bigint unsigned not null auto_increment primary key comment '举报ID',
 `reporter_id`      bigint unsigned not null comment '举报人ID',
-`target_type`      tinyint         not null comment '目标类型：1-文章 2-评论 3-用户',
+`target_type`      tinyint         not null comment '目标类型：1-文章 2-评论 3-用户 4-私信 5-图片/文件（target_type=5 时 target_id = file_meta.id，与其余 target 对齐）',
 `target_id`        bigint unsigned not null comment '目标ID',
 `reason`           varchar(200)    not null comment '举报理由',
-`evidence_file_ids` varchar(500)   null comment '证据文件ID列表（逗号分隔）',
 `status`           tinyint         not null default 0 comment '状态：0-待处理 1-初审中 2-转人工 3-已裁决',
 `handler`          bigint unsigned null comment '处理人ID',
 `result`           varchar(200)    null comment '裁决结果',
@@ -759,12 +762,23 @@ index `idx_status` (`status`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '举报表';
 ​
+# 2.1 举报证据关联表
+create table if not exists `report_evidence`
+(
+`report_id`   bigint unsigned not null comment '举报ID',
+`file_id`     varchar(64)     not null comment '证据文件ID（引用 file_meta.file_id 业务主键，注意与 review_task.biz_id 引用的 file_meta.id 是两套引用）',
+`create_time` datetime        not null default current_timestamp comment '关联时间',
+primary key (`report_id`, `file_id`),
+index `idx_file_id` (`file_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '举报证据关联表（JOIN file_meta 校验证据归属与 safe_flag，证据图先过安全闸口再展示给审核员）';
+​
 # 3. 申诉表
 create table if not exists `appeal`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '申诉ID',
 `report_id`     bigint unsigned null comment '关联举报ID',
-`punish_id`     bigint unsigned null comment '关联处罚记录ID',
+`punish_id`     bigint unsigned null comment '关联处罚记录ID（punish_log.id）',
 `appellant_id`  bigint unsigned not null comment '申诉人ID',
 `content`       varchar(500)    not null comment '申诉内容',
 `status`        tinyint         not null default 0 comment '状态：0-待裁决 1-维持 2-撤销',
@@ -782,11 +796,32 @@ create table if not exists `violation_score`
 (
 `user_id`            bigint unsigned not null primary key comment '用户ID',
 `score`              int             not null default 0 comment '违规分累计',
-`last_punish_action` tinyint         not null default 0 comment '上次处罚动作：0-无 1-禁言 2-封禁',
+`last_punish_action` tinyint         not null default 0 comment '上次处罚动作：0-无 1-禁言 2-封禁（只记影响登录态的处罚；punish_log.action 的 3-内容下架/4-警告 仅落流水不改本表，枚举不对齐系有意设计）',
 `frozen_until`       datetime        null comment '禁言截止时间',
 `update_time`        datetime        not null default current_timestamp on update current_timestamp comment '更新时间'
 ) engine = InnoDB
-default charset = utf8mb4 comment = '违规分累积表';
+default charset = utf8mb4 comment = '违规分累积表（窄状态表：只存当前态，历史流水见 punish_log；最近处罚按 punish_log.user_id 倒序取一条，避免双写不一致）';
+​
+# 4.1 处罚流水表（append-only，与状态表分离）
+create table if not exists `punish_log`
+(
+`id`             bigint unsigned not null auto_increment primary key comment '处罚ID',
+`user_id`        bigint unsigned not null comment '被处罚用户ID',
+`action`         tinyint         not null comment '处罚动作：1-禁言 2-封禁 3-内容下架 4-警告',
+`reason`         varchar(200)    not null comment '处罚原因',
+`biz_type`       tinyint         not null comment '关联违规业务类型（同 review_task.biz_type）',
+`biz_id`         bigint unsigned not null comment '关联违规业务ID',
+`review_task_id` bigint unsigned null comment '关联审核任务ID（回溯审核链路）',
+`expire_time`    datetime        null comment '处罚截止时间（永久处罚为 null）',
+`operator_id`    bigint unsigned not null default 0 comment '操作人ID（0-系统）',
+`operator_name`  varchar(32)     not null comment '操作人名称（审计冗余）',
+`status`         tinyint         not null default 1 comment '状态：1-生效 2-已撤销（申诉成立）',
+`revoke_time`    datetime        null comment '撤销时间',
+`create_time`    datetime        not null default current_timestamp comment '处罚时间',
+index `idx_user_id` (`user_id`),
+index `idx_review_task_id` (`review_task_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '处罚流水表（append-only：申诉裁决=2-撤销 时 status 置 2 + violation_score 重算，历史行保留不删）';
 ​
 # 5. 敏感词库表（DFA 热更新数据源）
 create table if not exists `sensitive_word_library`
@@ -797,14 +832,14 @@ create table if not exists `sensitive_word_library`
 `level`        tinyint         not null default 2 comment '级别：1-HIGH 2-MID',
 `is_blacklist` tinyint         not null default 1 comment '是否黑名单：0-白名单 1-黑名单',
 `status`       tinyint         not null default 1 comment '状态：0-禁用 1-启用',
-`del_flag`     tinyint         not null default 0 comment '删除标志',
 `updated_by`   bigint unsigned not null comment '修改人ID（审计）',
+`version`      bigint          not null default 0 comment 'DFA 词库版本：每次批量导入整体 +1，Redis Pub 消息体携带 version，消费端 newVersion > curVersion 才重建，防乱序/重复 Pub 旧覆盖新（不用 update_time：秒级精度，同秒多次变更/批量导入多行同值，版本比对失效）',
 `create_time`  datetime        not null default current_timestamp comment '创建时间',
 `update_time`  datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
 index `idx_scene_status` (`scene`, `status`),
-index `idx_word` (`word`)
+unique key `uk_scene_word` (`scene`, `word`)
 ) engine = InnoDB
-default charset = utf8mb4 comment = '敏感词库表';
+default charset = utf8mb4 comment = '敏感词库表（物理删除：唯一键与逻辑删除互斥，配置类小表可全量重建，删除即物理删、updated_by 留审计痕）';
 ​
 # 6. 作家申请表
 create table if not exists `author_apply`
@@ -911,15 +946,15 @@ ai_token_usage 按 (user_id, usage_date) 唯一键：每日一行，支持 upser
 ```sql
 # ============================================================
 # 模块：litisle-payment
-# 数据库：litislepayment
+# 数据库：litisle_payment
 # 说明：VIP 订单 / 小硬币账户 / 流水 / 赞赏 / 提现 / Seata
 # ============================================================
 
-create database if not exists litislepayment
+create database if not exists litisle_payment
 character set utf8mb4
 collate utf8mb4_unicode_ci;
 
-use litislepayment;
+use litisle_payment;
 
 # 1. VIP 订单表
 create table if not exists `vip_order`
@@ -1103,7 +1138,7 @@ create table if not exists `file_meta`
 `align`      tinyint         null comment '对齐：1-左 2-左偏中 3-中 4-中偏右 5-右（图片专用）',
 `access`     tinyint         not null default 0 comment '访问级别：0-私有 1-公开',
 `status`     tinyint         not null default 0 comment '上传状态：0-上传中（锁内占位写库）1-上传完成（锁外 put 成功后更新）；put 失败保留 0，由对账任务清理（见 seaweedfs笔记.md §3.4）',
-`safe_flag`  tinyint         not null default 1 comment '【预留｜已定接入，暂未开发】违规信息审核：0-违规（禁止访问）1-正常；启用链路：status=1 后异步消息 → 病毒/违规检测 → 写本列；getUrl/batchGetUrls 返回前校验（访问闸口，见 seaweedfs笔记.md §3.6/§3.6.3）',
+`safe_flag`  tinyint         not null default 2 comment '【预留｜已定接入，暂未开发】违规审核（三态 default-deny）：0-违规（禁止访问）1-正常 2-待检测（默认；放行以检测完成为前提，而非未检出违规，避免异步检测窗口内未检图被放行）；启用链路：status=1 后异步消息 → 病毒/违规检测 → 写本列；getUrl/batchGetUrls 返回前校验（访问闸口，见 seaweedfs笔记.md §3.6/§3.6.3）',
 `sha256`     varchar(64)     not null comment 'SHA256 摘要（联合判重键：sha256+size+biz_type，PRIVATE 追加 owner_id 隔离）',
 `del_flag`   tinyint         not null default 0 comment '删除标志',
 `create_time` datetime       not null default current_timestamp comment '上传时间',
@@ -1124,8 +1159,12 @@ PRIVATE/LICENSE 去重追加 owner_id（最左前缀匹配 + 回表过滤，后�
 
 access 区分公开/私有：公开文件走 CDN 直链，私有文件走预签名短时效 URL。
 
-safe_flag 预留列：违规信息审核（已定接入、暂未开发）。建表一次到位避免将来改表，default 1
-不影响现有逻辑；启用仅需 MQ 异步消费写本列，主链路零改动（设计见 seaweedfs笔记.md §3.6）。
+safe_flag 预留列：违规信息审核（已定接入、暂未开发）。建表一次到位避免将来改表，三态化
+default-deny（default 2）：公开资源放行以"检测完成"为前提，而非"未检出违规"；启用仅需
+MQ 异步消费写本列，主链路零改动（设计见 seaweedfs笔记.md §3.6）。
+
+闸口按曝光面分层放行：高曝光（ARTICLE_IMG/COVER，公开可见）仅 safe_flag=1 放行、2 展示占位图；
+低曝光（AVATAR / LICENSE，私有仅本人/管理员可见）2 放行、检出违规置 0 并强制刷新。
 
 align 放此表为冗余可选：实际对齐信息以 article_image 为准，此处冗余便于文件维度查询。
 
