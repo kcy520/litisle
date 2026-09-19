@@ -1,49 +1,54 @@
 # ============================================================
 # 【待办】内容安全整改操作清单（企业规范落地）
 # 说明：以下修改须 in-place 应用到「四、litisle-review」与「八、litisle-file」模块的原始建表语句，
-#       不要改成本块下方的简化版（简化版丢失了 layer2_risk/assignee/opinion/handler/level/白名单等设计，
-#       以模块段定稿为准）。本块仅作清单速查，全部改完后整块删除。
+#       以模块段定稿为准。本块仅作清单速查（已合并原简版 DDL 块，全文档仅此一份），
+#       全部改完后整块删除。
 # -----------------------------------------------------------
 # ① review_task（见 review 模块 #1）：
 #    a) biz_type 补枚举：5-私信 6-文件/图片；biz_id 注明 biz_type=6 时为 file_meta 主键
 #    b) scene 补 IMAGE
-#    c) layer1_hit 后新增列：hit_words varchar(255) null 'DFA 命中词快照（逗号分隔，审核时固化，
-#       不随词库热更新变化，供人工复核回溯）'
+#    c) layer1_hit 后新增列：hit_words text null 'DFA 命中词快照（逗号分隔，审核时固化，
+#       不随词库热更新变化，供人工复核回溯）'；用 text 而非 varchar(255)：strict mode 下超长
+#       varchar 会报错中断审核写入，审核证据宁可存不下不可丢；无需索引、按任务一读全取
 # ② report（见 review 模块 #2）：
-#    a) target_type 补枚举：4-私信 5-图片/文件
+#    a) target_type 补枚举：4-私信 5-图片/文件；target_type=5 时 target_id = file_meta.id
+#       （bigint，与其余 target 对齐，勿用 file_id 字符串）
 #    b) 删除 evidence_file_ids 列（逗号分隔违反 1NF）
-#    c) 表后新增关联表 report_evidence：(report_id, file_id) 唯一键 + idx_file_id，
+#    c) 表后新增关联表 report_evidence：(report_id, file_id) 唯一键 + idx_file_id；
+#       注意 file_id 为 varchar(64) 引用 file_meta.file_id（业务主键），与 ①a 的 file_meta.id
+#       是两套引用，勿混淆；
 #       用途：JOIN file_meta 校验证据图归属与 safe_flag，证据图先过安全闸口再展示给审核员
 # ③ appeal（见 review 模块 #3）：punish_id 注释改为 '关联处罚记录ID（punish_log.id）'
-# ④ violation_score（见 review 模块 #4）：表注释标注 '窄状态表：只存当前态，历史流水见 punish_log'
+# ④ violation_score（见 review 模块 #4）：表注释标注 '窄状态表：只存当前态，历史流水见 punish_log'；
+#    last_punish_action(0-无 1-禁言 2-封禁) 只记影响登录态的处罚，punish_log.action 的
+#    3-内容下架 / 4-警告 仅落流水不改状态表（枚举不对齐系有意设计，注释写明）；
 #    （不新增 punish_id 列，最近处罚按 punish_log.user_id 倒序取一条，避免双写不一致）
 # ⑤ 新增 punish_log 表（见 review 模块 #4 后）：append-only 处罚流水，与状态表分离；
 #    字段：user_id / action(1-禁言 2-封禁 3-内容下架 4-警告) / reason / biz_type+biz_id(关联违规业务) /
-#    review_task_id(回溯审核链路) / expire_time / operator_id(0-系统) / operator_name / create_time；
+#    review_task_id(回溯审核链路) / expire_time / operator_id(0-系统) / operator_name / create_time /
+#    status(1-生效 2-已撤销) / revoke_time(撤销时间)；
+#    申诉撤销闭环：appeal 裁决=2-撤销 时 punish_log.status 置 2 + violation_score 重算，
+#    历史行保留不删（append-only）；
 #    索引：idx_user_id、idx_review_task_id
 # ⑥ sensitive_word_library（见 review 模块 #5）：
-#    a) 删 idx_word，加唯一约束 uk_scene_word (scene, word)：防同场景重复插入导致 DFA 重复加载、Pub 重复消费
-#    b) 表注释声明：update_time 作为 DFA 双 buffer 热更新版本依据（Redis Pub 消费端按版本比对，
-#       防乱序/重复 Pub 导致旧词库覆盖新词库）
+#    a) 删 idx_word，加唯一约束 uk_scene_word (scene, word)：防同场景重复插入导致 DFA 重复加载、
+#       Pub 重复消费；唯一键与逻辑删除互斥 → 词库改物理删除：删 del_flag 列
+#       （配置类小表、可全量重建、updated_by 留审计痕）
+#    b) 新增 version bigint not null default 0 'DFA 词库版本：每次批量导入整体 +1，Redis Pub 消息体
+#       携带 version，消费端 newVersion > curVersion 才重建，防乱序/重复 Pub 旧覆盖新'；
+#       不用 update_time 作版本依据：秒级精度，同秒多次变更/批量导入多行同值，版本比对失效
 #    （保留 level / is_blacklist / updated_by —— 命中分级、黑白名单策略、词库审计均依赖这些列，不可删）
 # ⑦ file_meta（见 file 模块 #1）：
 #    a) safe_flag 三态化 default-deny：0-违规（禁止访问） 1-正常 2-待检测（default 2）
 #    b) 链路：status=1 后异步消息 → 病毒/违规检测 → 写本列；getUrl/batchGetUrls 返回前校验
 #    c) 闸口按曝光面分层放行：高曝光（ARTICLE_IMG/COVER）仅 1 放行、2 展示占位图；
-#       低曝光（AVATAR）2 放行、检出违规置 0 并强制刷新（见 seaweedfs笔记.md §3.6/§3.6.3）
+#       低曝光（AVATAR / LICENSE，私有仅本人/管理员可见）2 放行、检出违规置 0 并强制刷新
+#       （见 seaweedfs笔记.md §3.6/§3.6.3）
 #    d) 同步更新模块段下方 safe_flag 设计说明段落（原'default 1 不影响现有逻辑'改为三态 rationale）
-# ============================================================# ============================================================
-# 内容安全整改 DDL（企业规范落地）
-# 整改点：
-#   1) review_task：biz_type 补枚举（5-私信 6-文件/图片），新增 DFA 命中词快照 hit_words
-#   2) report：target_type 补枚举（4-私信 5-图片/文件），证据改关联表 report_evidence
-#   3) 新增处罚流水表 punish_log（append-only，与违规分状态表分离）
-#   4) 敏感词库：scene+word 唯一约束，update_time 作为 DFA 热更新版本依据
-#   5) file_meta.safe_flag：三态化 default-deny（default 2）
 # ============================================================
 
-修改！
-我这个项目只有一个数据库，不需要分库！并且需要修改数据库的库名！不是ms-demo！！！）
+
+我这个项目只有一个数据库，不需要分库！
 
 现有 SQL 风格归纳
 维度	风格
