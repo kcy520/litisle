@@ -42,6 +42,28 @@ import java.util.Base64;
 public class Aes256GcmCrypto {
 
 
+    /**
+     * ### 加密 encrypt(plainText)
+     * 明文 "13800010001"
+  ↓ 1. SecureRandom 生成 12 字节随机 IV（每次都不同 ← 这是关键）
+  ↓ 2. Cipher.init(ENCRYPT_MODE, 密钥, GCMParameterSpec(128, IV))
+  ↓ 3. doFinal → 输出 [密文 + 16 字节认证标签]（GCM 自动把标签拼在尾部）
+  ↓ 4. 拼接：combined = [IV(12B) | 密文+标签(N B)]
+  ↓ 5. Base64 编码
+  ↓
+"_base64字符串_" → 存入 sys_user.phone
+
+### 解密 decrypt(encryptedData)
+Base64 密文串
+  ↓ 1. Base64 解码 → 字节数组
+  ↓ 2. 拆分：前 12 字节 = IV，剩余 = 密文+标签
+  ↓ 3. Cipher.init(DECRYPT_MODE, 密钥, 同一 IV)
+  ↓ 4. doFinal → GCM 自动验证认证标签
+       ├─ 标签验证通过 → 返回明文 "13800010001"
+       └─ 密文被篡改/密钥不对 → 抛 AEADBadTagException → 包装成 BizException(ENCRYPTION_ERROR)
+       
+      */
+
 //    private static final String ALGORITHM = "AES/GCM/NoPadding";//algorithm
 //    private static final int IV_LENGTH = 12;
 //    private static final int TAG_LENGTH = 128; // 16 字节

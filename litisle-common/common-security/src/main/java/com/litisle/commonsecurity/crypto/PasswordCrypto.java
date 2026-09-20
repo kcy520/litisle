@@ -28,6 +28,15 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
  */
 public class PasswordCrypto {
 
+    /**
+     * BCrypt 密码流程（PasswordCrypto）
+     * 与 AES 完全独立的一条链路：
+
+- `encode("123")` ：自动生成 22 字符随机盐 → cost=10 轮哈希 → 输出`$2a$10$盐+哈希` （60 字符，你种子数据里那个就是）；
+- `matches("输入的密码", 库里的哈希)` ：从哈希串里 提取盐和 cost → 用同样参数重算一遍 → 恒定时间比较（防时序攻击）；
+- 只验不解 ：数据库泄露也拿不回明文密码（AES 列泄露配合密钥泄露则可解，所以密钥管理等级不同）
+设计上特意封装了一层（不直接暴露`BCryptPasswordEncoder` ），注释里写明了动机：未来换 Argon2 只改这个类内部。。
+     */
     private final BCryptPasswordEncoder passwordEncoder;
 
     /**

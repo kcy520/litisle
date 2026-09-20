@@ -49,6 +49,17 @@
 #    改动：补列 order_no varchar(32) not null '订单号（唯一，支付回调幂等/第三方对账用）' +
 #           unique key uk_order_no(order_no)；
 #    原因：支付回调幂等、与支付渠道对账都需唯一交易号（与 shop_order.order_no 对齐）
+# ⑪【补充】①的 phone/email 非空语义修正 + 密钥分离落地（对①的增量补充，非覆盖）：
+#    改动：a) ①b 作废：phone 维持 not null（注册必填，用户拍板），phone_hash 同步 not null；
+#           email 维持 null，email_hash 同步 null —— MySQL 唯一索引不约束 NULL，
+#           多个无邮箱用户共存，绑定后 email_hash 非空即参与唯一判断；
+#           b) 摘要密钥独立：common-security 新增 HmacSha256Crypto + CryptoProperties.hashKey
+#           （可选，Base64 ≥32 字节）；未配置时由 CryptoAutoConfiguration 从 AES 主密钥
+#           确定性派生子密钥（HKDF 思路，本地零配置可用）；
+#    原因：纯 SHA-256 对小取值空间字段（手机号/常见邮箱）可被彩虹表反推，HMAC 引入密钥后
+#           无密钥不可反推；密钥与 AES 用途分离，避免一把密钥泄露导致密文与摘要双杀；
+#           派生密钥随主密钥确定，历史数据不受影响；但后续若改配独立 hashKey，
+#           新旧摘要不一致，须同步刷新历史 phone_hash/email_hash（建议生产一开始就配独立密钥）
 # ============================================================
 
 
@@ -104,8 +115,10 @@ create table if not exists `sys_user`
     `id`              bigint unsigned not null auto_increment primary key comment '用户ID',
     `username`        varchar(32)     not null comment '用户名',
     `password`        varchar(128)    not null comment '密码（BCrypt）',
-    `email`           varchar(64)     null comment '邮箱',
-    `phone`           varchar(255)     not null comment '手机号',
+    `email`           varchar(255)    null comment '邮箱（AES 加密存储，展示脱敏，安全通道解密）',
+    `phone`           varchar(255)     not null comment '手机号（AES 加密存储，展示脱敏，安全通道解密）',
+    `phone_hash`      varchar(64)     null comment '手机号 HMAC-SHA256 摘要（独立密钥）；唯一约束与查重走本列，phone 密文列只管存储（AES 随机 IV 密文不重复，唯一索引必须建在确定性 hash 上）',
+    `email_hash`      varchar(64)     null comment '邮箱 HMAC-SHA256 摘要（独立密钥）；同 phone_hash',
     `avatar_file_id`  varchar(64)     null comment '头像文件ID（SeaweedFS fileId，URL 运行时通过 FileService 批量反查拼接；默认头像走代码常量兜底，不落库）',
     `avatar_color`    tinyint         not null default 0 comment '头像标识：0-无 1-金 2-白', -- 【修改】
     `bio`             varchar(200)    null comment '个人简介',
@@ -117,8 +130,8 @@ create table if not exists `sys_user`
     `version`         int             not null default 0 comment '乐观锁',
     `create_time`     datetime        not null default current_timestamp,
     `update_time`     datetime        not null default current_timestamp on update current_timestamp,
-    unique key `uk_phone_del` (`phone`, `del_flag`),
-    unique key `uk_email_del` (`email`, `del_flag`),
+    unique key `uk_phone_hash_del` (`phone_hash`, `del_flag`),
+    unique key `uk_email_hash_del` (`email_hash`, `del_flag`),
     index `idx_username` (`username`),
     index `idx_create_time` (`create_time`)
 ) engine = InnoDB
@@ -258,12 +271,14 @@ create table if not exists `sys_user_cancel_log`
 -- - `avatar_color` 用枚举而非字符串：0/1/2 三态对应无标识/金色/白色，与设计文档视觉区分一致，查询性能好。
 -- - OAuth 绑定表对 `(provider, open_id)` 建唯一索引：保证一个第三方账号只能绑定一个文屿账号。
 -- - `phone` 加密存储：符合设计文档"隐私脱敏"规范，明文查看需临时解密 + 审计。
---
--- **手机号联合唯一索引 `uk_phone_del(phone, del_flag)` 设计说明**：
+--- - **手机号联合唯一索引 `uk_phone_hash_del(phone_hash, del_flag)` 设计说明**：
 --
 -- - **问题**：若 phone 建单列唯一索引，用户注销后（`del_flag=1`）手机号仍占位，导致同一手机号无法重新注册。
--- - **方案**：联合唯一索引 `(phone, del_flag)`，活跃用户 `(phone, 0)` 与已注销用户 `(phone, 1)` 是不同的组合键，互不冲突。
--- - **NULL 语义说明**：phone 允许为空（`NULL`），MySQL 中 NULL 不参与唯一判断，因此多个 `(NULL, 0)` 不会冲突，这是期望行为——允许没有手机号的活跃用户共存。索引仅对非空 phone 生效。
+-- - **方案**：联合唯一索引建在 `(phone_hash, del_flag)` 上，活跃用户与已注销用户是不同的组合键，互不冲突。
+-- - **为什么唯一索引建在 hash 列而非密文列**：AES 加密采用随机 IV，同一手机号每次加密密文都不同，
+--   对密文建唯一索引永远撞不上 → 查重/防重复注册失效；HMAC-SHA256 是确定性摘要（同输入同输出），
+--   查重等值匹配走 hash 列，密文列保留加密收益，二者职责分离（密态存储标准做法）。
+-- - **非空语义**：phone 为 not null（注册必填），phone_hash 随注册/换绑由 CryptoService 同步写入；email 可为空，email_hash 为 NULL 时不参与唯一判断（MySQL 中 NULL 不冲突），允许多个无邮箱用户共存。
 -- - **冷却期**：通过 `cancel_time` 字段实现。注销时写入当前时间，重新注册时业务层判断 `cancel_time + 冷却期（如30天） < now()` 是否满足。
 -- - **重复注销处理**：若同一手机号多次注销，业务层在重新注册前先清理旧的 `(phone, 1)` 记录再插入新行，保证唯一性。
 -- - **注册校验流程**：
@@ -289,14 +304,22 @@ create table if not exists `sys_user_cancel_log`
 -- 哈希：$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2
 -- 注意：请根据实际 sys_user 表结构调整 id 值，确保与现有数据不冲突
 # ============================================================
-# 初始化示例用户数据（手机号明文，暂不加密，无邮箱）
+# 初始化示例用户数据（无邮箱；本地开发种子数据）
 # 密码统一为 bcrypt 加密的 123
 # 哈希：$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2
+#
+# 手机号加密列种子策略（本地开发简化）：
+# - 正式数据一律走应用层 CryptoService：phone 存 AES-GCM 密文、phone_hash 存 HMAC-SHA256
+#   （随机 IV 密文每次不同，无法在 SQL 中静态预生成真实值）
+# - 种子简化：phone 暂存明文，phone_hash 用 MySQL 端 SHA2(phone,256) 占位（64 位 hex，长度合规）
+# - 已知局限：种子 hash 与应用 HMAC 不一致 → 种子用户不可走手机号登录/查重路径；
+#   测手机号登录请走注册流程造数，种子账号用用户名+密码登录
+# - 本地密钥见 yml security.crypto.key（仅本地开发；生产走 LITISLE_CRYPTO_KEY 环境变量注入）
 # ============================================================
 
 -- 1. READER 读者
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`,`avatar_color`)
-VALUES (1001, 'reader_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010001', '热爱阅读的普通用户', 1, 0, NOW(),0);
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`,`avatar_color`)
+VALUES (1001, 'reader_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010001', SHA2('13800010001', 256), '热爱阅读的普通用户', 1, 0, NOW(),0);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1001, `id` FROM `sys_role` WHERE `role_code` = 'READER';
@@ -305,8 +328,8 @@ INSERT INTO `sys_user_profile` (`user_id`)
 VALUES (1001);
 
 -- 2. AUTHOR 作家
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
-VALUES (1002, 'author_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010002', '专注科幻小说创作', 1, 0, NOW(),1);
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
+VALUES (1002, 'author_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010002', SHA2('13800010002', 256), '专注科幻小说创作', 1, 0, NOW(),1);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1002, `id` FROM `sys_role` WHERE `role_code` = 'AUTHOR';
@@ -315,8 +338,8 @@ INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpi
 VALUES (1002, '红袖添香', '科幻 / 奇幻', '《星海归途》系列');
 
 -- 3. LEGACY_AUTHOR 纪念作家
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
-VALUES (1003, 'legacy_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010003', '已故文学巨匠，作品永久珍藏', 1, 0, NOW(),2);
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
+VALUES (1003, 'legacy_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010003', SHA2('13800010003', 256), '已故文学巨匠，作品永久珍藏', 1, 0, NOW(),2);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1003, `id` FROM `sys_role` WHERE `role_code` = 'LEGACY_AUTHOR';
@@ -325,8 +348,8 @@ INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpi
 VALUES (1003, '老舍', '现实主义文学', '《骆驼祥子》《茶馆》');
 
 -- 4. REVIEWER 审核员
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1004, 'reviewer_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010004', '内容安全审核专员', 1, 0, NOW());
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1004, 'reviewer_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010004', SHA2('13800010004', 256), '内容安全审核专员', 1, 0, NOW());
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1004, `id` FROM `sys_role` WHERE `role_code` = 'REVIEWER';
@@ -335,8 +358,8 @@ INSERT INTO `sys_user_profile` (`user_id`)
 VALUES (1004);
 
 -- 5. ADMIN 管理员
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1005, 'admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010005', '负责平台日常运营管理', 1, 0, NOW());
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1005, 'admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010005', SHA2('13800010005', 256), '负责平台日常运营管理', 1, 0, NOW());
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1005, `id` FROM `sys_role` WHERE `role_code` = 'ADMIN';
@@ -345,8 +368,8 @@ INSERT INTO `sys_user_profile` (`user_id`)
 VALUES (1005);
 
 -- 6. SUPER_ADMIN 超级管理员
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1006, 'super_admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010006', '系统最高权限拥有者', 1, 0, NOW());
+INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1006, 'super_admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010006', SHA2('13800010006', 256), '系统最高权限拥有者', 1, 0, NOW());
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1006, `id` FROM `sys_role` WHERE `role_code` = 'SUPER_ADMIN';
@@ -363,11 +386,12 @@ VALUES (1006);
 - OAuth 绑定表对 `(provider, open_id)` 建唯一索引：保证一个第三方账号只能绑定一个文屿账号。
 - `phone` 加密存储：符合设计文档"隐私脱敏"规范，明文查看需临时解密 + 审计。
 
-**手机号联合唯一索引 `uk_phone_del(phone, del_flag)` 设计说明**：
+**手机号联合唯一索引 `uk_phone_hash_del(phone_hash, del_flag)` 设计说明**：
 
 - **问题**：若 phone 建单列唯一索引，用户注销后（`del_flag=1`）手机号仍占位，导致同一手机号无法重新注册。
-- **方案**：联合唯一索引 `(phone, del_flag)`，活跃用户 `(phone, 0)` 与已注销用户 `(phone, 1)` 是不同的组合键，互不冲突。
-- **NULL 语义说明**：phone 允许为空（`NULL`），MySQL 中 NULL 不参与唯一判断，因此多个 `(NULL, 0)` 不会冲突，这是期望行为——允许没有手机号的活跃用户共存。索引仅对非空 phone 生效。
+- **方案**：联合唯一索引建在 `(phone_hash, del_flag)` 上，活跃用户与已注销用户是不同的组合键，互不冲突。
+- **为什么唯一索引建在 hash 列而非密文列**：AES 加密采用随机 IV，同一手机号每次加密密文都不同，对密文建唯一索引永远撞不上 → 查重/防重复注册失效；HMAC-SHA256 是确定性摘要（同输入同输出），查重等值匹配走 hash 列，密文列保留加密收益。
+- **非空语义**：phone 为 not null（注册必填）；email 可为空，email_hash 为 NULL 时不参与唯一判断。
 - **冷却期**：通过 `cancel_time` 字段实现。注销时写入当前时间，重新注册时业务层判断 `cancel_time + 冷却期（如30天） < now()` 是否满足。
 - **重复注销处理**：若同一手机号多次注销，业务层在重新注册前先清理旧的 `(phone, 1)` 记录再插入新行，保证唯一性。
 - **注册校验流程**：
@@ -415,14 +439,16 @@ create table if not exists `article`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '文章ID',
 `author_id`     bigint unsigned not null comment '作者用户ID',
-`zone`          tinyint         not null default 1 comment '分区：1-普通分区 2-作家分区',
+`zone`          tinyint         not null default 1 comment '分区：1-普通分区 2-作家分区 3-推荐流（运营/算法推荐内容）',
 `title`         varchar(100)    not null comment '标题',
 `summary`       varchar(500)    null comment '摘要',
 `content_html`  longtext        not null comment '正文HTML',
 `cover_file_id`  varchar(64)    null comment '封面文件ID（SeaweedFS）',
 `category`      varchar(20)     not null default '散文' comment '分类：小说/散文/现代诗/随笔等',
 `status`        tinyint         not null default 0 comment '状态：0-草稿 1-待审核 2-已发布 3-驳回 4-下架',
-`visibility`    tinyint         not null default 1 comment '可见性：1-公开 2-仅自己可见',
+`visibility`    tinyint         not null default 1 comment '可见性：1-公开 2-仅自己可见 3-仅关注者可见 4-密码访问（密码存 access_password）',
+`access_password` varchar(128)  null comment '访问密码（visibility=4 时必填，BCrypt 加密存储，与用户密码同级别保护）',
+`publish_batch_id` bigint unsigned null comment '批量发布批次ID（同批次发布的多篇文章/章节共享，便于按批次展示与批量操作）',
 `view_cnt`      bigint unsigned not null default 0 comment '浏览量',
 `like_cnt`      bigint unsigned not null default 0 comment '点赞数',
 `comment_cnt`   bigint unsigned not null default 0 comment '评论数',
@@ -433,6 +459,7 @@ create table if not exists `article`
 index `idx_author_id` (`author_id`),
 index `idx_zone_status` (`zone`, `status`),
 index `idx_visibility` (`visibility`),
+index `idx_publish_batch` (`publish_batch_id`),
 index `idx_create_time` (`create_time`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '文章表';
@@ -485,7 +512,7 @@ create table if not exists `book`
 `intro`        varchar(500)    null comment '简介',
 `cover_file_id` varchar(64)    null comment '封面文件ID',
 `category`     varchar(20)     not null default '小说' comment '分类',
-`status`       tinyint         not null default 1 comment '状态：0-连载中 1-已完结 2-下架',
+`status`       tinyint         not null default 0 comment '状态：0-连载中 1-已完结 2-下架（默认连载中）',
 `del_flag`     tinyint         not null default 0 comment '删除标志',
 `version`      int             not null default 0 comment '乐观锁版本号',
 `create_time`  datetime        not null default current_timestamp comment '创建时间',
@@ -592,7 +619,7 @@ create table if not exists `comment`
 `version`    int             not null default 0 comment '乐观锁版本号',
 `create_time` datetime       not null default current_timestamp comment '创建时间',
 `update_time` datetime       not null default current_timestamp on update current_timestamp comment '更新时间',
-index `idx_article_id` (`article_id`),
+index `idx_article_status` (`article_id`, `status`, `create_time`),
 index `idx_root_id` (`root_id`),
 index `idx_user_id` (`user_id`)
 ) engine = InnoDB
@@ -912,7 +939,8 @@ create table if not exists `ai_message`
 `role`       varchar(16)     not null comment '角色：USER / ASSISTANT / SYSTEM',
 `content`    text            not null comment '消息内容',
 `token_cnt`  int             not null default 0 comment '本条消息 token 数',
-#应该记录token吗
+`prompt_tokens`     int      null comment '本条消息输入 token 消耗（逐条记录，与 ai_token_usage 日汇总对账，防统计口径漂移）',
+`completion_tokens` int      null comment '本条消息输出 token 消耗（同上）',
 `create_time` datetime       not null default current_timestamp comment '创建时间',
 index `idx_session_id` (`session_id`)
 ) engine = InnoDB
@@ -960,6 +988,7 @@ use litisle_payment;
 create table if not exists `vip_order`
 (
 `id`           bigint unsigned not null auto_increment primary key comment '订单ID',
+`order_no`     varchar(32)     not null comment '订单号（唯一，支付回调幂等/第三方对账用，与 shop_order.order_no 对齐）',
 `user_id`      bigint unsigned not null comment '用户ID',
 `plan`         tinyint         not null comment '套餐：1-月度 2-季度 3-年度 4-三年',
 `gift_coin`    int             not null default 0 comment '赠送小硬币数',
@@ -969,6 +998,7 @@ create table if not exists `vip_order`
 `del_flag`     tinyint         not null default 0 comment '删除标志',
 `create_time`  datetime        not null default current_timestamp comment '创建时间',
 `update_time`  datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+unique key `uk_order_no` (`order_no`),
 index `idx_user_id` (`user_id`),
 index `idx_status` (`status`)
 ) engine = InnoDB
@@ -989,7 +1019,7 @@ create table if not exists `coin_transaction`
 (
 `id`          bigint unsigned not null auto_increment primary key comment '流水ID',
 `user_id`     bigint unsigned not null comment '用户ID',
-`tx_type`     tinyint         not null comment '类型：1-充值 2-赞赏支出 3-赞赏收入 4-提现 5-VIP赠送',
+`tx_type`     tinyint         not null comment '类型：1-充值 2-赞赏支出 3-赞赏收入 4-提现 5-VIP赠送 6-商城消费 7-商城退款 8-提现驳回退币（穷举所有资金变动场景，任何一种变动无类型即资金链路漏洞）',
 `amount_micro` bigint         not null comment '变动金额（微币，正负）',
 `balance_after` bigint        not null comment '变动后余额（对账用）',
 `related_id`  bigint unsigned null comment '关联业务ID（订单/赞赏记录/提现单）',
@@ -1193,56 +1223,56 @@ use litisle_shop;
 -- 1. 商品表
 create table if not exists shop_product
 (
-id              bigint          not null auto_increment comment '商品ID',
+id              bigint unsigned not null auto_increment comment '商品ID',
 name            varchar(100)    not null comment '商品名称',
 description     varchar(500)    default '' comment '商品描述',
 price_coins     bigint          not null comment '价格（小硬币，单位：微币 BIGINT）',
 total_stock     int             not null comment '总库存',
 stock           int             not null comment '剩余库存',
-image_url       varchar(500)    default '' comment '商品图片（SeaweedFS 直链）',
+image_file_id   varchar(64)     default '' comment '商品图片文件ID（file_meta.file_id），URL 运行时经 FileService 反查拼接，永不落库（过 safe_flag 违规图闸口，文件迁移不坏链）',
 sale_start_time datetime        not null comment '开售时间',
 sale_end_time   datetime        not null comment '截止时间',
 status          tinyint         not null default 0 comment '状态：0-下架 1-上架',
 version         int             not null default 0 comment '乐观锁（库存扣减并发）',
-deleted         tinyint         not null default 0 comment '逻辑删除：0-正常 1-删除',
+del_flag        tinyint         not null default 0 comment '逻辑删除：0-正常 1-删除',
 create_time     datetime        not null default current_timestamp,
 update_time     datetime        not null default current_timestamp on update current_timestamp,
 primary key (id),
-key idx_status (status, sale_start_time, sale_end_time)
-) engine=innodb default charset=utf8mb4 comment='积分商城商品表';
+index idx_status (status, sale_start_time, sale_end_time)
+) engine = InnoDB default charset = utf8mb4 comment = '积分商城商品表';
 ​
 -- 2. 订单表
 create table if not exists shop_order
 (
-id              bigint          not null auto_increment comment '订单ID',
+id              bigint unsigned not null auto_increment comment '订单ID',
 order_no        varchar(32)     not null comment '订单号（唯一）',
-user_id         bigint          not null comment '用户ID',
-product_id      bigint          not null comment '商品ID',
+user_id         bigint unsigned not null comment '用户ID',
+product_id      bigint unsigned not null comment '商品ID',
 quantity        int             not null default 1 comment '数量',
 total_price     bigint          not null comment '总价（微币）',
 status          tinyint         not null default 0 comment '状态：0-待支付 1-已支付 2-已发货 3-已送达 4-已完成 5-已取消 6-已退款',
 paid_time       datetime        default null comment '支付时间',
 cancel_reason   varchar(200)    default '' comment '取消原因',
 cancel_time     datetime        default null comment '取消时间',
-deleted         tinyint         not null default 0 comment '逻辑删除',
+del_flag        tinyint         not null default 0 comment '逻辑删除',
 create_time     datetime        not null default current_timestamp,
 update_time     datetime        not null default current_timestamp on update current_timestamp,
 primary key (id),
 unique key uk_order_no (order_no),
-key idx_user_id (user_id),
-key idx_status (status, create_time)
-) engine=innodb default charset=utf8mb4 comment='积分商城订单表';
+index idx_user_id (user_id),
+index idx_status (status, create_time)
+) engine = InnoDB default charset = utf8mb4 comment = '积分商城订单表';
 ​
 -- 3. 运单表
 create table if not exists shipping
 (
-id               bigint         not null auto_increment comment '运单ID',
-order_id         bigint         not null comment '订单ID',
+id               bigint unsigned not null auto_increment comment '运单ID',
+order_id         bigint unsigned not null comment '订单ID',
 express_company  varchar(50)    default '' comment '快递公司',
 express_no       varchar(50)    default '' comment '快递单号',
-receiver_name    varchar(50)    not null comment '收件人姓名',
-receiver_phone   varchar(20)    not null comment '收件人电话',
-receiver_address varchar(300)   not null comment '收件人地址',
+receiver_name    varchar(50)    not null comment '收件人姓名（展示脱敏：张*三）',
+receiver_phone   varchar(255)   not null comment '收件人电话（AES 加密存储，展示脱敏 138****1234，发货打款场景走安全通道解密；敏感数据保护标准与 user 模块手机号一致）',
+receiver_address varchar(300)   not null comment '收件人地址（展示脱敏，完整地址仅发货场景解密）',
 status           tinyint        not null default 0 comment '状态：0-待发货 1-已发货 2-已签收',
 shipped_time     datetime       default null comment '发货时间',
 signed_time      datetime       default null comment '签收时间',
@@ -1250,7 +1280,7 @@ create_time      datetime       not null default current_timestamp,
 update_time      datetime       not null default current_timestamp on update current_timestamp,
 primary key (id),
 unique key uk_order_id (order_id),
-key idx_express (express_company, express_no)
-) engine=innodb default charset=utf8mb4 comment='运单表';
+index idx_express (express_company, express_no)
+) engine = InnoDB default charset = utf8mb4 comment = '运单表';
 ```
 ```
