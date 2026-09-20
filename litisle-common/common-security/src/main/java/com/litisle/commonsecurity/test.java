@@ -16,6 +16,7 @@ public class test {
 
 //            public void testEncryptAndDecrypt() {
 
+            /// phone/phone_hash 由 test.genSeedValues() 生成，换密钥需重新生成
                         // 1. 生成密钥
                         String base64Key = Aes256GcmCrypto.generateKey();
                         System.out.println("密钥: " + base64Key);

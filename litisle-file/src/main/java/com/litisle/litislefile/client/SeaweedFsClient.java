@@ -54,6 +54,17 @@ public class SeaweedFsClient {
     private final S3Client s3;           // endpoint 指向 http://localhost:8333 ，pathStyleAccess=true
     private final S3Presigner presigner; // 预签名专用
 
+    /**
+     * 客户端由配置类构建后注入（见类注释第 1 点）
+     *
+     * @param s3        S3 客户端（endpointOverride 指向 SeaweedFS，pathStyleAccess=true）
+     * @param presigner 预签名器（与 s3 使用相同 endpoint 和凭证）
+     */
+    public SeaweedFsClient(S3Client s3, S3Presigner presigner) {
+        this.s3 = s3;
+        this.presigner = presigner;
+    }
+
     public void put(String bucket, String key, byte[] bytes, String contentType) { throw new UnsupportedOperationException("待实现"); }
     public byte[] get(String bucket, String key) { throw new UnsupportedOperationException("待实现"); }
     public void delete(String bucket, String key) { throw new UnsupportedOperationException("待实现"); }

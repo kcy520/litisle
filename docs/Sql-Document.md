@@ -91,12 +91,6 @@
 -- # 说明：在现有 user-schema.sql 基础上补充角色与扩展资料
 -- # ============================================================
 
-CREATE DATABASE IF NOT EXISTS litisle_user
-  DEFAULT CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-
-use litisle_user;
 # ============================================================
 # 模块：litisle-user
 # 数据库：litisle_user
@@ -322,7 +316,7 @@ create table if not exists `sys_user_cancel_log`
 
 -- 1. READER 读者
 INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`,`avatar_color`)
-VALUES (1001, 'reader_test', 'U1001READER01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010001', SHA2('13800010001', 256), '热爱阅读的普通用户', 1, 0, NOW(),0);
+VALUES (1001, 'reader_test', 'U1001READER01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'd1FyZ+b0E1E/eFmhtQWhkRZ7YDGMQODobmsRB4aPte7quJGt2lV6', '92ee487f83ae8784872d86f8c0d579b781d7956a60ebf95305197edc0ba3cb35', '热爱阅读的普通用户', 1, 0, NOW(),0);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1001, `id` FROM `sys_role` WHERE `role_code` = 'READER';
@@ -332,7 +326,7 @@ VALUES (1001);
 
 -- 2. AUTHOR 作家
 INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
-VALUES (1002, 'author_test', 'U1002AUTHOR01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010002', SHA2('13800010002', 256), '专注科幻小说创作', 1, 0, NOW(),1);
+VALUES (1002, 'author_test', 'U1002AUTHOR01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'rtIAtr//RH0fX0HKS+2l22spZsei7h4E4PxohDvooz+0h4PhsWWb', 'f41c3968090234792656a3fd53ad3a6436286cbd531fd58692cc1fab75c38780', '专注科幻小说创作', 1, 0, NOW(),1);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1002, `id` FROM `sys_role` WHERE `role_code` = 'AUTHOR';
@@ -342,7 +336,7 @@ VALUES (1002, '红袖添香', '科幻 / 奇幻', '《星海归途》系列');
 
 -- 3. LEGACY_AUTHOR 纪念作家
 INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
-VALUES (1003, 'legacy_test', 'U1003LEGACY01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010003', SHA2('13800010003', 256), '已故文学巨匠，作品永久珍藏', 1, 0, NOW(),2);
+VALUES (1003, 'legacy_test', 'U1003LEGACY01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '4cPacxVojqKfv+0dP5qMjmnkvPJM63euWFyoa0qUr6pYUNFl9EYU', '61bcee3ebe69365829ad5662522be825230d23939fe5189e2a1161792f9acc80', '已故文学巨匠，作品永久珍藏', 1, 0, NOW(),2);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1003, `id` FROM `sys_role` WHERE `role_code` = 'LEGACY_AUTHOR';
@@ -352,7 +346,7 @@ VALUES (1003, '老舍', '现实主义文学', '《骆驼祥子》《茶馆》');
 
 -- 4. REVIEWER 审核员
 INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1004, 'reviewer_test', 'U1004REVIEW01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010004', SHA2('13800010004', 256), '内容安全审核专员', 1, 0, NOW());
+VALUES (1004, 'reviewer_test', 'U1004REVIEW01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'MmhwRQz5Y2phTeQWof43m/B8woUk3AZkXRB2CRBts9bnwYJ3ekOx', '0e40f2a460b37e4c2563b649607abbd8d8289c5b5aea5dc36e99a96623c5a602', '内容安全审核专员', 1, 0, NOW());
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1004, `id` FROM `sys_role` WHERE `role_code` = 'REVIEWER';
@@ -362,7 +356,7 @@ VALUES (1004);
 
 -- 5. ADMIN 管理员
 INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1005, 'admin_test', 'U1005ADMIN001', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010005', SHA2('13800010005', 256), '负责平台日常运营管理', 1, 0, NOW());
+VALUES (1005, 'admin_test', 'U1005ADMIN001', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'hLqQug7IZ2ArhGrKNBBX+DuAONUUqG7gwoov2ugcWSJAUMsofOcJ', 'cd21bdf19ed271a099031dd89d2ac78f23b60c4900b18b8365bbb92a142e66e7', '负责平台日常运营管理', 1, 0, NOW());
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1005, `id` FROM `sys_role` WHERE `role_code` = 'ADMIN';
@@ -372,7 +366,7 @@ VALUES (1005);
 
 -- 6. SUPER_ADMIN 超级管理员
 INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1006, 'super_admin_test', 'U1006SADMIN01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010006', SHA2('13800010006', 256), '系统最高权限拥有者', 1, 0, NOW());
+VALUES (1006, 'super_admin_test', 'U1006SADMIN01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'xKHNh2in4lCXBiZtGakTnADPBJswk8k3f351UfkkeDylQWbV/1oJ', 'd161009f4c0a655d7aedd00ab559955ee2d0bb6b343efc4e637a3aad2d76b711', '系统最高权限拥有者', 1, 0, NOW());
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1006, `id` FROM `sys_role` WHERE `role_code` = 'SUPER_ADMIN';
