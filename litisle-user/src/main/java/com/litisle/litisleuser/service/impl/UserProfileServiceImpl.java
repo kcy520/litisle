@@ -8,6 +8,7 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.utils.AssertUtil;
 import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
+import com.litisle.commonsecurity.crypto.HmacSha256Crypto;
 import com.litisle.commonsecurity.utils.SaRoleHelper;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
 import com.litisle.litisleapi.feign.AuthClient;
@@ -40,6 +41,7 @@ public class UserProfileServiceImpl
     private final UserProfileMapper userProfileMapper;
     private final UserMapper userMapper;
     private final Aes256GcmCrypto aes256GcmCrypto;
+    private final HmacSha256Crypto hmacSha256Crypto;
     private final RoleUtils roleUtils;
 
     /** 跨模块验证码校验（auth 模块提供，验证码发送/校验集中在该模块） */
@@ -91,7 +93,8 @@ public class UserProfileServiceImpl
                 .userId(user.getId())
                 .uid(user.getUid())
                 .username(user.getUsername())
-                .phone(user.getPhone())
+                // 解密为明文，由 UserSelfVO.phone 上的 @Sensitive(PHONE) 在序列化时自动脱敏
+                .phone(user.getPhone() == null ? null : aes256GcmCrypto.decrypt(user.getPhone()))
                 .avatarFileId(user.getAvatarFileId())
                 .bio(user.getBio())
                 .vip(user.getVipExpireTime() != null && user.getVipExpireTime().isAfter(now))
@@ -231,21 +234,22 @@ public class UserProfileServiceImpl
 
         authClient.verifyChangeEmail(verifyDTO);
 
-        // ===== 5. 校验新邮箱唯一性（密文比对，命中 uk 判断占用） =====
+        // ===== 5. 校验新邮箱唯一性（随机 IV 密文不可比对，查重走 HMAC 摘要列，命中 uk_email_hash_del） =====
         String encryptedEmail = aes256GcmCrypto.encrypt(dto.getNewEmail());
         Long exists = userMapper.selectCount(
                 new LambdaQueryWrapper<User>()
-                        .eq(User::getEmail, encryptedEmail)
+                        .eq(User::getEmailHash, hmacSha256Crypto.digest(dto.getNewEmail()))
                         .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
         );
         if (exists != null && exists > 0) {
             throw new BizException(ErrorCode.EMAIL_EXISTS);
         }
 
-        // ===== 6. 写入 AES 密文（不落明文） =====
+        // ===== 6. 写入 AES 密文 + HMAC 摘要（同一条 UPDATE，防密文与摘要不一致脏数据） =====
         new LambdaUpdateChainWrapper<>(userMapper)
                 .eq(User::getId, userId)
                 .set(User::getEmail, encryptedEmail)
+                .set(User::getEmailHash, hmacSha256Crypto.digest(dto.getNewEmail()))
                 .update();
     }
 
@@ -293,11 +297,11 @@ public class UserProfileServiceImpl
 
         authClient.verifyChangeEmail(verifyDTO);
 
-        // ===== 6. 校验新邮箱唯一性（密文比对，排除自身） =====
+        // ===== 6. 校验新邮箱唯一性（随机 IV 密文不可比对，查重走 HMAC 摘要列，排除自身） =====
         String encryptedEmail = aes256GcmCrypto.encrypt(dto.getNewEmail());
         Long exists = userMapper.selectCount(
                 new LambdaQueryWrapper<User>()
-                        .eq(User::getEmail, encryptedEmail)
+                        .eq(User::getEmailHash, hmacSha256Crypto.digest(dto.getNewEmail()))
                         .ne(User::getId, userId)
                         .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
         );
@@ -305,10 +309,11 @@ public class UserProfileServiceImpl
             throw new BizException(ErrorCode.EMAIL_EXISTS);
         }
 
-        // ===== 7. 更新邮箱为 AES 密文 =====
+        // ===== 7. 更新邮箱密文 + HMAC 摘要（同一条 UPDATE，防密文与摘要不一致脏数据） =====
         new LambdaUpdateChainWrapper<>(userMapper)
                 .eq(User::getId, userId)
                 .set(User::getEmail, encryptedEmail)
+                .set(User::getEmailHash, hmacSha256Crypto.digest(dto.getNewEmail()))
                 .update();
     }
 

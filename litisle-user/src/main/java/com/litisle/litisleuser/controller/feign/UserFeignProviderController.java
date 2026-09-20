@@ -6,6 +6,7 @@ import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.commoncore.utils.UidGenerator;
 import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
+import com.litisle.commonsecurity.crypto.HmacSha256Crypto;
 import com.litisle.commonsecurity.enums.RoleCodeEnum;
 import com.litisle.commonsecurity.utils.SaRoleHelper;
 import com.litisle.litisleapi.dto.user.AuthUserDTO;
@@ -48,6 +49,7 @@ public class UserFeignProviderController implements UserClient {
 
     private final UserService userService;
     private final Aes256GcmCrypto aes256GcmCrypto;
+    private final HmacSha256Crypto hmacSha256Crypto;
     private final RoleService roleService;
     private final UserRoleService userRoleService;
     private final RolePermissionService rolePermissionService;
@@ -80,17 +82,28 @@ public class UserFeignProviderController implements UserClient {
             throw new BizException(ErrorCode.USERNAME_ALREADY_EXISTS);
         }
 
-        // 2. 校验手机号唯一性（数据库存的是密文，需先加密再查询）
+        // 2. 校验手机号唯一性（随机 IV 密文不可比对，查重走 HMAC 确定性摘要列；
+        //    只判活跃记录，否则已注销用户（del_flag=1）会永久阻塞同手机号重新注册，
+        //    对应唯一索引 uk_phone_hash_del(phone_hash, del_flag) 的复合语义）
         String encryptedPhone = aes256GcmCrypto.encrypt(dto.getPhone());
-        if (userService.lambdaQuery().eq(User::getPhone, encryptedPhone).count() > 0) {
+        String phoneHash = hmacSha256Crypto.digest(dto.getPhone());
+        if (userService.lambdaQuery()
+                .eq(User::getPhoneHash, phoneHash)
+                .eq(User::getDelFlag, DelFlag.NOT_DELETED)
+                .count() > 0) {
             throw new BizException(ErrorCode.PHONE_EXISTS);
         }
 
         // 3. 校验邮箱唯一性（可选字段）
         String encryptedEmail = null;
+        String emailHash = null;
         if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
             encryptedEmail = aes256GcmCrypto.encrypt(dto.getEmail());
-            if (userService.lambdaQuery().eq(User::getEmail, encryptedEmail).count() > 0) {
+            emailHash = hmacSha256Crypto.digest(dto.getEmail());
+            if (userService.lambdaQuery()
+                    .eq(User::getEmailHash, emailHash)
+                    .eq(User::getDelFlag, DelFlag.NOT_DELETED)
+                    .count() > 0) {
                 throw new BizException(ErrorCode.DATA_EXISTS, "邮箱已被注册");
             }
         }
@@ -101,7 +114,9 @@ public class UserFeignProviderController implements UserClient {
                 .setUid(generateUniqueUid())
                 .setPassword(dto.getPassword()) // 已由 auth 模块 BCrypt 加密
                 .setPhone(encryptedPhone)
+                .setPhoneHash(phoneHash)
                 .setEmail(encryptedEmail)
+                .setEmailHash(emailHash)
                 .setStatus(UserStatus.NORMAL)
                 .setDelFlag(DelFlag.NOT_DELETED);
         userService.save(user);
@@ -140,20 +155,18 @@ public class UserFeignProviderController implements UserClient {
                 .eq(User::getDelFlag, DelFlag.NOT_DELETED)
                 .one();
 
-        // 2. 按手机号匹配（加密后查询）
+        // 2. 按手机号匹配（随机 IV 密文不可比对，走 HMAC 摘要列命中 uk_phone_hash_del 索引）
         if (user == null) {
-            String encryptedPhone = aes256GcmCrypto.encrypt(account);
             user = userService.lambdaQuery()
-                    .eq(User::getPhone, encryptedPhone)
+                    .eq(User::getPhoneHash, hmacSha256Crypto.digest(account))
                     .eq(User::getDelFlag, DelFlag.NOT_DELETED)
                     .one();
         }
 
-        // 3. 按邮箱匹配（加密后查询）
+        // 3. 按邮箱匹配（随机 IV 密文不可比对，走 HMAC 摘要列命中 uk_email_hash_del 索引）
         if (user == null) {
-            String encryptedEmail = aes256GcmCrypto.encrypt(account);
             user = userService.lambdaQuery()
-                    .eq(User::getEmail, encryptedEmail)
+                    .eq(User::getEmailHash, hmacSha256Crypto.digest(account))
                     .eq(User::getDelFlag, DelFlag.NOT_DELETED)
                     .one();
         }
@@ -177,10 +190,9 @@ public class UserFeignProviderController implements UserClient {
     public Result<AuthUserDTO> findByEmail(String email) {
         log.info("Feign 按邮箱查询用户: email={}", email);
 
-        // 1. 加密邮箱后查询
-        String encryptedEmail = aes256GcmCrypto.encrypt(email);
+        // 1. 按邮箱 HMAC 摘要查询（随机 IV 密文不可比对，命中 uk_email_hash_del 索引）
         User user = userService.lambdaQuery()
-                .eq(User::getEmail, encryptedEmail)
+                .eq(User::getEmailHash, hmacSha256Crypto.digest(email))
                 .eq(User::getDelFlag, DelFlag.NOT_DELETED)
                 .one();
 
@@ -315,9 +327,12 @@ public class UserFeignProviderController implements UserClient {
                 .setUserId(user.getId())
                 .setUid(user.getUid())
                 .setUsername(user.getUsername())
+                // BCrypt 哈希，仅密码登录校验链路使用，禁止外传（契约语义见 AuthUserDTO）
                 .setPassword(user.getPassword())
-                .setPhone(user.getPhone())
-                .setEmail(user.getEmail())
+                // 解密为明文传输（内网 Feign），最终响应由 VO 层 @Sensitive 注解自动脱敏（业务无感知）
+                .setPhone(user.getPhone() == null ? null : aes256GcmCrypto.decrypt(user.getPhone()))
+                .setEmail(user.getEmail() == null || user.getEmail().isBlank()
+                        ? null : aes256GcmCrypto.decrypt(user.getEmail()))
                 .setAvatarFileId(user.getAvatarFileId())
                 .setAvatarColor(user.getAvatarColor() != null ? user.getAvatarColor().getCode() : null)
                 .setBio(user.getBio())

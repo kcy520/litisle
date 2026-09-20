@@ -114,6 +114,7 @@ create table if not exists `sys_user`
 (
     `id`              bigint unsigned not null auto_increment primary key comment '用户ID',
     `username`        varchar(32)     not null comment '用户名',
+    `uid`             varchar(16)     not null comment '对外UID（用户间搜索唯一标识，随机生成，永久不变；注册时 UidGenerator 生成，唯一键冲突则重生成）',
     `password`        varchar(128)    not null comment '密码（BCrypt）',
     `email`           varchar(255)    null comment '邮箱（AES 加密存储，展示脱敏，安全通道解密）',
     `phone`           varchar(255)     not null comment '手机号（AES 加密存储，展示脱敏，安全通道解密）',
@@ -132,6 +133,7 @@ create table if not exists `sys_user`
     `update_time`     datetime        not null default current_timestamp on update current_timestamp,
     unique key `uk_phone_hash_del` (`phone_hash`, `del_flag`),
     unique key `uk_email_hash_del` (`email_hash`, `del_flag`),
+    unique key `uk_uid` (`uid`),
     index `idx_username` (`username`),
     index `idx_create_time` (`create_time`)
 ) engine = InnoDB
@@ -315,11 +317,12 @@ create table if not exists `sys_user_cancel_log`
 # - 已知局限：种子 hash 与应用 HMAC 不一致 → 种子用户不可走手机号登录/查重路径；
 #   测手机号登录请走注册流程造数，种子账号用用户名+密码登录
 # - 本地密钥见 yml security.crypto.key（仅本地开发；生产走 LITISLE_CRYPTO_KEY 环境变量注入）
+# - uid 为 not null：应用注册时由 UidGenerator 随机生成；种子数据用固定值便于测试与互搜
 # ============================================================
 
 -- 1. READER 读者
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`,`avatar_color`)
-VALUES (1001, 'reader_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010001', SHA2('13800010001', 256), '热爱阅读的普通用户', 1, 0, NOW(),0);
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`,`avatar_color`)
+VALUES (1001, 'reader_test', 'U1001READER01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010001', SHA2('13800010001', 256), '热爱阅读的普通用户', 1, 0, NOW(),0);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1001, `id` FROM `sys_role` WHERE `role_code` = 'READER';
@@ -328,8 +331,8 @@ INSERT INTO `sys_user_profile` (`user_id`)
 VALUES (1001);
 
 -- 2. AUTHOR 作家
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
-VALUES (1002, 'author_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010002', SHA2('13800010002', 256), '专注科幻小说创作', 1, 0, NOW(),1);
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
+VALUES (1002, 'author_test', 'U1002AUTHOR01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010002', SHA2('13800010002', 256), '专注科幻小说创作', 1, 0, NOW(),1);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1002, `id` FROM `sys_role` WHERE `role_code` = 'AUTHOR';
@@ -338,8 +341,8 @@ INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpi
 VALUES (1002, '红袖添香', '科幻 / 奇幻', '《星海归途》系列');
 
 -- 3. LEGACY_AUTHOR 纪念作家
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
-VALUES (1003, 'legacy_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010003', SHA2('13800010003', 256), '已故文学巨匠，作品永久珍藏', 1, 0, NOW(),2);
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
+VALUES (1003, 'legacy_test', 'U1003LEGACY01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010003', SHA2('13800010003', 256), '已故文学巨匠，作品永久珍藏', 1, 0, NOW(),2);
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1003, `id` FROM `sys_role` WHERE `role_code` = 'LEGACY_AUTHOR';
@@ -348,8 +351,8 @@ INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpi
 VALUES (1003, '老舍', '现实主义文学', '《骆驼祥子》《茶馆》');
 
 -- 4. REVIEWER 审核员
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1004, 'reviewer_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010004', SHA2('13800010004', 256), '内容安全审核专员', 1, 0, NOW());
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1004, 'reviewer_test', 'U1004REVIEW01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010004', SHA2('13800010004', 256), '内容安全审核专员', 1, 0, NOW());
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1004, `id` FROM `sys_role` WHERE `role_code` = 'REVIEWER';
@@ -358,8 +361,8 @@ INSERT INTO `sys_user_profile` (`user_id`)
 VALUES (1004);
 
 -- 5. ADMIN 管理员
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1005, 'admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010005', SHA2('13800010005', 256), '负责平台日常运营管理', 1, 0, NOW());
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1005, 'admin_test', 'U1005ADMIN001', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010005', SHA2('13800010005', 256), '负责平台日常运营管理', 1, 0, NOW());
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1005, `id` FROM `sys_role` WHERE `role_code` = 'ADMIN';
@@ -368,8 +371,8 @@ INSERT INTO `sys_user_profile` (`user_id`)
 VALUES (1005);
 
 -- 6. SUPER_ADMIN 超级管理员
-INSERT INTO `sys_user` (`id`, `username`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1006, 'super_admin_test', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010006', SHA2('13800010006', 256), '系统最高权限拥有者', 1, 0, NOW());
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1006, 'super_admin_test', 'U1006SADMIN01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010006', SHA2('13800010006', 256), '系统最高权限拥有者', 1, 0, NOW());
 
 INSERT INTO `sys_user_role` (`user_id`, `role_id`)
 SELECT 1006, `id` FROM `sys_role` WHERE `role_code` = 'SUPER_ADMIN';

@@ -60,6 +60,16 @@ public class User implements Serializable {
     @TableField("email")
     private String email;
 
+    /** 手机号 HMAC-SHA256 摘要（确定性，唯一索引 uk_phone_hash_del 与查重走本列；密钥见 CryptoAutoConfiguration） */
+    @Size(max = 64, message = "手机号摘要长度不能超过 64 个字符")
+    @TableField("phone_hash")
+    private String phoneHash;
+
+    /** 邮箱 HMAC-SHA256 摘要（确定性，唯一索引 uk_email_hash_del 与查重走本列；未绑定邮箱时为 null，MySQL 唯一索引不约束 NULL） */
+    @Size(max = 64, message = "邮箱摘要长度不能超过 64 个字符")
+    @TableField("email_hash")
+    private String emailHash;
+
     /** 头像文件ID（SeaweedFS fileId，URL 运行时通过 FileService 反查拼接；默认头像走代码常量兜底） */
     @Size(max = 64, message = "头像文件ID长度不能超过 64 个字符")
     @TableField("avatar_file_id")

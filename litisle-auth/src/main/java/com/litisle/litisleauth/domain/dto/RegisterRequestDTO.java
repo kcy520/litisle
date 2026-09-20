@@ -34,7 +34,7 @@ public class RegisterRequestDTO {
     @Pattern(regexp = "^1[3-9]\\d{9}$", message = "手机号格式不正确")
     private String phone;
 
-    /** 邮箱（可选，脱敏规则：保留首字符与域名，如 a***@xx.com） */
+    /** 邮箱（可选，脱敏规则：保留前2位与@后域名，如 ex***@xx.com，与 SensitiveStrategy.EMAIL 实现一致） */
     @Email(message = "邮箱格式不正确")
     @Size(max = 64, message = "邮箱长度不能超过 64 个字符")
 //    @NotBlank

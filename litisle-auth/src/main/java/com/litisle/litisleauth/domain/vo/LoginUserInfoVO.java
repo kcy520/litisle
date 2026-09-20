@@ -32,7 +32,7 @@ public class LoginUserInfoVO {
     @Sensitive(strategy = SensitiveStrategy.PHONE)
     private String phone;
 
-    /** 邮箱（脱敏规则：保留首字符与域名，如 a***@xx.com） */
+    /** 邮箱（脱敏规则：保留前2位与@后域名，如 ex***@xx.com，与 SensitiveStrategy.EMAIL 实现一致） */
     @Sensitive(strategy = SensitiveStrategy.EMAIL)
     private String email;
 

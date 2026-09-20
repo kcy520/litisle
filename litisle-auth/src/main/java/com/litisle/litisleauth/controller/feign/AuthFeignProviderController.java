@@ -1,6 +1,7 @@
 package com.litisle.litisleauth.controller.feign;
 
 import com.litisle.commoncore.result.Result;
+import com.litisle.commonsecurity.desensitize.SensitiveStrategy;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
 import com.litisle.litisleapi.feign.AuthClient;
 import com.litisle.litisleauth.enums.EmailCodeUsage;
@@ -34,7 +35,7 @@ public class AuthFeignProviderController implements AuthClient {
 
     @Override
     public Result<Void> verifyChangeEmail(ChangeEmailVerifyDTO dto) {
-        log.info("Feign 校验改绑邮箱验证码: email={}", dto.getEmail());
+        log.info("Feign 校验改绑邮箱验证码: email={}", SensitiveStrategy.EMAIL.desensitize(dto.getEmail()));
         // 先校验图形验证码（一次性，防暴力穷举）
         captchaService.verifyImgCode(dto.getImgUuid(), dto.getImgCode());
         // 再校验邮箱验证码（用途 CHANGE_EMAIL，失败达阈值自动失效重发）

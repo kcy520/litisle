@@ -12,8 +12,10 @@ import java.util.List;
  *
  * 【设计说明】
  * 1. 由 user 模块聚合返回（用户 + 角色 + 权限 + 作家扩展资料），auth 不直接查角色表
- * 2. 密码为 BCrypt 哈希，仅用于 auth 模块校验密码
- * 3. 手机号/邮箱为明文（user 模块已解密），auth 模块展示时自行脱敏
+ * 2. 密码为 BCrypt 哈希，仅用于 auth 模块校验密码，禁止外传
+ * 3. 手机号/邮箱为【明文】（user 端解密后内网传输），仅限服务间调用；
+ *    对前端响应由 VO 字段上的 @Sensitive 注解在 Jackson 序列化时自动脱敏，
+ *    禁止把本 DTO 原样透传给前端（密文/明文均不可出网关）
  */
 @Accessors(chain = true)
 @Data
@@ -33,10 +35,10 @@ public class AuthUserDTO implements Serializable {
     /** 密码（BCrypt 哈希，仅登录校验用） */
     private String password;
 
-    /** 手机号（明文，展示时脱敏） */
+    /** 手机号（明文，仅限内网 Feign；对前端响应由 VO @Sensitive(PHONE) 自动脱敏） */
     private String phone;
 
-    /** 邮箱（明文，展示时脱敏） */
+    /** 邮箱（明文，仅限内网 Feign；对前端响应由 VO @Sensitive(EMAIL) 自动脱敏） */
     private String email;
 
     /** 头像文件ID（SeaweedFS fileId，URL 由调用方拼接） */

@@ -6,6 +6,7 @@ import com.litisle.commoncore.constant.SaTokenSessionKeyConstant;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
+import com.litisle.commonsecurity.desensitize.SensitiveStrategy;
 import com.litisle.commonredis.util.RedisUtil;
 import com.litisle.commonsecurity.crypto.PasswordCrypto;
 import com.litisle.litisleapi.dto.user.AuthUserDTO;
@@ -54,7 +55,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void register(RegisterRequestDTO dto) {
-        log.info("用户注册请求: username={}, email={}", dto.getUsername(), dto.getEmail());
+        log.info("用户注册请求: username={}, email={}", dto.getUsername(), SensitiveStrategy.EMAIL.desensitize(dto.getEmail()));
 
         // 1. 校验图形验证码（一次性）
 //        captchaService.verifyImgCode(dto.getUuid(), dto.getImgCode());
@@ -126,7 +127,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public TsuccessenVO emailLogin(EmailLoginDTO dto) {
-        log.info("邮箱验证码登录请求: email={}", dto.getEmail());
+        log.info("邮箱验证码登录请求: email={}", SensitiveStrategy.EMAIL.desensitize(dto.getEmail()));
 
         // 1. 校验邮箱验证码（一次性）
         captchaService.verifyEmailCode(dto.getEmail(), EmailCodeUsage.LOGIN, dto.getCode());
@@ -134,7 +135,7 @@ public class AuthServiceImpl implements AuthService {
         // 2. Feign 调用 userClient.findByEmail() 查询用户
         Result<AuthUserDTO> result = userClient.findByEmail(dto.getEmail());
         if (!result.isSuccess() || result.getData() == null) {
-            log.warn("用户不存在: email={}", dto.getEmail());
+            log.warn("用户不存在: email={}", SensitiveStrategy.EMAIL.desensitize(dto.getEmail()));
             throw new BizException(ErrorCode.USER_NOT_FOUND);
         }
         AuthUserDTO authUser = result.getData();
@@ -242,10 +243,11 @@ public class AuthServiceImpl implements AuthService {
         }
         AuthUserDTO authUser = result.getData();
 
-        // 3. 组装 LoginUserInfoVO（脱敏处理 + 作家扩展资料）
+        // 3. 组装 LoginUserInfoVO（phone/email 传解密明文，由 VO 字段上的 @Sensitive 注解在序列化时自动脱敏）
         LoginUserInfoVO vo = new LoginUserInfoVO()
                 .setUsername(authUser.getUsername())
                 .setUid(authUser.getUid())
+                // ---------建议删除此注释（desensitizePhone/desensitizeEmail 已被 @Sensitive 注解替代，请手动确认）
 //                .setPhone(desensitizePhone(authUser.getPhone()))
 //                .setEmail(desensitizeEmail(authUser.getEmail()))
                 .setPhone(authUser.getPhone())
@@ -364,33 +366,4 @@ public class AuthServiceImpl implements AuthService {
                     "账号已被冻结至 " + frozenUntil);
         }
     }
-
-    // ==================== 脱敏方法 ====================
-
-//    /**
-//     * 手机号脱敏：保留前3后4，中间 ****
-//     * 如 138****8888
-//     */
-//    private String desensitizePhone(String phone) {
-//        if (phone == null || phone.length() < 7) {
-//            return phone;
-//        }
-//        return phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
-//    }
-//
-//    /**
-//     * 邮箱脱敏：保留首字符与域名，如 a***@xx.com
-//     */
-//    private String desensitizeEmail(String email) {
-//        if (email == null || !email.contains("@")) {
-//            return email;
-//        }
-//        int atIndex = email.indexOf("@");
-//        String name = email.substring(0, atIndex);
-//        String domain = email.substring(atIndex);
-//        if (name.length() <= 1) {
-//            return name + "***" + domain;
-//        }
-//        return name.charAt(0) + "***" + domain;
-//    }
 }

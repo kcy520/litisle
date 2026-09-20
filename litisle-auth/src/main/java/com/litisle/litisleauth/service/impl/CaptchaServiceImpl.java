@@ -2,6 +2,7 @@ package com.litisle.litisleauth.service.impl;
 
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.commonsecurity.desensitize.SensitiveStrategy;
 import com.litisle.commonredis.constant.CacheConstant;
 import com.litisle.commonredis.util.RedisUtil;
 import com.litisle.litisleauth.config.CaptchaProperties;
@@ -92,7 +93,7 @@ public class CaptchaServiceImpl implements CaptchaService {
         redisUtil.set(buildEmailKey(usage, email), code, captchaProperties.getEmailTtl(), TimeUnit.SECONDS);
         // 4. 发送邮件
         sendMail(email, code);
-        log.info("邮箱验证码已发送 email:{} usage:{}", email, usage);
+        log.info("邮箱验证码已发送 email:{} usage:{}", SensitiveStrategy.EMAIL.desensitize(email), usage);
     }
 
 

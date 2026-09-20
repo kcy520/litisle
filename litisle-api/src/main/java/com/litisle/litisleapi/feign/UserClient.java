@@ -52,9 +52,10 @@ public interface UserClient {
     /**
      * 按邮箱查询用户（邮箱登录用）
      * 【实现说明】user 模块负责解密匹配，返回聚合 DTO
+     * 【POST 而非 GET】明文邮箱拼 URL 路径会进网关/服务访问日志，改 POST + body 避免敏感数据落日志
      */
-    @GetMapping("/api/feign/user/email/{email}")
-    Result<AuthUserDTO> findByEmail(@PathVariable("email") String email);
+    @PostMapping("/api/feign/user/email")
+    Result<AuthUserDTO> findByEmail(@RequestBody String email);
 
     /**
      * 查询用户认证聚合信息（/auth/me 用）
