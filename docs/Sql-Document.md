@@ -117,7 +117,7 @@ create table if not exists `sys_user`
     `password`        varchar(128)    not null comment '密码（BCrypt）',
     `email`           varchar(255)    null comment '邮箱（AES 加密存储，展示脱敏，安全通道解密）',
     `phone`           varchar(255)     not null comment '手机号（AES 加密存储，展示脱敏，安全通道解密）',
-    `phone_hash`      varchar(64)     null comment '手机号 HMAC-SHA256 摘要（独立密钥）；唯一约束与查重走本列，phone 密文列只管存储（AES 随机 IV 密文不重复，唯一索引必须建在确定性 hash 上）',
+    `phone_hash`      varchar(64)     not null comment '手机号 HMAC-SHA256 摘要（密钥优先独立 hashKey，未配置时由 CryptoAutoConfiguration 从 AES 主密钥确定性派生子密钥）；唯一约束与查重走本列，phone 密文列只管存储（AES 随机 IV 密文不重复，唯一索引必须建在确定性 hash 上）',
     `email_hash`      varchar(64)     null comment '邮箱 HMAC-SHA256 摘要（独立密钥）；同 phone_hash',
     `avatar_file_id`  varchar(64)     null comment '头像文件ID（SeaweedFS fileId，URL 运行时通过 FileService 批量反查拼接；默认头像走代码常量兜底，不落库）',
     `avatar_color`    tinyint         not null default 0 comment '头像标识：0-无 1-金 2-白', -- 【修改】
