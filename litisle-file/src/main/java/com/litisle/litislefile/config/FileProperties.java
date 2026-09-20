@@ -1,5 +1,12 @@
 package com.litisle.litislefile.config;
 
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * 配置绑定：@ConfigurationProperties(prefix = "litisle.file") + @Component，
  * 对应 application.yml 的 litisle.file 段：
@@ -12,5 +19,43 @@ package com.litisle.litislefile.config;
  * - upload.maxImageSize（默认 10485760 = 10MB）
  * - thumbnail.enabled / width(300) / height(300)
  */
+@Data
+@Component
+@ConfigurationProperties(prefix = "litisle.file")
 public class FileProperties {
+
+    private Seaweedfs seaweedfs = new Seaweedfs();
+    private Upload upload = new Upload();
+    private Thumbnail thumbnail = new Thumbnail();
+
+    /** SeaweedFS S3 连接配置（对应 yml: litisle.file.seaweedfs） */
+    @Data
+    public static class Seaweedfs {
+        /** SDK 内部地址（上传/删除/预签名用），如 http://localhost:8333 */
+        private String endpoint = "http://localhost:8333";
+        /** 公开直链拼接基址（给前端用），接 CDN 后改为 CDN 域名 */
+        private String publicUrlBase = "http://localhost:8333";
+        /** S3 访问凭证（与 docker/init/seaweedfs/s3.json 保持一致） */
+        private String accessKey;
+        private String secretKey;
+        /** 预签名 URL 有效期（分钟），默认 30 分钟 */
+        private int presignExpireMinutes = 30;
+        /** bizType→bucket 映射：avatar/cover/article-img→article/license */
+        private Map<String, String> collections = new HashMap<>();
+    }
+
+    /** 上传限制配置（对应 yml: litisle.file.upload） */
+    @Data
+    public static class Upload {
+        /** 图片大小上限（字节），默认 10MB */
+        private long maxImageSize = 10485760L;
+    }
+
+    /** 缩略图配置（对应 yml: litisle.file.thumbnail） */
+    @Data
+    public static class Thumbnail {
+        private boolean enabled = true;
+        private int width = 300;
+        private int height = 300;
+    }
 }

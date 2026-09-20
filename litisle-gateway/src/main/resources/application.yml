@@ -14,7 +14,23 @@ spring:
     # WebFlux 应用，不允许存在 WebMVC 的冲突 Bean
     web-application-type: reactive
 
+  # Redis（必须与 auth/user 同一实例：当前体系为 Redis 共享会话模式，网关校验 token 需读同一份会话）
+  data:
+    redis:
+      host: ${litisle.redis.host:localhost}
+      port: ${litisle.redis.port:6380}
+      password: ${litisle.redis.password:123}
+      database: 0
+
   cloud:
+    # Nacos 注册中心（lb:// 路由依赖服务发现，配置模式与业务模块一致）
+    nacos:
+      server-addr: ${litisle.nacos.server-addr:localhost:8848}
+      username: ${litisle.nacos.username:nacos}
+      password: ${litisle.nacos.password:nacos}
+      discovery:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
     gateway:
       # 全局默认过滤器
       default-filters:
@@ -100,10 +116,16 @@ sa-token:
   # JWT 密钥（HMAC-SHA256，至少 256 bit = 32 字符）
   # 生产环境通过环境变量 LITISLE_JWT_SECRET 注入，禁止硬编码
   jwt-secret-key: ${LITISLE_JWT_SECRET:LitIsle-Default-JWT-Secret-Key-Change-In-Production!}
-  # Token 有效期（秒），默认 30 分钟
-  timeout: 1800
-  # 记住我模式有效期（秒），默认 7 天
+  # Token 有效期（秒），必须与 auth 一致（86400）
+  timeout: 86400
+  # 记住我模式有效期（秒），必须与 auth 一致
   active-timeout: 604800
+  # 允许同一账号多端登录（与 auth 一致）
+  is-concurrent: true
+  # 同一账号最大登录数量（与 auth 一致）
+  max-login-count: 2
+  # 开启 Token 认证（写入/读取请求头，与 auth 一致）
+  is-write-header: true
   # 是否输出操作日志
   is-log: true
 
@@ -125,7 +147,7 @@ litisle:
 
         # ---------- 内容服务（公开内容） ----------
         - /api/content/article/list  # 公开文章列表
-        - /api/content/article/{id}  # 公开文章详情
+        - /api/content/article/*     # 公开文章详情（Sa-Token 匹配器不支持 Spring 的 {id} 语法，改用 * 通配）
         - /api/content/article/hot   # 热门文章
         - /api/content/category/**   # 文章分类列表
 

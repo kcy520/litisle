@@ -1,218 +1,125 @@
+User wants a TODO/checklist written to next_update.md (empty file, new file creation → output code block directly per chat mode rules). Compile all issues from this conversation: SeaweedFsClient constructor fix, SQL seed data, gateway fixes, sa-token config sync, JWT secret placeholder, max-login-count, UserContextHeaderFilter, Nacos shared config for sa-token, etc.
 
-```markdown e:\NewJavaPro\LitIsle\docs\next_update.md
-# 【待办】litisle-user 模块配套修改清单（phone_hash/email_hash 落地）
+Organize by priority P0/P1/P2 with status, files, verification steps. Write in Chinese, enterprise style.
+```markdown /e:/NewJavaPro/LitIsle/docs/next_update.md
+# LitIsle 待办清单（2026-09-20 整理）
 
-> 背景：sys_user 新增 `phone_hash`（not null）/ `email_hash`（null）列，
-> 唯一索引改为 `uk_phone_hash_del(phone_hash, del_flag)` / `uk_email_hash_del(email_hash, del_flag)`；
-> phone/email 密文列只管存储（AES-GCM 随机 IV，密文不可比对），
-> 查重/唯一判断一律走 HMAC-SHA256 确定性摘要列（HmacSha256Crypto.digest）。
-> 优先级：P0 功能失效 > P1 密文外泄 > P2 语义/一致性。
+> 来源：本轮排查发现的认证链路、种子数据、网关配置问题。
+> 状态标记：⬜ 待办 / 🔧 待确认后执行 / ✅ 已完成（代码或 SQL 已落地，待验证）
 
-## 🔴 P0 —— 功能直接失效（必须改）
+---
 
-### 1. User 实体补 hash 字段
-- 文件：`domain/entity/User.java`
-- 问题：DDL 新增 `phone_hash` / `email_hash` 列，实体无对应字段，MyBatis-Plus 无法读写
-- 改动：新增两个字段
-  ```java
-  /** 手机号 HMAC-SHA256 摘要（唯一索引与查重走本列） */
-  @TableField("phone_hash")
-  private String phoneHash;
+## P0 认证链路（阻塞联调，立即处理）
 
-  /** 邮箱 HMAC-SHA256 摘要（同上） */
-  @TableField("email_hash")
-  private String emailHash;
+### 1. ✅ user 模块补充 sa-token 配置（与 auth 对齐）
+- **问题**：user 模块所有 yml 无 `sa-token` 段，Sa-Token 回退默认 `token-name: satoken`，
+  读取不到 `Authorization: Bearer xxx` 头 → 所有需登录接口 401。
+- **修复**：`litisle-user/src/main/resources/application.yml` 已插入与 auth 一致的
+  `token-name: Authorization` / `token-prefix: Bearer` / `timeout: 86400` 等配置。
+- **验证**：重启 user 服务，用登录 token 调 `GET /api/user/profile/me` 应返回资料。
+
+### 2. ✅ common-security 注册 SaTokenExceptionHandler
+- **问题**：`SaTokenExceptionHandler` 是 `@RestControllerAdvice` 但所在包不在业务服务
+  组件扫描范围内，`NotLoginException` 漏到兜底处理器，被包装成
+  `10000 系统繁忙`（误导性响应）。
+- **修复**：`SaTokenAutoConfiguration` 已新增 `@Bean` 注册（带 `@ConditionalOnMissingBean`）。
+- **验证**：故意改错 token 调 user 接口，应返回 `10002 令牌无效` 而非 `10000`。
+
+### 3. ⬜ 网关补齐 Redis / Nacos 配置
+- **问题**：
+  - 网关 yml 无 `spring.data.redis` 配置 → SaReactorFilter 连不上 auth 写会话的
+    Redis（localhost:6380），所有 token 一律「令牌无效」；
+  - 网关 yml 无 Nacos 注册中心配置 → 全部 `lb://` 路由 503。
+- **修复**：修改预览已生成（`litisle-gateway/src/main/resources/application.yml`），
+  待 Review and Accept 后重启网关。
+- **验证**：
+  ```cmd
+  curl -H "Authorization: Bearer <accessToken>" http://localhost:8080/api/user/profile/me
   ```
+  带 token 返回资料；去掉 header 返回 HTTP 401 + `10002 未登录，请先登录`。
 
-### 2. 注册链路：查重失效 + 写库必报错
-- 文件：`controller/feign/UserFeignProviderController.java` → `createUser`
-- 问题 a（查重失效）：`eq(User::getPhone, encryptedPhone)` 用「加密后密文」比对，
-  AES-GCM 随机 IV 下同一手机号每次密文不同 → count 永远 = 0，重复手机号/邮箱可无限注册
-- 问题 b（写库报错）：`phone_hash` 为 not null 且无默认值，`new User()` 不写该列 → 注册直接 SQL 异常
-- 改动：
-  - 手机号查重改：`eq(User::getPhoneHash, hmacSha256Crypto.digest(dto.getPhone()))`
-  - 邮箱查重改：`eq(User::getEmailHash, hmacSha256Crypto.digest(dto.getEmail()))`
-  - 保存时同步写入：`setPhoneHash(...)`；email 非空时 `setEmailHash(...)`
-  - 需注入 `HmacSha256Crypto`（当前只注入了 `Aes256GcmCrypto`）
+### 4. ⬜ 网关白名单通配符语法修正
+- **问题**：`/api/content/article/{id}` 使用 Spring MVC 路径变量语法，
+  Sa-Token 匹配器不识别，文章详情会被拦截。
+- **修复**：改为 `/api/content/article/*`（已包含在 #3 的 diff 中）。
 
-### 3. 登录链路：手机号/邮箱登录全部失效
-- 文件：`controller/feign/UserFeignProviderController.java` → `findByAccount`（按手机号分支）、`findByEmail`
-- 问题：同样用「加密后密文」查库，随机 IV 下永远查不到用户 → 手机号/邮箱登录 100% 失败
-- 改动：查询条件全部切到 hash 列等值匹配（命中 uk 索引，免全表解密比对）
-
-### 4. 邮箱绑定/换绑：查重失效 + hash 未同步
-- 文件：`service/impl/UserProfileServiceImpl.java` → `bindEmail` / `updateEmail`
-- 问题：`eq(User::getEmail, encryptedEmail)` 查重失效；写入只更新密文列，`email_hash` 不刷新
-- 改动：
-  - 查重改走 `eq(User::getEmailHash, digest(...))`
-  - 换绑成功时 `email_hash` 必须随密文同一条 UPDATE 更新（防「密文 A + hash B」脏数据）
-  - 注入 `HmacSha256Crypto`
-
-## 🟠 P1 —— 密文外泄到前端
-
-### 5. 两处把 AES 密文当明文返回
-- 位置 a：`UserProfileServiceImpl.currentUserProfile` → `UserSelfVO.phone`
-  现状：直接返回 `user.getPhone()`（密文）
-  改动：解密后脱敏（138****1234），符合「敏感字段不回显明文，走安全通道」规范
-- 位置 b：`UserFeignProviderController.buildAuthUserDTO` → `setPhone/setEmail`
-  现状：密文跨服务传输；下游 `AuthServiceImpl` 已注释掉 `desensitizePhone/Email`，密文会原样到前端
-  改动：解密 + 脱敏后传输；顺手把 `setPassword(user.getPassword())` 置空（BCrypt 哈希无回传必要）
-
-## 🟡 P2 —— 语义/一致性
-
-### 6. 注销冷却期清理走 hash 列
-- 依据：SQL 设计说明承诺「重新注册前先清理旧的 (phone_hash, 1) 记录」
-- 现状：注销主流程（del_flag=1 + cancel_time）未在 UserCancelLogServiceImpl 中体现，需确认位置
-- 改动：落地时冷却期/换绑判断全部从 `phone` 切到 `phone_hash`
-
-### 7. 换绑后旧 hash 同步刷新
-- 与第 4 条合并落地：updateEmail 的「新旧邮箱解密比对」逻辑本身正确，保留；
-  仅需保证 hash 与密文原子更新
-
-## 🔵 附带发现（与 hash 改造无关但同表）
-
-### 8. 实体有 uid 字段，DDL 没有 uid 列
-- 现状：`User.java` 有 `@TableField("uid")`，`searchByUid`、`generateUniqueUid` 在用，
-  注释提到 `uk_uid` 唯一索引；但 sys_user 建表语句无 `uid` 列 → 运行时 SQL 报错
-- 改动：SQL 文档 sys_user 补列
-  `uid varchar(16) not null comment '对外UID（用户间搜索唯一标识，随机生成，永久不变）'`
-  + `unique key uk_uid(uid)`（注册时回填需兼容存量数据）
-
-## 修改范围汇总
-
-| # | 文件 | 优先级 |
-|---|---|---|
-| 1 | User.java | P0 |
-| 2 | UserFeignProviderController.createUser | P0 |
-| 3 | UserFeignProviderController.findByAccount/findByEmail | P0 |
-| 4 | UserProfileServiceImpl.bindEmail/updateEmail | P0 |
-| 5 | UserProfileServiceImpl.currentUserProfile + buildAuthUserDTO | P1 |
-| 6-7 | 注销/换绑 hash 一致性 | P2 |
-| 8 | Sql-Document.md sys_user 补 uid 列 | P2 |
-
-建议落地顺序：1 → 2 → 3 → 4 → 5 → 6/7 → 8（先实体后链路，每步可独立编译验证）
-```
-
-**说明**：内容与上一轮扫描结论一致，按优先级重排并补充了「修改范围汇总表」和「建议落地顺序」，方便你后续逐项勾销。等你粘贴保存后，告诉我是否按 1→4 顺序开始出 diff。
+### 5. ✅ 种子数据 phone_hash / phone 密文替换
+- **问题**：SQL 种子数据用 MySQL 端 `SHA2()` 生成 hash，与应用端
+  HMAC-SHA256（派生子密钥）不同源 → 查重/登录永远匹配不上；phone 为明文。
+- **修复**：`docs/Sql-Document.md` 6 条种子 INSERT 已替换为
+  `test.genSeedValues()` 生成的真实 hash（HMAC）与密文（AES-256-GCM）。
+- **约束**：主密钥 `RT6uWj/...` 此后不可更换；换密钥需重跑 `genSeedValues()`
+  并全量刷新 SQL 与存量用户密文。生产库种子须用 `LITISLE_CRYPTO_KEY` 重新生成。
 
 ---
 
-# 【待办·补充】litisle-api / litisle-auth / litisle-gateway 模块扫描结果
+## P1 架构规范（近期处理）
 
-> 前提：hash 列（phone_hash/email_hash）是 user 模块**内部实现细节**，不出服务边界，
-> 所以 api/auth/gateway 不需要 hash 字段本身；需要改的是「明文日志、密文透传、契约语义」三件事。
+### 6. 🔧 删除网关 JWT 死配置
+- **问题**：登录返回的 token 是 UUID（Redis 会话模式）而非 JWT，
+  网关 pom 的 `sa-token-jwt` 依赖与 yml 的 `jwt-secret-key` 均未激活（无
+  StpLogicJwtFor Bean），属死配置，误导维护者。
+- **建议**：删除 `litisle-gateway/pom.xml` 中 `sa-token-jwt` 依赖；
+  删除 yml 中 `jwt-secret-key` 配置项。
+- **说明**：涉及依赖与配置删除，需开发者确认后执行。
 
-## litisle-api（共享契约模块）
+### 7. 🔧 网关 UserContextHeaderFilter 定位收敛
+- **问题**：下游服务无任何代码消费 `X-User-Id` / `X-Roles` 等 header
+  （业务全部 `StpUtil` 直查 Redis）；且服务端口（8081/8082）可绕过网关直连，
+  若将来信任该 header 存在身份伪造风险（FeignAuthInterceptor 也注入同名 header）。
+- **建议**：保留过滤器但注释标明「仅用于日志追踪，不作为鉴权依据」；
+  或精简为仅透传 userId/username。
+- **说明**：需开发者确认取舍后执行。
 
-### 9. AuthUserDTO 跨服务契约语义标注【P2】
-- 文件：`litisle-api/.../dto/user/AuthUserDTO.java`（phone L37 / email L40 / password 字段）
-- 问题：该 DTO 是 user → auth 的传输载体，修复后 phone/email 应为**脱敏值**，
-  password 仅登录校验链路使用；当前无任何语义标注，下游易误用为明文
-- 改动：字段 javadoc 标注「脱敏值，禁止明文/密文传输」；password 字段建议标注
-  「仅密码登录校验链路填充，其他场景必须为 null」或直接评估移除
+### 8. ⬜ 确认多设备在线策略
+- **问题**：需求为允许多设备同时在线，但 auth 配置 `max-login-count: 2`，
+  第 3 台设备会触发顶下线。
+- **建议**：按真实需求改 auth 的 `sa-token.max-login-count`（`-1` = 不限）。
+  仅需改 auth 侧，user/网关侧该配置无实际作用。
 
-### 10. findByEmail 明文邮箱进 URL 路径【P2】
-- 文件：`litisle-api/.../feign/UserClient.java` L56-57
-- 现状：`GET /api/feign/user/email/{email}` 明文邮箱拼在 URL 中 → 进网关/服务访问日志
-- 影响面：网关路由表无 `/api/feign/**`，外部不可达；风险限于内部日志留痕
-- 改动：改为 `POST` + body 或 `@RequestParam`（内部 Feign 无历史兼容包袱，改造成本低）
+### 9. ⬜ sa-token 配置上收 Nacos 共享配置
+- **问题**：目前 auth/user/网关各自 yml 维护一份 sa-token 配置，
+  后续 content/social/shop 等模块接入时需重复复制，易出现不一致（本次事故根因）。
+- **建议**：将 `sa-token:` 公共段同步到 Nacos `litisle-shared.yaml`
+  （环境差异项仅 token-name 等极少量，可全量共享）；
+  各服务 yml 只保留必要覆写。与项目既有约定（共享配置 DataId 为
+  `litisle-shared.yaml`，需 `.yaml` 后缀）保持一致。
 
-## litisle-auth
-
-### 11. 多处日志明文打印邮箱【P1·合规】
-- 位置：
-  - `AuthServiceImpl.register` L57：`log.info("用户注册请求: username={}, email={}")`
-  - `AuthServiceImpl.emailLogin` L129 / L137
-  - `CaptchaServiceImpl.sendEmailCode` L95
-  - `AuthFeignProviderController.verifyChangeEmail` L37
-- 问题：违反「敏感数据不落日志」规范（与 @AuditLog saveRequestData=false 的合规要求同源）
-- 改动：统一脱敏工具（如 `a***@domain.com`）或仅打 userId/长度；
-  建议放 common-core 的 DesensitizeUtil 供全项目复用
-
-### 12. 脱敏职责归属拍板（与 user 清单 #5 联动）【P1·需拍板】
-- 位置：`AuthServiceImpl` L249-252（desensitizePhone/Email 被注释，直接透传）、
-  L374+（脱敏方法体被注释）
-- 现状：authUser.getPhone() 是密文 → 原样进 LoginUserInfoVO → 前端
-- 方案二选一（避免双重脱敏）：
-  - **A（推荐）**：脱敏只在 user 端 buildAuthUserDTO 做一次（清单 #5b），auth 端维持透传，
-    删除/保留注释均可——单一职责，auth 拿到的已是脱敏值
-  - **B**：user 端只解密不脱敏，auth 端恢复 L249-252 注释代码做脱敏——但意味着
-    明文/密文仍跨服务传输，违背「敏感数据不出安全通道」原则
-- 拍板 A 后：L374 起的注释方法建议删除（---------建议删除此注释，请手动确认）
-
-### 13. BindPhoneDTO 已定义未使用【P2·预留提示】
-- 位置：`litisle-auth/.../domain/dto/BindPhoneDTO.java`（全模块无引用，按规则保留不删）
-- 提示：未来实现绑定手机号时，必须复用 bindEmail 模式：
-  AES 密文落 phone 列 + HMAC 摘要同步写 phone_hash + 查重走 hash 列；
-  禁止明文落库或密文比对（正是本轮整改消灭的两类问题）
-
-## litisle-gateway
-
-### 14. 无需修改【结论】
-- 网关无 phone/email/crypto 处理逻辑
-- 匿名白名单（L119-139）均为正常公开接口，未包含任何 feign 内部路径
-- `/api/feign/**` 不在任何路由表中 → 内部接口外部不可达，无暴露面
-- 唯一相关条目 `/api/auth/captcha/email` 是验证码发送接口，与本次改造无关
-
-## 补充修改范围汇总
-
-| # | 模块 | 文件 | 优先级 |
-|---|---|---|---|
-| 9 | litisle-api | AuthUserDTO 契约注释 | P2 |
-| 10 | litisle-api | UserClient.findByEmail 改 POST | P2 |
-| 11 | litisle-auth | AuthServiceImpl/CaptchaServiceImpl/AuthFeignProviderController 日志脱敏 | P1 |
-| 12 | litisle-auth | AuthServiceImpl 脱敏归属拍板（联动 #5） | P1 |
-| 13 | litisle-auth | BindPhoneDTO（预留，暂不改） | P2 |
-| 14 | litisle-gateway | 无需修改 | — |
-
-补充落地顺序建议：#11/#12 与 user 清单 #5 同批改（同一条链路），
-#9/#10 随手改，#13 留待绑定手机号功能立项时再看。
+### 10. ⬜ 排查网关 common-security 依赖冲突
+- **问题**：网关 pom 引入 common-security（传递 `sa-token-spring-boot3-starter`，
+  Servlet 版）与网关自身 `sa-token-reactor-spring-boot3-starter`（Reactive 版）共存。
+- **建议**：启动网关观察是否报 Sa-Token Bean 冲突；若冲突，对 common-security
+  dependency 做 exclusion 排除 Servlet 版 starter。
 
 ---
 
-# 【已完成】落地情况闭环记录（2026-09-20）
+## P2 安全加固与遗留（规划处理）
 
-> 上方清单正文保留作为历史依据；其中 #9/#12 的「脱敏值/方案A/B」描述为拍板前草案，
-> 最终落地架构以本节为准。
+### 11. ⬜ 替换 auth JWT 占位密钥
+- **位置**：`litisle-auth/src/main/resources/application.yml:161`
+  `jwt-secret-key: ${LITISLE_JWT_SECRET:your-32-character-jwt-secret-key}`。
+- **说明**：当前 JWT 未实际启用（见 #6）；若保留该能力，上线前必须替换为
+  真随机密钥并经 `LITISLE_JWT_SECRET` 环境变量注入。
 
-## 最终脱敏架构（与项目既有 @Sensitive 注解体系对齐）
+### 12. ⬜ 白名单最小化复核
+- **位置**：网关白名单中 `/api/search/**`、`/api/file/download/**` 整段放行。
+- **说明**：搜索/文件服务落地时，复核这些前缀下是否存在需鉴权接口，
+  收敛为具体公开路径。网关白名单原则：宁窄勿宽。
 
+### 13. ⬜ SeaweedFsClient 构造注入落地（file 模块）
+- **问题**：final 字段未初始化导致编译错误（已给出构造方法 diff）。
+- **后续**：接受 diff 后，还需新建配置类（如 `SeaweedFsConfig`）构建
+  `S3Client` / `S3Presigner` Bean 注入（endpoint 指向 SeaweedFS、
+  pathStyle=true、凭证与 s3.json 一致、Region 任意）。
+
+### 14. ⬜ 存量用户数据兼容性检查
+- **说明**：若本地库已有历史注册用户（旧 hash/密文），种子数据替换后
+  需确认其 `phone_hash` 与当前派生子密钥一致；不一致则需重置或重新生成，
+  否则登录查重异常。
 ```
-DB 密文列 --解密--> 明文（仅限内网 Feign / 服务内传递）
-                        │
-                        ▼
-              VO 字段 @Sensitive(PHONE/EMAIL)（既有注解，零改动）
-                        │
-                        ▼
-              Jackson 序列化时自动脱敏 → 前端只见 138****8888
-```
 
-- DTO/VO 字段传解密明文，不做手动 mask；对外响应由 VO 注解统一脱敏
-- 日志脱敏直接调用既有 `SensitiveStrategy.EMAIL.desensitize(...)`，不新造工具类
+清单已整理完毕，可直接保存为 `e:\NewJavaPro\LitIsle\docs\next_update.md`（文件当前为空，内容如上）。几点说明：
 
-## 逐项状态
-
-| # | 状态 | 备注 |
-|---|---|---|
-| 1 | ✅ | User.java 补 phoneHash/emailHash 字段 |
-| 2 | ✅ | 注册查重走 hash + 写库同步写 hash（含 del_flag 复合索引语义） |
-| 3 | ✅ | 手机号/邮箱登录全部切 hash 列等值查询 |
-| 4 | ✅ | bindEmail/updateEmail 查重走 email_hash，hash 与密文同条 UPDATE |
-| 5 | ✅ | 传解密明文，VO @Sensitive 注解自动脱敏（替代原「手动 mask」草案） |
-| 6 | ✅ | 查重补 del_flag 条件；自查注销功能未立项（控制器整体注释），管理端注销已正确写状态，冷却期判断留待立项时按 phone_hash 落地 |
-| 7 | ✅ | 并入 #4 原子更新 |
-| 8 | ✅ | sys_user 补 uid 列 + uk_uid + 6 条种子 INSERT 全部带 uid |
-| 9 | ✅ | AuthUserDTO 契约改为「明文仅限内网 + VO 注解脱敏，禁止 DTO 透传前端」 |
-| 10 | ✅ | findByEmail 改 POST+body（实现方签名不变，无需改 impl/fallback） |
-| 11 | ✅ | 5 处日志改用 SensitiveStrategy.EMAIL.desensitize() |
-| 12 | ✅ | 脱敏职责归属 VO 注解（替代原方案A/B草案），注释方法已标注待手动确认 |
-| 13 | 预留 | BindPhoneDTO 保留，绑定手机号立项时按「密文+hash 同步写+hash 查重」实现 |
-| 14 | ✅ | 网关无需修改 |
-
-## 遗留事项（已拍板忽略/待后续）
-
-- 忽略清理项：DesensitizeUtil（若已创建）、残留 import、AuthServiceImpl 底部注释方法、
-  RegisterRequestDTO 的 // @NotBlank 注释 —— 均保留，不做处理
-- 种子用户 hash 为 SHA2 占位值，与应用 HMAC 不一致（已知局限，见 Sql-Document 注释块），
-  种子账号不可走手机号/邮箱登录
-- 建议执行编译验证：`mvn compile -pl litisle-user,litisle-auth,litisle-api -am`
+1. **结构**：按企业规范分 P0（阻塞联调）/ P1（架构规范）/ P2（安全加固与遗留）三级，每项含「问题 → 修复/建议 → 验证方式」，并标注了状态（✅ 本轮已修复、⬜ 待办、🔧 待你确认后执行）。
+2. **🔧 项的处理**：删除网关 JWT 死配置（#6）、UserContextHeaderFilter 收敛（#7）这类涉及删代码/删配置的动作，遵循你的文件删除确认规则，标为「待确认后执行」，你没有点头我不会动。
+3. **#9 是防复发关键**：这次 user/auth 配置不一致的根因就是 sa-token 配置分散在各个 yml——上收到 Nacos `litisle-shared.yaml` 后，新模块接入不再需要复制粘贴，建议优先排期。
