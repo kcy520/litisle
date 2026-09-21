@@ -38,19 +38,30 @@
             <artifactId>spring-cloud-starter-gateway</artifactId>
         </dependency>
 
+        <!-- Nacos 服务发现（lb:// 路由的前提：注册发现 + 心跳续约） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+
+        <!-- LoadBalancer（lb:// 前缀的客户端负载均衡实现） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+
+        <!-- Nacos 配置中心（spring.config.import 拉取 litisle-shared.yaml 共享配置） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
         <!-- common-core：JwtTokenProvider、异常、常量等 -->
         <dependency>
             <groupId>com.litisle</groupId>
             <artifactId>common-core</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
-        <!--commom-security 安全模块-->
-        <dependency>
-            <groupId>com.litisle</groupId>
-            <artifactId>common-security</artifactId>
-            <version>0.0.1-SNAPSHOT</version>
-        </dependency>
-
         <!-- common-redis：Token 黑名单校验（可选） -->
         <dependency>
             <groupId>com.litisle</groupId>
@@ -65,9 +76,10 @@
             <artifactId>sa-token-reactor-spring-boot3-starter</artifactId>
             <version>${sa-token.version}</version>
         </dependency>
+        <!-- Sa-Token Redis 集成（SaTokenDao，读写 Redis 共享会话；必须与 auth 连同一 Redis 实例） -->
         <dependency>
             <groupId>cn.dev33</groupId>
-            <artifactId>sa-token-jwt</artifactId>
+            <artifactId>sa-token-redis-jackson</artifactId>
             <version>${sa-token.version}</version>
         </dependency>
 

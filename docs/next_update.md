@@ -55,7 +55,7 @@ Organize by priority P0/P1/P2 with status, files, verification steps. Write in C
 
 ## P1 架构规范（近期处理）
 
-### 6. 🔧 删除网关 JWT 死配置
+### 6. ✅ 删除网关 JWT 死配置
 - **问题**：登录返回的 token 是 UUID（Redis 会话模式）而非 JWT，
   网关 pom 的 `sa-token-jwt` 依赖与 yml 的 `jwt-secret-key` 均未激活（无
   StpLogicJwtFor Bean），属死配置，误导维护者。
@@ -63,7 +63,7 @@ Organize by priority P0/P1/P2 with status, files, verification steps. Write in C
   删除 yml 中 `jwt-secret-key` 配置项。
 - **说明**：涉及依赖与配置删除，需开发者确认后执行。
 
-### 7. 🔧 网关 UserContextHeaderFilter 定位收敛
+### 7. ✅ 网关 UserContextHeaderFilter 定位收敛
 - **问题**：下游服务无任何代码消费 `X-User-Id` / `X-Roles` 等 header
   （业务全部 `StpUtil` 直查 Redis）；且服务端口（8081/8082）可绕过网关直连，
   若将来信任该 header 存在身份伪造风险（FeignAuthInterceptor 也注入同名 header）。
@@ -71,7 +71,7 @@ Organize by priority P0/P1/P2 with status, files, verification steps. Write in C
   或精简为仅透传 userId/username。
 - **说明**：需开发者确认取舍后执行。
 
-### 8. ⬜ 确认多设备在线策略
+### 8. ✅ 确认多设备在线策略（max-login-count 已改 -1）
 - **问题**：需求为允许多设备同时在线，但 auth 配置 `max-login-count: 2`，
   第 3 台设备会触发顶下线。
 - **建议**：按真实需求改 auth 的 `sa-token.max-login-count`（`-1` = 不限）。
@@ -85,7 +85,7 @@ Organize by priority P0/P1/P2 with status, files, verification steps. Write in C
   各服务 yml 只保留必要覆写。与项目既有约定（共享配置 DataId 为
   `litisle-shared.yaml`，需 `.yaml` 后缀）保持一致。
 
-### 10. ⬜ 排查网关 common-security 依赖冲突
+### 10. ✅ 排查网关 common-security 依赖冲突（整依赖删除，补 sa-token-redis-jackson）
 - **问题**：网关 pom 引入 common-security（传递 `sa-token-spring-boot3-starter`，
   Servlet 版）与网关自身 `sa-token-reactor-spring-boot3-starter`（Reactive 版）共存。
 - **建议**：启动网关观察是否报 Sa-Token Bean 冲突；若冲突，对 common-security
@@ -95,7 +95,7 @@ Organize by priority P0/P1/P2 with status, files, verification steps. Write in C
 
 ## P2 安全加固与遗留（规划处理）
 
-### 11. ⬜ 替换 auth JWT 占位密钥
+### 11. ✅ 替换 auth JWT 占位密钥（随 #6 删除网关 JWT 能力，占位密钥风险消除；auth 侧 jwt-secret-key 若确认同样未激活，可后续手动清理）
 - **位置**：`litisle-auth/src/main/resources/application.yml:161`
   `jwt-secret-key: ${LITISLE_JWT_SECRET:your-32-character-jwt-secret-key}`。
 - **说明**：当前 JWT 未实际启用（见 #6）；若保留该能力，上线前必须替换为
@@ -106,7 +106,7 @@ Organize by priority P0/P1/P2 with status, files, verification steps. Write in C
 - **说明**：搜索/文件服务落地时，复核这些前缀下是否存在需鉴权接口，
   收敛为具体公开路径。网关白名单原则：宁窄勿宽。
 
-### 13. ⬜ SeaweedFsClient 构造注入落地（file 模块）
+### 13. ✅ SeaweedFsClient 构造注入落地（file 模块：FileProperties 绑定 + SeaweedFsConfig 装配）
 - **问题**：final 字段未初始化导致编译错误（已给出构造方法 diff）。
 - **后续**：接受 diff 后，还需新建配置类（如 `SeaweedFsConfig`）构建
   `S3Client` / `S3Presigner` Bean 注入（endpoint 指向 SeaweedFS、

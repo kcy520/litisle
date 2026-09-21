@@ -20,6 +20,13 @@ import java.util.Collection;
  * 2. 下游业务服务从 Header 读取用户信息（HeaderConstant），写入自己的 Sa-Token 上下文
  * 3. 白名单路径（未登录）不注入用户 Header，直接放行
  *
+ * 【定位说明（重要）】
+ * - 本过滤器仅用于日志追踪/调试便利，不作为鉴权依据！
+ * - 鉴权唯一真相源：下游服务 StpUtil 直查 Redis 共享会话（业务现状即如此）
+ * - ⚠️ 服务端口（8081/8082）可绕过网关直连，若将来信任此 Header 做鉴权，
+ *   存在身份伪造风险（FeignAuthInterceptor 也注入同名 Header）
+ * - 注入 Header 前必须完成 StpUtil.isLogin() 校验（白名单路径不注入）
+ *
  * 【用户信息来源（网关无状态，不查库）】
  * - userId：JWT 必含（loginId），始终注入
  * - username / roles / permissions：JWT extras，登录时由 auth 服务通过 setExtra 写入，

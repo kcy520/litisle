@@ -166,7 +166,7 @@ sa-token:
   # 是否允许同一账号多端登录
   is-concurrent: true
   # 同一账号最大登录数量（-1 = 不限）
-  max-login-count: 2
+  max-login-count: -1
   # 是否开启 Token 认证
   is-write-header: true
   # 是否输出操作日志

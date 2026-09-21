@@ -1,3 +1,14 @@
+# ================================
+# Sentinel 本地心跳端口
+# 同机多服务需错开：auth 8719 / user 8720
+# dashboard 地址在 Nacos 共享配置 litisle-shared.yaml 统一维护
+# ================================
+spring:
+  cloud:
+    sentinel:
+      transport:
+        port: 8720
+
 litisle:
   # ================================
   # Nacos 配置（本地环境：宿主机映射端口 8848）

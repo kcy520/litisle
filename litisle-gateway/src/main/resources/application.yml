@@ -14,6 +14,13 @@ spring:
     # WebFlux 应用，不允许存在 WebMVC 的冲突 Bean
     web-application-type: reactive
 
+  # Nacos 配置中心共享配置（sa-token 公共段统一从此读取）
+  # optional：Nacos 未就绪时跳过拉取，不阻塞启动
+  config:
+    import:
+      - optional:nacos:${spring.application.name}.yaml
+      - optional:nacos:litisle-shared.yaml
+
   # Redis（必须与 auth/user 同一实例：当前体系为 Redis 共享会话模式，网关校验 token 需读同一份会话）
   data:
     redis:
@@ -106,16 +113,11 @@ spring:
             - Path=/api/search/**
 
 # ====== Sa-Token 认证配置（替代原 JWT 配置） ======
-# 【重要】网关需要引入 sa-token-reactor-spring-boot3-starter 依赖（WebFlux 专用）
-# 【说明】网关通过 Sa-Token JWT 模式无状态校验 Token，提取用户信息注入下游请求 Header
-sa-token:
+# 【重要】网关需要引入 sa-token-reactor-spring-boot3-starter 依赖（WebFlux 专用）sa-token:
   # Token 名称
   token-name: Authorization
   # Token 前缀
   token-prefix: Bearer
-  # JWT 密钥（HMAC-SHA256，至少 256 bit = 32 字符）
-  # 生产环境通过环境变量 LITISLE_JWT_SECRET 注入，禁止硬编码
-  jwt-secret-key: ${LITISLE_JWT_SECRET:LitIsle-Default-JWT-Secret-Key-Change-In-Production!}
   # Token 有效期（秒），必须与 auth 一致（86400）
   timeout: 86400
   # 记住我模式有效期（秒），必须与 auth 一致
