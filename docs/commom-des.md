@@ -1,11 +1,5 @@
----
-
-##  common-des.md
-
-以下是完全重写的文档，覆盖当前所有实际文件。由于文件很长，请直接复制到 `e:\NewJavaPro\LitIsle\docs\commom-des.md`：
-
-```markdown
 e:\NewJavaPro\LitIsle\docs\commom-des.md
+
 # LitIsle Common 模块功能说明文档
 
 > 公共基础模块合集，为业务服务提供通用能力支撑。所有业务服务依赖 common 模块，避免重复造轮子。
@@ -43,7 +37,7 @@ common-security ❌ 不依赖 common-redis
 
 ---
 
-## 二、common-core 模块（21 个文件）
+## 二、common-core 模块
 
 ### 2.1 异常处理
 
@@ -102,10 +96,11 @@ common-security ❌ 不依赖 common-redis
 |----|------|
 | `CommonConstant` | 通用常量（缓存前缀、分隔符等） |
 | `HeaderConstant` | HTTP Header 常量（X-User-Id、X-Username、X-Roles、X-User-Permissions、X-Trace-Id） |
-| `PageConstant` | 分页常量（默认页码/条数、单页上限、常用排序列） |
 | `PageConstant` | 分页公共常量（默认页码=1、默认每页条数=10、上限=100、常用排序列 update_time/create_time） |
-| `DelFlagEnum` | 逻辑删除标志（0-正常、1-删除） |
+| `SaTokenSessionKeyConstant` | Sa-Token Session 自定义键常量（roles/permissions/username），统一写入方（litisle-auth）与读取方（StpInterfaceImpl/FeignAuthInterceptor）的键名，避免硬编码拼写不一致静默失效 |
+| `DelFlag` | 逻辑删除标志枚举（0-未删除、1-已删除；@EnumValue 入库映射 tinyint，@JsonValue 序列化为 desc） |
 | `StatusEnum` | 状态枚举（启用/禁用） |
+| `UserStatus` | 用户状态枚举（0-禁用、1-正常、2-注销；@EnumValue 入库映射，@JsonValue/@JsonCreator 兼容 desc 与 code 双向反序列化） |
 | `AuditModule` | 审计模块枚举 |
 | `AuditOperation` | 审计操作类型枚举 |
 
@@ -116,6 +111,9 @@ common-security ❌ 不依赖 common-redis
 | `AssertUtil` | 业务断言工具（断言失败抛 BizException） |
 | `JsonUtil` | JSON 序列化/反序列化工具（封装 Jackson） |
 | `PageUtil` | 分页工具（`IPage` → `PageResult` 转换） |
+| `UidGenerator` | 对外 UID 生成器（前段相对秒时间戳 32 位 + 后段 SecureRandom 随机序列 17 位，最多 15 位十进制；对外只暴露 UID 不暴露自增主键，防遍历爬取） |
+
+> 备注：`DesensitizeUtil` 文件存在但类体已整体注释——脱敏统一走 common-security 的 `@Sensitive` 注解，此类暂作预留，不参与编译逻辑。
 
 ### 2.6 配置类
 
@@ -135,7 +133,7 @@ common-security ❌ 不依赖 common-redis
 
 ---
 
-## 三、common-redis 模块（16 个文件）
+## 三、common-redis 模块
 
 ### 3.1 Redis 配置
 
@@ -146,6 +144,7 @@ common-security ❌ 不依赖 common-redis
 | `CommonRedisAutoConfiguration` | Bean 集中注册（替代 @Component 扫描） | 自动 |
 | `RedisUtil` | Redis 操作工具类（String/Hash/List/Set/ZSet） | 手动调用 |
 | `CacheConstant` | 缓存 Key 常量前缀 | 手动引用 |
+| `IdempotentConstant` | 幂等业务常量（SETNX 占位值、匿名用户前缀 anonymous:、未知 IP 标识、X-Forwarded-For 分隔符） | 内部使用 |
 
 ### 3.2 分布式锁
 
@@ -228,7 +227,7 @@ login:lock:{identifier}  → 锁定标记（String，TTL 15min）
 
 ---
 
-## 四、common-security 模块（27 个文件）
+## 四、common-security 模块
 
 ### 4.1 Sa-Token 认证集成（替代原 JWT 体系）
 
@@ -347,6 +346,25 @@ sa-token:
 - 业务角色与管理角色不叠加
 - SUPER_ADMIN 不与其他角色叠加
 
+**配套常量类**（注解/代码中引用，禁止硬编码字符串；新增码必须 MR Review，与对应枚举一一同步维护）：
+
+| 类 | 说明 |
+|----|------|
+| `RoleCode` | 角色码常量（READER/AUTHOR/LEGACY_AUTHOR/REVIEWER/ADMIN/SUPER_ADMIN，与 RoleCodeEnum 一一对应） |
+| `PermissionCode` | 权限码常量（user:read、sensitive:phone:read、role:assign、article:publish 等，格式 resource:action） |
+
+### 4.2.1 角色辅助工具 SaRoleHelper
+
+| 类 | 说明 | 生效方式 |
+|----|------|---------|
+| `SaRoleHelper` | 角色判断/校验/越权防护静态工具（封装 StpUtil + RoleCodeEnum/RoleLevel） | 手动调用 |
+
+**能力一览**：
+- `isAuthor()` / `checkAuthor()`：作者身份判断/校验（AUTHOR 或 LEGACY_AUTHOR 任一满足）
+- `isAdmin()` / `checkAdmin()`：管理身份判断/校验（ADMIN 或 SUPER_ADMIN 任一满足）
+- `maxRoleLevel(roleCodes)`：计算一组角色编码的最高 RoleLevel（用于越权比较）
+- `checkNotSameOrHigherLevel(targetRoleCodes)`：越权校验——禁止对同级或更高级目标用户执行管理操作（防越权提权），违规抛 `BizException(FORBIDDEN)`
+
 ### 4.3 Feign 拦截器
 
 | 类                     | 说明                                                         | 生效方式 |
@@ -456,6 +474,25 @@ litisle:
 | 使用场景 | 需要查询展示的敏感字段     | 只验证不展示的密码       |
 | 密钥要求 | 需要保密密钥               | 不需要密钥（盐自动生成） |
 
+#### 4.8.3 HMAC-SHA256 确定性摘要
+
+| 类 | 说明 | 生效方式 |
+|----|------|---------|
+| `HmacSha256Crypto` | HMAC-SHA256 确定性摘要工具（`digest(明文)` → 64 位小写 hex 指纹） | 注入使用 |
+
+**用途**：`phone_hash` / `email_hash` 等摘要列的唯一索引、查重、换绑校验。AES-GCM 因随机 IV 每次密文不同，无法支撑唯一索引比对；HMAC 确定性输出（同一明文恒定同一结果）正好补位。
+
+**为什么必须 HMAC 而非纯 SHA-256**：手机号/常见邮箱取值空间小，纯哈希可被彩虹表反推；HMAC 引入密钥后，攻击者拿到库但无密钥则无法反推明文。
+
+**与 AES-256-GCM 的分工**：
+- AES-256-GCM：密文入 phone/email 列（可解密展示、脱敏）
+- HMAC-SHA256：摘要入 phone_hash/email_hash 列（唯一索引、查重）
+
+**HMAC Bean 密钥来源（CryptoAutoConfiguration）**：
+1. 优先使用独立配置的 `litisle.security.crypto.hash-key`
+2. 未配置时从 AES 主密钥确定性派生子密钥（主密钥对固定标签 `litisle:hmac-subkey:v1` 做一次 HMAC，HKDF 简化思路）
+3. 与 AES Bean 绑定同一创建条件（`litisle.security.crypto.key` 已配置），有就都有、没有都没有；HMAC 密钥不足 32 字节拒绝启动（Fail-Fast），启动日志会打印实际走的密钥路径
+
 ### 4.9 配置注册
 
 | 类                                | 说明                                                   | 生效方式 |
@@ -558,6 +595,8 @@ litisle:
     # ====== 数据加密配置 ======
     crypto:
       key: ${LITISLE_CRYPTO_KEY}
+      # 可选：HMAC 独立密钥（≥32 字节 Base64）；不配则从主密钥确定性派生子密钥
+      # hash-key: ${LITISLE_CRYPTO_HASH_KEY}
       bcrypt-cost: 10
 
   # ====== XSS 过滤配置 ======
@@ -617,8 +656,11 @@ litisle:
 | `Result.success()/error()` | common-core      | Controller 返回      |
 | `AssertUtil`               | common-core      | 业务断言             |
 | `JsonUtil`                 | common-core      | JSON 转换            |
+| `UidGenerator`             | common-core      | 对外 UID 生成        |
 | `StpUtil`                  | Sa-Token（内置） | 登录/鉴权/会话管理   |
 | `Aes256GcmCrypto`          | common-security  | AES-256-GCM 加解密   |
+| `HmacSha256Crypto`         | common-security  | HMAC-SHA256 确定性摘要（phone_hash/email_hash） |
+| `SaRoleHelper`             | common-security  | 角色/权限便捷校验、越权防护 |
 | `PasswordCrypto`           | common-security  | BCrypt 密码加密/验证 |
 | `RedisUtil`                | common-redis     | 缓存操作             |
 | `RedissonLock`             | common-redis     | 分布式锁             |
@@ -807,7 +849,7 @@ logging:
 
 ## 十一、文件清单
 
-### common-core（18 个文件）
+### common-core 文件清单
 
 ```
 common-core/src/main/java/com/litisle/commoncore/
@@ -818,12 +860,14 @@ common-core/src/main/java/com/litisle/commoncore/
 ├── constant/
 │   ├── CommonConstant.java
 │   ├── HeaderConstant.java
-│   └── PageConstant.java
+│   ├── PageConstant.java
+│   └── SaTokenSessionKeyConstant.java
 ├── enums/
 │   ├── AuditModule.java
 │   ├── AuditOperation.java
-│   ├── DelFlagEnum.java
-│   └── StatusEnum.java
+│   ├── DelFlag.java
+│   ├── StatusEnum.java
+│   └── UserStatus.java
 ├── exception/
 │   ├── BizException.java
 │   ├── ErrorCode.java
@@ -837,11 +881,13 @@ common-core/src/main/java/com/litisle/commoncore/
 │   └── Result.java
 └── utils/
     ├── AssertUtil.java
+    ├── DesensitizeUtil.java
     ├── JsonUtil.java
-    └── PageUtil.java
+    ├── PageUtil.java
+    └── UidGenerator.java
 ```
 
-### common-redis（16 个文件）
+### common-redis 文件清单
 
 ```
 common-redis/src/main/java/com/litisle/commonredis/
@@ -852,7 +898,8 @@ common-redis/src/main/java/com/litisle/commonredis/
 │   ├── RedisConfig.java
 │   └── RedissonConfig.java
 ├── constant/
-│   └── CacheConstant.java
+│   ├── CacheConstant.java
+│   └── IdempotentConstant.java
 ├── idempotent/
 │   ├── Idempotent.java
 │   ├── IdempotentAspect.java
@@ -872,7 +919,7 @@ common-redis/src/main/java/com/litisle/commonredis/
     └── RedisUtil.java
 ```
 
-### common-security（28 个文件）
+### common-security 文件清单
 
 ```
 common-security/src/main/java/com/litisle/commonsecurity/
@@ -886,10 +933,14 @@ common-security/src/main/java/com/litisle/commonsecurity/
 │   └── AuditLogAspect.java
 ├── config/
 │   └── CommonSecurityAutoConfiguration.java
+├── constant/
+│   ├── PermissionCode.java
+│   └── RoleCode.java
 ├── crypto/
 │   ├── Aes256GcmCrypto.java
 │   ├── CryptoAutoConfiguration.java
 │   ├── CryptoProperties.java
+│   ├── HmacSha256Crypto.java
 │   └── PasswordCrypto.java
 ├── desensitize/
 │   ├── Sensitive.java
@@ -909,6 +960,8 @@ common-security/src/main/java/com/litisle/commonsecurity/
 │   └── StpInterfaceImpl.java
 ├── trace/
 │   └── TraceIdFilter.java
+├── utils/
+│   └── SaRoleHelper.java
 ├── xss/
 │   ├── XssFilter.java
 │   ├── XssHttpServletRequestWrapper.java

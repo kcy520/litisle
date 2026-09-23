@@ -13,6 +13,18 @@ spring:
     allow-bean-definition-overriding: true
 
   # ================================
+  # Multipart 上传限制（文件模块核心配置）
+  # Spring Boot 默认 max-file-size=1MB / max-request-size=10MB，必须显式覆盖
+  # - max-file-size：与业务单文件上限（litisle.file.upload.max-image-size = 10MB）对齐，
+  #   双层校验：Servlet 层拦超大请求，Service 层拦 MIME 白名单
+  # - max-request-size：批量上传上限 9 张 × 10MB + 表单字段开销，取 100MB
+  # ================================
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 100MB
+
+  # ================================
   # Nacos 配置中心 + 服务注册发现
   # ================================
   config:
@@ -110,9 +122,10 @@ litisle:
       presign-expire-minutes: 30
       # 业务 collection 划分（对应 Volume Server replication=001 副本策略）
       collections:
+        # 键 = BizTypeEnum.code（字面量匹配，不享受宽松绑定），值 = bucket 名
         avatar: avatar
         cover: cover
-        article-img: article
+        article: article
         license: license
     # 上传限制：限制图片大小（字节，默认 10MB）
     upload:

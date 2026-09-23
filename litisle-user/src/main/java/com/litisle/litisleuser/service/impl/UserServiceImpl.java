@@ -7,7 +7,7 @@ import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litisleapi.dto.user.UserDTO;
 
 import com.litisle.litisleuser.domain.entity.User;
-import com.litisle.litisleuser.enums.DelFlag;
+import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.litisleuser.mapper.UserMapper;
 import com.litisle.litisleuser.service.UserService;
 import lombok.RequiredArgsConstructor;

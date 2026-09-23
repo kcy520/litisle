@@ -5,7 +5,7 @@ import com.litisle.litisleuser.domain.entity.Role;
 import com.litisle.litisleuser.domain.entity.User;
 import com.litisle.litisleuser.domain.entity.UserBanLog;
 import com.litisle.litisleuser.domain.entity.UserRole;
-import com.litisle.litisleuser.enums.DelFlag;
+import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.litisleuser.enums.UserBanAction;
 import com.litisle.litisleuser.constant.UserInfoConstant;
 import com.litisle.litisleuser.service.RoleService;

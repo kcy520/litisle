@@ -2,7 +2,7 @@ package com.litisle.litisleuser.domain.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
 import com.litisle.litisleuser.enums.AvatarColor;
-import com.litisle.litisleuser.enums.DelFlag;
+import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.enums.UserStatus;
 import jakarta.validation.constraints.*;
 import lombok.Data;

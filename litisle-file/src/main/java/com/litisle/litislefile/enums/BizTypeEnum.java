@@ -1,5 +1,9 @@
 package com.litisle.litislefile.enums;
 
+import com.baomidou.mybatisplus.annotation.EnumValue;
+import com.fasterxml.jackson.annotation.JsonValue;
+import lombok.Getter;
+
 /**
  * 业务类型枚举（决定 bucket/collection 归属）：
  * AVATAR("avatar")   → 头像，默认 PUBLIC（直链，CDN 友好）
@@ -9,5 +13,31 @@ package com.litisle.litislefile.enums;
  *
  * code 与 FileProperties.collections 映射一致，用于 Service 层确定 bucket
  */
+@Getter
 public enum BizTypeEnum {
+
+    /** 头像，默认 PUBLIC（直链，CDN 友好） */
+    AVATAR("avatar", "头像"),
+
+    /** 封面，默认 PUBLIC */
+    COVER("cover", "封面"),
+
+    /** 正文图，默认 PUBLIC（高曝光，safe_flag 闸口仅 1 放行） */
+    ARTICLE_IMG("article", "正文图"),
+
+    /** 授权文件，强制 PRIVATE（仅预签名 30 分钟访问，服务层覆盖） */
+    LICENSE("license", "授权文件");
+
+    /** 入库值（varchar(20)），与 FileProperties.collections 映射一致，Service 层据此确定 bucket */
+    @EnumValue
+    private final String code;
+
+    /** 前端展示用：JSON 序列化为 desc 而非 code */
+    @JsonValue
+    private final String desc;
+
+    BizTypeEnum(String code, String desc) {
+        this.code = code;
+        this.desc = desc;
+    }
 }

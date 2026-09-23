@@ -20,7 +20,7 @@ import com.litisle.litisleuser.domain.entity.UserProfile;
 import com.litisle.litisleuser.domain.vo.UserPublicVO;
 import com.litisle.litisleuser.domain.vo.UserSelfVO;
 import com.litisle.litisleuser.domain.vo.UserUpdateProfileVO;
-import com.litisle.litisleuser.enums.DelFlag;
+import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.litisleuser.mapper.UserMapper;
 import com.litisle.litisleuser.mapper.UserProfileMapper;
 import com.litisle.litisleuser.service.UserProfileService;

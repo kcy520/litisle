@@ -19,7 +19,7 @@ import com.litisle.litisleuser.domain.entity.RolePermission;
 import com.litisle.litisleuser.domain.entity.User;
 import com.litisle.litisleuser.domain.entity.UserProfile;
 import com.litisle.litisleuser.domain.entity.UserRole;
-import com.litisle.litisleuser.enums.DelFlag;
+import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.litisleuser.service.PermissionService;
 import com.litisle.litisleuser.service.RolePermissionService;
 import com.litisle.litisleuser.service.RoleService;

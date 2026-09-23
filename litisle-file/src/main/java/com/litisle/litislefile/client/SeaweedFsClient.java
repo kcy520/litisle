@@ -1,9 +1,22 @@
 package com.litisle.litislefile.client;
 
+import com.litisle.commoncore.exception.BizException;
+import com.litisle.commoncore.exception.ErrorCode;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * SeaweedFS S3 客户端封装。
@@ -65,8 +78,111 @@ public class SeaweedFsClient {
         this.presigner = presigner;
     }
 
-    public void put(String bucket, String key, byte[] bytes, String contentType) { throw new UnsupportedOperationException("待实现"); }
-    public byte[] get(String bucket, String key) { throw new UnsupportedOperationException("待实现"); }
-    public void delete(String bucket, String key) { throw new UnsupportedOperationException("待实现"); }
-    public String presign(String bucket, String key, Duration expire) { throw new UnsupportedOperationException("待实现"); }
+    /**
+     * 上传文件（同 key 覆盖，幂等——秒传并发/缩略图重复生成都依赖此特性）
+     * <p>SdkException 统一转 BizException(FILE_STORAGE_UNAVAILABLE)，fail-fast 不重试；
+     * 上传链路中 put 失败后 DB 保留 status=0，由对账任务补偿</p>
+     */
+    public void put(String bucket, String key, byte[] bytes, String contentType) {
+        try {
+            PutObjectRequest request = PutObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .contentType(contentType)
+                    .build();
+            s3.putObject(request, RequestBody.fromBytes(bytes));
+        } catch (SdkException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
+        }
+    }
+
+    /**
+     * 下载文件（getObjectAsByteArray，适用于 ≤10MB 小文件；大文件流式留后续扩展）
+     * <p>对象不存在抛 BizException(FILE_NOT_FOUND)</p>
+     */
+    public byte[] get(String bucket, String key) {
+        try {
+            return s3.getObjectAsBytes(GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .build())
+                    .asByteArray();
+        } catch (NoSuchKeyException e) {
+            throw new BizException(ErrorCode.FILE_NOT_FOUND, e);
+        } catch (SdkException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
+        }
+    }
+
+    /**
+     * 删除对象（对账任务物理清理用；缩略图派生 key 由调用方经 listKeys 前缀查出后逐个删除）
+     * <p>deleteObject 对不存在的 key 同样返回成功（S3 语义），天然幂等</p>
+     */
+    public void delete(String bucket, String key) {
+        try {
+            s3.deleteObject(DeleteObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .build());
+        } catch (SdkException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
+        }
+    }
+
+    /**
+     * 生成预签名 GET URL（纯本地签名计算，不联网、不保证对象存在）
+     * <p>业务校验（owner/ADMIN、bizType、有效期上限）必须由 Service 层前置完成</p>
+     */
+    public String presign(String bucket, String key, Duration expire) {
+        try {
+            GetObjectRequest getRequest = GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .build();
+            GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
+                    .getObjectRequest(getRequest)
+                    .signatureDuration(expire)
+                    .build();
+            return presigner.presignGetObject(presignRequest).url().toString();
+        } catch (SdkException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
+        }
+    }
+
+    /**
+     * 探测对象是否存在（headObject）
+     * <p>使用场景：缩略图按需生成前探测、对账任务补偿上传（status=0 幽灵记录恢复/废弃）</p>
+     */
+    public boolean exists(String bucket, String key) {
+        try {
+            s3.headObject(HeadObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .build());
+            return true;
+        } catch (NoSuchKeyException e) {
+            return false;
+        } catch (SdkException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
+        }
+    }
+
+    /**
+     * 按前缀列出对象 key（分页遍历）
+     * <p>使用场景：物理清理时查出某原图的全部缩略图派生 key（path + "_thumb_"）一并删除</p>
+     */
+    public List<String> listKeys(String bucket, String prefix) {
+        try {
+            List<String> keys = new ArrayList<>();
+            s3.listObjectsV2Paginator(ListObjectsV2Request.builder()
+                            .bucket(bucket)
+                            .prefix(prefix)
+                            .build())
+                    .contents()
+                    .forEach(obj -> keys.add(obj.key()));
+            return keys;
+        } catch (SdkException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
+        }
+    }
 }

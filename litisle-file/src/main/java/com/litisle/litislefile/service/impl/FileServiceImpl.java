@@ -1,5 +1,52 @@
 package com.litisle.litislefile.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.litisle.commoncore.enums.DelFlag;
+import com.litisle.commoncore.exception.BizException;
+import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.commonredis.lock.DistributedLock;
+import com.litisle.commonsecurity.utils.SaRoleHelper;
+import com.litisle.litislefile.client.SeaweedFsClient;
+import com.litisle.litislefile.config.FileProperties;
+import com.litisle.litislefile.domain.entity.FileMeta;
+import com.litisle.litislefile.domain.entity.FileRef;
+import com.litisle.litislefile.domain.vo.FileMetaVO;
+import com.litisle.litislefile.domain.vo.FileUploadVO;
+import com.litisle.litislefile.domain.vo.PresignVO;
+import com.litisle.litislefile.domain.vo.ThumbnailVO;
+import com.litisle.litislefile.enums.AccessLevelEnum;
+import com.litisle.litislefile.enums.BizTypeEnum;
+import com.litisle.litislefile.enums.UploadStatusEnum;
+import com.litisle.litislefile.mapper.FileMetaMapper;
+import com.litisle.litislefile.mapper.FileRefMapper;
+import com.litisle.litislefile.service.FileService;
+import com.litisle.litislefile.thumbnail.ThumbnailGenerator;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 /**
  * 核心实现编排（依赖 SeaweedFsClient / FileMetaMapper / FileProperties / Redisson）。
  *
@@ -14,7 +61,7 @@ package com.litisle.litislefile.service.impl;
  *    命中 → 直接返回已有 fileId + deduplicated=true（秒传，不落 SeaweedFS）
  *    ⚠️ 命中记录可能是 status=0 在途记录（S3 尚未传完，短暂 404）：已知取舍，
  *    put 秒级完成 + 调用方重试自愈；面试/评审口径见笔记 §3.4.6
- * 4. 未命中 → Redisson 分布式锁 biz:file:sha:{hash}，leaseTime=10s + 看门狗自动续期（防实例宕机死锁），leaseTime=10s + 看门狗自动续期（防实宕机死锁）
+ * 4. 未命中 → Redisson 分布式锁 biz:file:sha:{hash}，leaseTime=10s + 看门狗自动续期（防实例宕机死锁）
  *    拿锁后双重检查（防等锁期间其他线程已写入）
  * 5. 锁内临界区（只包「查 DB + 写 DB」，不包 IO）：
  *    生成 fileId = UUID（无连字符，32 位十六进制），path = {yyyy/MM/dd}/{fileId}.{ext}
@@ -42,10 +89,459 @@ package com.litisle.litislefile.service.impl;
  *    PRIVATE→presign + owner/ADMIN 权限校验 + bizType 二次校验（纵深防御）
  *    【预留｜访问闸口】审核启用后 getUrl/batchGetUrls 返回前校验 safe_flag：
  *    =0 拒绝并提示违规（单点收口，不散落到各业务服务；同上见笔记 §3.6）
- * 【删除】校验 owner/ADMIN → del_flag=1；物理清理交对账任务（7 天缓冲，防误删不可恢复）
+ * 【删除（方案C：解绑语义）】校验 owner/ADMIN →
+ *    Step1 删 file_ref 当前调用方引用行（file_id + owner_id）
+ *    Step2 file_ref 仍有其他活跃引用 → 结束（文件不动，他人引用不受影响）
+ *    Step3 无活跃引用 → del_flag=1 + delete_time=now()（置 1 后退出秒传判重池）
+ *    物理清理交对账任务（7 天缓冲，防误删不可恢复；方案C 设计见 seaweedfs笔记.md §3.4）
  * 【对账任务】@Scheduled 每日 02:00（多实例需 Redisson 分布式锁保证单实例执行）：
  *    Step1 补偿上传：扫 status=0 且超 30min → S3 head 有对象则置 status=1，无则 del_flag=1 废弃
- *    Step2 物理清理：扫 del_flag=1 且超 7 天 → 删 SeaweedFS 本体（含缩略图派生 key）→ 物理删元数据
+ *    Step2 物理清理：扫 del_flag=1 且 delete_time 超 7 天 → 先校验 file_ref 无活跃引用
+ *    （仍有引用 → 跳过并告警，引用方漏登记兜底不误删）→ 删 SeaweedFS 本体（含缩略图派生 key）
+ *    → 物理删元数据 + 防御性同删该 file_id 的残留 file_ref 行
+ *    （正常流程下此时应已无行——前置校验已过；此步仅防"解绑删行失败但 del_flag 已置位"的极端残留）
  */
-public class FileServiceImpl {
+@Service
+@Slf4j
+@RequiredArgsConstructor
+public class FileServiceImpl implements FileService {
+
+    /** 批量上传上限（正文多图） */
+    private static final int MAX_BATCH_SIZE = 9;
+
+    /** 缩略图宽/高上限（防恶意大尺寸参数撑爆内存/存储） */
+    private static final int MAX_THUMBNAIL_DIMENSION = 2000;
+
+    /** 秒传判重分布式锁 Key 前缀（RedissonLock 会追加 "lock:" 全局前缀，实际锁 key 为 lock:file:sha:{hash}） */
+    private static final String DEDUP_LOCK_KEY_PREFIX = "file:sha:";
+
+    /** path 日期段格式：{yyyy/MM/dd}/{fileId}.{ext} */
+    private static final DateTimeFormatter PATH_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy/MM/dd");
+
+    /** 图片 MIME 白名单（AVATAR/COVER/ARTICLE_IMG） */
+    private static final List<String> IMAGE_MIME_WHITELIST =
+            List.of("image/jpeg", "image/png", "image/webp", "image/gif");
+
+    /** 授权文件额外放开的 MIME（LICENSE） */
+    private static final List<String> LICENSE_EXTRA_MIME_WHITELIST =
+            List.of("application/pdf",
+                    "application/msword",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/zip");
+
+    private final FileMetaMapper fileMetaMapper;
+    private final FileRefMapper fileRefMapper;
+    private final SeaweedFsClient seaweedFsClient;
+    private final FileProperties fileProperties;
+    private final DistributedLock distributedLock;
+    private final ThumbnailGenerator thumbnailGenerator;
+
+    @Override
+    public FileUploadVO upload(MultipartFile file, BizTypeEnum bizType, Long ownerId) {
+        // 步骤1：校验 size ≤ maxImageSize + MIME 白名单（按 bizType 区分，LICENSE 放开授权文件类型）
+        validateUpload(file, bizType);
+
+        // 步骤2：流式算 SHA256（DigestInputStream，勿全量读内存）+ 记录 size（联合判重键）
+        String sha256 = sha256Hex(file);
+        long size = file.getSize();
+        String mime = file.getContentType();
+
+        // 步骤3：无锁快查判重（走 idx_dedup）；PRIVATE/LICENSE 追加 owner_id 隔离，防跨用户秒传探测泄露隐私
+        FileMeta exist = selectByDedupKey(sha256, size, bizType, ownerId);
+        if (exist != null) {
+            log.info("秒传命中，fileId={}，bizType={}，size={}", exist.getFileId(), bizType, size);
+            return buildUploadVO(exist, true);
+        }
+
+        // 步骤4：Redisson 分布式锁（leaseTime=-1 启用看门狗自动续期，防实例宕机死锁）
+        boolean locked = distributedLock.tryLock(DEDUP_LOCK_KEY_PREFIX + sha256, 5, TimeUnit.SECONDS);
+        if (!locked) {
+            log.warn("秒传判重锁竞争失败，sha256={}，bizType={}", sha256, bizType);
+            throw new BizException(ErrorCode.SYSTEM_ERROR, "系统繁忙，请稍后重试");
+        }
+        FileMeta meta;
+        try {
+            // 拿锁后双重检查（防等锁期间其他线程已写入同一摘要文件）
+            exist = selectByDedupKey(sha256, size, bizType, ownerId);
+            if (exist != null) {
+                log.info("锁内双检秒传命中，fileId={}，bizType={}，size={}", exist.getFileId(), bizType, size);
+                return buildUploadVO(exist, true);
+            }
+
+            // 步骤5：锁内临界区（只包「查 DB + 写 DB」，不包 IO）
+            // fileId=UUID 无连字符，path={yyyy/MM/dd}/{fileId}.{ext}，status=0 占位
+            String fileId = UUID.randomUUID().toString().replace("-", "");
+            String bucket = resolveBucket(bizType);
+            String path = LocalDate.now().format(PATH_DATE_FORMAT)
+                    + "/" + fileId + "." + resolveExt(file.getOriginalFilename());
+            meta = new FileMeta()
+                    .setFileId(fileId)
+                    .setOwnerId(ownerId)
+                    .setBizType(bizType)
+                    .setBucket(bucket)
+                    .setPath(path)
+                    .setMime(mime)
+                    .setSize(size)
+                    // access 由 bizType 决定：LICENSE 强制 PRIVATE（服务层覆盖，default 仅兑底）
+                    .setAccess(resolveAccess(bizType))
+                    .setStatus(UploadStatusEnum.UPLOADING)
+                    .setDelFlag(DelFlag.NOT_DELETED)
+                    .setCreateTime(LocalDateTime.now())
+                    .setUpdateTime(LocalDateTime.now());
+            fileMetaMapper.insert(meta);
+        } finally {
+            // 步骤6：释放锁
+            distributedLock.unlock(DEDUP_LOCK_KEY_PREFIX + sha256);
+        }
+
+        // 步骤7：锁外 put（幂等，同 key 覆盖无副作用）
+        // put 失败抛 BizException(FILE_STORAGE_UNAVAILABLE)，保留 status=0 由对账任务清理
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (IOException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
+        }
+        seaweedFsClient.put(meta.getBucket(), meta.getPath(), bytes, mime);
+        log.info("文件上传成功（锁外 put 完成），fileId={}，bucket={}，path={}，size={}",
+                meta.getFileId(), meta.getBucket(), meta.getPath(), size);
+
+        // 解析图片宽高（非图片/解析失败为 null，用于前端布局预留）→ update status=1
+        FileMeta update = new FileMeta()
+                .setId(meta.getId())
+                .setStatus(UploadStatusEnum.COMPLETED)
+                .setUpdateTime(LocalDateTime.now());
+        Integer[] wh = resolveImageSize(bytes, mime);
+        if (wh != null) {
+            update.setWidth(wh[0]).setHeight(wh[1]);
+        }
+        fileMetaMapper.updateById(update);
+
+        // 步骤8：【预留｜已定接入，暂未开发】违规审核异步消息埋点（safe_flag 链路），暂不实现
+
+        // 步骤9：返回 fileId + deduplicated=false（回填刚解析的宽高）
+        FileUploadVO vo = buildUploadVO(meta, false);
+        if (wh != null) {
+            vo.setWidth(wh[0]);
+            vo.setHeight(wh[1]);
+        }
+        return vo;
+    }
+
+    @Override
+    public List<FileUploadVO> uploadBatch(List<MultipartFile> files, BizTypeEnum bizType, Long ownerId) {
+        if (files == null || files.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "批量上传文件列表不能为空");
+        }
+        if (files.size() > MAX_BATCH_SIZE) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "批量上传上限 " + MAX_BATCH_SIZE + " 张");
+        }
+        return files.stream().map(f -> upload(f, bizType, ownerId)).toList();
+    }
+
+    @Override
+    public String getUrl(String fileId, Long operatorId) {
+        FileMeta meta = getMetaOrThrow(fileId);
+        // 【预留｜访问闸口】审核启用后此处校验 safe_flag=0 拒绝（单点收口，见笔记 §3.6）
+        if (meta.getAccess() == AccessLevelEnum.PUBLIC) {
+            return buildPublicUrl(meta.getBucket(), meta.getPath());
+        }
+        // PRIVATE：owner/ADMIN 校验 + presign（默认 30min，口径与强制签发一致）
+        checkOwnerOrAdmin(meta, operatorId);
+        return seaweedFsClient.presign(meta.getBucket(), meta.getPath(),
+                Duration.ofMinutes(fileProperties.getSeaweedfs().getPresignExpireMinutes()));
+    }
+
+    @Override
+    public Map<String, String> batchGetUrls(List<String> fileIds) {
+        if (fileIds == null || fileIds.isEmpty()) {
+            return Map.of();
+        }
+        // 一次 in 查询避免 N+1（Feign 列表页映射用）
+        // ⚠️ PRIVATE 直接预签：本方法仅限内部 Feign 调用（无 REST 入口），
+        // 若未来暴露 REST 必须补 operatorId 做 owner/ADMIN 校验
+        List<FileMeta> metas = fileMetaMapper.selectList(new LambdaQueryWrapper<FileMeta>()
+                .in(FileMeta::getFileId, fileIds)
+                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED));
+        return metas.stream().collect(Collectors.toMap(FileMeta::getFileId, meta -> {
+            // 【预留｜访问闸口】审核启用后此处校验 safe_flag=0 拒绝
+            if (meta.getAccess() == AccessLevelEnum.PUBLIC) {
+                return buildPublicUrl(meta.getBucket(), meta.getPath());
+            }
+            return seaweedFsClient.presign(meta.getBucket(), meta.getPath(),
+                    Duration.ofMinutes(fileProperties.getSeaweedfs().getPresignExpireMinutes()));
+        }));
+    }
+
+    @Override
+    public PresignVO presign(String fileId, Integer expireMinutes, Long operatorId) {
+        FileMeta meta = getMetaOrThrow(fileId);
+        checkOwnerOrAdmin(meta, operatorId);
+        // bizType 二次校验（纵深防御）：预签名单面向 PRIVATE，PUBLIC 走直链无需签名
+        if (meta.getAccess() != AccessLevelEnum.PRIVATE) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "公开文件走直链，无需预签名");
+        }
+        // expireMinutes ≤ 配置上限（防传 99999 绕过 LICENSE 限时）
+        int cap = fileProperties.getSeaweedfs().getPresignExpireMinutes();
+        int minutes = expireMinutes == null ? cap : expireMinutes;
+        if (minutes < 1 || minutes > cap) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "有效期须在 1~" + cap + " 分钟之间");
+        }
+        String url = seaweedFsClient.presign(meta.getBucket(), meta.getPath(), Duration.ofMinutes(minutes));
+        return PresignVO.builder()
+                .fileId(fileId)
+                .url(url)
+                .expireTime(LocalDateTime.now().plusMinutes(minutes))
+                .build();
+    }
+
+    @Override
+    public FileMetaVO getMeta(String fileId, Long operatorId) {
+        FileMeta meta = getMetaOrThrow(fileId);
+        // 脱敏：非 owner 且非 ADMIN 不回显 ownerId（防任意登录用户枚举他人文件归属）
+        boolean ownerOrAdmin = (operatorId != null && operatorId.equals(meta.getOwnerId()))
+                || SaRoleHelper.isAdmin();
+        return FileMetaVO.builder()
+                .fileId(meta.getFileId())
+                .ownerId(ownerOrAdmin ? meta.getOwnerId() : null)
+                .bizType(meta.getBizType())
+                .access(meta.getAccess())
+                .mime(meta.getMime())
+                .size(meta.getSize())
+                .width(meta.getWidth())
+                .height(meta.getHeight())
+                .align(meta.getAlign())
+                .createTime(meta.getCreateTime())
+                .build();
+    }
+
+    @Override
+    public ThumbnailVO getThumbnail(String fileId, Integer width, Integer height) {
+        FileMeta meta = getMetaOrThrow(fileId);
+        if (!fileProperties.getThumbnail().isEnabled()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "缩略图功能未开启");
+        }
+        if (meta.getMime() == null || !meta.getMime().startsWith("image/")) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "非图片文件不支持缩略图");
+        }
+        // w/h 空取 yml 默认 300×300；上限防大尺寸参数滥用
+        int w = width == null ? fileProperties.getThumbnail().getWidth() : width;
+        int h = height == null ? fileProperties.getThumbnail().getHeight() : height;
+        if (w < 1 || h < 1 || w > MAX_THUMBNAIL_DIMENSION || h > MAX_THUMBNAIL_DIMENSION) {
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "缩略图尺寸须在 1~" + MAX_THUMBNAIL_DIMENSION + " 之间");
+        }
+        String thumbKey = thumbnailGenerator.getOrCreate(meta.getBucket(), meta.getPath(), w, h);
+        return ThumbnailVO.builder()
+                .fileId(fileId)
+                .url(buildPublicUrl(meta.getBucket(), thumbKey))
+                .width(w)
+                .height(h)
+                .build();
+    }
+
+    /**
+     * 上传校验：size ≤ maxImageSize + MIME 白名单（按 bizType 区分，LICENSE 放开授权文件类型）
+     */
+    private void validateUpload(MultipartFile file, BizTypeEnum bizType) {
+        if (file == null || file.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "上传文件不能为空");
+        }
+        if (file.getSize() > fileProperties.getUpload().getMaxImageSize()) {
+            throw new BizException(ErrorCode.FILE_SIZE_EXCEEDED,
+                    "文件大小超过限制（上限 " + fileProperties.getUpload().getMaxImageSize() / 1024 / 1024 + "MB）");
+        }
+        String mime = file.getContentType();
+        if (mime == null || !resolveMimeWhitelist(bizType).contains(mime.toLowerCase())) {
+            throw new BizException(ErrorCode.FILE_TYPE_NOT_ALLOWED, "文件类型不允许：" + mime);
+        }
+    }
+
+    /** MIME 白名单：LICENSE = 图片类 + 授权文件额外放开类型，其余仅图片类 */
+    private List<String> resolveMimeWhitelist(BizTypeEnum bizType) {
+        if (bizType == BizTypeEnum.LICENSE) {
+            List<String> merged = new ArrayList<>(IMAGE_MIME_WHITELIST);
+            merged.addAll(LICENSE_EXTRA_MIME_WHITELIST);
+            return merged;
+        }
+        return IMAGE_MIME_WHITELIST;
+    }
+
+    /**
+     * DigestInputStream 流式算 SHA256（勿全量读内存）
+     */
+    private String sha256Hex(MultipartFile file) {
+        try (InputStream in = file.getInputStream();
+             DigestInputStream digestStream = new DigestInputStream(in, MessageDigest.getInstance("SHA-256"))) {
+            byte[] buffer = new byte[8192];
+            while (digestStream.read(buffer) != -1) {
+                // 流式消费，仅驱动摘要计算
+            }
+            return HexFormat.of().formatHex(digestStream.getMessageDigest().digest());
+        } catch (NoSuchAlgorithmException | IOException e) {
+            throw new BizException(ErrorCode.FILE_HASH_ERROR, e);
+        }
+    }
+
+    /**
+     * 秒传判重查询（走 idx_dedup）：sha256+size+biz_type+del_flag=0；
+     * PRIVATE（LICENSE）追加 owner_id 按 owner 隔离，防跨用户秒传探测泄露隐私
+     */
+    private FileMeta selectByDedupKey(String sha256, long size, BizTypeEnum bizType, Long ownerId) {
+        LambdaQueryWrapper<FileMeta> lqw = new LambdaQueryWrapper<FileMeta>()
+                .eq(FileMeta::getSha256, sha256)
+                .eq(FileMeta::getSize, size)
+                .eq(FileMeta::getBizType, bizType)
+                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED);
+        if (resolveAccess(bizType) == AccessLevelEnum.PRIVATE) {
+            lqw.eq(FileMeta::getOwnerId, ownerId);
+        }
+        // selectList 取首条：脏数据（同判重键多行）时降级复用，而非抛 TooManyResultsException
+        return fileMetaMapper.selectList(lqw).stream().findFirst().orElse(null);
+    }
+
+    /** bizType → bucket 映射（FileProperties.collections，code 与 yml 键一致） */
+    private String resolveBucket(BizTypeEnum bizType) {
+        String bucket = fileProperties.getSeaweedfs().getCollections().get(bizType.getCode());
+        if (bucket == null || bucket.isBlank()) {
+            throw new BizException(ErrorCode.SYSTEM_ERROR, "bizType 未配置 bucket 映射：" + bizType.getCode());
+        }
+        return bucket;
+    }
+
+    /** 从原始文件名解析扩展名（无扩展名兜底 bin，全小写） */
+    private String resolveExt(String originalFilename) {
+        if (originalFilename == null || originalFilename.isBlank()) {
+            return "bin";
+        }
+        int dot = originalFilename.lastIndexOf('.');
+        if (dot < 0 || dot == originalFilename.length() - 1) {
+            return "bin";
+        }
+        return originalFilename.substring(dot + 1).toLowerCase();
+    }
+
+    /** access 由 bizType 决定：LICENSE 强制 PRIVATE（服务层覆盖，default 仅兜底） */
+    private AccessLevelEnum resolveAccess(BizTypeEnum bizType) {
+        return bizType == BizTypeEnum.LICENSE ? AccessLevelEnum.PRIVATE : AccessLevelEnum.PUBLIC;
+    }
+
+    /** 解析图片宽高（ImageIO；非图片/webp 解析失败返回 null，用于前端布局预留） */
+    private Integer[] resolveImageSize(byte[] bytes, String mime) {
+        if (mime == null || !mime.startsWith("image/")) {
+            return null;
+        }
+        try {
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
+            return image == null ? null : new Integer[]{image.getWidth(), image.getHeight()};
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /**
+     * 构建上传返回 VO：PUBLIC→publicUrlBase 直链；PRIVATE→预签名（默认 30min，
+     * 与 AccessLevelEnum 分流口径一致）
+     */
+    private FileUploadVO buildUploadVO(FileMeta meta, boolean deduplicated) {
+        String url;
+        if (meta.getAccess() == AccessLevelEnum.PRIVATE) {
+            url = seaweedFsClient.presign(meta.getBucket(), meta.getPath(),
+                    Duration.ofMinutes(fileProperties.getSeaweedfs().getPresignExpireMinutes()));
+        } else {
+            url = buildPublicUrl(meta.getBucket(), meta.getPath());
+        }
+        return FileUploadVO.builder()
+                .fileId(meta.getFileId())
+                .url(url)
+                .sha256(meta.getSha256())
+                .mime(meta.getMime())
+                .size(meta.getSize())
+                .width(meta.getWidth())
+                .height(meta.getHeight())
+                .deduplicated(deduplicated)
+                .build();
+    }
+
+    @Override
+    public void bindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId) {
+        getMetaOrThrow(fileId);
+        // 幂等：同一引用（fileId+bizType+bizId+ownerId）已登记则跳过，业务方重试安全
+        // 与业务表同事务由调用方保证（业务方方法上加 @Transactional）
+        Long count = fileRefMapper.selectCount(new LambdaQueryWrapper<FileRef>()
+                .eq(FileRef::getFileId, fileId)
+                .eq(FileRef::getBizType, bizType)
+                .eq(FileRef::getBizId, bizId)
+                .eq(FileRef::getOwnerId, ownerId));
+        if (count > 0) {
+            return;
+        }
+        fileRefMapper.insert(new FileRef()
+                .setFileId(fileId)
+                .setBizType(bizType)
+                .setBizId(bizId)
+                .setOwnerId(ownerId)
+                .setCreateTime(LocalDateTime.now()));
+    }
+
+    @Override
+    public void unbindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId) {
+        getMetaOrThrow(fileId);
+        // 仅删当前调用方的引用行（四条件精确定位），不动文件本体；幂等：行不存在静默结束
+        fileRefMapper.delete(new LambdaQueryWrapper<FileRef>()
+                .eq(FileRef::getFileId, fileId)
+                .eq(FileRef::getBizType, bizType)
+                .eq(FileRef::getBizId, bizId)
+                .eq(FileRef::getOwnerId, ownerId));
+    }
+
+    @Override
+    public void delete(String fileId, Long operatorId) {
+        FileMeta meta = getMetaOrThrow(fileId);
+        checkOwnerOrAdmin(meta, operatorId);
+        // Step1：仅解除当前调用方引用行（file_id + owner_id，不限 bizType——一次清完名下引用）
+        fileRefMapper.delete(new LambdaQueryWrapper<FileRef>()
+                .eq(FileRef::getFileId, fileId)
+                .eq(FileRef::getOwnerId, operatorId));
+        // Step2：仍有其他活跃引用 → 结束（文件不动，他人引用不受影响）
+        Long activeRefs = fileRefMapper.selectCount(new LambdaQueryWrapper<FileRef>()
+                .eq(FileRef::getFileId, fileId));
+        if (activeRefs > 0) {
+            return;
+        }
+        // Step3：无活跃引用 → del_flag=1 + delete_time=now（退出秒传判重池；
+        // 物理清理交对账任务，7 天缓冲防误删不可恢复）
+        fileMetaMapper.updateById(new FileMeta()
+                .setId(meta.getId())
+                .setDelFlag(DelFlag.DELETED)
+                .setDeleteTime(LocalDateTime.now())
+                .setUpdateTime(LocalDateTime.now()));
+        log.info("文件软删完成（无活跃引用），fileId={}，operatorId={}", fileId, operatorId);
+    }
+
+    /** fileId 查活跃元数据（del_flag=0），不存在抛 FILE_NOT_FOUND */
+    private FileMeta getMetaOrThrow(String fileId) {
+        FileMeta meta = fileMetaMapper.selectOne(new LambdaQueryWrapper<FileMeta>()
+                .eq(FileMeta::getFileId, fileId)
+                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED));
+        if (meta == null) {
+            throw new BizException(ErrorCode.FILE_NOT_FOUND);
+        }
+        return meta;
+    }
+
+    /** owner/ADMIN 口径：operatorId 与 ownerId 一致或 ADMIN，否则 NO_PERMISSION */
+    private void checkOwnerOrAdmin(FileMeta meta, Long operatorId) {
+        if (operatorId != null && operatorId.equals(meta.getOwnerId())) {
+            return;
+        }
+        if (!SaRoleHelper.isAdmin()) {
+            throw new BizException(ErrorCode.NO_PERMISSION);
+        }
+    }
+
+    /** PUBLIC 直链：publicUrlBase + bucket + path（与 SDK endpoint 分离，接 CDN 仅改配置） */
+    private String buildPublicUrl(String bucket, String path) {
+        return fileProperties.getSeaweedfs().getPublicUrlBase() + "/" + bucket + "/" + path;
+    }
 }

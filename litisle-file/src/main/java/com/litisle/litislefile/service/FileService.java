@@ -1,17 +1,90 @@
 package com.litisle.litislefile.service;
 
+import com.litisle.litislefile.domain.vo.FileMetaVO;
+import com.litisle.litislefile.domain.vo.FileUploadVO;
+import com.litisle.litislefile.domain.vo.PresignVO;
+import com.litisle.litislefile.domain.vo.ThumbnailVO;
+import com.litisle.litislefile.enums.BizTypeEnum;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
+import java.util.Map;
+
 /**
  * 文件能力接口（REST 由 FileController 调用；未来 FileFeignApi 亦复用此接口）：
  *
  * FileUploadVO upload(MultipartFile file, BizTypeEnum bizType, Long ownerId)
  * List<FileUploadVO> uploadBatch(List<MultipartFile> files, BizTypeEnum bizType, Long ownerId)
- * String getUrl(String fileId)                          // 统一入口：内部分流 PUBLIC→直链 / PRIVATE→预签名
+ * String getUrl(String fileId, Long operatorId)         // 统一入口：内部分流 PUBLIC→直链 / PRIVATE→预签名
  *                                                       // 调用方无需感知文件 access 属性
+ *                                                       // PRIVATE 需 owner/ADMIN 校验（operatorId 取网关 X-User-Id）
  *                                                       // 【预留】审核启用后：返回前校验 safe_flag=0 则拒绝（见笔记 §3.6）
  * Map<String, String> batchGetUrls(List<String> fileIds) // Feign 批量映射，避免列表页 N+1
- * FileMetaVO getMeta(String fileId)
- * ThumbnailVO getThumbnail(String fileId, int w, int h)
- * void delete(String fileId, Long operatorId)            // 软删除，owner/ADMIN 校验
+ * PresignVO presign(String fileId, Integer expireMinutes, Long operatorId) // 强制签发：expireMinutes ≤ 配置上限 + owner/ADMIN
+ * FileMetaVO getMeta(String fileId, Long operatorId) // 非 owner/ADMIN 脱敏 ownerId
+ * ThumbnailVO getThumbnail(String fileId, Integer w, Integer h)
+ * void bindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId)   // 业务方建立引用时登记（与业务表同事务，方案C）
+ * void unbindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId) // 业务方解除引用时登记
+ * void delete(String fileId, Long operatorId)            // 解绑调用方引用；无活跃引用才 del_flag=1（方案C，owner/ADMIN 校验）
  */
 public interface FileService {
+
+    /**
+     * 单文件上传（含秒传：sha256+size+biz_type 判重命中直接复用 fileId）
+     *
+     * @param file     上传文件
+     * @param bizType  业务类型（决定 bucket/access/MIME 白名单）
+     * @param ownerId  上传者ID（网关 X-User-Id）
+     */
+    FileUploadVO upload(MultipartFile file, BizTypeEnum bizType, Long ownerId);
+
+    /**
+     * 批量上传（正文多图，上限 9 张，逐个走单文件链路）
+     */
+    List<FileUploadVO> uploadBatch(List<MultipartFile> files, BizTypeEnum bizType, Long ownerId);
+
+    /**
+     * 获取访问 URL（统一入口：PUBLIC→直链；PRIVATE→owner/ADMIN 校验后预签名 30min）
+     *
+     * @param operatorId 当前操作者ID（PRIVATE 权限校验用）
+     */
+    String getUrl(String fileId, Long operatorId);
+
+    /**
+     * 批量获取 fileId→URL 映射（避免列表页 N+1；PUBLIC→直链，PRIVATE→预签名）
+     */
+    Map<String, String> batchGetUrls(List<String> fileIds);
+
+    /**
+     * 强制签发预签名 URL（owner/ADMIN；expireMinutes 空取配置默认，
+     * 必须校验 ≤ 配置上限防 99999 绕过 LICENSE 限时）
+     */
+    PresignVO presign(String fileId, Integer expireMinutes, Long operatorId);
+
+    /**
+     * 元数据查询（mime/size/宽高/align）；非 owner/ADMIN 脱敏 ownerId
+     */
+    FileMetaVO getMeta(String fileId, Long operatorId);
+
+    /**
+     * 缩略图 URL（w/h 空取 yml 默认 300×300；路径派生不落库，按需生成）
+     */
+    ThumbnailVO getThumbnail(String fileId, Integer width, Integer height);
+
+    /**
+     * 引用登记（方案C：业务方建立引用时调用，与业务表同事务由调用方保证）
+     */
+    void bindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId);
+
+    /**
+     * 解除引用登记（方案C：业务方解绑引用时调用）
+     */
+    void unbindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId);
+
+    /**
+     * 删除（方案C 解绑语义）：校验 owner/ADMIN →
+     * Step1 删 file_ref 当前调用方引用行 → Step2 仍有活跃引用则结束 →
+     * Step3 无引用才 del_flag=1 + delete_time=now()（物理清理交对账任务，7 天缓冲）
+     */
+    void delete(String fileId, Long operatorId);
 }

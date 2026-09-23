@@ -1,3 +1,5 @@
+
+
 # seaweedfs
 
 ## 概念相关
@@ -173,7 +175,6 @@ secretKey + HTTP方法 + 对象路径 + 时间戳 + 过期时间
 #### 二、实现逻辑
 
 ````Java
-
 `public String getUrl(String fileId, Long userId) {
     FileMeta meta = fileMetaMapper.selectById(fileId);
     // 1. 查不到或已软删除 → FILE_NOT_FOUND
@@ -199,7 +200,6 @@ secretKey + HTTP方法 + 对象路径 + 时间戳 + 过期时间
 
 
 ```java
-
 `public String presign(String bucket, String key, Duration expire) {
     GetObjectRequest get = GetObjectRequest.builder()
             .bucket(bucket).key(key).build();
@@ -1605,11 +1605,14 @@ Step1：补偿上传
     IF SeaweedFS 对象存在 → UPDATE status=1（补偿成功）
     IF 不存在         → UPDATE del_flag=1（标记废弃）
 
-Step2：清理物理存储
+Step2：清理物理存储（方案C：前置校验 file_ref，防秒传共享悬空）
   SELECT * FROM file_meta WHERE del_flag=1 AND delete_time < now()-7day
   对每条记录：
-    DELETE SeaweedFS 对象（如有）
-    DELETE file_meta 记录
+    IF file_ref 存在活跃引用 → 跳过物理删除并告警（引用方漏登记，兜底不误删）
+    ELSE：
+      DELETE SeaweedFS 对象（如有，含缩略图派生 key）
+      DELETE file_meta 记录
+      DELETE file_ref 残留行（防御性；正常流程前置校验后应已无行）
 ```
 
 **设计取舍**：允许短暂"孤儿对象"，不允许"DB 有记录但文件不存在"——后者是硬不一致，前者可通过对账恢复。
@@ -1796,18 +1799,31 @@ getUrl(fileId) → 查 file_meta
 - LICENSE 超限时拒绝签发（业务级二次校验，属于纵深防御，不是唯一防线）
 - ⚠️ 预签名 URL 一旦签发，持有 URL 者在有效期内均可访问——**URL 即凭证**
 
-##### 3.4 软删除与定时物理清理
+##### 3.4 软删除与定时物理清理（方案C：file_ref 引用登记）
+
+> 背景漏洞：秒传使一条 file_meta 成为多方共享资产（B 秒传命中 A 的记录并把 fileId
+> 写进业务表），而 A 触发的"del_flag=1 → 7 天后物理清理"会悬空 B 的所有引用；
+> 且秒传命中记录 owner_id=A，B 连"自己的"资源都无权删除。7 天缓冲只防"误删恢复"，
+> 不防"共享悬空"——故引入 file_ref 引用登记表（建表见 Sql-Document §八）。
 
 ```text
-DELETE /{fileId}（owner/ADMIN 校验）
-  → del_flag=1（软删，7 天缓冲，防误删不可恢复）
+DELETE /{fileId}（owner/ADMIN 校验）＝ 解除引用语义：
+  Step1 DELETE file_ref WHERE file_id=? AND owner_id=?（解除当前调用方引用）
+  Step2 IF file_ref 仍有其他活跃引用 → 结束（文件不动，其他引用方不受影响）
+  Step3 ELSE → del_flag=1 + delete_time=now()（软删，7 天缓冲；置 1 后不再参与秒传判重）
+
+业务方登记约定（与业务表同事务）：
+  绑定引用（article_image 插入 / sys_user.avatar_file_id 更新）→ INSERT file_ref
+  解绑引用（换图 / 删文章）→ DELETE file_ref
 
 对账任务 @Scheduled 每日 02:00（多实例需 Redisson 分布式锁保证单实例执行，审查表 #7）：
 Step1 补偿上传：扫 status=0 且超 30min
   → S3 head 对象存在 → update status=1（补偿成功）
   → 不存在 → update del_flag=1（标记废弃）
-Step2 物理清理：扫 del_flag=1 且超 7 天
+Step2 物理清理：扫 del_flag=1 且超 7 天 且 file_ref 无活跃引用
   → 删 SeaweedFS 本体（含缩略图派生 key _thumb_*）→ 物理删元数据
+  → 同删 file_ref 残留行（防御性，防"解绑删行失败但 del_flag 已置位"极端残留）
+  → file_ref 仍有引用 → 跳过并告警（引用方漏登记，兜底不误删）
 ```
 
 ##### 3.5 缩略图按需生成
@@ -1856,12 +1872,13 @@ Step2 物理清理：扫 del_flag=1 且超 7 天
 | 11   | **MIME 白名单与 LICENSE 冲突**：白名单仅图片类型，若 LICENSE 为 PDF/其他格式会被误拦 | 业务文件上传失败                                             | 白名单按 bizType 区分：图片类限图片，LICENSE 放开至授权文件类型 |
 | 12   | **CORS 未配置**：前端若用 fetch/Canvas 直读图片直链会跨域失败 | 浏览器端功能异常                                             | Filer S3 网关配置 CORS，或经网关/业务层代理                  |
 | 13   | **SigV4 Region 硬编码 us-east-1**                            | 换 MinIO/真实 S3 时需改动（当前 SeaweedFS 无碍）             | 抽到配置项，为存储替换留口                                   |
+| 14   | **秒传共享 × 无引用管理的删除漏洞**：B 秒传复用 A 的记录后，A 删除 → 物理清理悬空 B 的所有引用（7 天缓冲只防误删不防共享）；且 B 无权限删除"自己的"资源 | 文章图/头像批量 404，资源生死被首次上传者单方掌握             | 引入 file_ref 引用登记表（方案C）：删除=解绑引用，物理清理前置校验无活跃引用（已闭环，见 3.4 / Sql-Document §八） |
 
 > 已符合规范的部分（可放心）：双地址分离、LICENSE 强制私有 + 纵深防御、SHA256 流式计算 + 秒传分布式锁 + 双重检查、软删除缓冲、批量查避免 N+1、S3 异常统一转 BizException 不向业务层泄漏 SDK 类型、ownerId 取自网关 X-User-Id 不信任请求参数。
 >
 > **审查状态更新（2026-09-17 代码注释与 SQL 同步后）**：
 >
-> - **已闭环**：#5（判重键限定 biz_type，idx_dedup 落地 Sql-Document §八）、#6（getUrl 对 PRIVATE 统一 owner/ADMIN）、#8（status 状态机 + 对账任务两步补偿）、#11（MIME 白名单按 bizType 区分）——均已同步至 FileServiceImpl / FileController / FileMeta / FileMetaMapper 注释
+> - **已闭环**：#5（判重键限定 biz_type，idx_dedup 落地 Sql-Document §八）、#6（getUrl 对 PRIVATE 统一 owner/ADMIN）、#8（status 状态机 + 对账任务两步补偿）、#11（MIME 白名单按 bizType 区分）、#14（file_ref 引用登记：删除=解绑 + 物理清理前置校验，落地 Sql-Document §八）——均已同步至 FileServiceImpl / FileController / FileMeta / FileMetaMapper 注释
 >
 > - **暂不优化项及原因**（个人实习项目定位取舍）：
 >
@@ -1882,7 +1899,7 @@ Step2 物理清理：扫 del_flag=1 且超 7 天
 
 整体设计在企业规范上属于**中上水准**：解耦（SeaweedFS 唯一接触点在 SeaweedFsClient）、性能（秒传/批量/流式哈希）、安全（双地址/预签名/强制私有）都已考虑。
 
-**代码与设计层问题已全部闭环**：#5（判重键限定 biz_type）、#6（PRIVATE 权限口径统一）、#8（status 状态机 + 对账补偿）、#11（MIME 按 bizType 区分）。
+**代码与设计层问题已全部闭环**：#5（判重键限定 biz_type）、#6（PRIVATE 权限口径统一）、#8（status 状态机 + 对账补偿）、#11（MIME 按 bizType 区分）、#14（file_ref 引用登记闭环"秒传共享 × 删除"漏洞）。
 
 **上线前仅需处理部署层三项**：#1（凭证环境变量覆盖）、#2（副本策略调高）、#3（Filer 高可用）；#4/#9/#10/#12/#13 属低风险遗留（原因见审查状态更新表），按里程碑择机处理。
 
@@ -1893,5 +1910,3 @@ Step2 物理清理：扫 del_flag=1 且超 7 天
 
 
 下面给你一份**可以直接放进文档的、符合企业规范的"秒传完整链路"**。我按「流程图 → 伪代码 → 异常处理 → 一致性保证 → 安全约束」五段式来写，逻辑闭环，没有歧义。
-
-------

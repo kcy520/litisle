@@ -1,0 +1,4 @@
+10:08:10:936  INFO 26648 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Starting LitisleFileApplication using Java 25.0.1 with PID 26648 (E:\NewJavaPro\LitIsle\litisle-file\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
+10:08:10:937 DEBUG 26648 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Running with Spring Boot v3.5.15, Spring v6.2.19
+10:08:10:937  INFO 26648 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : The following 1 profile is active: "local"
+10:08:11:957  INFO 26648 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Started LitisleFileApplication in 1.409 seconds (process running for 1.989)

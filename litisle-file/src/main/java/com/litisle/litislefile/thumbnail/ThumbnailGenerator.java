@@ -1,5 +1,18 @@
 package com.litisle.litislefile.thumbnail;
 
+import com.litisle.commoncore.exception.BizException;
+import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.litislefile.client.SeaweedFsClient;
+import lombok.RequiredArgsConstructor;
+import net.coobird.thumbnailator.Thumbnails;
+import org.springframework.stereotype.Component;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+
 /**
  * 缩略图生成器（依赖 Thumbnailator，需在 pom 补 net.coobird:thumbnailator）。
  *
@@ -10,5 +23,46 @@ package com.litisle.litislefile.thumbnail;
  * 4. 并发重复生成无妨（put 幂等），不加锁
  * 5. 未来若改异步生成，file_meta 补 thumb_status 一列标记状态即可
  */
+@Component
+@RequiredArgsConstructor
 public class ThumbnailGenerator {
+
+    private final SeaweedFsClient seaweedFsClient;
+
+    /**
+     * 派生缩略图 key：原图 path + "_thumb_{w}_{h}"
+     * <p>路径约定派生，不落库（File-Architecture.md §4.1 设计要点 5）</p>
+     */
+    public String deriveKey(String path, int width, int height) {
+        return path + "_thumb_" + width + "_" + height;
+    }
+
+    /**
+     * 获取或按需生成缩略图，返回缩略图 key
+     * <p>1. head 探测 SeaweedFS 已存在 → 直接返回派生 key</p>
+     * <p>2. 不存在 → get 原图 → Thumbnails.resize → put 回同 bucket → 返回派生 key</p>
+     * <p>3. 并发重复生成无妨（put 幂等，同 key 覆盖），不加锁</p>
+     */
+    public String getOrCreate(String bucket, String path, int width, int height) {
+        String thumbKey = deriveKey(path, width, height);
+
+        // 已存在则直接返回（head 探测，避免重复生成 IO 开销）
+        if (seaweedFsClient.exists(bucket, thumbKey)) {
+            return thumbKey;
+        }
+
+        // 拉取原图 → 等比缩放至 w×h 内 → put 回同 bucket
+        byte[] origin = seaweedFsClient.get(bucket, path);
+        try (ByteArrayInputStream in = new ByteArrayInputStream(origin)) {
+            BufferedImage thumbnail = Thumbnails.of(in)
+                    .size(width, height)
+                    .asBufferedImage();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            ImageIO.write(thumbnail, "jpg", out);
+            seaweedFsClient.put(bucket, thumbKey, out.toByteArray(), "image/jpeg");
+            return thumbKey;
+        } catch (IOException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, "缩略图生成失败", e);
+        }
+    }
 }

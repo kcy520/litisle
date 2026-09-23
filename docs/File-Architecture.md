@@ -67,7 +67,8 @@ litisle-file
 | 预签名 URL          | 私有文件鉴权下载   | `access=0` 文件签发 30 分钟短时效 URL                        |
 | 缩略图              | 头像/封面按需生成  | ThumbnailGenerator，默认 300×300；路径由原图 path 派生，不落库（见 §4.1 设计要点 5） |
 | 图片对齐信息        | 正文图片 5 种对齐  | align 冗余存 `file_meta`，实际以 content `article_image` 为准 |
-| 删除                | 软删除 + 定时清理  | `del_flag=1`，定时任务清理 SeaweedFS 本体与元数据            |
+| 引用登记            | file_ref 引用登记  | 业务方绑定/解绑引用时与业务表同事务登记 file_ref（方案C）     |
+| 删除（解绑语义）    | 解绑引用 + 软删除  | DELETE 仅解除调用方引用；无活跃引用才 `del_flag=1`；定时清理前置校验 file_ref，防秒传共享悬空他人引用 |
 
 ### 2.2 枚举定义
 
@@ -113,7 +114,7 @@ AlignEnum       // LEFT(1) / LEFT_CENTER(2) / CENTER(3) / RIGHT_CENTER(4) / RIGH
 | POST   | `/upload/batch`       | 批量上传（正文多图）     | multipart：`files[]` + `bizType`       | `Result<List<FileUploadVO>>`                 |
 | GET    | `/{fileId}/url`       | 获取访问 URL             | path：fileId                           | 公开→直链；私有→预签名 URL（30min）          |
 | POST   | `/{fileId}/presign`   | 强制签发预签名 URL       | path：fileId，可选 expireMinutes       | `Result<PresignVO>`                          |
-| DELETE | `/{fileId}`           | 软删除（仅 owner/ADMIN） | path：fileId                           | `Result<Void>`                               |
+| DELETE | `/{fileId}`           | 解绑引用；无活跃引用才软删除（仅 owner/ADMIN） | path：fileId                      | `Result<Void>`                               |
 | GET    | `/{fileId}/meta`      | 元数据查询               | path：fileId                           | `Result<FileMetaVO>`（mime/size/宽高/align） |
 | POST   | `/{fileId}/thumbnail` | 生成/获取缩略图          | path：fileId，可选 width/height        | `Result<ThumbnailVO>`                        |
 
@@ -145,7 +146,9 @@ public interface FileService {
     String getPublicUrl(String fileId);                          // 公开直链
     String getPresignedUrl(String fileId, Duration expire);      // 私有预签名
     FileMetaVO getMeta(String fileId);
-    void delete(String fileId, Long operatorId);                 // 软删除
+    void bindRef(String fileId, String bizType, Long bizId, Long ownerId);    // 业务方建立引用时登记（与业务表同事务，方案C）
+    void unbindRef(String fileId, String bizType, Long bizId, Long ownerId);  // 业务方解除引用时登记
+    void delete(String fileId, Long operatorId);                 // 解绑调用方引用；无活跃引用才 del_flag=1（方案C）
     ThumbnailVO getThumbnail(String fileId, int width, int height);
 }
 ```
@@ -181,7 +184,21 @@ public interface FileService {
 4. 文件本体存 SeaweedFS，元数据存 MySQL——职责分离，便于业务查询与权限控制
 5. **缩略图不落库**：缩略图是原图的确定性派生物，路径按约定生成（`原图 path + _thumb_{width}_{height}`，如 `/avatar/1001.jpg` → `/avatar/1001.jpg_thumb_300_300`），运行时拼接；不设 `thumb_file_id` 字段，避免多尺寸时字段爆炸。若未来改为异步生成，仅需补 `thumb_status` 一列标记生成状态
 
-### 4.2 图片对齐归属（跨模块约定）
+### 4.2 file_ref（引用登记表，方案C）
+
+| 字段        | 类型            | 说明                                          |
+| ----------- | --------------- | --------------------------------------------- |
+| file_id     | varchar(64) IDX | 引用的文件ID（file_meta.file_id）             |
+| biz_type    | varchar(20)     | 引用方业务类型                                |
+| biz_id      | bigint          | 引用方业务主键（如 article_image.id）         |
+| owner_id    | bigint          | 引用归属用户ID（审计与授权依据）              |
+
+**设计要点**：秒传使 file_meta 成为多方共享资产，"owner 删除 → 物理清理"会悬空其他
+引用方的 fileId（7 天缓冲只防误删恢复，不防共享悬空）。file_ref 由业务方在绑定/解绑
+引用时同步登记（与业务表同事务），删除接口仅解绑当前调用方引用，物理清理前置校验无
+活跃引用——引用可审计、误删有兜底。建表语句见 Sql-Document.md §八。
+
+### 4.3 图片对齐归属（跨模块约定）
 
 - `file_meta.align`：文件维度冗余，便于文件维度查询
 - `article_image`（content 库）：`fileId + position_order + align`，**对齐信息的权威来源**
@@ -221,7 +238,8 @@ public interface FileService {
 
 1. **上传安全**：大小限制 + MIME 白名单 + 登录态校验（网关注入 X-User-Id）
 2. **私有文件**：LICENSE 类强制 PRIVATE，仅预签名短时效 URL 可访问（默认 30 分钟）
-3. **软删除**：`del_flag=1` 先行，定时任务异步清理 SeaweedFS 本体，防止误删不可恢复
+3. **软删除（方案C）**：删除=解除 file_ref 引用；无活跃引用才 `del_flag=1`，定时任务
+   物理清理前再校验 file_ref，防止秒传共享文件被首次上传者单方删除悬空他人引用
 4. **去重并发**：SHA256 秒传查询与写入间用分布式锁（common-redis Redisson）防并发重复上传
 5. **副本策略**：Volume `replication=001`（单副本），重要 collection 可按需调高副本数
 

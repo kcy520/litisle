@@ -1,69 +1,3 @@
-# ============================================================
-# 【待办】全库优化整改清单（第二轮，企业规范落地）
-# 说明：以下修改须 in-place 应用到各模块原始建表语句，以模块段定稿为准；
-#       全部改完后整块删除。优先级：P0 功能失效 > P1 资金/合规 > P2 语义/统一 > P3 顺手优化
-# -----------------------------------------------------------
-# ①【P0】sys_user 手机号加密与唯一索引互斥（见 user 模块 #1）：
-#    改动：a) 新增 phone_hash varchar(64) null '手机号 HMAC-SHA256 摘要（独立密钥）；唯一约束与
-#           查重走 hash 列，phone 密文列只管存储'；uk_phone_del(phone,del_flag) 改为
-#           uk_phone_hash_del(phone_hash,del_flag)；email 同理加 email_hash + uk_email_hash_del；
-#           b) phone 改 null（DDL not null 与设计说明'允许为空是期望行为'矛盾）；
-#    原因：AES 加密若用随机 IV，同一手机号每次密文不同，唯一索引永不命中 → 查重/防重复注册失效；
-#           hash 列（HMAC 确定性）解决碰撞检测，密文列保留加密收益；这是密态存储的标准拆分做法
-# ②【P0】article DDL 与设计原因段落脱节（见 content 模块 #1）：
-#    改动：a) 补列 publish_batch_id bigint unsigned null '批量发布批次ID（同批次共享）' +
-#           索引 idx_publish_batch；b) 补列 access_password varchar(128) null
-#           '访问密码（visibility=4 时 BCrypt 存储）'；c) visibility 补枚举：3-仅关注者可见 4-密码访问；
-#           d) zone 补枚举：3-推荐流（运营/算法推荐内容）；
-#    原因：设计原因段落已承诺这 4 项（批量发布/密码访问/4 种可见性/zone=3），DDL 缺失会导致
-#           落地时不知道以哪边为准，且功能文档明确承诺了这些能力
-# ③【P1】shop_product.image_url 直链落库（见 shop 模块 #1）：
-#    改动：image_url varchar(500) 改为 image_file_id varchar(64) '商品图片文件ID（file_meta.file_id），
-#           URL 运行时经 FileService 反查拼接，永不落库'；
-#    原因：违反 file 模块'业务层只持 fileId'核心原则；直链落库会绕过 safe_flag 违规图闸口，
-#           且文件迁移/换桶即全量坏链（与 sys_user.avatar_file_id 的做法对齐）
-# ④【P1】coin_transaction 流水类型不覆盖全部资金变动（见 payment 模块 #3）：
-#    改动：tx_type 补枚举：6-商城消费 7-商城退款 8-提现驳回退币；
-#    原因：金融流水表必须穷举所有资金变动场景；shop 扣币走 Seata AT 但无类型可落账，
-#           withdraw_request 有驳回态但退币无类型，账目对不上即资金链路漏洞
-# ⑤【P1】shipping 收件人 PII 明文（见 shop 模块 #3）：
-#    改动：receiver_phone varchar(20) 改 varchar(255) '收件人电话（AES 加密存储，展示脱敏，
-#           发货场景走安全通道解密）'；receiver_name/receiver_address 注明加密或脱敏策略；
-#    原因：敏感数据保护标准全库一致（user 模块手机号已加密）；运单收件人同属 PII，
-#           明文存储不合规，泄露面最大（快递信息可直接用于线下诈骗）
-# ⑥【P2】book.status 默认值语义错误（见 content 模块 #4）：
-#    改动：default 1 改 default 0；
-#    原因：1-已完结，新建书默认已完结语义错误，应为 0-连载中
-# ⑦【P2】shop 模块命名风格与全库不统一（见 shop 模块全部）：
-#    改动：a) deleted → del_flag（全库统一）；b) 主键 bigint → bigint unsigned（全库统一）；
-#           c) key → index、engine=innodb → engine = InnoDB（风格统一）；
-#    原因：单库多模块命名/类型统一是 ORM 映射与公共代码复用的前提
-# ⑧【P2】ai_message 悬空决策注释（见 ai 模块 #2）：
-#    改动：拍板'记录'：补列 prompt_tokens int null / completion_tokens int null '本条消息
-#           token 消耗（与 ai_token_usage 对账）'，删除'#应该记录token吗'注释；
-#    原因：逐条记录 token 与日汇总表对账，防统计口径漂移；限额校验与 VIP 权益核算需要明细支撑
-# ⑨【P3】comment 列表查询索引优化（见 social 模块 #3）：
-#    改动：idx_article_id(article_id) 改为 (article_id, status, create_time)；
-#    原因：高频查询是'某文章的正常评论分页'，复合索引可过滤+排序一步到位，避免回表
-# ⑩【P3】vip_order 缺订单号（见 payment 模块 #1）：
-#    改动：补列 order_no varchar(32) not null '订单号（唯一，支付回调幂等/第三方对账用）' +
-#           unique key uk_order_no(order_no)；
-#    原因：支付回调幂等、与支付渠道对账都需唯一交易号（与 shop_order.order_no 对齐）
-# ⑪【补充】①的 phone/email 非空语义修正 + 密钥分离落地（对①的增量补充，非覆盖）：
-#    改动：a) ①b 作废：phone 维持 not null（注册必填，用户拍板），phone_hash 同步 not null；
-#           email 维持 null，email_hash 同步 null —— MySQL 唯一索引不约束 NULL，
-#           多个无邮箱用户共存，绑定后 email_hash 非空即参与唯一判断；
-#           b) 摘要密钥独立：common-security 新增 HmacSha256Crypto + CryptoProperties.hashKey
-#           （可选，Base64 ≥32 字节）；未配置时由 CryptoAutoConfiguration 从 AES 主密钥
-#           确定性派生子密钥（HKDF 思路，本地零配置可用）；
-#    原因：纯 SHA-256 对小取值空间字段（手机号/常见邮箱）可被彩虹表反推，HMAC 引入密钥后
-#           无密钥不可反推；密钥与 AES 用途分离，避免一把密钥泄露导致密文与摘要双杀；
-#           派生密钥随主密钥确定，历史数据不受影响；但后续若改配独立 hashKey，
-#           新旧摘要不一致，须同步刷新历史 phone_hash/email_hash（建议生产一开始就配独立密钥）
-# ============================================================
-
-
-
 现有 SQL 风格归纳
 维度	风格
 库名	Litisle_{模块} 下划线分隔
@@ -1167,13 +1101,29 @@ create table if not exists `file_meta`
 `status`     tinyint         not null default 0 comment '上传状态：0-上传中（锁内占位写库）1-上传完成（锁外 put 成功后更新）；put 失败保留 0，由对账任务清理（见 seaweedfs笔记.md §3.4）',
 `safe_flag`  tinyint         not null default 2 comment '【预留｜已定接入，暂未开发】违规审核（三态 default-deny）：0-违规（禁止访问）1-正常 2-待检测（默认；放行以检测完成为前提，而非未检出违规，避免异步检测窗口内未检图被放行）；启用链路：status=1 后异步消息 → 病毒/违规检测 → 写本列；getUrl/batchGetUrls 返回前校验（访问闸口，见 seaweedfs笔记.md §3.6/§3.6.3）',
 `sha256`     varchar(64)     not null comment 'SHA256 摘要（联合判重键：sha256+size+biz_type，PRIVATE 追加 owner_id 隔离）',
-`del_flag`   tinyint         not null default 0 comment '删除标志',
+`del_flag`   tinyint         not null default 0 comment '删除标志：仅当 file_ref 无活跃引用才可置 1（方案C，防秒传共享悬空他人引用）；置 1 后不再参与秒传判重',
 `create_time` datetime       not null default current_timestamp comment '上传时间',
 `update_time` datetime       not null default current_timestamp on update current_timestamp comment '更新时间',
+`delete_time` datetime       null comment '软删除时间（del_flag 置 1 时写入，物理清理按此判超 7 天）',
 index `idx_owner_biz` (`owner_id`, `biz_type`),
 index `idx_dedup` (`sha256`, `size`, `biz_type`, `del_flag`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '文件元数据表';
+
+# 2. 文件引用登记表（方案C：秒传使 file_meta 成为多方共享资产，删除=解绑引用，
+#    物理清理前置校验本表，杜绝悬空引用；详见 seaweedfs笔记.md §3.4）
+create table if not exists `file_ref`
+(
+`id`         bigint unsigned not null auto_increment primary key comment '主键ID',
+`file_id`    varchar(64)     not null comment '引用的文件ID（file_meta.file_id）',
+`biz_type`   varchar(20)     not null comment '引用方业务类型：AVATAR/COVER/ARTICLE_IMG/LICENSE',
+`biz_id`     bigint unsigned not null comment '引用方业务主键：如 article_image.id / 换头像场景为 sys_user.id',
+`owner_id`   bigint unsigned not null comment '引用归属用户ID（审计与授权依据）',
+`create_time` datetime       not null default current_timestamp comment '引用建立时间',
+index `idx_file` (`file_id`),
+index `idx_biz` (`biz_type`, `biz_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '文件引用登记表：业务方绑定/解绑引用时与业务表同事务登记';
 ```
 
 设计原因：
@@ -1194,6 +1144,14 @@ MQ 异步消费写本列，主链路零改动（设计见 seaweedfs笔记.md §3
 低曝光（AVATAR / LICENSE，私有仅本人/管理员可见）2 放行、检出违规置 0 并强制刷新。
 
 align 放此表为冗余可选：实际对齐信息以 article_image 为准，此处冗余便于文件维度查询。
+
+file_ref 引用登记表（方案C）：秒传使一条 file_meta 成为多方共享资产（B 秒传命中 A 的
+记录并把 fileId 写进业务表），而原有"owner 删除 → 7 天后物理清理"会悬空 B 的所有引用
+——7 天缓冲只防"误删恢复"，不防"共享悬空"。规则：
+① 业务方绑定/解绑引用时同步写/删 file_ref（与业务表同事务）；
+② delete 接口仅解绑当前调用方引用；仅当 file_ref 无活跃引用才置 del_flag=1；
+③ 对账任务物理清理前置校验 file_ref 无记录（仍有引用则跳过并告警），杜绝悬空引用；
+④ 引用可审计：随时可查"谁在引用该文件"，漏登记可定位。
 
 ## 九、litisle-search 模块
 
