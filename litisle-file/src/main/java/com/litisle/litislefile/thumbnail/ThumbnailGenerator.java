@@ -44,6 +44,7 @@ public class ThumbnailGenerator {
      * <p>3. 并发重复生成无妨（put 幂等，同 key 覆盖），不加锁</p>
      */
     public String getOrCreate(String bucket, String path, int width, int height) {
+        // 派生 key：原图 path + "_thumb_{w}_{h}"（纯路径约定，不落库）
         String thumbKey = deriveKey(path, width, height);
 
         // 已存在则直接返回（head 探测，避免重复生成 IO 开销）
@@ -52,16 +53,21 @@ public class ThumbnailGenerator {
         }
 
         // 拉取原图 → 等比缩放至 w×h 内 → put 回同 bucket
+        // 拉取原图字节（get 幂等读，仅小文件场景）
         byte[] origin = seaweedFsClient.get(bucket, path);
         try (ByteArrayInputStream in = new ByteArrayInputStream(origin)) {
+            // Thumbnailator 等比缩放至 w×h 以内（不拉伸变形，留原始比例）
             BufferedImage thumbnail = Thumbnails.of(in)
                     .size(width, height)
                     .asBufferedImage();
+            // 编码为 JPEG 写入内存缓冲区
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(thumbnail, "jpg", out);
+            // put 回同 bucket（同 key 覆盖幂等，并发重复生成安全，无需加锁）
             seaweedFsClient.put(bucket, thumbKey, out.toByteArray(), "image/jpeg");
             return thumbKey;
         } catch (IOException e) {
+            // 生成/编码失败统一转业务异常（fail-fast，下次请求重新生成）
             throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, "缩略图生成失败", e);
         }
     }

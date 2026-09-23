@@ -79,11 +79,15 @@ public class SeaweedFsConfig {
     public S3Client seaweedS3Client(FileProperties properties) {
         FileProperties.Seaweedfs cfg = properties.getSeaweedfs();
         return S3Client.builder()
+                // 强制所有请求发往 SeaweedFS 网关，而非 AWS 公网
                 .endpointOverride(URI.create(cfg.getEndpoint()))
+                // SeaweedFS 不校验 Region，仅 SigV4 签名需要
                 .region(Region.US_EAST_1)
+                // 静态 AK/SK，与 docker/init/seaweedfs/s3.json 保持一致
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(cfg.getAccessKey(), cfg.getSecretKey())))
                 .serviceConfiguration(S3Configuration.builder()
+                        // 【必须】路径风格访问：筒名放 URL 路径中，SeaweedFS 不支持虚拟主机风格
                         .pathStyleAccessEnabled(true)
                         .build())
                 .build();
@@ -131,11 +135,13 @@ public class SeaweedFsConfig {
     public S3Presigner seaweedS3Presigner(FileProperties properties) {
         FileProperties.Seaweedfs cfg = properties.getSeaweedfs();
         return S3Presigner.builder()
+                // 必须与 S3Client 完全一致，否则签出的 URL 服务端验签会 403
                 .endpointOverride(URI.create(cfg.getEndpoint()))
                 .region(Region.US_EAST_1)
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(cfg.getAccessKey(), cfg.getSecretKey())))
                 .serviceConfiguration(S3Configuration.builder()
+                        // 与 S3Client 保持一致，生成的 URL 才是路径风格
                         .pathStyleAccessEnabled(true)
                         .build())
                 .build();
@@ -178,6 +184,7 @@ public class SeaweedFsConfig {
      */
     @Bean
     public SeaweedFsClient seaweedFsClient(S3Client seaweedS3Client, S3Presigner seaweedS3Presigner) {
+        // 把两个底层 SDK 组件打包注入业务封装类，业务层唯一入口
         return new SeaweedFsClient(seaweedS3Client, seaweedS3Presigner);
     }
 }

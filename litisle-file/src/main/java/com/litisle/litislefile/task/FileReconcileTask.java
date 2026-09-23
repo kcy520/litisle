@@ -5,6 +5,7 @@ import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commonredis.lock.DistributedLock;
 import com.litisle.litislefile.client.SeaweedFsClient;
+import com.litisle.litislefile.config.FileProperties;
 import com.litisle.litislefile.domain.entity.FileMeta;
 import com.litisle.litislefile.domain.entity.FileRef;
 import com.litisle.litislefile.enums.UploadStatusEnum;
@@ -46,31 +47,33 @@ public class FileReconcileTask {
     /** 多实例互斥锁 key（RedissonLock 追加 lock: 前缀，与 file:sha: 风格统一） */
     private static final String LOCK_KEY = "file:reconcile";
 
-    /** 占位记录补偿阈值（分钟）：超此时间仍未完成视为需要对账 */
-    private static final int COMPENSATE_THRESHOLD_MINUTES = 30;
-
-    /** 软删缓冲期（天）：del_flag=1 超 7 天才物理清理（防误删不可恢复） */
-    private static final int PHYSICAL_CLEAN_DELAY_DAYS = 7;
+    // 对账阈值参数已外置到 yml/Nacos：litisle.file.reconcile-task.compensate-threshold-minutes / physical-clean-delay-days
+    // （原 COMPENSATE_THRESHOLD_MINUTES / PHYSICAL_CLEAN_DELAY_DAYS 私有常量随外置移除，改经 FileProperties.getReconcileTask() 读取）
 
     private final FileMetaMapper fileMetaMapper;
     private final FileRefMapper fileRefMapper;
     private final SeaweedFsClient seaweedFsClient;
     private final DistributedLock distributedLock;
+    private final FileProperties fileProperties;
 
     /**
      * 对账入口：抢锁成功才执行（tryLock waitTime=0，抢不到说明另一实例正在跑，直接放弃本轮）
      */
     @Scheduled(cron = CRON_DAILY_2AM)
     public void reconcile() {
+        // 多实例互斥：waitTime=0 表示不等待，抢不到锁说明另一实例正在跑
         if (!distributedLock.tryLock(LOCK_KEY, 0, TimeUnit.SECONDS)) {
             log.info("其他实例正在执行文件对账，本实例跳过");
             return;
         }
         try {
+            // Step1：补偿上传（status=0 幽灵记录恢复/废弃）
             int compensated = compensateUploading();
+            // Step2：物理清理（软删超 7 天且无活跃引用）
             int cleaned = physicallyCleanDeleted();
             log.info("文件对账完成：补偿上传 {} 条，物理清理 {} 条", compensated, cleaned);
         } finally {
+            // 无论成功失败都释放锁，防下一轮死锁
             distributedLock.unlock(LOCK_KEY);
         }
     }
@@ -79,14 +82,17 @@ public class FileReconcileTask {
      * Step1 补偿上传：status=0 且超 30min 的占位记录
      */
     private int compensateUploading() {
+        // 扫描占位超 30 分钟的在途记录（正常上传秒级完成，超时即为需要对账的"幽灵"）
         List<FileMeta> ghosts = fileMetaMapper.selectList(new LambdaQueryWrapper<FileMeta>()
                 .eq(FileMeta::getStatus, UploadStatusEnum.UPLOADING)
                 .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED)
-                .le(FileMeta::getCreateTime, LocalDateTime.now().minusMinutes(COMPENSATE_THRESHOLD_MINUTES)));
+                .le(FileMeta::getCreateTime, LocalDateTime.now().minusMinutes(
+                        fileProperties.getReconcileTask().getCompensateThresholdMinutes())));
         if (ghosts.isEmpty()) {
             return 0;
         }
         int count = 0;
+        // 逐条处理：单条失败不影响其余（下一轮对账自愈）
         for (FileMeta meta : ghosts) {
             try {
                 // S3 head 探测：对象存在说明 put 已成功（status 更新丢失），恢复 status=1
@@ -115,13 +121,16 @@ public class FileReconcileTask {
      * Step2 物理清理：del_flag=1 且 delete_time 超 7 天
      */
     private int physicallyCleanDeleted() {
+        // 扫描软删超 7 天缓冲期的记录（此期间可恢复误删）
         List<FileMeta> expired = fileMetaMapper.selectList(new LambdaQueryWrapper<FileMeta>()
                 .eq(FileMeta::getDelFlag, DelFlag.DELETED)
-                .le(FileMeta::getDeleteTime, LocalDateTime.now().minusDays(PHYSICAL_CLEAN_DELAY_DAYS)));
+                .le(FileMeta::getDeleteTime, LocalDateTime.now().minusDays(
+                        fileProperties.getReconcileTask().getPhysicalCleanDelayDays())));
         if (expired.isEmpty()) {
             return 0;
         }
         int count = 0;
+        // 逐条处理：单条失败不影响其余（下一轮对账自愈）
         for (FileMeta meta : expired) {
             try {
                 // 前置校验：仍有活跃引用则跳过并告警（方案C：防悬空他人引用）

@@ -64,6 +64,7 @@ public class FileController {
     @SaCheckLogin
     public Result<FileUploadVO> upload(@RequestParam("file") MultipartFile file,
                                        @RequestParam("bizType") BizTypeEnum bizType) {
+        // StpUtil 取当前登录人作为 ownerId（Sa-Token 会话共享口径），委托 Service 走秒传判重上传链路
         return Result.success(fileService.upload(file, bizType, StpUtil.getLoginIdAsLong()));
     }
 
@@ -77,6 +78,7 @@ public class FileController {
     @SaCheckLogin
     public Result<List<FileUploadVO>> uploadBatch(@RequestParam("files") List<MultipartFile> files,
                                                   @RequestParam("bizType") BizTypeEnum bizType) {
+        // 逐个委托单文件链路；中途失败已成功的不回滚，部分成功由调用方处理
         return Result.success(fileService.uploadBatch(files, bizType, StpUtil.getLoginIdAsLong()));
     }
 
@@ -87,6 +89,7 @@ public class FileController {
     @GetMapping("/{fileId}/url")
     @SaCheckLogin
     public Result<String> getUrl(@PathVariable("fileId") String fileId) {
+        // Service 内部分流：PUBLIC 拼直链 / PRIVATE 校验 owner/ADMIN 后预签名
         return Result.success(fileService.getUrl(fileId, StpUtil.getLoginIdAsLong()));
     }
 
@@ -98,6 +101,7 @@ public class FileController {
     @SaCheckLogin
     public Result<PresignVO> presign(@PathVariable("fileId") String fileId,
                                      @RequestParam(value = "expireMinutes", required = false) Integer expireMinutes) {
+        // expireMinutes 为空取配置默认；Service 内二次校验 ≤ 配置上限
         return Result.success(fileService.presign(fileId, expireMinutes, StpUtil.getLoginIdAsLong()));
     }
 
@@ -108,6 +112,7 @@ public class FileController {
     @GetMapping("/{fileId}/meta")
     @SaCheckLogin
     public Result<FileMetaVO> getMeta(@PathVariable("fileId") String fileId) {
+        // 非 owner/ADMIN 由 Service 脱敏 ownerId
         return Result.success(fileService.getMeta(fileId, StpUtil.getLoginIdAsLong()));
     }
 
@@ -120,6 +125,7 @@ public class FileController {
     public Result<ThumbnailVO> thumbnail(@PathVariable("fileId") String fileId,
                                          @RequestParam(value = "w", required = false) Integer width,
                                          @RequestParam(value = "h", required = false) Integer height) {
+        // w/h 为空取 yml 默认 300×300；缩略图按需生成派生 key，不落库
         return Result.success(fileService.getThumbnail(fileId, width, height));
     }
 
@@ -132,6 +138,7 @@ public class FileController {
     @DeleteMapping("/{fileId}")
     @SaCheckLogin
     public Result<Void> delete(@PathVariable("fileId") String fileId) {
+        // 方案C 三步解绑语义，详见上方 @Operation 描述
         fileService.delete(fileId, StpUtil.getLoginIdAsLong());
         return Result.success();
     }

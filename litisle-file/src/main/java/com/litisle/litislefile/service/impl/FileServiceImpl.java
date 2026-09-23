@@ -230,12 +230,15 @@ public class FileServiceImpl implements FileService {
 
     @Override
     public List<FileUploadVO> uploadBatch(List<MultipartFile> files, BizTypeEnum bizType, Long ownerId) {
+        // 入参校验：空列表直接拒绝
         if (files == null || files.isEmpty()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "批量上传文件列表不能为空");
         }
+        // 数量上限校验（正文多图场景，防刷存储）
         if (files.size() > MAX_BATCH_SIZE) {
             throw new BizException(ErrorCode.PARAM_ERROR, "批量上传上限 " + MAX_BATCH_SIZE + " 张");
         }
+        // 逐个复用单文件链路（含秒传），中途失败已成功的不回滚
         return files.stream().map(f -> upload(f, bizType, ownerId)).toList();
     }
 
@@ -276,6 +279,7 @@ public class FileServiceImpl implements FileService {
     @Override
     public PresignVO presign(String fileId, Integer expireMinutes, Long operatorId) {
         FileMeta meta = getMetaOrThrow(fileId);
+        // owner/ADMIN 校验（与 getUrl 的 PRIVATE 口径统一，预签名 URL 是可传播凭证，入口必须收紧）
         checkOwnerOrAdmin(meta, operatorId);
         // bizType 二次校验（纵深防御）：预签名单面向 PRIVATE，PUBLIC 走直链无需签名
         if (meta.getAccess() != AccessLevelEnum.PRIVATE) {
@@ -287,6 +291,7 @@ public class FileServiceImpl implements FileService {
         if (minutes < 1 || minutes > cap) {
             throw new BizException(ErrorCode.PARAM_ERROR, "有效期须在 1~" + cap + " 分钟之间");
         }
+        // 生成预签名 URL 并组装 VO（expireTime 供前端提前刷新）
         String url = seaweedFsClient.presign(meta.getBucket(), meta.getPath(), Duration.ofMinutes(minutes));
         return PresignVO.builder()
                 .fileId(fileId)
@@ -331,6 +336,7 @@ public class FileServiceImpl implements FileService {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     "缩略图尺寸须在 1~" + MAX_THUMBNAIL_DIMENSION + " 之间");
         }
+        // 按需生成/复用缩略图（路径约定派生 key，不落库），URL 拼公开直链
         String thumbKey = thumbnailGenerator.getOrCreate(meta.getBucket(), meta.getPath(), w, h);
         return ThumbnailVO.builder()
                 .fileId(fileId)
@@ -344,13 +350,16 @@ public class FileServiceImpl implements FileService {
      * 上传校验：size ≤ maxImageSize + MIME 白名单（按 bizType 区分，LICENSE 放开授权文件类型）
      */
     private void validateUpload(MultipartFile file, BizTypeEnum bizType) {
+        // 空文件校验
         if (file == null || file.isEmpty()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "上传文件不能为空");
         }
+        // 大小校验：≤ yml 配置的 maxImageSize（默认 10MB）
         if (file.getSize() > fileProperties.getUpload().getMaxImageSize()) {
             throw new BizException(ErrorCode.FILE_SIZE_EXCEEDED,
                     "文件大小超过限制（上限 " + fileProperties.getUpload().getMaxImageSize() / 1024 / 1024 + "MB）");
         }
+        // MIME 白名单校验（按 bizType 区分，忽略大小写）
         String mime = file.getContentType();
         if (mime == null || !resolveMimeWhitelist(bizType).contains(mime.toLowerCase())) {
             throw new BizException(ErrorCode.FILE_TYPE_NOT_ALLOWED, "文件类型不允许：" + mime);

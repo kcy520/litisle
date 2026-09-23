@@ -85,11 +85,13 @@ public class SeaweedFsClient {
      */
     public void put(String bucket, String key, byte[] bytes, String contentType) {
         try {
+            // 构建 PutObjectRequest：指定目标桶、对象 key 和 Content-Type（便于浏览器/下载时正确识别类型）
             PutObjectRequest request = PutObjectRequest.builder()
                     .bucket(bucket)
                     .key(key)
                     .contentType(contentType)
                     .build();
+            // 同 key 上传会直接覆盖旧对象（S3 语义），因此天然幂等
             s3.putObject(request, RequestBody.fromBytes(bytes));
         } catch (SdkException e) {
             throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
@@ -102,6 +104,7 @@ public class SeaweedFsClient {
      */
     public byte[] get(String bucket, String key) {
         try {
+            // getObjectAsBytes：一次性读完整对象为字节流（SDK 负责读完并关闭流），再转 byte[]
             return s3.getObjectAsBytes(GetObjectRequest.builder()
                     .bucket(bucket)
                     .key(key)
@@ -120,6 +123,7 @@ public class SeaweedFsClient {
      */
     public void delete(String bucket, String key) {
         try {
+            // 按 桶 + key 删除对象；S3 语义下 key 不存在也返回成功，因此可放心重试
             s3.deleteObject(DeleteObjectRequest.builder()
                     .bucket(bucket)
                     .key(key)
@@ -135,14 +139,17 @@ public class SeaweedFsClient {
      */
     public String presign(String bucket, String key, Duration expire) {
         try {
+            // 先构建普通的 GET 请求（描述"要下载哪个桶的哪个对象"）
             GetObjectRequest getRequest = GetObjectRequest.builder()
                     .bucket(bucket)
                     .key(key)
                     .build();
+            // 再包装成预签名请求：signatureDuration 指定 URL 有效期；presign 纯本地计算签名，不联网
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
                     .getObjectRequest(getRequest)
                     .signatureDuration(expire)
                     .build();
+            // 生成的 URL 内嵌签名参数，持有者在有效期内无需 AK/SK 即可下载
             return presigner.presignGetObject(presignRequest).url().toString();
         } catch (SdkException e) {
             throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
@@ -155,6 +162,7 @@ public class SeaweedFsClient {
      */
     public boolean exists(String bucket, String key) {
         try {
+            // headObject 只请求对象元数据（大小/类型等），不下载内容，探测存在性比 get 轻量得多
             s3.headObject(HeadObjectRequest.builder()
                     .bucket(bucket)
                     .key(key)
@@ -174,6 +182,7 @@ public class SeaweedFsClient {
     public List<String> listKeys(String bucket, String prefix) {
         try {
             List<String> keys = new ArrayList<>();
+            // listObjectsV2Paginator：SDK 自动分页迭代（每页默认 1000 条），按前缀过滤出所有对象
             s3.listObjectsV2Paginator(ListObjectsV2Request.builder()
                             .bucket(bucket)
                             .prefix(prefix)
@@ -185,4 +194,5 @@ public class SeaweedFsClient {
             throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
         }
     }
+
 }

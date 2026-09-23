@@ -135,6 +135,16 @@ litisle:
       enabled: true
       width: 300
       height: 300
+    # 文件对账定时任务（每日凌晨执行；多实例靠 Redisson 锁互斥，仅一个实例执行）
+    reconcile-task:
+      # cron 表达式（每日 02:00）
+      # ⚠️ 此 key 由 FileReconcileTask 的 @Scheduled 占位符读取（注解要求编译期常量，无法走 Bean 注入）
+      # Nacos 共享配置可直接覆盖此值调整执行频率
+      cron: 0 0 2 * * ?
+      # Step1 补偿阈值（分钟）：status=0 占位记录超此时间进入对账扫描
+      compensate-threshold-minutes: 30
+      # Step2 软删缓冲期（天）：del_flag=1 超此时间才物理清理（防误删不可恢复）
+      physical-clean-delay-days: 7
 
 # ================================
 # Knife4j API 文档配置

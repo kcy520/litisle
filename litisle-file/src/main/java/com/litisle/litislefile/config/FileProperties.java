@@ -18,6 +18,9 @@ import java.util.Map;
  * - seaweedfs.collections（bizType→bucket 映射：avatar/cover/article-img→article/license）
  * - upload.maxImageSize（默认 10485760 = 10MB）
  * - thumbnail.enabled / width(300) / height(300)
+ * - reconcile-task：对账任务参数（补偿阈值 30min / 软删缓冲期 7 天，运营可调，外置到 yml/Nacos）
+ *   ⚠️ cron 不走此 Bean——@Scheduled 注解要求编译期常量，无法注入 Bean 值，
+ *   由占位符 ${litisle.file.reconcile-task.cron:...} 直接读取（见 FileReconcileTask.CRON_DAILY_2AM）
  */
 @Data
 @Component
@@ -27,6 +30,7 @@ public class FileProperties {
     private Seaweedfs seaweedfs = new Seaweedfs();
     private Upload upload = new Upload();
     private Thumbnail thumbnail = new Thumbnail();
+    private ReconcileTask reconcileTask = new ReconcileTask();
 
     /** SeaweedFS S3 连接配置（对应 yml: litisle.file.seaweedfs） */
     @Data
@@ -57,5 +61,14 @@ public class FileProperties {
         private boolean enabled = true;
         private int width = 300;
         private int height = 300;
+    }
+
+    /** 对账定时任务参数（对应 yml: litisle.file.reconcile-task） */
+    @Data
+    public static class ReconcileTask {
+        /** Step1 补偿阈值（分钟）：status=0 占位记录超此时间进入对账扫描（正常上传秒级完成） */
+        private int compensateThresholdMinutes = 30;
+        /** Step2 软删缓冲期（天）：del_flag=1 超此时间才物理清理（防误删不可恢复） */
+        private int physicalCleanDelayDays = 7;
     }
 }
