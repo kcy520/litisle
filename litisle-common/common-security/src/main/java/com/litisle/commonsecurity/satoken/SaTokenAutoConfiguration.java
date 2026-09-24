@@ -20,6 +20,7 @@ import org.springframework.context.annotation.Configuration;
  * - StpInterfaceImpl：Sa-Token 角色/权限数据源（从 Session 读取）
  * - SaTokenUserIdResolver：UserIdResolver 实现（供 common-redis 幂等/限流切面使用）
  * - SaTokenEventListener：Sa-Token 会话事件监听器（登录/登出/踢人/封禁审计日志）
+ * - SaTokenExceptionHandler：认证鉴权异常处理器（NotLoginException 等转统一 Result 格式）
  *
  * 【与 CommonSecurityAutoConfiguration 的关系】
  * - CommonSecurityAutoConfiguration：注册纯安全组件（Feign 拦截器、审计切面、匿名扫描器）
@@ -73,5 +74,22 @@ public class SaTokenAutoConfiguration {
     @ConditionalOnMissingBean(SaTokenListener.class)
     public SaTokenEventListener saTokenEventListener(ObjectMapper objectMapper) {
         return new SaTokenEventListener(objectMapper);
+    }
+
+    /**
+     * Sa-Token 全局异常处理器
+     *
+     * 【说明】
+     * - 将 NotLoginException / NotPermissionException / NotRoleException / DisableServiceException
+     *   转换为统一 Result 格式（错误码 UNAUTHORIZED / FORBIDDEN / USER_FROZEN）
+     * - 若不注册此 Bean，认证异常会落入 common-core GlobalExceptionHandler 的 Exception 兜底，
+     *   导致未登录请求返回 10000"系统繁忙"而非 10002"未登录"的清晰提示
+     * - 本类标注 @Order(Ordered.HIGHEST_PRECEDENCE)，优先于 Exception 兜底处理
+     * - 业务服务可通过 @ConditionalOnMissingBean 覆盖为自定义实现
+     */
+    @Bean
+    @ConditionalOnMissingBean(SaTokenExceptionHandler.class)
+    public SaTokenExceptionHandler saTokenExceptionHandler() {
+        return new SaTokenExceptionHandler();
     }
 }
