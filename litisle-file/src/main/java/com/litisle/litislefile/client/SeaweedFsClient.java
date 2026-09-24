@@ -175,6 +175,7 @@ public class SeaweedFsClient {
         }
     }
 
+
     /**
      * 按前缀列出对象 key（分页遍历）
      * <p>使用场景：物理清理时查出某原图的全部缩略图派生 key（path + "_thumb_"）一并删除</p>
@@ -194,5 +195,7 @@ public class SeaweedFsClient {
             throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
         }
     }
+
+
 
 }

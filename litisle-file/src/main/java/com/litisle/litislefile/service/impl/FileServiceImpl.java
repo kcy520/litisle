@@ -136,6 +136,10 @@ public class FileServiceImpl implements FileService {
     private final DistributedLock distributedLock;
     private final ThumbnailGenerator thumbnailGenerator;
 
+    /**
+     * 单文件上传（含秒传）：校验 → 流式算 SHA256 → 无锁快查判重 → 锁内双检+占位写库（status=0）
+     * → 锁外 put（幂等）→ 解析宽高 → 置 status=1；秒传命中直接复用 fileId 不落存储
+     */
     @Override
     public FileUploadVO upload(MultipartFile file, BizTypeEnum bizType, Long ownerId) {
         // 步骤1：校验 size ≤ maxImageSize + MIME 白名单（按 bizType 区分，LICENSE 放开授权文件类型）
@@ -174,6 +178,7 @@ public class FileServiceImpl implements FileService {
             String bucket = resolveBucket(bizType);
             String path = LocalDate.now().format(PATH_DATE_FORMAT)
                     + "/" + fileId + "." + resolveExt(file.getOriginalFilename());
+
             meta = new FileMeta()
                     .setFileId(fileId)
                     .setOwnerId(ownerId)
@@ -228,6 +233,9 @@ public class FileServiceImpl implements FileService {
         return vo;
     }
 
+    /**
+     * 批量上传：校验非空 + 上限 9 张后，逐个复用单文件链路（含秒传）；中途失败已成功的不回滚
+     */
     @Override
     public List<FileUploadVO> uploadBatch(List<MultipartFile> files, BizTypeEnum bizType, Long ownerId) {
         // 入参校验：空列表直接拒绝
@@ -242,8 +250,13 @@ public class FileServiceImpl implements FileService {
         return files.stream().map(f -> upload(f, bizType, ownerId)).toList();
     }
 
+    /**
+     * 获取访问 URL 统一入口：查元数据后按 access 分流——PUBLIC 拼直链；PRIVATE 先 owner/ADMIN 校验再预签名
+     * （调用方无需感知文件访问级别；审核 safe_flag 闸口预留在此单点收口）
+     */
     @Override
     public String getUrl(String fileId, Long operatorId) {
+        // 查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
         FileMeta meta = getMetaOrThrow(fileId);
         // 【预留｜访问闸口】审核启用后此处校验 safe_flag=0 拒绝（单点收口，见笔记 §3.6）
         if (meta.getAccess() == AccessLevelEnum.PUBLIC) {
@@ -255,8 +268,13 @@ public class FileServiceImpl implements FileService {
                 Duration.ofMinutes(fileProperties.getSeaweedfs().getPresignExpireMinutes()));
     }
 
+    /**
+     * 批量获取 fileId→URL 映射（Feign 内部调用，防列表页 N+1）：一次 in 查询后按 access 分流生成；
+     * ⚠️ PRIVATE 直接预签不做权限校验——仅限服务间调用，若暴露 REST 必须补鉴权
+     */
     @Override
     public Map<String, String> batchGetUrls(List<String> fileIds) {
+        // 空列表直接返回空 Map（防 Feign 调用方传空）
         if (fileIds == null || fileIds.isEmpty()) {
             return Map.of();
         }
@@ -264,10 +282,12 @@ public class FileServiceImpl implements FileService {
         // ⚠️ PRIVATE 直接预签：本方法仅限内部 Feign 调用（无 REST 入口），
         // 若未来暴露 REST 必须补 operatorId 做 owner/ADMIN 校验
         List<FileMeta> metas = fileMetaMapper.selectList(new LambdaQueryWrapper<FileMeta>()
-                .in(FileMeta::getFileId, fileIds)
-                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED));
-        return metas.stream().collect(Collectors.toMap(FileMeta::getFileId, meta -> {
+                .in(FileMeta::getFileId, fileIds) //一次查回所有需要的文件元数据
+                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED));//只查未删除文件
+        return metas.stream().collect(Collectors.toMap(FileMeta::getFileId, meta -> {//流式转换为 Map<fileId, url>
             // 【预留｜访问闸口】审核启用后此处校验 safe_flag=0 拒绝
+
+            // access 分流：PUBLIC vs PRIVATE  根据文件的访问级别（PUBLIC / PRIVATE），决定返回“哪种 URL”
             if (meta.getAccess() == AccessLevelEnum.PUBLIC) {
                 return buildPublicUrl(meta.getBucket(), meta.getPath());
             }
@@ -276,8 +296,13 @@ public class FileServiceImpl implements FileService {
         }));
     }
 
+    /**
+     * 强制签发预签名 URL：owner/ADMIN 校验 → PRIVATE 二次校验（纵深防御）→ 有效期夹在 1~配置上限
+     * （防传 99999 绕过 LICENSE 限时）→ 生成 URL 并组装 VO
+     */
     @Override
     public PresignVO presign(String fileId, Integer expireMinutes, Long operatorId) {
+        // 查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
         FileMeta meta = getMetaOrThrow(fileId);
         // owner/ADMIN 校验（与 getUrl 的 PRIVATE 口径统一，预签名 URL 是可传播凭证，入口必须收紧）
         checkOwnerOrAdmin(meta, operatorId);
@@ -300,8 +325,12 @@ public class FileServiceImpl implements FileService {
                 .build();
     }
 
+    /**
+     * 元数据查询：非 owner 且非 ADMIN 时脱敏 ownerId（不回显，防枚举他人文件归属），其余字段全量返回
+     */
     @Override
     public FileMetaVO getMeta(String fileId, Long operatorId) {
+        // 查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
         FileMeta meta = getMetaOrThrow(fileId);
         // 脱敏：非 owner 且非 ADMIN 不回显 ownerId（防任意登录用户枚举他人文件归属）
         boolean ownerOrAdmin = (operatorId != null && operatorId.equals(meta.getOwnerId()))
@@ -320,8 +349,12 @@ public class FileServiceImpl implements FileService {
                 .build();
     }
 
+    /**
+     * 缩略图 URL：功能开关 + 图片类型校验 → w/h 空取 yml 默认、越界拒绝 → 按需生成/复用派生 key（不落库）→ 拼公开直链
+     */
     @Override
     public ThumbnailVO getThumbnail(String fileId, Integer width, Integer height) {
+        // 查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
         FileMeta meta = getMetaOrThrow(fileId);
         if (!fileProperties.getThumbnail().isEnabled()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "缩略图功能未开启");
@@ -383,7 +416,8 @@ public class FileServiceImpl implements FileService {
         try (InputStream in = file.getInputStream();
              DigestInputStream digestStream = new DigestInputStream(in, MessageDigest.getInstance("SHA-256"))) {
             byte[] buffer = new byte[8192];
-            while (digestStream.read(buffer) != -1) {
+
+            while (digestStream.read(buffer) != -1) {//用 8KB 的缓冲区循环读取文件流，每读一点字节就自动喂给 SHA-256 摘要计算器，直到文件读完为止。
                 // 流式消费，仅驱动摘要计算
             }
             return HexFormat.of().formatHex(digestStream.getMessageDigest().digest());
@@ -424,6 +458,8 @@ public class FileServiceImpl implements FileService {
             return "bin";
         }
         int dot = originalFilename.lastIndexOf('.');
+        // dot < 0 表示：文件名中不存在扩展名
+        // dot == originalFilename.length() - 1 的含义
         if (dot < 0 || dot == originalFilename.length() - 1) {
             return "bin";
         }
@@ -472,8 +508,13 @@ public class FileServiceImpl implements FileService {
                 .build();
     }
 
+
+    /**
+     * 引用登记（方案C）：幂等插入 file_ref（同四元组已存在则跳过）；与业务表同事务由调用方保证
+     */
     @Override
     public void bindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId) {
+        // 前置校验：文件必须存在且未删除
         getMetaOrThrow(fileId);
         // 幂等：同一引用（fileId+bizType+bizId+ownerId）已登记则跳过，业务方重试安全
         // 与业务表同事务由调用方保证（业务方方法上加 @Transactional）
@@ -493,8 +534,12 @@ public class FileServiceImpl implements FileService {
                 .setCreateTime(LocalDateTime.now()));
     }
 
+    /**
+     * 解除引用登记（方案C）：按四元组精确定位仅删当前调用方引用行，不动文件本体；行不存在静默结束（幂等）
+     */
     @Override
     public void unbindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId) {
+        // 前置校验：文件必须存在且未删除
         getMetaOrThrow(fileId);
         // 仅删当前调用方的引用行（四条件精确定位），不动文件本体；幂等：行不存在静默结束
         fileRefMapper.delete(new LambdaQueryWrapper<FileRef>()
@@ -504,8 +549,13 @@ public class FileServiceImpl implements FileService {
                 .eq(FileRef::getOwnerId, ownerId));
     }
 
+    /**
+     * 删除（方案C 解绑语义）：owner/ADMIN 校验 → Step1 删当前调用方引用行 → Step2 仍有他人引用则不动文件
+     * → Step3 无引用才软删（del_flag=1），物理清理交对账任务 7 天缓冲
+     */
     @Override
     public void delete(String fileId, Long operatorId) {
+        // 查活跃元数据 + owner/ADMIN 校验（删除属敏感操作）
         FileMeta meta = getMetaOrThrow(fileId);
         checkOwnerOrAdmin(meta, operatorId);
         // Step1：仅解除当前调用方引用行（file_id + owner_id，不限 bizType——一次清完名下引用）

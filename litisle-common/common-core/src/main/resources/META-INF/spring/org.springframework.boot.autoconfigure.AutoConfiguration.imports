@@ -4,3 +4,4 @@
 com.litisle.commoncore.config.JacksonConfig
 com.litisle.commoncore.config.MyBatisPlusConfig
 com.litisle.commoncore.config.CommonCoreAutoConfiguration
+com.litisle.commoncore.config.EnumWebMvcConfig

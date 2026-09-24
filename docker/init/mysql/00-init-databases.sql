@@ -40,6 +40,7 @@ CREATE DATABASE IF NOT EXISTS seata_server
 -- 生产环境应限制为具体 IP 或容器名，这里用 % 适配开发/Docker 环境
 GRANT ALL PRIVILEGES ON litisle_user.*   TO 'test_k.1'@'%';
 GRANT ALL PRIVILEGES ON litisle_content.* TO 'test_k.1'@'%';
+GRANT ALL PRIVILEGES ON litisle_file.*    TO 'test_k.1'@'%';
 
 -- Seata 专用账号（最小权限：仅 seata_server 库，含 DDL——首启建表需要）
 -- 注意：密码硬编码在此处，必须与 .env 中 SEATA_DB_PASSWORD 保持一致
