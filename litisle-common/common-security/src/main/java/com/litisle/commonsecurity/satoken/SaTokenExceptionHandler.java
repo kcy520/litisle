@@ -6,6 +6,7 @@ import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
+import io.swagger.v3.oas.annotations.Hidden;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -43,6 +44,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * @author litisle
  */
 @Slf4j
+@Hidden
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class SaTokenExceptionHandler {
