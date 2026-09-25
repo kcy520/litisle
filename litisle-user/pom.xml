@@ -127,7 +127,7 @@
         <!--API 文档  增强的 Swagger UI 界面-->
         <!-- 子工程 server 内：同步修改 -->
         <dependency>
-            <groupId>com.baizhukui</groupId>
+            <groupId>com.github.xiaoymin</groupId>
             <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
         </dependency>
 

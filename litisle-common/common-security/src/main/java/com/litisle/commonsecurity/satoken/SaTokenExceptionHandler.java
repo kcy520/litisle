@@ -7,6 +7,8 @@ import cn.dev33.satoken.exception.NotRoleException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import io.swagger.v3.oas.annotations.Hidden;
+import io.swagger.v3.oas.annotations.Hidden;
+import io.swagger.v3.oas.annotations.Hidden;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -43,8 +45,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  *
  * @author litisle
  */
+@Hidden              // 告诉 springdoc 不扫描此 advice（springdoc 2.2.x 扫描 @RestControllerAdvice 会触发 ControllerAdviceBean NoSuchMethodError，与 GlobalExceptionHandler 同一规范）
 @Slf4j
-@Hidden
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class SaTokenExceptionHandler {

@@ -68,13 +68,10 @@
         <org.projectlombok.version>1.18.38</org.projectlombok.version>
 
         <!--其他后续添加-->
-        <!--knife4j：upstream com.github.xiaoymin 终版 4.5.0 已停止维护,其 Knife4jOpenApiCustomizer 调用的
-             SpringDocConfigProperties.getGroupConfigs() 在 springdoc 2.8.x 中被移除,导致 /v3/api-docs 抛 NoSuchMethodError;
-             故切换到社区维护 fork knife4j-next(groupId 变更为 com.baizhukui,5.0.0+ 已适配 springdoc 2.8.x),配置与 UI 契约不变 -->
-        <knife4j>5.7.5</knife4j>
-        <!-- springdoc 核心版本：强制锁定 2.8.x 以兼容 Spring 6.2(2.2.x 会因 ControllerAdviceBean 构造器被移除抛 NoSuchMethodError),
-             同时覆盖 knife4j-next 内置的 2.8.9,统一各模块 springdoc 版本 -->
-        <springdoc.version>2.8.13</springdoc.version>
+        <!--knife4j：4.5.0（内含 springdoc 2.2.x）。注意 springdoc 2.2.x 与 Spring 6.2 存在惰性不兼容：
+             扫描 @RestControllerAdvice 类时会因 ControllerAdviceBean 构造器被移除抛 NoSuchMethodError，
+             项目内所有 @RestControllerAdvice 类必须添加 @Hidden 排除扫描（GlobalExceptionHandler、SaTokenExceptionHandler） -->
+        <knife4j>4.5.0</knife4j>
         <!--redission-->
         <redisson.version>3.52.0</redisson.version>
         <!-- JJWT -->
@@ -121,18 +118,11 @@
                 <scope>import</scope>
             </dependency>
 
-            <!--API 文档 (Knife4j-next,upstream com.github.xiaoymin 的社区维护 fork)-->
+            <!--API 文档  增强的 Swagger UI 界面-->
             <dependency>
-                <groupId>com.baizhukui</groupId>
+                <groupId>com.github.xiaoymin</groupId>
                 <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
                 <version>${knife4j}</version>
-            </dependency>
-
-            <!-- springdoc 核心锁定：dependencyManagement 优先于传递依赖，覆盖 knife4j 内置的 2.2.x -->
-            <dependency>
-                <groupId>org.springdoc</groupId>
-                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-                <version>${springdoc.version}</version>
             </dependency>
 
             <!-- 数据库驱动包管理 -->
