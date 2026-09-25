@@ -10,8 +10,13 @@ import com.litisle.commoncore.utils.AssertUtil;
 import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
 import com.litisle.commonsecurity.crypto.HmacSha256Crypto;
 import com.litisle.commonsecurity.utils.SaRoleHelper;
+import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
+import com.litisle.litisleapi.dto.file.FileOwnerDTO;
+import com.litisle.litisleapi.dto.file.FileRefDTO;
 import com.litisle.litisleapi.feign.AuthClient;
+import com.litisle.litisleapi.feign.FileClient;
+import com.litisle.litisleuser.domain.dto.AvatarUpdateDTO;
 import com.litisle.litisleuser.domain.dto.BindEmailDTO;
 import com.litisle.litisleuser.domain.dto.UpdateEmailDTO;
 import com.litisle.litisleuser.domain.dto.UserProfileUpdateDTO;
@@ -28,6 +33,7 @@ import com.litisle.litisleuser.utils.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -46,6 +52,12 @@ public class UserProfileServiceImpl
 
     /** 跨模块验证码校验（auth 模块提供，验证码发送/校验集中在该模块） */
     private final AuthClient authClient;
+
+    /** 文件服务跨服务调用（file_ref 引用登记，方案C） */
+    private final FileClient fileClient;
+
+    /** 头像引用的业务类型（BizTypeEnum 定义在 litisle-file，api 模块不可反向依赖，此处用常量字符串） */
+    private static final String BIZ_TYPE_AVATAR = "AVATAR";
 
     /**
      * 获取当前登录用户资料
@@ -415,6 +427,80 @@ public class UserProfileServiceImpl
         return SaRoleHelper.isAuthor()
                 ? userProfileMapper.selectUpdateProfileByUserId(userId)
                 : userProfileMapper.selectUpdateProfileBaseByUserId(userId);
+    }
+
+    /**
+     * 设置头像（file_ref 引用登记链路，方案C——秒传共享防悬空，见 next_update.md P0）
+     * <p>前置：前端先调文件服务上传（bizType=AVATAR）拿到 fileId，再调本接口绑定。
+     * 流程：① 归属校验 → ② 旧头像解绑 → ③ 新头像绑定 → ④ 更新 sys_user.avatar_file_id
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateAvatar(AvatarUpdateDTO dto) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        String newFileId = dto.getAvatarFileId();
+
+        // ===== ① 归属校验：file_meta.owner_id == 当前登录人（防挂他人文件），且必须为 AVATAR 类型 =====
+        Result<FileOwnerDTO> infoResult = fileClient.getFileInfo(newFileId);
+        // 判码规范：文件不存在/服务异常均不把失败当成功
+        if (!infoResult.isSuccess() || infoResult.getData() == null) {
+            throw new BizException(ErrorCode.FILE_NOT_FOUND);
+        }
+        FileOwnerDTO info = infoResult.getData();
+        if (!userId.equals(info.getOwnerId()) || !BIZ_TYPE_AVATAR.equals(info.getBizType())) {
+            throw new BizException(ErrorCode.NO_PERMISSION, "只能使用本人上传的头像文件");
+        }
+
+        // ===== ② 旧头像解绑引用（四元组：fileId+AVATAR+userId+userId） =====
+        // 尽力而为：旧文件可能已被删除/物理清理，unbind 失败不阻断换头像；
+        // 残留引用行无实害（只会延迟对账任务物理清理，且有"仍有引用则跳过"兜底）
+        User oldUser = userMapper.selectOne(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getId, userId)
+                        .eq(User::getDelFlag, DelFlag.NOT_DELETED.getCode())
+                        .select(User::getId, User::getAvatarFileId)
+        );
+        if (oldUser == null) {
+            throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
+        }
+        String oldFileId = oldUser.getAvatarFileId();
+        if (oldFileId != null && !oldFileId.equals(newFileId)) {
+            try {
+                Result<Void> unbindResult = fileClient.unbindRef(buildAvatarRefDTO(oldFileId, userId));
+                if (!unbindResult.isSuccess()) {
+                    log.warn("旧头像解绑引用失败（不阻断换头像），userId={}，oldFileId={}", userId, oldFileId);
+                }
+            } catch (Exception e) {
+                log.warn("旧头像解绑引用异常（不阻断换头像），userId={}，oldFileId={}", userId, oldFileId, e);
+            }
+        }
+
+        // ===== ③ 新头像绑定引用（bindRef 幂等；核心写操作，失败异常穿透回滚本地事务） =====
+        Result<Void> bindResult = fileClient.bindRef(buildAvatarRefDTO(newFileId, userId));
+        if (!bindResult.isSuccess()) {
+            throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "头像引用登记失败，请稍后重试");
+        }
+
+        // ===== ④ 更新 sys_user.avatar_file_id（与业务表同事务） =====
+        // 【Seata 待接入】①~④ 跨服务强一致依赖 Seata AT（litisle_file 库 undo_log 已建，应用侧未接入）：
+        // 接入后本方法 @Transactional 升级为 @GlobalTransactional，③④ 之间失败可整体回滚；
+        // 当前取舍：③ 失败仅残留旧头像解绑（②为尽力而为，无实害），④ 本地回滚由 @Transactional 保证
+        new LambdaUpdateChainWrapper<>(userMapper)
+                .eq(User::getId, userId)
+                .set(User::getAvatarFileId, newFileId)
+                .update();
+    }
+
+    /**
+     * 构造头像引用登记四元组 DTO（bizId 约定为 sys_user.id，无独立业务表行）
+     */
+    private FileRefDTO buildAvatarRefDTO(String fileId, Long userId) {
+        FileRefDTO ref = new FileRefDTO();
+        ref.setFileId(fileId);
+        ref.setBizType(BIZ_TYPE_AVATAR);
+        ref.setBizId(userId);
+        ref.setOwnerId(userId);
+        return ref;
     }
 
 

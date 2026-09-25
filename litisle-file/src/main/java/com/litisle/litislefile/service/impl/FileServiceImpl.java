@@ -351,6 +351,28 @@ public class FileServiceImpl implements FileService {
     }
 
     /**
+     * 内部元数据查询（仅服务间 Feign 提供，不走登录态/脱敏）：返回完整 ownerId 供调用方归属校验；
+     * 不调 SaRoleHelper（Feign 服务端线程无登录会话）
+     */
+    @Override
+    public FileMetaVO getInternalMeta(String fileId) {
+        // 查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
+        FileMeta meta = getMetaOrThrow(fileId);
+        return FileMetaVO.builder()
+                .fileId(meta.getFileId())
+                .ownerId(meta.getOwnerId())
+                .bizType(meta.getBizType())
+                .access(meta.getAccess())
+                .mime(meta.getMime())
+                .size(meta.getSize())
+                .width(meta.getWidth())
+                .height(meta.getHeight())
+                .align(meta.getAlign())
+                .createTime(meta.getCreateTime())
+                .build();
+    }
+
+    /**
      * 缩略图 URL：功能开关 + 图片类型校验 → w/h 空取 yml 默认、越界拒绝 → 按需生成/复用派生 key（不落库）→ 拼公开直链
      */
     @Override

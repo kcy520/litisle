@@ -1,6 +1,7 @@
 package com.litisle.litisleapi.config;
 
 import com.litisle.litisleapi.fallback.AuthClientFallbackFactory;
+import com.litisle.litisleapi.fallback.FileClientFallbackFactory;
 import com.litisle.litisleapi.fallback.UserClientFallbackFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -65,5 +66,11 @@ public class FeignFallbackAutoConfiguration {
     @ConditionalOnMissingBean
     public AuthClientFallbackFactory authClientFallbackFactory() {
         return new AuthClientFallbackFactory();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public FileClientFallbackFactory fileClientFallbackFactory() {
+        return new FileClientFallbackFactory();
     }
 }

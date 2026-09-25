@@ -67,6 +67,14 @@ public interface FileService {
     FileMetaVO getMeta(String fileId, Long operatorId);
 
     /**
+     * 内部元数据查询（仅服务间 Feign 提供，不走登录态/脱敏）
+     * <p>返回完整 ownerId 供调用方做归属校验（如 user 设置头像前校验 file_meta.owner_id）。
+     * 与 getMeta 的区别：getMeta 面向外部用户需脱敏防枚举；本方法仅 /api/feign 路径可达（网关未路由），
+     * 无对外暴露面
+     */
+    FileMetaVO getInternalMeta(String fileId);
+
+    /**
      * 缩略图 URL（w/h 空取 yml 默认 300×300；路径派生不落库，按需生成）
      */
     ThumbnailVO getThumbnail(String fileId, Integer width, Integer height);

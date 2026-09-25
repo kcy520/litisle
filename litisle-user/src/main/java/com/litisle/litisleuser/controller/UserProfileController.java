@@ -7,6 +7,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.commonsecurity.audit.AuditLog;
 import com.litisle.commonredis.ratelimit.RateLimiter;
 import com.litisle.litisleuser.constant.UserLimitConstant;
+import com.litisle.litisleuser.domain.dto.AvatarUpdateDTO;
 import com.litisle.litisleuser.domain.dto.BindEmailDTO;
 import com.litisle.litisleuser.domain.dto.UpdateEmailDTO;
 import com.litisle.litisleuser.domain.dto.UserProfileUpdateDTO;
@@ -66,6 +67,19 @@ public class UserProfileController {
         return Result.success(userUpdateProfileVO);
     }
 
+    /**
+     * 设置头像（P0：file_ref 引用登记链路）
+     * <p>文件上传走文件服务（POST /api/file/upload，bizType=AVATAR），本接口凭返回的 fileId 绑定头像；
+     * 服务层完成归属校验 + 旧头像解绑 + 新头像绑定引用 + 更新 sys_user.avatar_file_id
+     */
+    @Operation(summary = "设置头像", description = "凭上传接口返回的 fileId 绑定头像；仅限本人上传的 AVATAR 类型文件；旧头像自动解绑引用，防秒传共享文件被误删")
+    @PostMapping("/avatar")
+    public Result<Void> updateAvatar(@Valid @RequestBody AvatarUpdateDTO dto) {
+        userProfileService.updateAvatar(dto);
+        return Result.success();
+    }
+
+//    ---------建议删除此注释（上方真实接口已取代本占位代码）
 //    /**
 //     * 上传/更新头像
 //     * 文件实际上传可以到文件服务，user 模块只保存 SeaweedFS 返回的 file id/url

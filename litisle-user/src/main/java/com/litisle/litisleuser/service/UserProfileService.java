@@ -43,6 +43,16 @@ public interface UserProfileService extends IService<UserProfile> {
      */
     UserUpdateProfileVO updateCurrentUserProfile(@Valid UserProfileUpdateDTO dto);
 
+    /**
+     * 设置头像（file_ref 引用登记链路，方案C）
+     * <p>① 归属校验：file_meta.owner_id == 当前登录人（防挂他人文件）且须为 AVATAR 类型；
+     * ② 旧头像 unbindRef；③ 新头像 bindRef；④ 更新 sys_user.avatar_file_id。
+     * 引用登记经 FileClient（Feign）调 file 服务，与业务表同事务（Seata AT 接入后升级 @GlobalTransactional）
+     *
+     * @param dto 头像文件ID
+     */
+    void updateAvatar(@Valid AvatarUpdateDTO dto);
+
     /* ================= 邮箱绑定 / 更换（双码校验，跨模块验验证码） ================= */
 
     /**
