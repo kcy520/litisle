@@ -26,6 +26,9 @@ public class FileClientFallbackFactory implements FallbackFactory<FileClient> {
     public FileClient create(Throwable cause) {
         return new FileClient() {
 
+            // fail-fast（快速失败）是一种容错设计策略
+            // 一旦检测到异常或不可接受的降级结果，立即抛出异常、终止当前流程，而不是返回一个“看起来正常”的默认值或静默成功。
+
             /**
              * 归属校验读操作同样 fail-fast：降级返回 null 会让调用方误判"文件不存在"或绕过校验
              */

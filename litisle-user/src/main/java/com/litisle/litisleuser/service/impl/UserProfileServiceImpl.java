@@ -434,8 +434,8 @@ public class UserProfileServiceImpl
      * <p>前置：前端先调文件服务上传（bizType=AVATAR）拿到 fileId，再调本接口绑定。
      * 流程：① 归属校验 → ② 旧头像解绑 → ③ 新头像绑定 → ④ 更新 sys_user.avatar_file_id
      */
-    @Override
     @Transactional(rollbackFor = Exception.class)
+    @Override
     public void updateAvatar(AvatarUpdateDTO dto) {
         Long userId = StpUtil.getLoginIdAsLong();
         String newFileId = dto.getAvatarFileId();
@@ -463,6 +463,7 @@ public class UserProfileServiceImpl
         if (oldUser == null) {
             throw new BizException(ErrorCode.USER_NOT_EXIST_OR_CANCELLED);
         }
+
         String oldFileId = oldUser.getAvatarFileId();
         if (oldFileId != null && !oldFileId.equals(newFileId)) {
             try {

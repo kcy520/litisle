@@ -4,6 +4,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.config.FeignApiConfig;
 import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litisleapi.dto.file.FileRefDTO;
+import com.litisle.litisleapi.fallback.FileClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -53,4 +54,5 @@ public interface FileClient {
      */
     @PostMapping("/api/feign/file/ref/unbind")
     Result<Void> unbindRef(@RequestBody FileRefDTO dto);
+
 }

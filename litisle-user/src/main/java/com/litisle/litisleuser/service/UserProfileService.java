@@ -1,6 +1,7 @@
 package com.litisle.litisleuser.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.litisle.litisleuser.domain.dto.AvatarUpdateDTO;
 import com.litisle.litisleuser.domain.dto.UserProfileUpdateDTO;
 import com.litisle.litisleuser.domain.dto.BindEmailDTO;
 import com.litisle.litisleuser.domain.dto.UpdateEmailDTO;
@@ -9,6 +10,7 @@ import com.litisle.litisleuser.domain.vo.UserPublicVO;
 import com.litisle.litisleuser.domain.vo.UserSelfVO;
 import com.litisle.litisleuser.domain.vo.UserUpdateProfileVO;
 import jakarta.validation.Valid;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface UserProfileService extends IService<UserProfile> {
 
@@ -74,6 +76,9 @@ public interface UserProfileService extends IService<UserProfile> {
     void updateEmail(@Valid UpdateEmailDTO dto);
 
     /* ================= 本人敏感信息（明文） ================= */
+
+    @Transactional(rollbackFor = Exception.class)
+    void updateAvatar(AvatarUpdateDTO dto);
 
     /**
      * 查看本人手机号（明文）

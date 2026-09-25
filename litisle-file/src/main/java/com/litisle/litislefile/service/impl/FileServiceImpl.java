@@ -606,6 +606,7 @@ public class FileServiceImpl implements FileService {
         log.info("文件软删完成（无活跃引用），fileId={}，operatorId={}", fileId, operatorId);
     }
 
+
     /** fileId 查活跃元数据（del_flag=0），不存在抛 FILE_NOT_FOUND */
     private FileMeta getMetaOrThrow(String fileId) {
         FileMeta meta = fileMetaMapper.selectOne(new LambdaQueryWrapper<FileMeta>()

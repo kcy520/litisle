@@ -57,6 +57,10 @@ Seata Server 已在 compose.yaml 部署。updateAvatar 跨服务一致性当前�
   调用侧降级为 warn 日志不阻断换头像
 - [ ] FileController 类注释"引用登记无 REST 入口：业务方经编译期依赖 FileService"已过时
   （现另有 /api/feign/file 端点），需同步更新注释口径
+- [ ] UserAdminService 接口上的类级 @Transactional 下沉到 UserAdminServiceImpl 的写方法：
+  Spring Boot 默认 CGLIB 代理下接口注解不随实现传递，当前属碰巧生效（踩在 proxy-target-class
+  默认值上）；且类级粒度会让读方法（page/detail）也白开事务占连接。参照
+  UserProfileServiceImpl 的实现类方法级写法统一
 
 ## 本次已修复（2026-09-25，litisle-file 排查会话）
 
