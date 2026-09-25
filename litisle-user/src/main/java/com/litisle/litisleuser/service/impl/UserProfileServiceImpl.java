@@ -32,6 +32,7 @@ import com.litisle.litisleuser.service.UserProfileService;
 import com.litisle.litisleuser.utils.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -434,6 +435,7 @@ public class UserProfileServiceImpl
      * <p>前置：前端先调文件服务上传（bizType=AVATAR）拿到 fileId，再调本接口绑定。
      * 流程：① 归属校验 → ② 旧头像解绑 → ③ 新头像绑定 → ④ 更新 sys_user.avatar_file_id
      */
+    @GlobalTransactional(rollbackFor = Exception.class)
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void updateAvatar(AvatarUpdateDTO dto) {
@@ -483,9 +485,9 @@ public class UserProfileServiceImpl
         }
 
         // ===== ④ 更新 sys_user.avatar_file_id（与业务表同事务） =====
-        // 【Seata 待接入】①~④ 跨服务强一致依赖 Seata AT（litisle_file 库 undo_log 已建，应用侧未接入）：
-        // 接入后本方法 @Transactional 升级为 @GlobalTransactional，③④ 之间失败可整体回滚；
-        // 当前取舍：③ 失败仅残留旧头像解绑（②为尽力而为，无实害），④ 本地回滚由 @Transactional 保证
+        // Seata AT 已接入（本方法 @GlobalTransactional 发起全局事务，file 服务分支事务参与）：
+        // ③④ 之间失败时全局回滚，file 库/user 库分支事务一并撤销；
+        // ② 旧头像解绑仍为尽力而为（内部 try-catch 吞掉异常，不触发全局回滚，无实害）
         new LambdaUpdateChainWrapper<>(userMapper)
                 .eq(User::getId, userId)
                 .set(User::getAvatarFileId, newFileId)

@@ -37,9 +37,15 @@
 Seata Server 已在 compose.yaml 部署。updateAvatar 跨服务一致性当前由
 @Transactional（本地）+ bind fail-fast + unbind 尽力而为兑底，③④ 之间失败会残留解绑。
 
-- [ ] litisle-user / litisle-file pom 加 spring-cloud-starter-alibaba-seata
-- [ ] yml（Nacos 共享模板）：seata.tx-service-group + vgroup-mapping + registry 指向 Nacos
-- [ ] updateAvatar 的 @Transactional 升级 @GlobalTransactional，验收 ③ 失败整体回滚
+- [x] litisle-user / litisle-file pom 加 spring-cloud-starter-alibaba-seata（版本由父 POM
+  spring-cloud-alibaba-dependencies 2025.0.0.0 BOM 托管；user=发起方，file=分支参与者，
+  数据源自动代理后 XID 随 Feign 请求头传播）
+- [x] yml 配置（已备好片段，待粘贴到 Nacos 共享模板 litisle-shared.yaml）：
+  tx-service-group=litisle\_tx-group + vgroup-mapping 映射 TC 集群 default + registry
+  指向 Nacos（复用 litisle.nacos.* 占位符，环境特定值仍在本地 yml）
+- [x] updateAvatar 升级 @GlobalTransactional（保留 @Transactional 保证本地写原子性，
+  rollbackFor=Exception.class）；Seata 待接入注释已同步更新；
+  验收③失败整体回滚待两服务联测（与 P0 验收同场执行）
 
 ### P1：对账任务健壮性
 
@@ -55,12 +61,13 @@ Seata Server 已在 compose.yaml 部署。updateAvatar 跨服务一致性当前�
 - [x] updateAvatar 旧头像解绑为尽力而为：unbindRef 前置 getMetaOrThrow，旧文件已被物理清理
   时抛 FILE\_NOT\_FOUND，引用行无法解绑——残留行无实害（对账物理清理有"仍有引用则跳过"兑底），
   调用侧降级为 warn 日志不阻断换头像
-- [ ] FileController 类注释"引用登记无 REST 入口：业务方经编译期依赖 FileService"已过时
-  （现另有 /api/feign/file 端点），需同步更新注释口径
-- [ ] UserAdminService 接口上的类级 @Transactional 下沉到 UserAdminServiceImpl 的写方法：
+- [x] FileController 类注释"引用登记无 REST 入口：业务方经编译期依赖 FileService"已过时
+  （现另有 /api/feign/file 端点），需同步更新注释口径——已同步为 Feign 入口现状
+- [x] UserAdminService 接口上的类级 @Transactional 下沉到 UserAdminServiceImpl 的写方法：
   Spring Boot 默认 CGLIB 代理下接口注解不随实现传递，当前属碰巧生效（踩在 proxy-target-class
-  默认值上）；且类级粒度会让读方法（page/detail）也白开事务占连接。参照
-  UserProfileServiceImpl 的实现类方法级写法统一
+  默认值上）；且类级粒度会让读方法（page/detail）也白开事务占连接。已下沉：接口删注解（javadoc
+  记录决策），实现类 changeStatus/addRoles/removeRoles/logicDeleteUserByAdmin 四写方法补
+  @Transactional(rollbackFor = Exception.class)，读方法不开事务
 
 ## 本次已修复（2026-09-25，litisle-file 排查会话）
 

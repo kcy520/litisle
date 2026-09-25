@@ -5,7 +5,6 @@ import com.litisle.litisleuser.domain.dto.UserQueryDTO;
 import com.litisle.litisleuser.domain.dto.UserStatusChangeDTO;
 import com.litisle.litisleuser.domain.vo.UserAdminDetailVO;
 import com.litisle.litisleuser.domain.vo.UserAdminVO;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -14,10 +13,12 @@ import java.util.List;
  * <p>
  * 面向 ADMIN / SUPER_ADMIN，提供用户查询、资料维护、状态管控、角色分配、VIP 管理与注销等能力。
  * 与前台用户资料接口物理隔离，敏感字段（手机号/邮箱明文）查看请走 UserSensitiveService。
+ * 【事务规范】接口上不放 @Transactional：Spring Boot 默认 CGLIB 代理下接口注解不被识别
+ * （属碰巧生效），且类级粒度会让 page/detail 读方法也白开事务占连接——事务下沉到
+ * UserAdminServiceImpl 的写方法（参照 UserProfileServiceImpl 方法级写法）
  *
  * @author litisle
  */
-@Transactional(rollbackFor = Exception.class)
 public interface UserAdminService {
 
     /**

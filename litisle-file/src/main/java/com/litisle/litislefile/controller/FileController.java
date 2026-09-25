@@ -41,7 +41,8 @@ import static com.litisle.litislefile.constant.FileLimitConstant.*;
  *   预签名 URL 本质是可传播凭证，入口必须收紧（否则任意登录用户可拿 URL 转发，见审查表 #6）
  * - expireMinutes 必须校验 ≤ 配置上限（presign-expire-minutes），防传 99999 绕过 LICENSE 限时
  * - MIME 白名单按 bizType 区分：图片类限 image/jpeg|png|webp|gif；LICENSE 放开授权文件类型
- * - 引用登记无 REST 入口：业务方经编译期依赖 FileService.bindRef/unbindRef 与业务表同事务登记
+ * - 引用登记入口（P0 已落地）：跨服务业务方经 FileClient（Feign，/api/feign/file/ref/bind|unbind，
+ *   FileFeignProviderController 提供）与业务表同事务登记；路径前缀网关未路由，仅服务间可达
  *   （file_ref 引用登记，方案C——秒传共享防悬空，见 Sql-Document §八 / seaweedfs笔记.md §3.4）
  * - 所有返回 Result<T>；错误码见 File-Architecture.md §六
  * - presign/DELETE 需校验 owner 或 ADMIN，否则 BizException(NO_PERMISSION)

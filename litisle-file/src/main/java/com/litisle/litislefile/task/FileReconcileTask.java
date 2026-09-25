@@ -110,7 +110,8 @@ public class FileReconcileTask {
                             .setUpdateTime(LocalDateTime.now()));
                 }
                 count++;
-            } catch (BizException e) {
+            } catch (Exception e) {
+                // 放宽为 Exception：防 NPE 等非受检异常中断整轮对账（单条失败不影响其余，下一轮自愈）
                 log.error("补偿上传失败，fileId={}，下一轮重试", meta.getFileId(), e);
             }
         }
@@ -152,7 +153,8 @@ public class FileReconcileTask {
                 fileRefMapper.delete(new LambdaQueryWrapper<FileRef>()
                         .eq(FileRef::getFileId, meta.getFileId()));
                 count++;
-            } catch (BizException e) {
+            } catch (Exception e) {
+                // 放宽为 Exception：防非受检异常中断整轮清理（同上，单条失败不影响其余）
                 log.error("物理清理失败，fileId={}，下一轮重试", meta.getFileId(), e);
             }
         }

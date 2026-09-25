@@ -124,6 +124,14 @@
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
         </dependency>
 
+        <!-- Seata AT 分布式事务（版本由父 POM spring-cloud-alibaba-dependencies BOM 托管）：
+             updateAvatar 跨服务引用登记链路发起方（@GlobalTransactional），
+             引入后数据源自动代理，本地写库自动注册为分支事务（undo_log 需已建） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-seata</artifactId>
+        </dependency>
+
         <!--API 文档  增强的 Swagger UI 界面-->
         <!-- 子工程 server 内：同步修改 -->
         <dependency>

@@ -29,6 +29,7 @@ import com.litisle.litisleuser.enums.UserCancelSource;
 import com.litisle.litisleapi.feign.AuthClient;
 import com.litisle.litisleuser.service.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -42,7 +43,8 @@ import static com.litisle.litisleuser.constant.UserInfoConstant.DEFAULT_BAN_DAYS
  * 后台管理员 - 用户管理业务实现
  * <p>
  * 通过组合 UserService/RoleService/UserRoleService/UserProfileService 完成跨表聚合操作，
- * 对目标用户做等级/状态前置校验，防止越权提权；写操作统一由上层事务回滚。
+ * 对目标用户做等级/状态前置校验，防止越权提权；写操作方法级 @Transactional 保证原子性
+ * （事务由接口下沉至此，见 UserAdminService javadoc）
  *
  * @author litisle
  */
@@ -231,6 +233,7 @@ public class UserAdminServiceImpl implements UserAdminService {
      * 变更用户状态（启用/禁用）。禁用（封号）可选给定到期时间，并将吸附到每日 03:00 粒度。
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void changeStatus(Long userId, UserStatusChangeDTO dto) {
         // 【实现思路】
         // 1. 查询目标用户，前置校验：不存在抛 USER_NOT_FOUND；已注销不允许再变更
@@ -347,6 +350,7 @@ public class UserAdminServiceImpl implements UserAdminService {
      * 添加用户角色（增量）
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void addRoles(Long userId, List<String> roleCodes) {
         // 入参校验：非空 + distinct() 去重 + RoleCodeEnum.exists() 逐项校验，非法编码抛 PARAM_ERROR。
         // 目标用户校验：复用 getExistingUser；已注销抛 USER_NOT_FOUND。
@@ -411,6 +415,7 @@ public class UserAdminServiceImpl implements UserAdminService {
      * 移除用户角色（增量）
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void removeRoles(Long userId, List<String> roleCodes) {
         
         // 1.入参校验：与 addRoles 相同。
@@ -478,6 +483,7 @@ public class UserAdminServiceImpl implements UserAdminService {
      * 注销用户
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void logicDeleteUserByAdmin(Long userId) {
         // 1. 查询目标用户并校验：不存在抛 USER_NOT_FOUND；已注销则幂等返回，避免重复产生日志
         User user = userService.getExistingUser(userId);

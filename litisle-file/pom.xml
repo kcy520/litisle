@@ -120,6 +120,14 @@
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
         </dependency>
 
+        <!-- Seata AT 分布式事务（版本由父 POM spring-cloud-alibaba-dependencies BOM 托管）：
+             bindRef/unbindRef 作为全局事务分支参与者，数据源自动代理后 XID 传播到本服务写库，
+             发起方回滚时本库分支一并回滚（litisle_file 库 undo_log 已建） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-seata</artifactId>
+        </dependency>
+
         <!-- api 模块：对外提供的 Feign 接口定义与公共 DTO -->
         <dependency>
             <groupId>com.litisle</groupId>
