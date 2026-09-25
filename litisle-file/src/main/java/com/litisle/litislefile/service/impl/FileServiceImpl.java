@@ -61,7 +61,7 @@ import java.util.stream.Collectors;
  *    命中 → 直接返回已有 fileId + deduplicated=true（秒传，不落 SeaweedFS）
  *    ⚠️ 命中记录可能是 status=0 在途记录（S3 尚未传完，短暂 404）：已知取舍，
  *    put 秒级完成 + 调用方重试自愈；面试/评审口径见笔记 §3.4.6
- * 4. 未命中 → Redisson 分布式锁 biz:file:sha:{hash}，leaseTime=10s + 看门狗自动续期（防实例宕机死锁）
+ * 4. 未命中 → Redisson 分布式锁 biz:file:sha:{hash}，leaseTime=5s 自动释放（临界区仅查库+写库，5s 足够）
  *    拿锁后双重检查（防等锁期间其他线程已写入）
  * 5. 锁内临界区（只包「查 DB + 写 DB」，不包 IO）：
  *    生成 fileId = UUID（无连字符，32 位十六进制），path = {yyyy/MM/dd}/{fileId}.{ext}
@@ -157,7 +157,7 @@ public class FileServiceImpl implements FileService {
             return buildUploadVO(exist, true);
         }
 
-        // 步骤4：Redisson 分布式锁（leaseTime=-1 启用看门狗自动续期，防实例宕机死锁）
+        // 步骤4：Redisson 分布式锁（leaseTime=5s 自动释放，无看门狗续期；临界区仅查库+写库足够）
         boolean locked = distributedLock.tryLock(DEDUP_LOCK_KEY_PREFIX + sha256, 5, TimeUnit.SECONDS);
         if (!locked) {
             log.warn("秒传判重锁竞争失败，sha256={}，bizType={}", sha256, bizType);
@@ -187,6 +187,7 @@ public class FileServiceImpl implements FileService {
                     .setPath(path)
                     .setMime(mime)
                     .setSize(size)
+                    .setSha256(sha256)
                     // access 由 bizType 决定：LICENSE 强制 PRIVATE（服务层覆盖，default 仅兑底）
                     .setAccess(resolveAccess(bizType))
                     .setStatus(UploadStatusEnum.UPLOADING)
@@ -356,6 +357,11 @@ public class FileServiceImpl implements FileService {
     public ThumbnailVO getThumbnail(String fileId, Integer width, Integer height) {
         // 查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
         FileMeta meta = getMetaOrThrow(fileId);
+        // PRIVATE（LICENSE）拒绝缩略图：预签名 URL 是私有文件唯一出口，
+        // 缩略图走公开直链会绕过 owner/ADMIN 校验泄露私有文件（纵深防御，口径与 getUrl/presign 统一）
+        if (meta.getAccess() == AccessLevelEnum.PRIVATE) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "私有文件不支持缩略图");
+        }
         if (!fileProperties.getThumbnail().isEnabled()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "缩略图功能未开启");
         }

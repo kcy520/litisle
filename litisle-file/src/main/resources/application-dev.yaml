@@ -37,3 +37,5 @@ litisle:
   seaweed:
     host: litisle-seaweedfs
     s3-port: 8333
+    # Filer HTTP 端口（公开直链拼接用，容器间同端口 8888）
+    filer-port: 8888

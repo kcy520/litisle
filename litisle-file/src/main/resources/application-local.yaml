@@ -48,3 +48,5 @@ litisle:
   seaweed:
     host: localhost
     s3-port: 8333
+    # Filer HTTP 端口（公开直链拼接用，与 compose 端口映射 8888 一致）
+    filer-port: 8888

@@ -110,9 +110,12 @@ litisle:
       # ⚠️ SDK 内部地址：上传/删除/预签名用，不等于给前端的公开直链地址
       endpoint: http://${litisle.seaweed.host:localhost}:${litisle.seaweed.s3-port:8333}
       # 公开直链拼接基址（给前端用）
-      # dev 阶段 = endpoint（同一个 8333）；接 CDN 后改为 CDN 域名（如 https://img.litisle.com）
-      # 详见 AccessLevelEnum / FileProperties 设计说明
-      public-url-base: http://${litisle.seaweed.host:localhost}:${litisle.seaweed.s3-port:8333}
+      # ⚠️ 必须指向 Filer HTTP 端口（默认 8888）而非 S3 网关（8333）：
+      #   S3 端口要求 SigV4 签名，浏览器匿名 GET 会 403；Filer 天然支持匿名 GET
+      # ⚠️ Filer 侧 S3 桶统一挂在 /buckets/ 目录下，故基址须含 /buckets 前缀：
+      #   完整直链 = {public-url-base}/{bucket}/{path} = .../buckets/avatar/2026/09/25/xxx.jpg
+      # 接 CDN 后改为 CDN 域名（如 https://img.litisle.com，回源同理指向 Filer /buckets）
+      public-url-base: http://${litisle.seaweed.host:localhost}:${litisle.seaweed.filer-port:8888}/buckets
       # S3 访问凭证（与 docker/init/seaweedfs/s3.json 保持一致）
       # s3.json 里写死了 accessKey / secretKey
       # 生产环境通过环境变量 LITISLE_S3_ACCESS_KEY / LITISLE_S3_SECRET_KEY 覆盖
