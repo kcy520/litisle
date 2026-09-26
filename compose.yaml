@@ -150,9 +150,27 @@ services:
     container_name: litisle-seata
     networks:
       - litisle-network
+    # 官方 2.5.0 镜像启动脚本未将 SEATA_IP 转为 JVM 参数（实测进程参数无 -Dseata.ip），
+    # 导致 TC 仍以容器内网 IP（172.x）注册进 Nacos，宿主机客户端不可达。
+    # 【规范做法】不覆盖 entrypoint，交由镜像自带 /seata-server-entrypoint.sh 启动。
+    # 该镜像由 Jib 构建（classes/ + libs/ + jib-classpath-file，无独立 fat jar），
+    # 覆盖为 java -jar 必然失败；注册 IP 按官方文档由环境变量 SEATA_IP 注入（见下方 environment）。
+    # ---------建议删除以下 7 行注释（旧 entrypoint 覆盖方案说明，随本次改造废弃）---------
+    # 此处覆盖 entrypoint：按镜像原始启动参数原样重建，额外注入 -Dseata.ip
+    # （等价于启动脚本对 SEATA_IP 的预期处理，见官方文档 SEATA_IP 说明）
+    # 自动定位主 jar（官方镜像主 jar 在 /seata-server/ 下但路径随版本变动，依赖包在
+    # /seata-server/libs；-Dloader.path=/lib 加载自定义 jdbc 驱动，与原镜像 Dockerfile 对应）
+    # $ 是 compose 转义写法：容器 shell 收到单个 $，由容器内在运行时求值
+    # 用命令替换内联定位主 jar，不引入 shell 变量（compose 只插值美元变量，命令替换原样透传）；
+    # IP 经 compose 从 .env 解析后写入，全程无需双美元转义，规避转义被还原导致的空串问题。
     environment:
       - SEATA_DB_USER=${SEATA_DB_USER}
       - SEATA_DB_PASSWORD=${SEATA_DB_PASSWORD}
+      # TC 注册到 Nacos 的 IP：默认取容器内网 IP（172.x），宿主机上的客户端不可达。
+      # 指定为 Windows 宿主机局域网 IP（.env 中 SEATA_IP 配置，如 192.168.31.x），
+      # 配合 8091 端口映射，客户端经 Nacos 发现后直连宿主机端口（官方 FAQ #31：
+      # TC 与业务服务不同网络时注册地址需指定为 NAT/主机 IP）
+      - SEATA_IP=${SEATA_IP}
     ports:
       - "7091:7091"   # 控制台
       - "8091:8091"   # TC 服务端口

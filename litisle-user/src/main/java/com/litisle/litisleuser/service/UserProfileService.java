@@ -77,9 +77,6 @@ public interface UserProfileService extends IService<UserProfile> {
 
     /* ================= 本人敏感信息（明文） ================= */
 
-    @Transactional(rollbackFor = Exception.class)
-    void updateAvatar(AvatarUpdateDTO dto);
-
     /**
      * 查看本人手机号（明文）
      * <p>
