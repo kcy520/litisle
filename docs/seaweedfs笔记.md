@@ -1687,44 +1687,67 @@ put 成功 → status=1
 
 
 
-> 基于Litisle项目基础
-> The user is asking conceptual questions:
->
-> 1. 企业规范是怎样的？(What's the enterprise standard?)
-> 2. 大文件下载的流程是怎样的？(What's the large file download flow?)
-> 3. 是否考虑了断点续传？(Is resumable/range download considered?)
+> 关联问题：① 企业规范？② 大文件下载流程？③ 是否支持断点续传？
+> 结论先行：**上传走分片（Multipart），下载走 Range 断点续传**，两者对称，均落在对象存储/CDN 侧。
+
+#### 一、企业规范：大文件"直连"，不是"服务端中转"
+
+| 范式 | 做法 | 适用 |
+| --- | --- | --- |
+| **直连**（主流） | 服务端只签发带时效的**预签名 URL**；客户端**直连对象存储/CDN** 拉取 | 大文件、高并发 |
+| **代理** | 文件流经服务端边读边转发（`StreamingResponseBody`） | 必须经服务端鉴权/审计/脱敏/水印/防直链，且流量可控 |
+
+选直连的三个硬理由：① 不占服务端带宽与线程（代理大文件会打满连接池/内存）；② 断点续传、并发分片由对象存储/CDN **原生提供**，服务端零成本；③ 可无缝接 CDN（CDN 回源只认对象存储，代理模式无法缓存加速）。
+
+**对称性**：大文件**上传**规范是**分片上传（Multipart Upload）**，**下载**是 **Range 断点续传**。
 
 
 
 
 
-#### **大文件下载的企业规范（结论）**：
+#### 二、大文件下载的标准流程
 
-> 服务端**不代理文件流**；下载走「客户端直连对象存储/CDN」，服务端只签发**带有效期的预签名 URL** 并做鉴权；断点续传由 **HTTP Range** 在对象存储/CDN 侧完成。
+```
+① 客户端请求下载 fileId
+② 服务端鉴权 → 签发短时效 presign（PRIVATE）或返回公开直链（PUBLIC）
+③ 客户端 HEAD 探测：size / Accept-Ranges / ETag
+④ 分块拉取（可并发多个 Range 分片加速）
+⑤ 中断 → 读本地已下载字节数 offset → 发 Range: bytes=offset-
+⑥ 收到 206 续传；完成 → 校验 size/ETag
+```
+关键：**③~⑥ 全部发生在客户端 ↔ 对象存储之间，服务端不参与。**
 
-Three reasons: 带宽成本、可扩展性、Range 原生支持。
+#### 三、断点续传的协议机制（HTTP Range）
 
-**何时才用服务端代理流式**：必须经过服务端做鉴权/审计/脱敏/水印/防直链（如付费内容、涉密文档），且文件不大或流量可控时。
+断点续传不是应用层功能，而是 HTTP 协议能力：
 
-**大文件上传**的企业规范是分片上传（multipart），下载是 Range 断点续传——两者对称。
+```
+请求：  Range: bytes=1048576-      ← 从第 1MB 续传
+响应：  206 Partial Content
+        Content-Range: bytes 1048576-8388607/8388608
+        Accept-Ranges: bytes
+        ETag: "abc123"              ← 防止续传期间文件被替换
+```
+服务器**不支持 Range** 时返回 `200` + 全量，客户端须回退重下（先看 `Accept-Ranges`）。
 
-Now let me write.
-For the download flow:
+**两套范式下的实现差异（关键取舍）**：
 
-1. 客户端发起下载意图 → 服务端鉴权（是否可下载该 fileId）
-2. 服务端签发预签名 URL（短有效期）或返回直链（PUBLIC）
-3. 客户端 HEAD/GET 获取元数据（size、Accept-Ranges、ETag）
-4. 分块下载（并发 Range 分片）或顺序下载
-5. 中断后：读取本地已下载字节数 offset → 发 `Range: bytes=offset-` → 收 `206` 续传
-6. 全部完成 → 校验 size/ETag
+| | 直连范式 | 代理范式 |
+| --- | --- | --- |
+| 断点续传 | 对象存储/CDN **原生支持，服务端零代码** | 服务端**必须自己实现**：解析 `Range` → 透传 S3 → 回写 `206` + `Content-Range`，否则失效 |
 
-Range 响应头：
+#### 四、落到 Litisle 项目现状（2026-09 核实）
 
-- 请求：`Range: bytes=0-1023`
-- 响应：`206 Partial Content`, `Content-Range: bytes 0-1023/12345678`, `Accept-Ranges: bytes`, `ETag`
-- 不支持 Range 的服务器返回 `200` + 全量（客户端需回退）
+| 能力 | 上传侧 | 下载侧 |
+| --- | --- | --- |
+| 断点续传 | ❌ 无 | ✅ 有 |
+| 分片/Multipart | ❌ 无（整份一次 PUT） | — |
+| 大小上限 | **10MB**（Servlet + Service 双层拦截） | 无 |
+| 实现 | — | `GET /api/file/{fileId}/download`：手写 Range（200/206/416）+ `Accept-Ranges`/`Content-Range`/`ETag`/`If-Range` |
 
-Let me write it now. And end with the design question re-framed.
+- **上传**：定位 ≤10MB（头像/封面/授权文件），整份读入内存一次 `put`，超限抛 `FILE_SIZE_EXCEEDED`；中断只能整份重传，靠"锁内占位 status=0 + 对账任务"兜底。
+- **下载**：**双范式并存**——默认直连（PUBLIC 直链 / PRIVATE presign，断点续传由 SeaweedFS 原生支持）；另提供服务端流式代理端点（方案A），Range 由服务端手写透传。
+- **待办**：支持"大文件上传断点续传"需引入 **S3 原生 Multipart Upload**（`CreateMultipartUpload`/`UploadPart`/`CompleteMultipartUpload`），按 part 记录进度、只补传缺失 part；**不可用 Redis 存分片内容**（见 `next_update.md`）。
 
 Actually, I want to make sure I answer "是否考虑了断点续传" for THIS project. Answer: 当前项目走直连（presign/直链），断点续传由 SeaweedFS S3 网关的 Range 能力天然支持，服务端无需额外实现——前提是客户端发 Range 头。但**若做成服务端代理端点（方案A），则必须自己实现 Range 透传**，否则断点续传失效。这是一个重要取舍点。
 

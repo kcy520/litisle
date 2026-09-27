@@ -2,10 +2,12 @@ package com.litisle.litislefile.client;
 
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -13,12 +15,14 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * SeaweedFS S3 客户端封装。
@@ -38,10 +42,14 @@ import java.util.List;
  *    - 签名算法：SigV4，Region 可任意填写（如 us-east-1），SeaweedFS 不校验 Region
  *    - S3Presigner：使用相同 endpoint 和凭证单独构建，专用于生成预签名 URL
  * <p>
- * 2. put（上传文件）
- *    - 将 bytes 作为文件上传到指定 bucket/key
- *    - 设置 contentType，调用 PutObjectRequest → putObject
- *    - 异常统一捕获，转换为 BizException(FILE_STORAGE_UNAVAILABLE)，fail-fast 不重试
+ * 2. put（上传文件，两个重载）
+ *    - 将 bytes 作为文件上传到指定 bucket/key，设置 contentType，调用 PutObjectRequest → putObject
+ *    - 4 参：无预置摘要，携带 ChecksumAlgorithm.SHA256 由 SDK 自算下发（缩略图等场景）
+ *    - 5 参：调用方显式传入 SHA256(Base64) 摘要，用 checksumSHA256 下发、SDK 不再自算
+ *      （与 checksumAlgorithm 互斥）；不变量「判重键 == 校验值」显式化，口径唯一
+ *    - 二者均由 S3 网关侧校验内容完整性（存储侧校验），免去上传后回读比对开销
+ *    - 校验失败抛 BizException(FILE_CHECKSUM_MISMATCH)（语义精确 + warn 日志）；
+ *      其余异常转 BizException(FILE_STORAGE_UNAVAILABLE)，fail-fast 不重试
  * <p>
  * 3. get（内部读取对象，非下载端点）
  *    - 通过 bucket/key 读取对象内容，使用 getObjectAsByteArray 返回 byte[]
@@ -68,7 +76,17 @@ import java.util.List;
  *    - 所有 SdkException 均在此层捕获并转换为 BizException
  *    - 避免 AWS SDK 异常类型向业务层泄漏
  */
+@Slf4j
 public class SeaweedFsClient {
+    /**
+     * S3 网关校验失败时返回的 errorCode（内容与 x-amz-checksum-sha256 不符），统一小写做精确匹配；
+     * 避免 contains 子串匹配误伤（如任意含 sha256 字样的错误码）。
+     * ✅ 已实测定稿（2026-09-27）：SeaweedFS S3 网关【会校验】该头——摘要不符返回 400 + errorCode=BadDigest
+     * （message 文案沿用 Content-Md5，但 errorCode 即此值），对象被拒绝写入；正确摘要 200 通过。
+     */
+    private static final Set<String> CHECKSUM_MISMATCH_CODES =
+            Set.of("baddigest");
+
     private final S3Client s3;           // endpoint 指向 http://localhost:8333 ，pathStyleAccess=true
     private final S3Presigner presigner; // 预签名专用
 
@@ -84,23 +102,63 @@ public class SeaweedFsClient {
     }
 
     /**
-     * 上传文件（同 key 覆盖，幂等——秒传并发/缩略图重复生成都依赖此特性）
-     * <p>SdkException 统一转 BizException(FILE_STORAGE_UNAVAILABLE)，fail-fast 不重试；
+     * 上传文件（4 参重载，同 key 覆盖、幂等——秒传并发/缩略图重复生成都依赖此特性）
+     * <p>无预置摘要时携带 ChecksumAlgorithm.SHA256，由 SDK 自算并交 S3 网关侧校验（存储侧校验）；
+     * 需摘要来源唯一的上传链路请用 5 参重载显式传入 SHA256(Base64)</p>
+     * <p>失败语义见 5 参重载：校验失败 FILE_CHECKSUM_MISMATCH，其余 FILE_STORAGE_UNAVAILABLE；
      * 上传链路中 put 失败后 DB 保留 status=0，由对账任务补偿</p>
      */
     public void put(String bucket, String key, byte[] bytes, String contentType) {
+        // 摘要为 null：退回由 SDK 自算 SHA256（checksumAlgorithm），兼容缩略图等无预置摘要的调用方
+        put(bucket, key, bytes, contentType, null);
+    }
+
+    /**
+     * 上传文件（5 参重载，显式携带调用方预计算的 SHA256 Base64 摘要，摘要来源唯一）
+     * <p>传入 checksumSha256Base64 时用 checksumSHA256 显式下发，SDK 不再重复计算；
+     * 与 checksumAlgorithm 互斥，二者不可同时设置。
+     * 不变量「判重键(sha256 hex) == 校验值(SHA256 Base64)」由隐式转为显式，口径唯一。</p>
+     * <p>校验失败（网关比对不符）抛 BizException(FILE_CHECKSUM_MISMATCH) 并打 warn 日志，
+     * 与「存储不可用」分离；其余 SdkException 转 FILE_STORAGE_UNAVAILABLE，fail-fast 不重试</p>
+     */
+    public void put(String bucket, String key, byte[] bytes, String contentType, String checksumSha256Base64) {
+        // 构建 PutObjectRequest：指定目标桶、对象 key 和 Content-Type（便于浏览器/下载时正确识别类型）
+        PutObjectRequest.Builder builder = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .contentType(contentType);
+        if (checksumSha256Base64 != null && !checksumSha256Base64.isBlank()) {
+            // 显式下发调用方摘要（SDK 不再自算，避免 Service 与 SDK 重复计算、摘要来源不唯一）
+            builder.checksumSHA256(checksumSha256Base64);
+        } else {
+            // 无预置摘要：声明校验算法，由 SDK 计算 SHA256 随请求下发，S3 网关侧校验
+            builder.checksumAlgorithm(ChecksumAlgorithm.SHA256);
+        }
         try {
-            // 构建 PutObjectRequest：指定目标桶、对象 key 和 Content-Type（便于浏览器/下载时正确识别类型）
-            PutObjectRequest request = PutObjectRequest.builder()
-                    .bucket(bucket)
-                    .key(key)
-                    .contentType(contentType)
-                    .build();
             // 同 key 上传会直接覆盖旧对象（S3 语义），因此天然幂等
-            s3.putObject(request, RequestBody.fromBytes(bytes));
+            s3.putObject(builder.build(), RequestBody.fromBytes(bytes));
+        } catch (S3Exception e) {
+            if (isChecksumMismatch(e)) {
+                log.warn("文件内容校验失败（存储侧 SHA256 比对不符），bucket={}，key={}，size={}",
+                        bucket, key, bytes.length);
+                throw new BizException(ErrorCode.FILE_CHECKSUM_MISMATCH, e);
+            }
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
         } catch (SdkException e) {
             throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
         }
+    }
+
+    /**
+     * 判定 S3Exception 是否属于「内容校验失败」：与已知校验错误码集合精确匹配（忽略大小写），
+     * 而非子串匹配，避免误伤其它错误；集合取值见 {@link #CHECKSUM_MISMATCH_CODES}
+     */
+    private boolean isChecksumMismatch(S3Exception e) {
+        String code = e.awsErrorDetails() == null ? null : e.awsErrorDetails().errorCode();
+        if (code == null) {
+            return false;
+        }
+        return CHECKSUM_MISMATCH_CODES.contains(code.toLowerCase());
     }
 
     /**

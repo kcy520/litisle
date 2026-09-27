@@ -184,6 +184,7 @@ public class FileServiceImpl implements FileService {
             String path = LocalDate.now().format(PATH_DATE_FORMAT)
                     + "/" + fileId + "." + resolveExt(file.getOriginalFilename());
 
+            //插入数据库
             meta = new FileMeta()
                     .setFileId(fileId)
                     .setOwnerId(ownerId)
@@ -200,13 +201,32 @@ public class FileServiceImpl implements FileService {
                     .setCreateTime(LocalDateTime.now())
                     .setUpdateTime(LocalDateTime.now());
             fileMetaMapper.insert(meta);
+
         } finally {
             // 步骤6：释放锁
             distributedLock.unlock(DEDUP_LOCK_KEY_PREFIX + sha256);
         }
+//        步骤1  校验
+//        步骤2  流式算 SHA256 + size
+//        步骤3  无锁快查判重 → 命中直接返回（秒传）
+//        步骤4  拿分布式锁
+//        步骤5  ── 锁内 ── 双检 + 写 DB（status=0 占位）
+//        步骤6  释放锁
+//        步骤7  ── 锁外 ── put 到 SeaweedFS（真正写存储）
+//        步骤8  解析图片宽高
+//        步骤9  ── 锁外 ── update DB（status=1 完成）
+//        步骤10 返回 VO
+        //为什么不在步骤5锁内第一次 insert 的时候就把宽高一起解析了，而是放到锁外单独 update 一次？
+        //因为解析宽高需要拿到文件的完整字节（bytes），而 bytes 是在锁外才通过 file.getBytes() 拿到的。
+        //为什么不把解析宽高放在锁内？
+        //getBytes() 是纯内存 IO + 大对象分配，跟"防并发写 DB"无关，放进锁内只会拉长临界区、增加锁超时风险，而且你省下来的那一次 update 根本不值这个代价。
 
         // 步骤7：锁外 put（幂等，同 key 覆盖无副作用）
         // put 失败抛 BizException(FILE_STORAGE_UNAVAILABLE)，保留 status=0 由对账任务清理
+        
+            // getBytes() 慢，但它不在锁内，所以不阻塞别人。并发下的真正风险是内存，不是速度。解决方案是：流式 put 到 SeaweedFS，彻底干掉 getBytes()。
+            // 但是现在 ：保持`getBytes()` 即可，10MB 无风险；但 建议在注释里明确“该写法依赖 10MB 上限，放宽上限前必须先改流式/分片” ，避免以后有人调大配置踩雷。
+
         byte[] bytes;
         try {
             bytes = file.getBytes();

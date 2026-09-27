@@ -276,7 +276,12 @@ public enum ErrorCode {
     /**
      * 文件存储服务不可用（SeaweedFS 异常）
      */
-    FILE_STORAGE_UNAVAILABLE(90005, "文件存储服务不可用，请稍后重试");
+    FILE_STORAGE_UNAVAILABLE(90005, "文件存储服务不可用，请稍后重试"),
+
+    /**
+     * 文件内容校验失败（存储侧 SHA256 比对不符，内容可能在传输中损坏）
+     */
+    FILE_CHECKSUM_MISMATCH(90006, "文件内容校验失败");
 
 
 
