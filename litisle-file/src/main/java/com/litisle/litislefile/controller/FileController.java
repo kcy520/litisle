@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonredis.ratelimit.RateLimiter;
+import com.litisle.litislefile.domain.dto.FileDownloadResource;
 import com.litisle.litislefile.domain.vo.FileMetaVO;
 import com.litisle.litislefile.domain.vo.FileUploadVO;
 import com.litisle.litislefile.domain.vo.PresignVO;
@@ -12,10 +13,17 @@ import com.litisle.litislefile.enums.BizTypeEnum;
 import com.litisle.litislefile.service.FileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import static com.litisle.litislefile.constant.FileLimitConstant.*;
@@ -28,6 +36,7 @@ import static com.litisle.litislefile.constant.FileLimitConstant.*;
  * | POST   | /upload             | 单文件上传（multipart: file + bizType）      | 登录            |
  * | POST   | /upload/batch       | 批量上传（正文多图，上限 9 张）               | 登录            |
  * | GET    | /{fileId}/url       | 取 URL：PUBLIC→直链；PRIVATE→预签名(30min)   | 登录(PUBLIC)；PRIVATE 需 owner/ADMIN |
+ * | GET    | /{fileId}/download  | 流式代理下载（Range 断点续传，200/206/416）   | 登录(PUBLIC)；PRIVATE 需 owner/ADMIN |
  * | POST   | /{fileId}/presign   | 强制预签名（expireMinutes ≤ 配置上限，二次校验） | owner/ADMIN     |
  * | GET    | /{fileId}/meta      | 元数据（mime/size/宽高/align）                | 登录            |
  * | POST   | /{fileId}/thumbnail | 缩略图 URL（w/h 可选，默认 yml 配置）         | 登录            |
@@ -41,6 +50,11 @@ import static com.litisle.litislefile.constant.FileLimitConstant.*;
  *   预签名 URL 本质是可传播凭证，入口必须收紧（否则任意登录用户可拿 URL 转发，见审查表 #6）
  * - expireMinutes 必须校验 ≤ 配置上限（presign-expire-minutes），防传 99999 绕过 LICENSE 限时
  * - MIME 白名单按 bizType 区分：图片类限 image/jpeg|png|webp|gif；LICENSE 放开授权文件类型
+ * - 大文件下载默认走直连范式：getUrl/presign 返回的 URL 即下载凭证，客户端直连对象存储，
+ *   断点续传由 SeaweedFS S3 网关原生 Range(206) 支持；仅“必须经服务端中转”场景（鉴权收紧/防直链/水印）
+ *   走 GET /{fileId}/download 流式代理端点（手动透传 Range，支持 200/206/416，详见 FileService#download）
+ * - /{fileId}/download 是唯一非 Result<T> 返回的端点：直接写二进制流 + 状态码；
+ *   出错（FILE_NOT_FOUND/NO_PERMISSION）仍由全局异常处理器返回 JSON
  * - 引用登记入口（P0 已落地）：跨服务业务方经 FileClient（Feign，/api/feign/file/ref/bind|unbind，
  *   FileFeignProviderController 提供）与业务表同事务登记；路径前缀网关未路由，仅服务间可达
  *   （file_ref 引用登记，方案C——秒传共享防悬空，见 Sql-Document §八 / seaweedfs笔记.md §3.4）
@@ -92,6 +106,94 @@ public class FileController {
     public Result<String> getUrl(@PathVariable("fileId") String fileId) {
         // Service 内部分流：PUBLIC 拼直链 / PRIVATE 校验 owner/ADMIN 后预签名
         return Result.success(fileService.getUrl(fileId, StpUtil.getLoginIdAsLong()));
+    }
+
+    /**
+     * 流式代理下载（支持 HTTP Range 断点续传：200 全量 / 206 部分内容 / 416 区间非法）
+     * <p>默认下载走直连范式（/url、/presign）；本端点仅用于“必须经服务端中转”场景。
+     * ⚠️ 唯一非 Result&lt;T&gt; 返回的端点：直接写二进制流（Accept-Ranges/ETag/Content-Range 头），
+     * 出错仍由全局异常处理器返回 JSON。</p>
+     *
+     * 本方法只做「协议分发」——把 Service 返回的 FileDownloadResource 翻译成 HTTP 响应：
+     *
+     * resource 形态        判断条件                  状态码    响应头
+     * 区间非法              rangeInvalid() == true    416       Content-Range: bytes *&#47;totalSize
+     * 部分内容              partial() == true         206       Content-Range: bytes s-e/totalSize
+     * 全量                  partial() == false        200       仅 Content-Length
+     *
+     * 公共头（Accept-Ranges/ETag/Content-Type/Content-Disposition）在分流前统一写入；
+     * 416 提前 return 不写 body，200/206 才流式回写（只关对象流，不关 Servlet 流）。
+     */
+    @Operation(summary = "流式下载（断点续传）", description = "服务端代理下载，手动透传 Range：206 部分内容 / 416 区间非法；"
+            + "PRIVATE 文件需 owner/ADMIN。常规下载仍建议走 /url 或 /presign 直连对象存储")
+    @RateLimiter(time = DOWNLOAD_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = DOWNLOAD_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
+    @GetMapping("/{fileId}/download")
+    @SaCheckLogin
+    public void download(@PathVariable("fileId") String fileId,
+                         @RequestHeader(value = HttpHeaders.RANGE, required = false) String range,
+                         HttpServletResponse response) throws IOException {
+        //1：Service 内完成鉴权 + Range 解析，返回流式资源（stream 由本方法 try-with-resources 关闭）
+        FileDownloadResource resource = fileService.download(fileId, StpUtil.getLoginIdAsLong(), range);
+
+        /**
+         * 举例：resource = {partial=true, rangeInvalid=false, start=1000, end=1999, totalSize=5000}
+         *
+         * // 第1步：先写公共头（200/206/416 三种响应都要有）
+         * Accept-Ranges: bytes / ETag: "sha256..." / Content-Type: image/jpeg / Content-Disposition: ...
+         *
+         * // 第2步：分流状态码
+         * rangeInvalid? 否 → 继续；partial? 是 → 206
+         * Content-Range: bytes 1000-1999/5000
+         *
+         * // 第3步：Content-Length = 1999 - 1000 + 1 = 1000（本次实际字节数，不是 5000！）
+         *
+         * // 第4步：流式回写（8KB 缓冲），只关对象流不关 Servlet 流
+         * transferTo(response.getOutputStream())
+         */
+
+        //2：先写公共头：Accept-Ranges 告知客户端支持断点续传；ETag 取 sha256（对象内容不变，续传一致）
+        response.setHeader(HttpHeaders.ACCEPT_RANGES, "bytes");
+        if (resource.etag() != null) {
+            response.setHeader(HttpHeaders.ETAG, "\"" + resource.etag() + "\"");
+        }
+        if (resource.contentType() != null) {
+            response.setContentType(resource.contentType());
+        }
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, buildContentDisposition(resource.fileName()));
+
+        //3：形态一（416）：区间不可满足，仅回 totalSize 供客户端收敛重试；提前 return，不写 body
+        if (resource.rangeInvalid()) {
+            response.setStatus(HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE);
+            response.setHeader(HttpHeaders.CONTENT_RANGE, "bytes */" + resource.totalSize());
+            return;
+        }
+
+        //4：Content-Length 为本次实际返回字节数（全量或部分区间），不可写成 totalSize
+        response.setContentLengthLong(resource.end() - resource.start() + 1);
+
+        //5：形态二（206）：部分内容，声明本次区间；形态三（200）：全量
+        if (resource.partial()) {
+            response.setStatus(HttpServletResponse.SC_PARTIAL_CONTENT);
+            response.setHeader(HttpHeaders.CONTENT_RANGE,
+                    "bytes " + resource.start() + "-" + resource.end() + "/" + resource.totalSize());
+        } else {
+            response.setStatus(HttpServletResponse.SC_OK);
+        }
+
+        //6：8KB 缓冲流式回写，不整份载入内存；try-with-resources 关闭对象流防泄漏（Servlet 流只 flush 不 close）
+        try (InputStream in = resource.stream()) {
+            OutputStream out = response.getOutputStream();
+            in.transferTo(out);
+            out.flush();
+        }
+    }
+
+    /** Content-Disposition：ASCII 回退 + filename* UTF-8 编码，兼容中文文件名 */
+    private String buildContentDisposition(String fileName) {
+        String name = (fileName == null || fileName.isBlank()) ? "download" : fileName;
+        String encoded = URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+        return "attachment; filename=\"" + encoded + "\"; filename*=UTF-8''" + encoded;
     }
 
     /**

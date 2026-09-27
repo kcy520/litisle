@@ -75,6 +75,11 @@ public class UserProfileController {
     @Operation(summary = "设置头像", description = "凭上传接口返回的 fileId 绑定头像；仅限本人上传的 AVATAR 类型文件；旧头像自动解绑引用，防秒传共享文件被误删")
     @PostMapping("/avatar")
     public Result<Void> updateAvatar(@Valid @RequestBody AvatarUpdateDTO dto) {
+        //① 前端 → POST /api/file/upload  (multipart: file, bizType=AVATAR)
+        //        → 文件服务校验/秒传/落 SeaweedFS，返回 { fileId, deduplicated }
+        //
+        //② 前端 → POST /api/user/profile/avatar  (JSON: { avatarFileId: "<fileId>" })
+        //        → 归属校验 + 旧头像解绑 + 新头像绑定引用 + 回写 sys_user.avatar_file_id
         userProfileService.updateAvatar(dto);
         return Result.success();
     }

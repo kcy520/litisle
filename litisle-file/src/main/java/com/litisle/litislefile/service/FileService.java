@@ -1,5 +1,6 @@
 package com.litisle.litislefile.service;
 
+import com.litisle.litislefile.domain.dto.FileDownloadResource;
 import com.litisle.litislefile.domain.vo.FileMetaVO;
 import com.litisle.litislefile.domain.vo.FileUploadVO;
 import com.litisle.litislefile.domain.vo.PresignVO;
@@ -54,6 +55,20 @@ public interface FileService {
      * 批量获取 fileId→URL 映射（避免列表页 N+1；PUBLIC→直链，PRIVATE→预签名）
      */
     Map<String, String> batchGetUrls(List<String> fileIds);
+
+    /**
+     * 服务端流式代理下载（支持 HTTP Range 断点续传）
+     * <p>默认下载走直连范式（getUrl/presign 的 URL 即凭证，客户端直连对象存储）；本方法用于
+     * “必须经服务端中转”的场景（鉴权收紧/防直链/水印），服务端手动透传 Range：
+     * 无 Range → 200 全量；合法 Range → 206 部分内容；非法 Range → 416（rangeInvalid=true）。
+     * PRIVATE 需 owner/ADMIN 校验；PUBLIC 登录即可。</p>
+     *
+     * @param fileId      文件ID
+     * @param operatorId  当前操作者ID（PRIVATE 权限校验用）
+     * @param rangeHeader 原始 Range 头（如 "bytes=0-1023"，可为空表示全量）
+     * @return 流式下载资源（持有 S3 对象流 + 响应元信息，调用方负责关闭 stream）
+     */
+    FileDownloadResource download(String fileId, Long operatorId, String rangeHeader);
 
     /**
      * 强制签发预签名 URL（owner/ADMIN；expireMinutes 空取配置默认，

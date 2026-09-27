@@ -14,6 +14,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 /**
  * FileClient 契约实现（Provider 端，仅供服务间 Feign 调用）
@@ -71,6 +73,17 @@ public class FileFeignProviderController implements FileClient {
                 dto.getFileId(), dto.getBizType(), dto.getBizId(), dto.getOwnerId());
         fileService.unbindRef(dto.getFileId(), parseBizType(dto.getBizType()), dto.getBizId(), dto.getOwnerId());
         return Result.success();
+    }
+
+    /**
+     * 批量查询 fileId → URL 映射（Feign 内部调用，防列表页 N+1）
+     * <p>⚠️ 本方法不做 owner/ADMIN 校验：仅限服务间调用（网关未路由 /api/feign/**），
+     * 若未来暴露 REST 必须补 operatorId 做权限校验（见 FileService#batchGetUrls 注释）
+     */
+    @Override
+    public Result<Map<String, String>> batchGetUrls(List<String> fileIds) {
+        log.info("远程api调用batchGetUrls size:{}", fileIds == null ? 0 : fileIds.size());
+        return Result.success(fileService.batchGetUrls(fileIds));
     }
 
     /**

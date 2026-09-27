@@ -2,11 +2,13 @@ package com.litisle.litislefile.client;
 
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -41,10 +43,13 @@ import java.util.List;
  *    - 设置 contentType，调用 PutObjectRequest → putObject
  *    - 异常统一捕获，转换为 BizException(FILE_STORAGE_UNAVAILABLE)，fail-fast 不重试
  * <p>
- * 3. get（下载文件）
- *    - 通过 bucket/key 读取对象内容
- *    - 使用 getObjectAsByteArray 返回 byte[]
- *    - 适用于小文件；大文件应改为流式读取（后续可扩展）
+ * 3. get（内部读取对象，非下载端点）
+ *    - 通过 bucket/key 读取对象内容，使用 getObjectAsByteArray 返回 byte[]
+ *    - 仅用于 ≤10MB 的内部读取（如缩略图生成），勿用于大文件（全量载入会 OOM）
+ * 3.1 getStream（流式读取对象，支持 Range）
+ *    - 返回 ResponseInputStream（不载入内存），可按字节区间定位，供服务端代理下载
+ *    - 服务端流式下载 + 断点续传由 FileService#download / FileController 承载；
+ *      直连范式（presign/直链）仍是首选，代理仅在必须经服务端中转时使用
  * <p>
  * 4. delete（删除文件）
  *    - 按 bucket + key 删除对象
@@ -99,8 +104,10 @@ public class SeaweedFsClient {
     }
 
     /**
-     * 下载文件（getObjectAsByteArray，适用于 ≤10MB 小文件；大文件流式留后续扩展）
+     * 读取对象为 byte[]（getObjectAsByteArray，仅用于 ≤10MB 的内部读取，如缩略图生成）
      * <p>对象不存在抛 BizException(FILE_NOT_FOUND)</p>
+     * <p>【勿用于大文件下载】大文件下载走 getStream（流式，不载入内存）或客户端直连 presign/直链；
+     * 本方法会全量载入内存，大文件会 OOM</p>
      */
     public byte[] get(String bucket, String key) {
         try {
@@ -110,6 +117,28 @@ public class SeaweedFsClient {
                     .key(key)
                     .build())
                     .asByteArray();
+        } catch (NoSuchKeyException e) {
+            throw new BizException(ErrorCode.FILE_NOT_FOUND, e);
+        } catch (SdkException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
+        }
+    }
+
+    /**
+     * 流式读取对象（服务端代理下载用，不整份载入内存）
+     * <p>start/end 为闭区间字节范围；均为 null 时读全量（不传 S3 Range 头）。
+     * 返回流由调用方负责关闭；对象不存在抛 BizException(FILE_NOT_FOUND)</p>
+     */
+    public ResponseInputStream<GetObjectResponse> getStream(String bucket, String key, Long start, Long end) {
+        try {
+            GetObjectRequest.Builder builder = GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key);
+            // 仅在指定区间时携带 Range 头（S3 侧按字节定位，服务端无需读取前置字节）
+            if (start != null && end != null) {
+                builder.range("bytes=" + start + "-" + end);
+            }
+            return s3.getObject(builder.build());
         } catch (NoSuchKeyException e) {
             throw new BizException(ErrorCode.FILE_NOT_FOUND, e);
         } catch (SdkException e) {
@@ -136,6 +165,12 @@ public class SeaweedFsClient {
     /**
      * 生成预签名 GET URL（纯本地签名计算，不联网、不保证对象存在）
      * <p>业务校验（owner/ADMIN、bizType、有效期上限）必须由 Service 层前置完成</p>
+     *
+     * <p>【大文件下载口径】本方法签发的 URL 即"下载凭证"，下载默认走直连范式：服务端不代理文件流，
+     * 客户端持 URL 直连 SeaweedFS/CDN 拉取；断点续传由 SeaweedFS S3 网关原生 HTTP Range 支持
+     * （请求 Range: bytes=offset- → 响应 206 Partial Content + Content-Range + Accept-Ranges + ETag），
+     * 服务端零代码。直连为首选；另有服务端流式代理端点（GET /api/file/{fileId}/download，见 getStream）
+     * 用于必须经服务端中转的场景（鉴权收紧/防直链/水印），二者并存。</p>
      */
     public String presign(String bucket, String key, Duration expire) {
         try {

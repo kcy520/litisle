@@ -1,5 +1,7 @@
 
 
+
+
 # seaweedfs
 
 ## 概念相关
@@ -175,6 +177,7 @@ secretKey + HTTP方法 + 对象路径 + 时间戳 + 过期时间
 #### 二、实现逻辑
 
 ````Java
+
 `public String getUrl(String fileId, Long userId) {
     FileMeta meta = fileMetaMapper.selectById(fileId);
     // 1. 查不到或已软删除 → FILE_NOT_FOUND
@@ -200,6 +203,7 @@ secretKey + HTTP方法 + 对象路径 + 时间戳 + 过期时间
 
 
 ```java
+
 `public String presign(String bucket, String key, Duration expire) {
     GetObjectRequest get = GetObjectRequest.builder()
             .bucket(bucket).key(key).build();
@@ -1605,14 +1609,11 @@ Step1：补偿上传
     IF SeaweedFS 对象存在 → UPDATE status=1（补偿成功）
     IF 不存在         → UPDATE del_flag=1（标记废弃）
 
-Step2：清理物理存储（方案C：前置校验 file_ref，防秒传共享悬空）
+Step2：清理物理存储
   SELECT * FROM file_meta WHERE del_flag=1 AND delete_time < now()-7day
   对每条记录：
-    IF file_ref 存在活跃引用 → 跳过物理删除并告警（引用方漏登记，兜底不误删）
-    ELSE：
-      DELETE SeaweedFS 对象（如有，含缩略图派生 key）
-      DELETE file_meta 记录
-      DELETE file_ref 残留行（防御性；正常流程前置校验后应已无行）
+    DELETE SeaweedFS 对象（如有）
+    DELETE file_meta 记录
 ```
 
 **设计取舍**：允许短暂"孤儿对象"，不允许"DB 有记录但文件不存在"——后者是硬不一致，前者可通过对账恢复。
@@ -1681,6 +1682,109 @@ put 成功 → status=1
 
 
 
+
+### 大文件上传+断点续传方案
+
+
+
+> 基于Litisle项目基础
+> The user is asking conceptual questions:
+>
+> 1. 企业规范是怎样的？(What's the enterprise standard?)
+> 2. 大文件下载的流程是怎样的？(What's the large file download flow?)
+> 3. 是否考虑了断点续传？(Is resumable/range download considered?)
+
+
+
+
+
+#### **大文件下载的企业规范（结论）**：
+
+> 服务端**不代理文件流**；下载走「客户端直连对象存储/CDN」，服务端只签发**带有效期的预签名 URL** 并做鉴权；断点续传由 **HTTP Range** 在对象存储/CDN 侧完成。
+
+Three reasons: 带宽成本、可扩展性、Range 原生支持。
+
+**何时才用服务端代理流式**：必须经过服务端做鉴权/审计/脱敏/水印/防直链（如付费内容、涉密文档），且文件不大或流量可控时。
+
+**大文件上传**的企业规范是分片上传（multipart），下载是 Range 断点续传——两者对称。
+
+Now let me write.
+For the download flow:
+
+1. 客户端发起下载意图 → 服务端鉴权（是否可下载该 fileId）
+2. 服务端签发预签名 URL（短有效期）或返回直链（PUBLIC）
+3. 客户端 HEAD/GET 获取元数据（size、Accept-Ranges、ETag）
+4. 分块下载（并发 Range 分片）或顺序下载
+5. 中断后：读取本地已下载字节数 offset → 发 `Range: bytes=offset-` → 收 `206` 续传
+6. 全部完成 → 校验 size/ETag
+
+Range 响应头：
+
+- 请求：`Range: bytes=0-1023`
+- 响应：`206 Partial Content`, `Content-Range: bytes 0-1023/12345678`, `Accept-Ranges: bytes`, `ETag`
+- 不支持 Range 的服务器返回 `200` + 全量（客户端需回退）
+
+Let me write it now. And end with the design question re-framed.
+
+Actually, I want to make sure I answer "是否考虑了断点续传" for THIS project. Answer: 当前项目走直连（presign/直链），断点续传由 SeaweedFS S3 网关的 Range 能力天然支持，服务端无需额外实现——前提是客户端发 Range 头。但**若做成服务端代理端点（方案A），则必须自己实现 Range 透传**，否则断点续传失效。这是一个重要取舍点。
+
+Good. Let me write.
+好问题——这三点正好决定了该清单项该怎么做。我先讲企业规范，再讲流程与断点续传，最后落回你的项目。
+
+#### 企业规范说明
+
+##### 一、企业规范：大文件下载是"直连"，不是"服务端中转"
+
+企业里文件下载有两套范式，**大文件一律走直连**：
+
+| 范式                     | 做法                                                         | 适用                                                 |
+| ------------------------ | ------------------------------------------------------------ | ---------------------------------------------------- |
+| **直连范式**（主流规范） | 服务端只**签发带有效期的预签名 URL**；客户端**直连对象存储 / CDN** 拉文件 | 大文件、高并发、绝大多数场景                         |
+| **代理范式**             | 文件流经服务端边读边转发（`StreamingResponseBody`）          | 必须经服务端做鉴权/审计/脱敏/水印/防直链，且流量可控 |
+
+选直连的三个硬理由：
+
+1. **不占服务端带宽与线程**——大文件代理会迅速打满连接池/内存，成本极高；
+2. **断点续传、并发分片由对象存储/CDN 原生提供**，服务端零成本；
+3. **可无缝接 CDN**——CDN 回源只认对象存储，代理模式无法缓存加速。
+
+> 对称地：**大文件上传**的规范是**分片上传（Multipart Upload）**，**下载**的规范是 **Range 断点续传**。两者都落在对象存储侧。
+
+#### 二、大文件下载的标准流程
+
+```
+① 客户端请求下载 fileId
+② 服务端鉴权（该用户是否有权下载该文件）→ 签发短时效预签名 URL（PRIVATE）
+   或直接返回公开直链（PUBLIC）
+③ 客户端 HEAD 探测：size / Accept-Ranges / ETag
+④ 分块拉取（可并发多个 Range 分片加速）
+⑤ 中断 → 读本地已下载字节数 offset → 发 Range: bytes=offset-
+⑥ 服务端/对象存储返回 206 续传；全部完成 → 校验 size/ETag 一致
+```
+
+关键点：**步骤 ③~⑥ 全部发生在客户端 ↔ 对象存储之间，服务端不参与。**
+
+##### 三、断点续传的协议机制（HTTP Range）
+
+断点续传**不是应用层功能，而是 HTTP 协议能力**，靠这几个头实现：
+
+```
+请求：  Range: bytes=1048576-            ← 从第 1MB 处续传
+响应：  206 Partial Content
+        Content-Range: bytes 1048576-8388607/8388608
+        Accept-Ranges: bytes
+        ETag: "abc123"                    ← 用于校验文件未变更
+```
+
+- 客户端本地记录"已下载字节数"，续传时作为 `Range` 起点；
+- 服务器若**不支持 Range**，会返回 `200` + 全量（客户端须回退重下）——所以要先看 `Accept-Ranges`；
+- 用 `ETag` 防止"续传期间文件被替换"导致拼接出错。
+
+**两套范式下的实现差异（这是关键取舍）**：
+
+|          | 直连范式                                | 代理范式                                                     |
+| -------- | --------------------------------------- | ------------------------------------------------------------ |
+| 断点续传 | **对象存储/CDN 原生支持，服务端零代码** | **服务端必须自己实现**：解析 `Range` 头 → 透传给 S3 → 回写 `206`+`Content-Range`，否则断点续传直接失效 |
 
 
 
@@ -1799,31 +1903,18 @@ getUrl(fileId) → 查 file_meta
 - LICENSE 超限时拒绝签发（业务级二次校验，属于纵深防御，不是唯一防线）
 - ⚠️ 预签名 URL 一旦签发，持有 URL 者在有效期内均可访问——**URL 即凭证**
 
-##### 3.4 软删除与定时物理清理（方案C：file_ref 引用登记）
-
-> 背景漏洞：秒传使一条 file_meta 成为多方共享资产（B 秒传命中 A 的记录并把 fileId
-> 写进业务表），而 A 触发的"del_flag=1 → 7 天后物理清理"会悬空 B 的所有引用；
-> 且秒传命中记录 owner_id=A，B 连"自己的"资源都无权删除。7 天缓冲只防"误删恢复"，
-> 不防"共享悬空"——故引入 file_ref 引用登记表（建表见 Sql-Document §八）。
+##### 3.4 软删除与定时物理清理
 
 ```text
-DELETE /{fileId}（owner/ADMIN 校验）＝ 解除引用语义：
-  Step1 DELETE file_ref WHERE file_id=? AND owner_id=?（解除当前调用方引用）
-  Step2 IF file_ref 仍有其他活跃引用 → 结束（文件不动，其他引用方不受影响）
-  Step3 ELSE → del_flag=1 + delete_time=now()（软删，7 天缓冲；置 1 后不再参与秒传判重）
-
-业务方登记约定（与业务表同事务）：
-  绑定引用（article_image 插入 / sys_user.avatar_file_id 更新）→ INSERT file_ref
-  解绑引用（换图 / 删文章）→ DELETE file_ref
+DELETE /{fileId}（owner/ADMIN 校验）
+  → del_flag=1（软删，7 天缓冲，防误删不可恢复）
 
 对账任务 @Scheduled 每日 02:00（多实例需 Redisson 分布式锁保证单实例执行，审查表 #7）：
 Step1 补偿上传：扫 status=0 且超 30min
   → S3 head 对象存在 → update status=1（补偿成功）
   → 不存在 → update del_flag=1（标记废弃）
-Step2 物理清理：扫 del_flag=1 且超 7 天 且 file_ref 无活跃引用
+Step2 物理清理：扫 del_flag=1 且超 7 天
   → 删 SeaweedFS 本体（含缩略图派生 key _thumb_*）→ 物理删元数据
-  → 同删 file_ref 残留行（防御性，防"解绑删行失败但 del_flag 已置位"极端残留）
-  → file_ref 仍有引用 → 跳过并告警（引用方漏登记，兜底不误删）
 ```
 
 ##### 3.5 缩略图按需生成
@@ -1872,13 +1963,12 @@ Step2 物理清理：扫 del_flag=1 且超 7 天 且 file_ref 无活跃引用
 | 11   | **MIME 白名单与 LICENSE 冲突**：白名单仅图片类型，若 LICENSE 为 PDF/其他格式会被误拦 | 业务文件上传失败                                             | 白名单按 bizType 区分：图片类限图片，LICENSE 放开至授权文件类型 |
 | 12   | **CORS 未配置**：前端若用 fetch/Canvas 直读图片直链会跨域失败 | 浏览器端功能异常                                             | Filer S3 网关配置 CORS，或经网关/业务层代理                  |
 | 13   | **SigV4 Region 硬编码 us-east-1**                            | 换 MinIO/真实 S3 时需改动（当前 SeaweedFS 无碍）             | 抽到配置项，为存储替换留口                                   |
-| 14   | **秒传共享 × 无引用管理的删除漏洞**：B 秒传复用 A 的记录后，A 删除 → 物理清理悬空 B 的所有引用（7 天缓冲只防误删不防共享）；且 B 无权限删除"自己的"资源 | 文章图/头像批量 404，资源生死被首次上传者单方掌握             | 引入 file_ref 引用登记表（方案C）：删除=解绑引用，物理清理前置校验无活跃引用（已闭环，见 3.4 / Sql-Document §八） |
 
 > 已符合规范的部分（可放心）：双地址分离、LICENSE 强制私有 + 纵深防御、SHA256 流式计算 + 秒传分布式锁 + 双重检查、软删除缓冲、批量查避免 N+1、S3 异常统一转 BizException 不向业务层泄漏 SDK 类型、ownerId 取自网关 X-User-Id 不信任请求参数。
 >
 > **审查状态更新（2026-09-17 代码注释与 SQL 同步后）**：
 >
-> - **已闭环**：#5（判重键限定 biz_type，idx_dedup 落地 Sql-Document §八）、#6（getUrl 对 PRIVATE 统一 owner/ADMIN）、#8（status 状态机 + 对账任务两步补偿）、#11（MIME 白名单按 bizType 区分）、#14（file_ref 引用登记：删除=解绑 + 物理清理前置校验，落地 Sql-Document §八）——均已同步至 FileServiceImpl / FileController / FileMeta / FileMetaMapper 注释
+> - **已闭环**：#5（判重键限定 biz_type，idx_dedup 落地 Sql-Document §八）、#6（getUrl 对 PRIVATE 统一 owner/ADMIN）、#8（status 状态机 + 对账任务两步补偿）、#11（MIME 白名单按 bizType 区分）——均已同步至 FileServiceImpl / FileController / FileMeta / FileMetaMapper 注释
 >
 > - **暂不优化项及原因**（个人实习项目定位取舍）：
 >
@@ -1899,7 +1989,7 @@ Step2 物理清理：扫 del_flag=1 且超 7 天 且 file_ref 无活跃引用
 
 整体设计在企业规范上属于**中上水准**：解耦（SeaweedFS 唯一接触点在 SeaweedFsClient）、性能（秒传/批量/流式哈希）、安全（双地址/预签名/强制私有）都已考虑。
 
-**代码与设计层问题已全部闭环**：#5（判重键限定 biz_type）、#6（PRIVATE 权限口径统一）、#8（status 状态机 + 对账补偿）、#11（MIME 按 bizType 区分）、#14（file_ref 引用登记闭环"秒传共享 × 删除"漏洞）。
+**代码与设计层问题已全部闭环**：#5（判重键限定 biz_type）、#6（PRIVATE 权限口径统一）、#8（status 状态机 + 对账补偿）、#11（MIME 按 bizType 区分）。
 
 **上线前仅需处理部署层三项**：#1（凭证环境变量覆盖）、#2（副本策略调高）、#3（Filer 高可用）；#4/#9/#10/#12/#13 属低风险遗留（原因见审查状态更新表），按里程碑择机处理。
 
@@ -1910,3 +2000,5 @@ Step2 物理清理：扫 del_flag=1 且超 7 天 且 file_ref 无活跃引用
 
 
 下面给你一份**可以直接放进文档的、符合企业规范的"秒传完整链路"**。我按「流程图 → 伪代码 → 异常处理 → 一致性保证 → 安全约束」五段式来写，逻辑闭环，没有歧义。
+
+------

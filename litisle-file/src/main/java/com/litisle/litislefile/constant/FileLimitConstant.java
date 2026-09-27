@@ -23,4 +23,16 @@ public class FileLimitConstant {
      * 批量上传接口：同一用户 60 秒内最多 5 次（单次最多 9 张，等效 45 张/分钟）
      */
     public static final long BATCH_UPLOAD_MAX_COUNT = 5L;
+
+    /**
+     * 流式下载接口限流时间窗口（秒）
+     */
+    public static final long DOWNLOAD_WINDOW_SECONDS = 60L;
+
+    /**
+     * 流式下载接口：同一用户 60 秒内最多 120 次
+     * <p>阈值高于上传：需容纳 Range 分片请求（大文件按块续传会产生多次请求），
+     * 同时限制服务端代理带宽被单用户滥用</p>
+     */
+    public static final long DOWNLOAD_MAX_COUNT = 120L;
 }

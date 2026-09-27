@@ -11,6 +11,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
+import java.util.List;
+import java.util.Map;
+
 /**
  * 文件服务 Feign 客户端（跨服务契约）
  *
@@ -54,5 +57,16 @@ public interface FileClient {
      */
     @PostMapping("/api/feign/file/ref/unbind")
     Result<Void> unbindRef(@RequestBody FileRefDTO dto);
+
+    /**
+     * 批量查询 fileId → URL 映射（一次往返，避免列表页 N+1）
+     * <p>调用方：需批量渲染文件直链的业务服务（如文章列表封面/正文图）；
+     * 属展示类读操作，降级静默返回空 Map（列表页降级为占位图，不阻断主流程）
+     *
+     * @param fileIds 文件ID列表（空列表提供方直接返回空 Map）
+     * @return fileId → 访问URL 映射（PUBLIC 直链 / PRIVATE 预签名，分流对调用方透明）
+     */
+    @PostMapping("/api/feign/file/batch-urls")
+    Result<Map<String, String>> batchGetUrls(@RequestBody List<String> fileIds);
 
 }

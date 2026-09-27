@@ -9,6 +9,7 @@ import com.litisle.commonsecurity.utils.SaRoleHelper;
 import com.litisle.litislefile.client.SeaweedFsClient;
 import com.litisle.litislefile.config.FileProperties;
 import com.litisle.litislefile.domain.entity.FileMeta;
+import com.litisle.litislefile.domain.dto.FileDownloadResource;
 import com.litisle.litislefile.domain.entity.FileRef;
 import com.litisle.litislefile.domain.vo.FileMetaVO;
 import com.litisle.litislefile.domain.vo.FileUploadVO;
@@ -44,7 +45,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -89,6 +89,10 @@ import java.util.stream.Collectors;
  *    PRIVATE→presign + owner/ADMIN 权限校验 + bizType 二次校验（纵深防御）
  *    【预留｜访问闸口】审核启用后 getUrl/batchGetUrls 返回前校验 safe_flag：
  *    =0 拒绝并提示违规（单点收口，不散落到各业务服务；同上见笔记 §3.6）
+ * 【流式代理下载（方案A，非默认）】download(fileId, operatorId, rangeHeader)：
+ *    默认下载仍走直连范式（getUrl/presign 的 URL 即凭证）；本链路仅用于“必须经服务端中转”场景
+ *    （鉴权收紧/防直链/水印），服务端手动透传 Range：无 Range→200 全量；合法→206；非法→416。
+ *    totalSize 取 file_meta.size（上传时已记录，无需 HEAD 往返）；ETag 取 sha256（内容不变，续传一致）
  * 【删除（方案C：解绑语义）】校验 owner/ADMIN →
  *    Step1 删 file_ref 当前调用方引用行（file_id + owner_id）
  *    Step2 file_ref 仍有其他活跃引用 → 结束（文件不动，他人引用不受影响）
@@ -139,6 +143,7 @@ public class FileServiceImpl implements FileService {
     /**
      * 单文件上传（含秒传）：校验 → 流式算 SHA256 → 无锁快查判重 → 锁内双检+占位写库（status=0）
      * → 锁外 put（幂等）→ 解析宽高 → 置 status=1；秒传命中直接复用 fileId 不落存储
+     * leServiceImpl#upload 的流程是：整份文件一次读进内存 → 直接`put` 到 SeaweedFS， 没有任何"分片"环节 。
      */
     @Override
     public FileUploadVO upload(MultipartFile file, BizTypeEnum bizType, Long ownerId) {
@@ -254,6 +259,8 @@ public class FileServiceImpl implements FileService {
     /**
      * 获取访问 URL 统一入口：查元数据后按 access 分流——PUBLIC 拼直链；PRIVATE 先 owner/ADMIN 校验再预签名
      * （调用方无需感知文件访问级别；审核 safe_flag 闸口预留在此单点收口）
+     * <p>【大文件下载】返回的 URL 即下载凭证，客户端直连对象存储拉取；断点续传由对象存储原生
+     * Range(206) 支持，本模块不代理文件流（详见 SeaweedFsClient#presign）</p>
      */
     @Override
     public String getUrl(String fileId, Long operatorId) {
@@ -295,6 +302,213 @@ public class FileServiceImpl implements FileService {
             return seaweedFsClient.presign(meta.getBucket(), meta.getPath(),
                     Duration.ofMinutes(fileProperties.getSeaweedfs().getPresignExpireMinutes()));
         }));
+    }
+
+    /**
+     * 服务端流式代理下载（HTTP Range 断点续传）：查元数据 → PRIVATE 校验 owner/ADMIN → 解析 Range →
+     * 无 Range 200 全量 / 合法 Range 206 部分 / 非法 Range 416
+     * <p>默认下载走直连范式（getUrl/presign 的 URL 即凭证，客户端直连对象存储）；本链路仅用于
+     * “必须经服务端中转”场景（鉴权收紧/防直链/水印），服务端手动透传 Range。
+     * totalSize 取 file_meta.size（上传时已记录，无需 HEAD 往返）；ETag 取 sha256。</p>
+     *
+     * 本方法把「Range 解析结果」翻译成 FileDownloadResource 的三种形态，上层 Controller 只做协议分发：
+     *
+     * 返回形态              含义                          Controller 怎么用
+     * range == null         无 Range/语法非法/多段 → 全量    partial=false → 200 + 整份流
+     * range[0] > range[1]   区间不可满足 → 416              rangeInvalid=true → 416（stream=null）
+     * 正常区间 {s,e}        合法区间 → 206 部分内容          partial=true → 206 + Content-Range
+     *
+     * 它把「查元数据、权限校验、区间判定、S3 取流」串成一条直线，让 Controller 无需感知任何业务规则。
+     * 确认"能不能下" → 确认"下哪一段" → 按三种情况之一构造返回结果
+     *          * 3种不同情况：stream — 最核心的区别
+     *          * 200 → 有流，全量
+     *          * 206 → 有流，只含请求的那段字节
+     *          * 416 → null，没有流
+     *          * stream?          start/end        状态码    body?
+     *          * 200 全量   →       ✅ 全量     {0, size-1}      200      ✅ 全写
+     *          * 206 部分   →       ✅ 区间     {range[0], range[1]}  206  ✅ 写那段
+     *          * 416 拒绝   →       ❌ null     {0, 0} 占位      416      ❌ 不写
+     */
+    @Override
+    public FileDownloadResource download(String fileId, Long operatorId, String rangeHeader) {
+        //1：查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
+        FileMeta meta = getMetaOrThrow(fileId);
+
+        //2：【预留｜访问闸口】审核启用后此处校验 safe_flag=0 拒绝（单点收口，见笔记 §3.6）
+        //    PRIVATE（LICENSE）：owner/ADMIN 校验（口径与 getUrl/presign 统一）
+        if (meta.getAccess() == AccessLevelEnum.PRIVATE) {
+            checkOwnerOrAdmin(meta, operatorId);
+        }
+
+        /**
+         * 举例：file_meta.size = 5000（对象共 5000 字节），请求头 Range = "bytes=1000-1999"
+         *
+         * // 第1步：取总大小（上传时已落库，无需 HEAD 往返）
+         * totalSize = 5000
+         *
+         * // 第2步：由 path 尾段推导下载文件名（file_meta 未存原始名）
+         * fileName = "abc123.jpg"
+         *
+         * // 第3步：解析 Range → 闭区间
+         * parseSingleRange("bytes=1000-1999", 5000)  →  {1000, 1999}
+         *
+         * // 第4步：区间合法（start ≤ end）→ 交给 S3 定位并流式取回
+         * getStream(bucket, path, 1000, 1999)  →  206 部分内容
+         */
+
+        //3：totalSize 以上传时记录的 size 为准；fileName 由 path 尾段推导
+        long totalSize = meta.getSize() == null ? 0L : meta.getSize();
+        String fileName = resolveFileName(meta);//根据文件路径推导文件名
+
+        //4：解析单段 Range；null 表示无 Range/语法非法/多段 → 回退全量 200
+        long[] range = parseSingleRange(rangeHeader, totalSize);
+
+        //5：形态一：无有效 Range → 全量 200（end 用 Math.max(totalSize-1,0) 兜底空文件的 -1）
+        if (range == null) {
+            // 全量：不传 S3 Range 头，S3 返回整个对象
+            return new FileDownloadResource(
+                    seaweedFsClient.getStream(meta.getBucket(), meta.getPath(), null, null),
+                    meta.getMime(), fileName, meta.getSha256(), totalSize,
+                    0, Math.max(totalSize - 1, 0), false, false);
+        }
+
+        //6：形态二：start > end（含 start ≥ totalSize / 空文件）→ 区间不可满足 → 416
+        //    stream=null：已由 DB 的 size 判定完毕，不再触达 S3；仅回 totalSize 供客户端收敛
+        if (range[0] > range[1]) {
+            return new FileDownloadResource(
+                    null, meta.getMime(), fileName, meta.getSha256(), totalSize, 0, 0, false, true);
+        }
+
+        //7：形态三：206 部分内容：S3 侧按 Range 定位，服务端只做流式透传（不读取前置字节）
+        return new FileDownloadResource(
+                seaweedFsClient.getStream(meta.getBucket(), meta.getPath(), range[0], range[1]),
+                meta.getMime(), fileName, meta.getSha256(), totalSize,
+                range[0], range[1], true, false);
+    }
+
+    /**
+     * 解析单段 Range（RFC 7233）：支持 bytes=start-end / bytes=start- / bytes=-suffix
+     * <p>返回 {start,end} 闭区间；null = 无 Range/语法非法/多段（调用方回退全量 200）；
+     * start>end = 区间不可满足（调用方回 416）。上界超出 totalSize 收敛到 totalSize-1。</p>
+     *
+     * 返回 long[]，但不是随便一个数组，而是严格编码了三种状态：
+     * 返回值	含义	download() 里怎么用
+     * null	无 Range / 语法非法 / 多段 → 忽略，回退全量	if (range == null) → 走全量 200 分支
+     * {start, end} 且 start ≤ end	合法区间 → 206 部分内容	传给 getStream(start, end) 拿流
+     * {start, end} 且 start > end	区间不可满足 → 416 拒绝	if (range[0] > range[1]) → 构造 stream=null 的 resource
+     *
+     * parseSingleRange 的返回值是"Range
+     * 头的翻译结果"——null 告诉调用方"别管 Range 了直接全量返回"，
+     * {start, end} 告诉调用方"去取这段字节"，
+     * start > end 告诉调用方"拒绝这个请求"。
+     * 它把字符串解析、边界校验、上界收敛、三态编码全部封装在一个方法里，让上层只做分发。
+     */
+    private long[] parseSingleRange(String header, long totalSize) {
+        //header：HTTP 请求头里的 Range 值，比如 "bytes=1000-1999"
+        //totalSize：文件大小，用于收敛区间
+        //返回 {start,end} 闭区间；null = 无 Range/语法非法/多段（调用方回退全量 200）；
+        // start>end = 区间不可满足（调用方回 416）。上界超出 totalSize 收敛到 totalSize-1。
+
+
+        /**
+         * 原始 header = "bytes=1000-1999"
+         * // 第一步：检查前缀
+         * header.startsWith("bytes=")  →  ✅ 通过
+         *
+         * // 第二步：去掉 "bytes=" 前缀
+         * spec = header.substring("bytes=".length()).trim()
+         *      = "1000-1999"
+         *
+         * // 第三步：检查多段
+         * spec.contains(",")  →  false（没逗号，不是多段）
+         *
+         * // 第四步：找横杠位置
+         * dash = spec.indexOf('-')  →  4
+         *
+         * // 第五步：拆左右
+         * startStr = spec.substring(0, dash).trim()   →  "1000"
+         * endStr   = spec.substring(dash + 1).trim()  →  "1999"
+         *
+         * // 第六步：解析数字
+         * start = Long.parseLong("1000")  →  1000
+         * end   = Long.parseLong("1999")  →  1999
+         *
+         * // 第七步：上界收敛
+         * end > totalSize - 1 ? 收敛 : 不变
+         *
+         * // 第八步：返回
+         * return new long[]{1000, 1999};
+         */
+
+
+        //1：前置校验：空值、非 bytes= 开头
+        if (header == null || header.isBlank() || !header.startsWith("bytes=")) {
+            return null;
+        }
+
+        // 2：提取 bytes= 后面的部分
+        String spec = header.substring("bytes=".length()).trim();
+        
+        //3：拒绝多段 Range  ————————如果是多段：复杂度远大于收益——浏览器和下载工具几乎不用多段 Range（它们用单段 + 多线程各自发单段请求）。所以有意降级为全量 200，而不是硬撑一个没人用的特性。
+            // 多段（bytes=0-1,5-6）不支持：忽略 Range 回退全量，避免多段拼接的复杂度与成本
+        if (spec.contains(",")) {
+            return null;
+        }
+
+        
+        //4：找横杠，拆 start 和 end
+        //没有 - → "bytes=1000" → 语法非法 → null  有 - 才能拆成 start-end 两部分。
+        int dash = spec.indexOf('-');
+        if (dash < 0) {
+            return null;
+        }
+
+        String startStr = spec.substring(0, dash).trim();// "-" 左边
+        String endStr = spec.substring(dash + 1).trim();// "-" 右边
+        
+        //5：try-catch 包裹解析，避免 NumberFormatException
+        try {
+        //6：处理 suffix 形式 bytes=-N
+            if (startStr.isEmpty()) {
+                // suffix 形式 bytes=-N：取末尾 N 字节  //bytes=-N:"我要文件最后 N 个字节"。
+                if (endStr.isEmpty()) {
+                    return null;
+                }
+                long suffix = Long.parseLong(endStr);
+                if (suffix <= 0) {
+                    return new long[]{totalSize, -1}; // 不可满足 → 416
+                }
+                //文件一共 totalSize 字节，你要最后 suffix 个字节：这个起点位置就是 totalSize - suffix
+                return new long[]{
+                        Math.max(totalSize - suffix, 0),  // start: 从哪开始读
+                        totalSize - 1                     // end: 读到哪
+                };            }
+            //7：处理标准形式 bytes=start-end 和 bytes=start-
+            long start = Long.parseLong(startStr);
+            long end = endStr.isEmpty() ? totalSize - 1 : Long.parseLong(endStr);
+            //8：负数校验
+            if (start < 0 || end < 0) {
+                return null;
+            }
+            //9：上界收敛到对象末尾
+            if (end > totalSize - 1) {
+                end = totalSize - 1;
+            }
+            //10：返回结果
+            return new long[]{start, end};
+        } catch (NumberFormatException e) {
+            return null; // 数字非法 → 忽略 Range 回退全量
+        }
+    }
+
+    /** 下载文件名：取 path 尾段（{yyyy/MM/dd}/{fileId}.{ext}）；path 异常兜底 fileId */
+    private String resolveFileName(FileMeta meta) {
+        String path = meta.getPath();
+        if (path == null || path.isBlank()) {
+            return meta.getFileId();
+        }
+        int slash = path.lastIndexOf('/');
+        return slash < 0 ? path : path.substring(slash + 1);
     }
 
     /**

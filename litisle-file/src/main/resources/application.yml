@@ -18,6 +18,7 @@ spring:
   # - max-file-size：与业务单文件上限（litisle.file.upload.max-image-size = 10MB）对齐，
   #   双层校验：Servlet 层拦超大请求，Service 层拦 MIME 白名单
   # - max-request-size：批量上传上限 9 张 × 10MB + 表单字段开销，取 100MB
+  #  一般业界共识是：超过 100MB 就算大文件，超过 1GB 必须走流式+断点续传。
   # ================================
   servlet:
     multipart:
