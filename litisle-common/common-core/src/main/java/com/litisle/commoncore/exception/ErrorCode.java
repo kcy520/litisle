@@ -281,7 +281,12 @@ public enum ErrorCode {
     /**
      * 文件内容校验失败（存储侧 SHA256 比对不符，内容可能在传输中损坏）
      */
-    FILE_CHECKSUM_MISMATCH(90006, "文件内容校验失败");
+    FILE_CHECKSUM_MISMATCH(90006, "文件内容校验失败"),
+
+    /**
+     * 存储配额已用尽（per-user 总容量或文件数超限）
+     */
+    FILE_QUOTA_EXCEEDED(90007, "存储配额已用尽");
 
 
 

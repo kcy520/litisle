@@ -17,6 +17,7 @@ import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
+
 /**
  * 接口限流切面
  *
@@ -25,7 +26,7 @@ import java.util.concurrent.TimeUnit;
  * 2. 基于 Redis + Lua 脚本实现分布式限流（固定窗口计数法）
  * 3. 【依赖倒置】通过 UserIdResolver 接口获取 userId（可选注入），与 IdempotentAspect 一致
  *
- * 【Lua 脚本说明】
+ * 【Lua 脚本说明】（脚本实体见 RedisRateLimiter#increment，切面与全站 QPS 拦截器共用）
  * local count = redis.call('incr', KEYS[1])
  * if count == 1 then
  *     redis.call('expire', KEYS[1], ARGV[1])
@@ -60,28 +61,9 @@ import java.util.concurrent.TimeUnit;
 public class RateLimiterAspect {
 
     /**
-     * 限流 Lua 脚本（原子操作：INCR + 首次 EXPIRE）
+     * Redis 固定窗口限流器（Lua 脚本已抽取至该可复用组件，与全站 QPS 拦截器共用同一脚本）
      */
-    private static final DefaultRedisScript<Long> RATE_LIMIT_SCRIPT;
-
-    static {
-        RATE_LIMIT_SCRIPT = new DefaultRedisScript<>();
-        RATE_LIMIT_SCRIPT.setScriptText(
-                "local count = redis.call('incr', KEYS[1]) " +
-                "if count == 1 then " +
-                "    redis.call('expire', KEYS[1], ARGV[1]) " +
-                "elseif redis.call('ttl', KEYS[1]) < 0 then " +
-                "    redis.call('expire', KEYS[1], ARGV[1]) " +
-                "end " +
-                "return count"
-        );
-        RATE_LIMIT_SCRIPT.setResultType(Long.class);
-    }
-
-    /**
-     * Redis 操作模板（由 common-redis 的 RedisConfig 注入）
-     */
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final RedisRateLimiter redisRateLimiter;
 
     /**
      * 限流 key 构建器
@@ -97,8 +79,8 @@ public class RateLimiterAspect {
      */
     private UserIdResolver userIdResolver;
 
-    public RateLimiterAspect(RedisTemplate<String, Object> redisTemplate, RateLimiterKeyBuilder keyBuilder) {
-        this.redisTemplate = redisTemplate;
+    public RateLimiterAspect(RedisRateLimiter redisRateLimiter, RateLimiterKeyBuilder keyBuilder) {
+        this.redisRateLimiter = redisRateLimiter;
         this.keyBuilder = keyBuilder;
     }
 
@@ -123,17 +105,13 @@ public class RateLimiterAspect {
         // 4. 计算时间窗口（统一转换为秒，作为 Lua 脚本的 ARGV[1]）
         long windowSeconds = rateLimiter.timeUnit().toSeconds(rateLimiter.time());
 
-        // 5. 执行 Lua 脚本（原子操作：INCR + 首次 EXPIRE）
+        // 5. 执行固定窗口计数（Lua 原子操作：INCR + 首次 EXPIRE，见 RedisRateLimiter）
         //    注意：windowSeconds 必须传数字类型，不能转成 String。
         //    JSON 序列化器会把 String 再包一层引号（"60"），导致 Redis EXPIRE 收到非整数报错。
-        Long currentCount = redisTemplate.execute(
-                RATE_LIMIT_SCRIPT,
-                Collections.singletonList(key),
-                windowSeconds
-        );
+        long currentCount = redisRateLimiter.increment(key, windowSeconds);
 
         // 6. 限流判断
-        if (currentCount != null && currentCount > rateLimiter.count()) {
+        if (currentCount > rateLimiter.count()) {
             log.warn("限流触发: key={}, currentCount={}, maxCount={}, method={}",
                     key, currentCount, rateLimiter.count(),
                     method.getDeclaringClass().getSimpleName() + ":" + method.getName());

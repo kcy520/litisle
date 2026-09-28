@@ -1,9 +1,11 @@
 package com.litisle.commonredis.ratelimit;
 
 import com.litisle.commonredis.constant.CacheConstant;
+import com.litisle.commoncore.constant.HeaderConstant;
 import com.litisle.commoncore.resolver.UserIdResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.StringUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -109,22 +111,32 @@ public class RateLimiterKeyBuilder {
             HttpServletRequest request = attributes.getRequest();
 
             // 优先级：X-Forwarded-For > X-Real-IP > RemoteAddr
-            String ip = request.getHeader("X-Forwarded-For");
-            if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
-                ip = request.getHeader("X-Real-IP");
-            }
-            if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
-                ip = request.getRemoteAddr();
-            }
-
-            // 多级代理时取第一个（client, proxy1, proxy2 → client）
-            if (ip != null && ip.contains(",")) {
+            String ip = request.getHeader(HeaderConstant.X_FORWARDED_FOR);
+            // 多级代理时取第一个（client, proxy1, proxy2 → client），先取首段再校验，避免首段为 unknown 时漏回退
+            //核心机制一句话： 每个`if` 只负责"当前值还无效时才换成下一个来源" ，它是一道"兜底闸门"，不是"无条件覆盖"。
+            if (StringUtils.hasText(ip)) {
                 ip = ip.split(",")[0].trim();
             }
-            return ip != null ? ip : "unknown";
+            if (isBlankOrUnknown(ip)) {
+                ip = request.getHeader(HeaderConstant.X_REAL_IP);
+            }
+            if (isBlankOrUnknown(ip)) {
+                ip = request.getRemoteAddr();
+            }
+            return StringUtils.hasText(ip) ? ip : "unknown";
         } catch (Exception e) {
             log.warn("获取客户端 IP 失败: {}", e.getMessage());
             return "unknown";
         }
+    }
+
+    /**
+     * 判断 IP 是否为空或未知（"unknown"）
+     *
+     * @param ip 待校验的 IP 字符串
+     * @return true 表示无效（null / 空白 / "unknown"）
+     */
+    private boolean isBlankOrUnknown(String ip) {
+        return !StringUtils.hasText(ip) || "unknown".equalsIgnoreCase(ip);
     }
 }

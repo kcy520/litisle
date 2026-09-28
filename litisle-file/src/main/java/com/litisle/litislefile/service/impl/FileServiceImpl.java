@@ -10,6 +10,7 @@ import com.litisle.litislefile.client.SeaweedFsClient;
 import com.litisle.litislefile.config.FileProperties;
 import com.litisle.litislefile.domain.entity.FileMeta;
 import com.litisle.litislefile.domain.dto.FileDownloadResource;
+import com.litisle.litislefile.domain.dto.FileQuotaUsage;
 import com.litisle.litislefile.domain.entity.FileRef;
 import com.litisle.litislefile.domain.vo.FileMetaVO;
 import com.litisle.litislefile.domain.vo.FileUploadVO;
@@ -22,8 +23,10 @@ import com.litisle.litislefile.mapper.FileMetaMapper;
 import com.litisle.litislefile.mapper.FileRefMapper;
 import com.litisle.litislefile.service.FileService;
 import com.litisle.litislefile.thumbnail.ThumbnailGenerator;
+import com.litisle.litislefile.util.FileMagicValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -53,7 +56,7 @@ import java.util.stream.Collectors;
  * 【上传（含秒传）】最复杂链路（判重键与索引决策见 docs/seaweedfs笔记.md §3.4.5 eg 块）。
  * 1. 校验：size ≤ maxImageSize(10MB)、MIME 白名单（按 bizType 区分：
  *    AVATAR/COVER/ARTICLE_IMG → image/jpeg|png|webp|gif；LICENSE → 放开授权文件类型如 pdf，
- *    避免 LICENSE 非 PDF 被误拦）
+ *    避免 LICENSE 非 PDF 被误拦）+ 文件头魔数校验（防伪造 Content-Type 绕过白名单）
  * 2. 流式算 SHA256（DigestInputStream，勿全量读内存）+ 记录 size（联合判重键的一部分）
  * 3. 无锁快查判重：WHERE sha256=? AND size=? AND biz_type=? AND del_flag=0
  *    （PRIVATE/LICENSE 追加 AND owner_id=? —— 按 owner 隔离去重，防跨用户秒传探测泄露隐私；
@@ -144,6 +147,11 @@ public class FileServiceImpl implements FileService {
      * 单文件上传（含秒传）：校验 → 流式算 SHA256 → 无锁快查判重 → 锁内双检+占位写库（status=0）
      * → 锁外 put（幂等）→ 解析宽高 → 置 status=1；秒传命中直接复用 fileId 不落存储
      * leServiceImpl#upload 的流程是：整份文件一次读进内存 → 直接`put` 到 SeaweedFS， 没有任何"分片"环节 。
+     *
+     * <p>【瓶颈说明·为何上传保持同步】本方法为 multipart + 事务语义的同步链路（校验/算哈希/写库/put 需同事务编排），
+     * 且单文件 ≤10MB、整份读内存后一次 put，耗时可控；异步化会破坏事务边界与异常回传，风险高于收益，故不隔离。
+     * 下载侧因面向「大文件 + 慢客户端」阻塞时间长，已改为 StreamingResponseBody 交由 fileIoExecutor 执行
+     * （见 FileAsyncConfig），避免占用 Tomcat 工作线程。</p>
      */
     @Override
     public FileUploadVO upload(MultipartFile file, BizTypeEnum bizType, Long ownerId) {
@@ -176,6 +184,9 @@ public class FileServiceImpl implements FileService {
                 log.info("锁内双检秒传命中，fileId={}，bizType={}，size={}", exist.getFileId(), bizType, size);
                 return buildUploadVO(exist, true);
             }
+
+            // 步骤4.5：per-user 存储配额校验（软限；秒传已在上方 return，不占新增配额）
+            checkQuota(ownerId, size);
 
             // 步骤5：锁内临界区（只包「查 DB + 写 DB」，不包 IO）
             // fileId=UUID 无连字符，path={yyyy/MM/dd}/{fileId}.{ext}，status=0 占位
@@ -643,6 +654,7 @@ public class FileServiceImpl implements FileService {
 
     /**
      * 上传校验：size ≤ maxImageSize + MIME 白名单（按 bizType 区分，LICENSE 放开授权文件类型）
+     * + 文件头魔数校验（真实魔数须与声明 MIME 一致）
      */
     private void validateUpload(MultipartFile file, BizTypeEnum bizType) {
         // 空文件校验
@@ -658,6 +670,10 @@ public class FileServiceImpl implements FileService {
         String mime = file.getContentType();
         if (mime == null || !resolveMimeWhitelist(bizType).contains(mime.toLowerCase())) {
             throw new BizException(ErrorCode.FILE_TYPE_NOT_ALLOWED, "文件类型不允许：" + mime);
+        }
+        // 文件头魔数校验：防「改扩展名 + 伪造 Content-Type」绕过白名单（真实魔数须与声明类型一致）
+        if (!FileMagicValidator.matches(file, mime)) {
+            throw new BizException(ErrorCode.FILE_TYPE_NOT_ALLOWED, "文件内容与声明类型不符：" + mime);
         }
     }
 
@@ -686,6 +702,45 @@ public class FileServiceImpl implements FileService {
         } catch (NoSuchAlgorithmException | IOException e) {
             throw new BizException(ErrorCode.FILE_HASH_ERROR, e);
         }
+    }
+
+    /**
+     * per-user 存储配额校验（方案 α 软限：在 sha256 锁内、写库前执行）：
+     * 口径 = del_flag=0 全部记录（含 status=0 占位，即"预占"语义，避免上传中绕过配额）；
+     * 秒传命中已在调用前 return，不占新增配额。
+     * ⚠️ 锁维度为 sha256 而非 user，同一用户并发上传【不同文件】时不互斥，
+     * 最坏可超限约 1×单文件上限（已有 30 次/分钟限流兜底，超限量有界）。
+     */
+    private void checkQuota(Long ownerId, long incomingSize) {
+        // 查询当前用户已使用的存储信息（1次查询，返回总量+总数）
+        FileQuotaUsage usage = fileMetaMapper.selectQuotaUsage(ownerId);
+
+        // 已用容量（字节），防止 sum(size) 返回 null
+        long usedSize = usage.getUsedSize() == null ? 0L : usage.getUsedSize();
+
+        // 已用文件数量，防止 count(*) 返回 null
+        long usedCount = usage.getUsedCount() == null ? 0L : usage.getUsedCount();
+
+        // 从配置中读取用户级配额上限
+        long maxTotalSize = fileProperties.getUpload().getMaxTotalSize(); // 总容量上限（字节）
+        long maxFileCount = fileProperties.getUpload().getMaxFileCount(); // 文件数量上限
+
+        // ===== 容量配额校验 =====
+        if (usedSize + incomingSize > maxTotalSize) {
+            throw new BizException(
+                    ErrorCode.FILE_QUOTA_EXCEEDED,
+                    "存储容量已用尽（已用 " + usedSize / 1024 / 1024 + "MB / 上限 " + maxTotalSize / 1024 / 1024 + "MB）"
+            );
+        }
+
+        // ===== 文件数量配额校验 =====
+        if (usedCount + 1 > maxFileCount) {
+            throw new BizException(
+                    ErrorCode.FILE_QUOTA_EXCEEDED,
+                    "文件数量已达上限（已用 " + usedCount + " / 上限 " + maxFileCount + "）"
+            );
+        }
+        // 校验通过，允许继续写库和上传
     }
 
     /**
@@ -788,12 +843,20 @@ public class FileServiceImpl implements FileService {
         if (count > 0) {
             return;
         }
-        fileRefMapper.insert(new FileRef()
-                .setFileId(fileId)
-                .setBizType(bizType)
-                .setBizId(bizId)
-                .setOwnerId(ownerId)
-                .setCreateTime(LocalDateTime.now()));
+        try {
+            fileRefMapper.insert(new FileRef()
+                    .setFileId(fileId)
+                    .setBizType(bizType)
+                    .setBizId(bizId)
+                    .setOwnerId(ownerId)
+                    .setCreateTime(LocalDateTime.now()));
+        } catch (DuplicateKeyException e) {
+            // uk_ref(file_id,biz_type,biz_id,owner_id) 唯一约束兜底：并发下两请求均通过上面的
+            // selectCount=0，后到者插入被 DB 拒绝；此处吞掉异常维持幂等语义，
+            // 不标记回滚（MySQL 重复键错误仅使该条 insert 失败，当前事务可继续）
+            log.info("引用登记并发重复，按幂等跳过：fileId={}，bizType={}，bizId={}，ownerId={}",
+                    fileId, bizType, bizId, ownerId);
+        }
     }
 
     /**

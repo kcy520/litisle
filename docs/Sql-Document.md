@@ -1129,16 +1129,18 @@ default charset = utf8mb4 comment = '文件元数据表';
 #    物理清理前置校验本表，杜绝悬空引用；详见 seaweedfs笔记.md §3.4）
 create table if not exists `file_ref`
 (
-`id`         bigint unsigned not null auto_increment primary key comment '主键ID',
-`file_id`    varchar(64)     not null comment '引用的文件ID（file_meta.file_id）',
-`biz_type`   varchar(20)     not null comment '引用方业务类型：AVATAR/COVER/ARTICLE_IMG/LICENSE',
-`biz_id`     bigint unsigned not null comment '引用方业务主键：如 article_image.id / 换头像场景为 sys_user.id',
-`owner_id`   bigint unsigned not null comment '引用归属用户ID（审计与授权依据）',
-`create_time` datetime       not null default current_timestamp comment '引用建立时间',
-index `idx_file` (`file_id`),
-index `idx_biz` (`biz_type`, `biz_id`)
-) engine = InnoDB
-default charset = utf8mb4 comment = '文件引用登记表：业务方绑定/解绑引用时与业务表同事务登记';
+    `id`          bigint unsigned not null auto_increment primary key comment '主键ID',
+    `file_id`     varchar(64)     not null comment '引用的文件ID（file_meta.file_id）',
+    `biz_type`    varchar(20)     not null comment '引用方业务类型：AVATAR/COVER/ARTICLE_IMG/LICENSE',
+    `biz_id`      bigint unsigned not null comment '引用方业务主键：如 article_image.id / 换头像场景为 sys_user.id',
+    `owner_id`    bigint unsigned not null comment '引用归属用户ID（审计与授权依据）',
+    `create_time` datetime        not null default current_timestamp comment '引用建立时间',
+    unique key `uk_ref` (`file_id`, `biz_type`, `biz_id`, `owner_id`),
+    index `idx_file` (`file_id`),
+    index `idx_biz` (`biz_type`, `biz_id`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '文件引用登记表：业务方绑定/解绑引用时与业务表同事务登记';
+
 ```
 
 设计原因：

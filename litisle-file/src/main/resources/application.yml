@@ -134,6 +134,11 @@ litisle:
     # 上传限制：限制图片大小（字节，默认 10MB）
     upload:
       max-image-size: 10485760
+      # per-user 存储配额（软限：sha256 锁内写库前校验，超限抛 FILE_QUOTA_EXCEEDED）
+      # max-total-size：单用户已用总容量上限（字节，默认 200MB）
+      max-total-size: 209715200
+      # max-file-count：单用户已用文件数上限（默认 200）
+      max-file-count: 200
     # 缩略图配置（头像/封面场景按需生成）
     thumbnail:
       enabled: true
@@ -149,6 +154,22 @@ litisle:
       compensate-threshold-minutes: 30
       # Step2 软删缓冲期（天）：del_flag=1 超此时间才物理清理（防误删不可恢复）
       physical-clean-delay-days: 7
+    # 文件 IO 线程池：上传/下载阻塞 IO 隔离（下载走 StreamingResponseBody，由该池执行）
+    # 慢客户端不再占用 Tomcat 工作线程，防止主线程池被打满
+    executor:
+      core-pool-size: 4
+      max-pool-size: 8
+      queue-capacity: 64
+      keep-alive-seconds: 60
+      # 异步请求超时（秒）：大文件下载耗时，需放宽（默认 30s 会截断）
+      async-timeout-seconds: 600
+    # 限流阈值（运营可调，Nacos 共享配置可覆盖）
+    # 全站 QPS：所有 /api/file/** 合计上限，防全站洪峰打爆 Tomcat/SeaweedFS 后端
+    limit:
+      # 时间窗口（秒）
+      global-qps-window-seconds: 1
+      # 窗口内最大请求数（全站合计）
+      global-qps-max-count: 200
 
 # ================================
 # Knife4j API 文档配置

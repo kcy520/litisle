@@ -17,6 +17,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -53,7 +54,8 @@ import static com.litisle.litislefile.constant.FileLimitConstant.*;
  * - 大文件下载默认走直连范式：getUrl/presign 返回的 URL 即下载凭证，客户端直连对象存储，
  *   断点续传由 SeaweedFS S3 网关原生 Range(206) 支持；仅“必须经服务端中转”场景（鉴权收紧/防直链/水印）
  *   走 GET /{fileId}/download 流式代理端点（手动透传 Range，支持 200/206/416，详见 FileService#download）
- * - /{fileId}/download 是唯一非 Result<T> 返回的端点：直接写二进制流 + 状态码；
+ * - /{fileId}/download 是唯一非 Result<T> 返回的端点：返回 StreamingResponseBody 异步写二进制流 + 状态码
+ *   （阻塞 IO 隔离到 fileIoExecutor，慢客户端不占 Tomcat 线程）；
  *   出错（FILE_NOT_FOUND/NO_PERMISSION）仍由全局异常处理器返回 JSON
  * - 引用登记入口（P0 已落地）：跨服务业务方经 FileClient（Feign，/api/feign/file/ref/bind|unbind，
  *   FileFeignProviderController 提供）与业务表同事务登记；路径前缀网关未路由，仅服务间可达
@@ -130,9 +132,9 @@ public class FileController {
             count = DOWNLOAD_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
     @GetMapping("/{fileId}/download")
     @SaCheckLogin
-    public void download(@PathVariable("fileId") String fileId,
+    public StreamingResponseBody download(@PathVariable("fileId") String fileId,
                          @RequestHeader(value = HttpHeaders.RANGE, required = false) String range,
-                         HttpServletResponse response) throws IOException {
+                         HttpServletResponse response) {
         //1：Service 内完成鉴权 + Range 解析，返回流式资源（stream 由本方法 try-with-resources 关闭）
         FileDownloadResource resource = fileService.download(fileId, StpUtil.getLoginIdAsLong(), range);
 
@@ -162,11 +164,12 @@ public class FileController {
         }
         response.setHeader(HttpHeaders.CONTENT_DISPOSITION, buildContentDisposition(resource.fileName()));
 
-        //3：形态一（416）：区间不可满足，仅回 totalSize 供客户端收敛重试；提前 return，不写 body
+        //3：形态一（416）：区间不可满足，仅回 totalSize 供客户端收敛重试；返回 null 表示无 body
+        //   （StreamingResponseBody 为 null 时 Spring 标记请求已处理，不再写 body，状态码/头保留）
         if (resource.rangeInvalid()) {
             response.setStatus(HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE);
             response.setHeader(HttpHeaders.CONTENT_RANGE, "bytes */" + resource.totalSize());
-            return;
+            return null;
         }
 
         //4：Content-Length 为本次实际返回字节数（全量或部分区间），不可写成 totalSize
@@ -181,12 +184,15 @@ public class FileController {
             response.setStatus(HttpServletResponse.SC_OK);
         }
 
-        //6：8KB 缓冲流式回写，不整份载入内存；try-with-resources 关闭对象流防泄漏（Servlet 流只 flush 不 close）
-        try (InputStream in = resource.stream()) {
-            OutputStream out = response.getOutputStream();
-            in.transferTo(out);
-            out.flush();
-        }
+        //6：返回 StreamingResponseBody：阻塞的 S3 读 + 客户端写交给 fileIoExecutor（见 FileAsyncConfig），
+        //   脱离 Tomcat 工作线程，防慢客户端占满主线程池；
+        //   try-with-resources 关闭对象流防泄漏（Servlet 流只 flush 不 close）
+        return out -> {
+            try (InputStream in = resource.stream()) {
+                in.transferTo(out);
+                out.flush();
+            }
+        };
     }
 
     /** Content-Disposition：ASCII 回退 + filename* UTF-8 编码，兼容中文文件名 */
@@ -200,6 +206,8 @@ public class FileController {
      * 强制预签名（owner/ADMIN；expireMinutes ≤ 配置上限，防 99999 绕过 LICENSE 限时）
      */
     @Operation(summary = "强制预签名", description = "仅 PRIVATE 文件；expireMinutes 空取配置默认，上限同配置")
+    @RateLimiter(time = PRESIGN_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = PRESIGN_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
     @PostMapping("/{fileId}/presign")
     @SaCheckLogin
     public Result<PresignVO> presign(@PathVariable("fileId") String fileId,
@@ -223,6 +231,8 @@ public class FileController {
      * 缩略图 URL（w/h 可选，默认 yml 配置；按需生成，不落库）
      */
     @Operation(summary = "获取缩略图 URL", description = "w/h 可选（默认 300×300，上限 2000）；非图片拒绝")
+    @RateLimiter(time = THUMBNAIL_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = THUMBNAIL_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
     @PostMapping("/{fileId}/thumbnail")
     @SaCheckLogin
     public Result<ThumbnailVO> thumbnail(@PathVariable("fileId") String fileId,
@@ -238,6 +248,8 @@ public class FileController {
     @Operation(summary = "删除文件", description = "owner/ADMIN；方案C 三步解绑：删本人引用→他人仍引用则保留→无引用才软删。"
             + "注意：ADMIN 代删只解除 ADMIN 本人引用行，真 owner/他人的引用不受影响（防悬空设计），"
             + "被引用文件 ADMIN 也无法删除，仅真 owner 可完成解绑+软删全流程")
+    @RateLimiter(time = DELETE_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = DELETE_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
     @DeleteMapping("/{fileId}")
     @SaCheckLogin
     public Result<Void> delete(@PathVariable("fileId") String fileId) {
