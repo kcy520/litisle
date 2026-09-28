@@ -1136,7 +1136,6 @@ create table if not exists `file_ref`
     `owner_id`    bigint unsigned not null comment '引用归属用户ID（审计与授权依据）',
     `create_time` datetime        not null default current_timestamp comment '引用建立时间',
     unique key `uk_ref` (`file_id`, `biz_type`, `biz_id`, `owner_id`),
-    index `idx_file` (`file_id`),
     index `idx_biz` (`biz_type`, `biz_id`)
     ) engine = InnoDB
     default charset = utf8mb4 comment = '文件引用登记表：业务方绑定/解绑引用时与业务表同事务登记';

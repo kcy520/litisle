@@ -66,14 +66,14 @@ create table if not exists `file_ref`
     `owner_id`    bigint unsigned not null comment '引用归属用户ID（审计与授权依据）',
     `create_time` datetime        not null default current_timestamp comment '引用建立时间',
     unique key `uk_ref` (`file_id`, `biz_type`, `biz_id`, `owner_id`),
-    index `idx_file` (`file_id`),
     index `idx_biz` (`biz_type`, `biz_id`)
     ) engine = InnoDB
     default charset = utf8mb4 comment = '文件引用登记表：业务方绑定/解绑引用时与业务表同事务登记';
 
 -- uk_ref 四元组唯一索引：bindRef 的 check-then-act（selectCount→insert）在并发下会双插，
 -- 唯一索引兜底（后到者被 DB 拒绝，代码侧吞 DuplicateKeyException 维持幂等，见 FileServiceImpl#bindRef）。
--- 注意：uk_ref 最左前缀即 file_id，idx_file 已冗余（暂保留，如需精简可后续移除）。
+-- 注意：uk_ref 最左前缀即 file_id，idx_file 已冗余，定稿移除（2026-09-28）：
+-- 运行库补 uk_ref 时一并 DROP INDEX idx_file，省一次运维窗口（DROP INDEX idx_file ON file_ref）。
 
 -- **设计原因**：
 --

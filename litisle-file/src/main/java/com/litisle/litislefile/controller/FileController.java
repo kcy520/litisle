@@ -187,7 +187,7 @@ public class FileController {
         //6：返回 StreamingResponseBody：阻塞的 S3 读 + 客户端写交给 fileIoExecutor（见 FileAsyncConfig），
         //   脱离 Tomcat 工作线程，防慢客户端占满主线程池；
         //   try-with-resources 关闭对象流防泄漏（Servlet 流只 flush 不 close）
-        return out -> {
+        return out -> { 
             try (InputStream in = resource.stream()) {
                 in.transferTo(out);
                 out.flush();

@@ -7,6 +7,7 @@ import com.litisle.commonredis.login.LoginRetryLimiter;
 import com.litisle.commonredis.idempotent.IdempotentAspect;
 import com.litisle.commonredis.idempotent.IdempotentKeyBuilder;
 import com.litisle.commonredis.lock.RedissonLock;
+import com.litisle.commonredis.ratelimit.LocalRateLimiter;
 import com.litisle.commonredis.ratelimit.RateLimiterAspect;
 import com.litisle.commonredis.ratelimit.RateLimiterKeyBuilder;
 import com.litisle.commonredis.ratelimit.RedisRateLimiter;
@@ -14,6 +15,7 @@ import com.litisle.commonredis.util.RedisUtil;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -34,6 +36,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
  * @author litisle
  */
 @Configuration
+@EnableConfigurationProperties(RateLimitFallbackProperties.class)//把 RateLimitFallbackProperties 这个 @ConfigurationProperties 类注册成 Bean，并自动绑定 yml / properties 里的配置项
 public class CommonRedisAutoConfiguration {
 
     // ==================== 工具类 ====================
@@ -126,10 +129,28 @@ public class CommonRedisAutoConfiguration {
      * 抽取自原 RateLimiterAspect 的 Lua 脚本，供 @RateLimiter 切面与业务侧
      * 系统级限流（如 FileGlobalQpsInterceptor）共用，保证单一事实来源
      */
+    /**
+     * 本地兑底限流器（单机固定窗口计数，Redis 故障降级期使用）
+     */
     @Bean
     @ConditionalOnMissingBean
-    public RedisRateLimiter redisRateLimiter(RedisTemplate<String, Object> redisTemplate) {
-        return new RedisRateLimiter(redisTemplate);
+    public LocalRateLimiter localRateLimiter() {
+        return new LocalRateLimiter();
+    }
+
+    /**
+     * Redis 固定窗口限流器（可复用组件）
+     *
+     * 抽取自原 RateLimiterAspect 的 Lua 脚本，供 @RateLimiter 切面与业务侧
+     * 系统级限流（如 FileGlobalQpsInterceptor）共用，保证单一事实来源；
+     * 内置三态熔断，Redis 故障时自动切换本地兑底（见 RedisRateLimiter 类注释）
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public RedisRateLimiter redisRateLimiter(RedisTemplate<String, Object> redisTemplate,
+                                             LocalRateLimiter localRateLimiter,
+                                             RateLimitFallbackProperties fallbackProperties) {
+        return new RedisRateLimiter(redisTemplate, localRateLimiter, fallbackProperties);
     }
 
     /**
