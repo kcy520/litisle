@@ -7,7 +7,18 @@
 
 global:
   scrape_interval: 15s     # 抓取周期
-  evaluation_interval: 15s # 规则评估周期（Alertmanager 后置接入时 rule_files 生效）
+  evaluation_interval: 15s # 规则评估周期
+
+# 告警规则文件（相对本文件所在目录）；规则内容见 alert-rules.yml
+rule_files:
+  - alert-rules.yml
+
+# 告警推送目标：评估触发的 alert 发给 Alertmanager（compose 内容器名直连）
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - litisle-alertmanager:9093
 
 scrape_configs:
   - job_name: litisle-services

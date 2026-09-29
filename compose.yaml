@@ -153,12 +153,35 @@ services:
       - "9090:9090"
     volumes:
       - ./docker/init/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # 告警规则文件：rule_files 是容器内路径，必须把规则文件也挂进去，否则 glob 匹配不到会静默加载 0 条规则
+      - ./docker/init/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - prometheus-data:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=15d
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Alertmanager - 告警通知端（obs 组，按需启动，与 Prometheus 同纪律）
+  # 控制台地址：http://localhost:9093
+  # 说明：接收 Prometheus rule_files 评估出的告警（见 prometheus.yml alerting 段）；
+  #       当前 alertmanager.yml 仅含 dev-null 接收器（告警只落控制台不外发），
+  #       后续接邮件/钉钉等通知渠道时只需改该文件并重启容器，零代码改动
+  # --------------------------------------------------------------------------
+  litisle-alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: litisle-alertmanager
+    profiles:
+      - obs
+    networks:
+      - litisle-network
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./docker/init/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
     restart: unless-stopped
 
   # --------------------------------------------------------------------------
@@ -333,6 +356,7 @@ volumes:
   elasticsearch-data:
   seaweed-data:
   prometheus-data:
+  alertmanager-data:
 
 
 # ============================================================================

@@ -1,0 +1,19 @@
+# ============================================================================
+# 告警规则 - litisle 微服务
+# 首条规则按清单④落地：Redis 三态熔断降级持续 5 分钟即触发
+# 后续新规则直接在本文件追加，prometheus.yml 已挂载整个文件，
+#   但 Prometheus 不自动热加载，需触发重载（见下方命令）
+# ============================================================================
+
+groups:
+  - name: litisle-redis-guard
+    rules:
+      - alert: RedisGuardDegraded
+        # 任一服务（auth/user/file）处于 Redis 降级态（Gauge=1）即命中
+        expr: redis_guard_degraded == 1
+        for: 5m            # 持续 5 分钟才触发，过滤瞬时抖动（如重启 Redis 的短暂探测期）
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] Redis 降级中，已走本地兑底限流"
+          description: "实例 {{ $labels.instance }} 的 redis_guard_degraded == 1 已持续 5 分钟，限流降级为本地计数模式，请检查 Redis（compose: litisle-redis / 6380）。"

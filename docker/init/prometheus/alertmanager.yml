@@ -1,0 +1,18 @@
+# ============================================================================
+# Alertmanager 配置 - 开发环境最小可用版
+# 当前仅 dev-null 接收器：告警可在 http://localhost:9093 控制台看到，不外发通知
+# 后续接通知渠道（邮件/钉钉/企微）时，给 dev-null 换成对应 receiver 即可
+# ============================================================================
+
+global:
+  resolve_timeout: 5m     # 指标恢复后 5 分钟自动标记告警已解决
+
+route:
+  receiver: dev-null          # 默认接收器（当前唯一）
+  group_by: ['alertname', 'application']   # 按告警名+服务分组，避免刷屏
+  group_wait: 30s             # 首条通知前等待 30s，聚合同组告警
+  group_interval: 5m          # 同组新告警的通知间隔
+  repeat_interval: 4h         # 未恢复的告警每 4h 重复提醒一次
+
+receivers:
+  - name: dev-null            # 空接收器：只落控制台，不外发
