@@ -257,4 +257,17 @@ public class FileController {
         fileService.delete(fileId, StpUtil.getLoginIdAsLong());
         return Result.success();
     }
+
+    /**
+     * 测试接口
+     */
+    @Operation(summary = "限流测试", description = "测试reids限流")
+    @RateLimiter(time = DELETE_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = 2, keyType = RateLimiter.KeyType.USER)
+    @GetMapping("/test")
+    public Result<String> test() {
+        System.out.println("接口测试");
+        return Result.success("测试成功!");
+    }
+
 }

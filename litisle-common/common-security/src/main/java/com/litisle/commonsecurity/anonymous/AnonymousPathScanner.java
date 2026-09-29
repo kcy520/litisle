@@ -2,6 +2,7 @@ package com.litisle.commonsecurity.anonymous;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.stereotype.Component;
@@ -65,9 +66,18 @@ public class AnonymousPathScanner implements ApplicationListener<ContextRefreshe
     /**
      * Spring MVC 的请求映射处理器
      * 【说明】required=false：网关（WebFlux）无此 Bean 时为 null，跳过扫描
+     * 【Qualifier 必要性】引入 actuator 后容器内会出现两个同类型 Bean：
+     * - requestMappingHandlerMapping：MVC 业务接口映射（本类扫描目标）
+     * - controllerEndpointHandlerMapping：actuator 端点映射（/actuator/**，非扫描目标）
+     * 按类型注入会因歧义启动失败，必须按 Bean 名精确指定
      */
     @Autowired(required = false)
+    //按 Bean 名字精确指定 要注入哪一个，把原来「按类型找、找到 2 个不知道选谁」的歧义注入，变成「按类型 + 按名字双重过滤、唯一命中」的确定性注入——因为 Spring 官方约定 MVC 业务接口的映射 Bean 就叫这个名字，而新冒出来的那个是 actuator 的端点映射，不是扫描目标。
+    @Qualifier("requestMappingHandlerMapping")
     private RequestMappingHandlerMapping handlerMapping;
+//   「两个重复类型的 Bean 名字不一样吗？」 —— 名字不一样（`requestMappingHandlerMapping` vs`controllerEndpointHandlerMapping` ），它们是「注入类型相同」（父类/子类关系），而非「同名冲突」。Spring 报的是`NoUniqueBeanDefinitionException` （候选不唯一），不是名字重复。
+    //@Qualifier 拿着字符串 "requestMappingHandlerMapping" 去候选池里【按名字匹配】：只有 1 个对得上 → 唯一命中
+//报错发生在 注入点 ，不在 Bean 本身 ——容器里同时存在 N 个同类型 Bean 是完全合法的常态，`controllerEndpointHandlerMapping` 没有、也不需要任何过滤，因为 没有任何注入点在按类型注入它时遇到歧义 ；歧义只出现在我们那个`@Autowired` 字段上，所以只需要修那一处。
 
     /**
      * 是否已扫描过（防止 ContextRefreshedEvent 在父子容器中触发多次）

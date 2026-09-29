@@ -187,8 +187,13 @@ public Result<Void> createOrder(@RequestBody OrderDTO dto) { ... }
 | 类                      | 说明                                           | 生效方式 |
 | ----------------------- | ---------------------------------------------- | -------- |
 | `RateLimiter`           | 限流注解（支持 USER/IP/DEFAULT 三种 key 类型） | 声明式   |
-| `RateLimiterAspect`     | 限流切面（Redis + Lua 脚本实现）               | 自动     |
+| `RateLimiterAspect`     | 限流切面（计数委托给 RedisRateLimiter）        | 自动     |
 | `RateLimiterKeyBuilder` | 限流 key 构建器                                | 内部使用 |
+| `RedisRateLimiter`      | Redis 固定窗口限流器（Lua 脚本 SSOT + 三态熔断 + 本地兜底） | 注入使用 |
+| `LocalRateLimiter`      | 本地兜底限流器（Redis 故障期单机固定窗口计数） | 内部使用 |
+| `RedisGuard`            | Redis 三态熔断守护（CLOSED/OPEN/HALF_OPEN，与 LoginRetryLimiter 共用） | 内部使用 |
+| `RedisGuard` 内置指标   | Micrometer 埋点（`redis.guard.state.change` Counter / `redis.guard.degraded` Gauge） | 自动（需 actuator + micrometer-registry-prometheus） |
+| `RateLimitFallbackProperties` | 降级配置（yml: litisle.rate-limit.fallback） | yml 配置 |
 
 **使用方式**：
 ```java
@@ -197,7 +202,40 @@ public Result<Void> createOrder(@RequestBody OrderDTO dto) { ... }
 public Result<LoginVO> login(@RequestBody LoginDTO dto) { ... }
 ```
 
-**实现原理（固定窗口计数法）**：Redis Lua 脚本原子执行 `INCR + EXPIRE`，`count > maxCount` 时抛异常。
+**实现原理（固定窗口计数法）**：Redis Lua 脚本原子执行 `INCR + EXPIRE`，`count > maxCount` 时抛 BizException(TOO_MANY_REQUESTS)。
+
+**Lua 脚本 SSOT（单一事实来源）**：脚本抽取到 `RedisRateLimiter`，注解式限流（@RateLimiter 切面）与系统级限流（如 FileGlobalQpsInterceptor 全站 QPS 拦截器）共用同一脚本，避免两处脚本漂移。
+
+**故障降级（三态熔断 + 本地兜底）**：纯 fail-open 意味着「Redis 挂 → 限流失效」，对防爆破类接口（登录/验证码）是防护缺口，故引入轻量三态熔断：
+- **CLOSED**：正常走 Redis；连接/超时类失败连续达 3 次 → OPEN（业务类异常如脚本返回 null 不算故障）
+- **OPEN**：冷却期内直接走本地兜底，不碰 Redis（避免每请求都吃连接超时）
+- **HALF_OPEN**：冷却到期后仅放单个探测请求试 Redis，成功 → CLOSED，失败 → 回 OPEN（防惊群 + 防侥幸恢复）
+- 熔断状态机下沉为公共组件 `RedisGuard`（guard 包），`RedisRateLimiter` 与 `LoginRetryLimiter` 共用，避免降级语义漂移
+
+**本地兜底（LocalRateLimiter）**：ConcurrentHashMap 槽位单机计数，窗口与 Redis 路径墙钟对齐（降级切换时口径连续）；返回计数 × instanceCount 折算为集群等效计数（等效「本地阈值 = 集群阈值 ÷ 实例数」），保证降级期「更严或等严」；约每 1024 次操作清理一次过期槽位，内存有界。仅由 RedisRateLimiter 内部调用，业务方不直接使用。
+
+**降级配置**（`litisle.rate-limit.fallback`，Nacos 可覆盖）：
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `enabled` | true | 兜底总开关；false 回退为纯 fail-open（仅建议本地调试关闭） |
+| `cooldown-seconds` | 5 | 熔断 OPEN 冷却期（秒），到期进入 HALF_OPEN 放探测请求 |
+| `instance-count` | 1 | 集群实例数（本地配额分摊基数）；扩缩容后需人工同步 |
+
+**Micrometer 监控指标**（`RedisGuard` 状态切换点埋点，限流与登录防爆破均受益）：
+
+| 指标 | 类型 | 说明 |
+|------|------|------|
+| `redis.guard.state.change` | Counter（tags: from/to） | 熔断状态切换次数（如 CLOSED→OPEN），观测故障频率与恢复速度 |
+| `redis.guard.degraded` | Gauge（1=降级中/0=正常） | 告警规则示例：`redis_guard_degraded == 1 for 5m`（降级超 5 分钟告警） |
+
+- 埋点位置与日志同点（熔断打开/探测失败/恢复成功），天然节流防刷屏
+- `MeterRegistry` 可选注入：业务服务引 `spring-boot-starter-actuator` +
+  `micrometer-registry-prometheus`（两者缺一不可：actuator 提供端点框架，
+  registry-prometheus 提供 /actuator/prometheus 端点与 Prometheus 格式输出）指标自动暴露；
+  未引入则静默停用，状态机零影响
+- common-redis 对 `micrometer-core` 为 provided 依赖，不强制传递给消费方
+- 告警通道（Prometheus/Alertmanager）延后到部署侧环境就绪后配置，零代码改动
 
 **与 @Idempotent 的区别**：
 - `@Idempotent`：防止"重复提交"（TTL 内只能执行一次）
@@ -223,7 +261,9 @@ login:fail:{identifier}  → 连续失败次数（String，TTL 15min）
 login:lock:{identifier}  → 锁定标记（String，TTL 15min）
 ```
 
-**核心机制**：INCR 原子递增 + 首次失败设 TTL；双 Key 职责分离；Redis 异常时降级放行。
+**核心机制**：INCR 原子递增 + 首次失败设 TTL；双 Key 职责分离。
+
+**Redis 故障降级**：接入 `RedisGuard` 三态熔断（与 RedisRateLimiter 共用同一状态机），降级期走组件自有本地兜底判断（宁严勿松，锁定/失败计数判定不因 Redis 故障而放行）。
 
 ---
 
@@ -614,6 +654,7 @@ litisle:
 | `litisle.security.anonymous.paths` | 各业务服务 + 网关              | 匿名白名单                               |
 | `litisle.security.crypto.*`        | 各业务服务                     | AES-256 密钥 + BCrypt cost               |
 | `litisle.xss.*`                    | 各业务服务                     | XSS 配置（按服务定制）                   |
+| `litisle.rate-limit.fallback.*`    | 各业务服务（common-redis）     | 限流本地兜底：enabled/cooldown-seconds/instance-count |
 
 ---
 
@@ -665,6 +706,7 @@ litisle:
 | `RedisUtil`                | common-redis     | 缓存操作             |
 | `RedissonLock`             | common-redis     | 分布式锁             |
 | `BloomFilter`              | common-redis     | 布隆过滤             |
+| `RedisRateLimiter`         | common-redis     | 固定窗口计数（@RateLimiter 切面与系统级限流共用） |
 | `LoginRetryLimiter`        | common-redis     | 登录重试限制         |
 
 ---
@@ -895,11 +937,14 @@ common-redis/src/main/java/com/litisle/commonredis/
 │   └── BloomFilter.java
 ├── config/
 │   ├── CommonRedisAutoConfiguration.java
+│   ├── RateLimitFallbackProperties.java
 │   ├── RedisConfig.java
 │   └── RedissonConfig.java
 ├── constant/
 │   ├── CacheConstant.java
 │   └── IdempotentConstant.java
+├── guard/
+│   └── RedisGuard.java
 ├── idempotent/
 │   ├── Idempotent.java
 │   ├── IdempotentAspect.java
@@ -910,9 +955,11 @@ common-redis/src/main/java/com/litisle/commonredis/
 ├── login/
 │   └── LoginRetryLimiter.java
 ├── ratelimit/
+│   ├── LocalRateLimiter.java
 │   ├── RateLimiter.java
 │   ├── RateLimiterAspect.java
-│   └── RateLimiterKeyBuilder.java
+│   ├── RateLimiterKeyBuilder.java
+│   └── RedisRateLimiter.java
 ├── session/
 │   └── DeviceSession.java
 └── util/
@@ -972,11 +1019,15 @@ common-security/src/main/java/com/litisle/commonsecurity/
 
 ---
 
-**文档版本**：v2.0
-**最后更新**：2026-08-17
+**文档版本**：v2.1
+**最后更新**：2026-09-29
 **维护者**：LitIsle 团队
 
 **更新记录**：
+- **v2.1（2026-09-29）**：限流组件重构
+  - 新增：`RedisRateLimiter`（Lua 脚本 SSOT 抽取，切面与系统级限流共用）、`LocalRateLimiter`（本地兜底计数）、`RedisGuard`（三态熔断状态机，限流与登录重试限制共用）、`RateLimitFallbackProperties`（litisle.rate-limit.fallback 配置）
+  - 更新：`RateLimiterAspect` 计数逻辑委托 `RedisRateLimiter`；`LoginRetryLimiter` 接入 `RedisGuard` 三态熔断
+  - 新增：`RedisGuard` 状态切换点 Micrometer 埋点（`redis.guard.state.change`/`redis.guard.degraded`），common-redis 引 micrometer-core（provided）
 - **v2.0（2026-08-17）**：**重大重构**
   - 认证框架从自研 JWT + SecurityContext 体系迁移至 Sa-Token
   - 删除：`JwtTokenProvider`、`JwtProperties`、`JwtAutoConfiguration`、`JwtConstant`（common-core）

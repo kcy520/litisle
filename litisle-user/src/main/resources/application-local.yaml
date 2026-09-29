@@ -8,6 +8,16 @@ spring:
     sentinel:
       transport:
         port: 8720
+      # Sentinel 规则 Nacos 数据源（同 file 模块说明）：规则外置 Nacos、热更新、重启不丢
+      datasource:
+        degrade-rules:
+          nacos:
+            server-addr: ${litisle.nacos.server-addr}
+            username: ${litisle.nacos.username}
+            password: ${litisle.nacos.password}
+            data-id: litisle-user-degrade-rules.json
+            group-id: DEFAULT_GROUP
+            rule-type: degrade
 
 litisle:
   # ================================

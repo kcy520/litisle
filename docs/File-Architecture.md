@@ -1,20 +1,8 @@
-你提到的排版问题我完全理解了 👍
-
-本质是：**代码块（````java … ````）和正文之间的边界混乱**，导致：
-
-- 本该在代码块里的 VO 定义，被拆到了代码块外
-- 本该在代码块外的说明文字，被错误地包进了代码块
-- 部分 ````java` 开始标记和结束标记不配对，造成渲染错位
-
-下面我给你一份**已修正排版的版本**，只动结构，**不改任何技术内容**。
-
-你可以直接整体替换原文档。
-
-------
+---------建议删除此段（AI 会话残留，至"你可以直接整体替换原文档。"止）---------
 
 # litisle-file 文件模块架构文档
 
-> 版本：v1.0
+> 版本：v1.1（2026-09-28 按当前实现对齐）
 >
 > 关联文档：[Design-Document.md](https://tencent.yuanbao/Design-Document.md) §2.1.3 / §2.7 · [Function-Document.md](https://tencent.yuanbao/Function-Document.md) §3 · [Sql-Document.md](https://tencent.yuanbao/Sql-Document.md) §八
 >
@@ -26,8 +14,8 @@
 
 | 项目     | 说明                                                         |
 | -------- | ------------------------------------------------------------ |
-| 定位     | 封装 SeaweedFS（S3 兼容 API），对外暴露上传 / 直链 / 预签名 / 删除能力 |
-| 依赖方   | litisle-user（头像）、litisle-content（封面/正文图片）、litisle-review（授权文件）等 |
+| 定位     | **独立微服务**（端口 8082），封装 SeaweedFS（S3 兼容 API），对外暴露上传 / 直链 / 预签名 / 流式下载 / 删除能力 |
+| 依赖方   | litisle-user（头像，Feign）、后续 content（封面/正文图片）等；跨服务契约在 litisle-api（FileClient + FallbackFactory） |
 | 职责边界 | 只管**文件本体 + 元数据**；图片位置/对齐的业务归属由 content 的 `article_image` 表管理 |
 | 不负责   | 内容审核（DFA）、业务权限判定（由调用方服务决定）            |
 
@@ -61,13 +49,17 @@ litisle-file
 
 | 功能                | 说明               | 核心机制                                                     |
 | ------------------- | ------------------ | ------------------------------------------------------------ |
-| 文件上传            | 分片上传、断点续传 | S3 SDK Multipart Upload；上传限制图片 ≤ 10MB                 |
-| sha256 去重（秒传） | 同一文件只存一份   | 上传前计算 SHA256 → 查 `file_meta.idx_sha256` → 命中直接复用 fileId |
+| 文件上传            | **一次性整传（≤10MB）**，无分片 | 流式算 SHA256 → 判重 → 分布式锁内占位(status=0) → 锁外幂等 put(ChecksumAlgorithm.SHA256 存储侧校验) → status=1；put 失败由对账任务清理（见 seaweedfs笔记 §3.5） |
+| sha256 去重（秒传） | 同一文件只存一份 | 判重键 sha256+size+biz_type+del_flag=0；PUBLIC 全局去重，PRIVATE 按 owner 隔离（idx_dedup） |
+| 存储配额 | per-user 容量/数量上限 | `maxTotalSize`/`maxFileCount`（yml 可调）；锁内·双检后·写库前校验，秒传命中不占配额；超限 FILE_QUOTA_EXCEEDED(90007) |
+| 内容魔数校验 | 防伪造 Content-Type | FileMagicValidator 只读 12 字节文件头比对声明 MIME；识别失败 fail-safe 拒绝 |
+| 限流体系 | 三层 | @RateLimiter(USER) 防单用户刷 + FileGlobalQpsInterceptor 全站 QPS + Sentinel 熔断（seaweedfs-put/get-stream 资源，规则外置 Nacos） |
 | 直链生成            | 公共文件访问       | 头像/封面等 `access=1` 文件走直链（CDN 友好）                |
 | 预签名 URL          | 私有文件鉴权下载   | `access=0` 文件签发 30 分钟短时效 URL                        |
 | 缩略图              | 头像/封面按需生成  | ThumbnailGenerator，默认 300×300；路径由原图 path 派生，不落库（见 §4.1 设计要点 5） |
 | 图片对齐信息        | 正文图片 5 种对齐  | align 冗余存 `file_meta`，实际以 content `article_image` 为准 |
-| 引用登记            | file_ref 引用登记  | 业务方绑定/解绑引用时与业务表同事务登记 file_ref（方案C）     |
+| 引用登记            | file_ref 引用登记  | 业务方绑定/解绑引用时与业务表同事务登记 file_ref（方案C）；并发幂等由 uk_ref 唯一索引 + 吞 DuplicateKeyException 兜底 |
+| 下载（流式代理）    | 大文件断点续传     | `GET/HEAD /{fileId}/download`：手写 Range 解析（200/206/416）+ ETag(sha256)/Last-Modified/If-Range；仅单区间，多区间回 200 全量；StreamingResponseBody + fileIoExecutor 线程隔离（见 seaweedfs笔记 §五） |
 | 删除（解绑语义）    | 解绑引用 + 软删除  | DELETE 仅解除调用方引用；无活跃引用才 `del_flag=1`；定时清理前置校验 file_ref，防秒传共享悬空他人引用 |
 
 ### 2.2 枚举定义
@@ -117,6 +109,9 @@ AlignEnum       // LEFT(1) / LEFT_CENTER(2) / CENTER(3) / RIGHT_CENTER(4) / RIGH
 | DELETE | `/{fileId}`           | 解绑引用；无活跃引用才软删除（仅 owner/ADMIN） | path：fileId                      | `Result<Void>`                               |
 | GET    | `/{fileId}/meta`      | 元数据查询               | path：fileId                           | `Result<FileMetaVO>`（mime/size/宽高/align） |
 | POST   | `/{fileId}/thumbnail` | 生成/获取缩略图          | path：fileId，可选 width/height        | `Result<ThumbnailVO>`                        |
+| GET/HEAD | `/{fileId}/download` | 服务端流式代理下载（支持 Range 断点续传） | path：fileId；可选 Range/If-Range | 200 全量 / 206 部分内容 / 416；PRIVATE 需 owner/ADMIN，PUBLIC 登录即可 |
+
+**限流配置（均 @RateLimiter(keyType=USER)，叠加全站 QPS 拦截器）**：upload 60s/30、thumbnail 60s/120、presign 60s/60、delete 60s/30；全站 `/api/file/**` 1s/200（阈值外置 `litisle.file.limit.global-qps-max-count`）。
 
 **VO 摘要**：
 
@@ -215,7 +210,11 @@ public interface FileService {
 | `litisle.file.seaweedfs.endpoint`                 | `http://localhost:8333` | Filer S3 网关地址            |
 | `litisle.file.seaweedfs.access-key / secret-key`  | —                       | S3 凭证，生产走环境变量      |
 | `litisle.file.seaweedfs.presign-expire-minutes`   | 30                      | 预签名 URL 有效期            |
-| `litisle.file.upload.max-image-size`              | 10485760                | 图片大小上限（10MB）         |
+| `litisle.file.upload.max-image-size`              | 10485760                | 单文件大小上限（10MB）       |
+| `litisle.file.upload.max-total-size / max-file-count` | — / —               | per-user 存储配额（总容量/文件数） |
+| `litisle.file.executor.*`                         | —                       | fileIoExecutor 线程池参数 + async-timeout-seconds(默认600s) |
+| `litisle.file.limit.global-qps-max-count`         | 200                     | /api/file/** 全站 QPS 上限   |
+| `litisle.rate-limit.fallback.*`                   | enabled:true / cooldown:5 / instance-count:1 | Redis 故障降级本地兑底（common-redis RedisGuard） |
 | `litisle.file.thumbnail.enabled / width / height` | true / 300 / 300        | 缩略图开关与默认尺寸         |
 | `litisle.seaweed.host / s3-port`                  | localhost / 8333        | 环境特定值（local/dev.yaml） |
 
@@ -230,18 +229,30 @@ public interface FileService {
 | SHA256 计算失败  | FILE_HASH_ERROR          | IO 异常                |
 | fileId 不存在    | FILE_NOT_FOUND           | 元数据查无或已软删除   |
 | 无权限删除       | NO_PERMISSION            | 非 owner 且非 ADMIN    |
-| SeaweedFS 不可用 | FILE_STORAGE_UNAVAILABLE | S3 调用异常，fail-fast |
+| SeaweedFS 不可用 | FILE_STORAGE_UNAVAILABLE | S3 调用异常，fail-fast；熔断打开时同样报此码 |
+| 内容校验不符     | FILE_CHECKSUM_MISMATCH(90006) | 存储侧 SHA256 比对失败 |
+| 配额超限         | FILE_QUOTA_EXCEEDED(90007) | 总容量/文件数超限 |
+| 请求过频         | TOO_MANY_REQUESTS        | @RateLimiter / 全站 QPS / Sentinel 触发 |
 
 ------
 
 ## 七、安全与可靠性
 
-1. **上传安全**：大小限制 + MIME 白名单 + 登录态校验（网关注入 X-User-Id）
+1. **上传安全**：大小限制（双层）+ MIME 白名单 + **魔数校验**（FileMagicValidator 只读文件头，防伪造 Content-Type）+ 登录态校验
 2. **私有文件**：LICENSE 类强制 PRIVATE，仅预签名短时效 URL 可访问（默认 30 分钟）
-3. **软删除（方案C）**：删除=解除 file_ref 引用；无活跃引用才 `del_flag=1`，定时任务
-   物理清理前再校验 file_ref，防止秒传共享文件被首次上传者单方删除悬空他人引用
-4. **去重并发**：SHA256 秒传查询与写入间用分布式锁（common-redis Redisson）防并发重复上传
-5. **副本策略**：Volume `replication=001`（单副本），重要 collection 可按需调高副本数
+3. **软删除（方案C）**：删除=解除 file_ref 引用；无活跃引用才 `del_flag=1`；file_ref 有 uk_ref 唯一索引保证 bindRef 并发幂等
+4. **去重并发**：SHA256 秒传查询与写入间用分布式锁（Redisson，看门狗续期）双重检查防并发重复上传
+5. **存储配额**：per-user 总容量/文件数限制，锁内校验，秒传不占配额（软限模型，见 next_update.md）
+6. **限流三层**：@RateLimiter(USER) 单用户 → FileGlobalQpsInterceptor 全站 QPS → Sentinel 熔断（存储资源 + Feign 调用，规则外置 Nacos DEFAULT_GROUP，热更新）
+7. **Redis 故障降级**：RedisRateLimiter 三态熔断 + LocalRateLimiter 本地兑底（RedisGuard 公共组件，配额分摊宁严勿松）；登录防爆破同机制
+8. **线程隔离**：下载走 fileIoExecutor（CallerRunsPolicy 回压）+ configureAsyncSupport；上传保持同步（multipart/事务语义，见 FileServiceImpl 注释）
+9. **上传完整性**：SDK ChecksumAlgorithm.SHA256 或显式下发摘要，SeaweedFS 网关侧校验（BadDigest 拒写）
+10. **副本策略**：Volume `replication=001`（单副本），重要 collection 可按需调高副本数
+11. **审核（预留）**：safe_flag 三态 default-deny 已建列，闸口埋点 4 处未生效，异步方案已定稿（见 seaweedfs笔记 §3.6.3）
+
+------
+
+---------建议删除以下至文末的全部内容（AI 会话残留："## 说明"起含 ✅修正重点表格与后续话术）---------
 
 ------
 

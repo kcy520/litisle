@@ -101,6 +101,20 @@ logging:
     path: "logs/${spring.application.name}"
 
 # ================================
+# Actuator 监控端点（暴露 RedisGuard 指标给 Prometheus）
+# ================================
+management:
+  endpoints:
+    web:
+      exposure:
+        # health：健康检查；prometheus：指标抓取端点（RedisGuard 熔断降级指标数据源）
+        include: health,prometheus
+  metrics:
+    tags:
+      # 指标附加服务名标签，Prometheus 多服务区分数据来源
+      application: ${spring.application.name}
+
+# ================================
 # litisle-file 业务配置
 # ================================
 litisle:

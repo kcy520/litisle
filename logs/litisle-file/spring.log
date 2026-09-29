@@ -1,161 +1,401 @@
-18:10:27:547  INFO 9068 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Ignore load compatible class io.seata.config.ExtConfigurationProvider, because is not assignable from origin type org.apache.seata.config.ExtConfigurationProvider
-18:10:27:599  INFO 9068 --- [litisle-file] [main] o.a.seata.config.ConfigurationFactory    : load Configuration from :FileConfiguration$$EnhancerByCGLIB$$9e6bf6fd
-18:10:27:720  INFO 9068 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Starting LitisleFileApplication using Java 25.0.1 with PID 9068 (E:\NewJavaPro\LitIsle\litisle-file\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
-18:10:27:720 DEBUG 9068 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Running with Spring Boot v3.5.15, Spring v6.2.19
-18:10:27:721  INFO 9068 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : The following 1 profile is active: "local"
-18:10:27:753  INFO 9068 --- [litisle-file] [main] c.a.c.n.c.NacosConfigDataLoader          : [Nacos Config] Load config[dataId=litisle-shared.yaml, group=DEFAULT_GROUP] success
-18:10:27:753  WARN 9068 --- [litisle-file] [main] c.a.c.n.c.NacosConfigDataLoader          : [Nacos Config] config[dataId=litisle-file.yaml, group=DEFAULT_GROUP] is empty
-18:10:29:094  INFO 9068 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
-18:10:29:098  INFO 9068 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
-18:10:29:126  INFO 9068 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 10 ms. Found 0 Redis repository interfaces.
-18:10:29:318  INFO 9068 --- [litisle-file] [main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=2008cb73-f5dc-3146-9b19-0d76d8074822
-18:10:29:401  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.apache.seata.spring.boot.autoconfigure.SeataCoreAutoConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.SeataCoreAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:401  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'springApplicationContextProvider' of type [org.apache.seata.spring.boot.autoconfigure.provider.SpringApplicationContextProvider] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:402  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.apache.seata.spring.boot.autoconfigure.SeataAutoConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.SeataAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:446  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'failureHandler' of type [org.apache.seata.tm.api.DefaultFailureHandlerImpl] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:453  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.cloud.commons.config.CommonsConfigAutoConfiguration' of type [org.springframework.cloud.commons.config.CommonsConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:453  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration' of type [org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:453  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'loadBalancerClientsDefaultsMappingsProvider' of type [org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration$$Lambda/0x000000000c5c2f08] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:455  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'defaultsBindHandlerAdvisor' of type [org.springframework.cloud.commons.config.DefaultsBindHandlerAdvisor] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:458  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'springCloudAlibabaConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.properties.SpringCloudAlibabaConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:460  WARN 9068 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'seataProperties' of type [org.apache.seata.spring.boot.autoconfigure.properties.SeataProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
-18:10:29:462  INFO 9068 --- [litisle-file] [main] o.a.s.s.b.a.SeataAutoConfiguration       : Automatically configure Seata
-18:10:29:472  INFO 9068 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.spring.annotation.ScannerChecker
-18:10:29:488  INFO 9068 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.integration.tx.api.remoting.RemotingParser
-18:10:29:488  INFO 9068 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Initializing Global Transaction Clients ... 
-18:10:29:594  INFO 9068 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.auth.AuthSigner
-18:10:29:597  INFO 9068 --- [litisle-file] [main] o.a.s.c.r.n.AbstractNettyRemotingClient  : register channel event listener: org.apache.seata.core.rpc.netty.TmNettyRemotingClient$2
-18:10:29:605  INFO 9068 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyClientBootstrap   : NettyClientBootstrap has started
-18:10:29:607  INFO 9068 --- [litisle-file] [main] o.a.s.d.registry.RegistryFactory         : use registry center type: nacos
-18:10:29:610  INFO 9068 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.discovery.registry.RegistryProvider
-18:10:29:612  INFO 9068 --- [litisle-file] [main] o.a.s.d.r.n.NacosRegistryServiceImpl     : Nacos check auth with userName/password.
-18:10:29:613  INFO 9068 --- [litisle-file] [main] o.a.s.d.r.n.NacosRegistryServiceImpl     : Nacos check auth with userName/password.
-18:10:29:616  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Nacos client key init properties: 
+10:40:08:384  INFO 32004 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Ignore load compatible class io.seata.config.ExtConfigurationProvider, because is not assignable from origin type org.apache.seata.config.ExtConfigurationProvider
+10:40:08:433  INFO 32004 --- [litisle-file] [main] o.a.seata.config.ConfigurationFactory    : load Configuration from :FileConfiguration$$EnhancerByCGLIB$$9e6bf6fd
+10:40:08:568  INFO 32004 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Starting LitisleFileApplication using Java 25.0.1 with PID 32004 (E:\NewJavaPro\LitIsle\litisle-file\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
+10:40:08:569 DEBUG 32004 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Running with Spring Boot v3.5.15, Spring v6.2.19
+10:40:08:570  INFO 32004 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : The following 1 profile is active: "local"
+10:40:08:605  INFO 32004 --- [litisle-file] [main] c.a.c.n.c.NacosConfigDataLoader          : [Nacos Config] Load config[dataId=litisle-shared.yaml, group=DEFAULT_GROUP] success
+10:40:08:605  WARN 32004 --- [litisle-file] [main] c.a.c.n.c.NacosConfigDataLoader          : [Nacos Config] config[dataId=litisle-file.yaml, group=DEFAULT_GROUP] is empty
+10:40:09:909  INFO 32004 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+10:40:09:911  INFO 32004 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+10:40:09:933  INFO 32004 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 10 ms. Found 0 Redis repository interfaces.
+10:40:10:128  INFO 32004 --- [litisle-file] [main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=9ebc4677-28a2-38d4-9f24-ed9a6f80ebd9
+10:40:10:189  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.apache.seata.spring.boot.autoconfigure.SeataCoreAutoConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.SeataCoreAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:190  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'springApplicationContextProvider' of type [org.apache.seata.spring.boot.autoconfigure.provider.SpringApplicationContextProvider] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:190  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.apache.seata.spring.boot.autoconfigure.SeataAutoConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.SeataAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:222  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'failureHandler' of type [org.apache.seata.tm.api.DefaultFailureHandlerImpl] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:226  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.cloud.commons.config.CommonsConfigAutoConfiguration' of type [org.springframework.cloud.commons.config.CommonsConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:227  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration' of type [org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:228  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'loadBalancerClientsDefaultsMappingsProvider' of type [org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration$$Lambda/0x000000008b5e91a0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:229  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'defaultsBindHandlerAdvisor' of type [org.springframework.cloud.commons.config.DefaultsBindHandlerAdvisor] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:234  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'springCloudAlibabaConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.properties.SpringCloudAlibabaConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:239  WARN 32004 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'seataProperties' of type [org.apache.seata.spring.boot.autoconfigure.properties.SeataProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:40:10:242  INFO 32004 --- [litisle-file] [main] o.a.s.s.b.a.SeataAutoConfiguration       : Automatically configure Seata
+10:40:10:253  INFO 32004 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.spring.annotation.ScannerChecker
+10:40:10:277  INFO 32004 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.integration.tx.api.remoting.RemotingParser
+10:40:10:278  INFO 32004 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Initializing Global Transaction Clients ... 
+10:40:10:363  INFO 32004 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.auth.AuthSigner
+10:40:10:364  INFO 32004 --- [litisle-file] [main] o.a.s.c.r.n.AbstractNettyRemotingClient  : register channel event listener: org.apache.seata.core.rpc.netty.TmNettyRemotingClient$2
+10:40:10:369  INFO 32004 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyClientBootstrap   : NettyClientBootstrap has started
+10:40:10:372  INFO 32004 --- [litisle-file] [main] o.a.s.d.registry.RegistryFactory         : use registry center type: nacos
+10:40:10:378  INFO 32004 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.discovery.registry.RegistryProvider
+10:40:10:380  INFO 32004 --- [litisle-file] [main] o.a.s.d.r.n.NacosRegistryServiceImpl     : Nacos check auth with userName/password.
+10:40:10:381  INFO 32004 --- [litisle-file] [main] o.a.s.d.r.n.NacosRegistryServiceImpl     : Nacos check auth with userName/password.
+10:40:10:388  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Nacos client key init properties: 
 	serverAddr=localhost:8848
 	username=nacos
 	password=n***s
 
-18:10:29:616  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from namespace attribute :null
-18:10:29:625  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : FailoverDataSource type is class com.alibaba.nacos.client.naming.backups.datasource.DiskFailoverDataSource
-18:10:29:629  INFO 9068 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
-18:10:29:629  INFO 9068 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
-18:10:29:629  INFO 9068 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
-18:10:29:629  INFO 9068 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
-18:10:29:629  INFO 9068 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
-18:10:29:690  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of be321ce2-fa7c-4d70-b223-910cbffed45a
-18:10:29:691  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Create naming rpc client for uuid->be321ce2-fa7c-4d70-b223-910cbffed45a
-18:10:29:691  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] RpcClient init, ServerListFactory = com.alibaba.nacos.client.naming.core.NamingServerListManager
-18:10:29:691  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Registry connection listener to current client:com.alibaba.nacos.client.naming.remote.gprc.redo.NamingGrpcRedoService
-18:10:29:691  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingPushRequestHandler
-18:10:29:692  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingFuzzyWatchNotifyRequestHandler
-18:10:29:693  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
-18:10:29:693  INFO 9068 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
-18:10:29:714  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Success to connect to server [localhost:8848] on start up, connectionId = 1790590229700_172.21.0.1_57932
-18:10:29:714  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
-18:10:29:714  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x000000000c37b380
-18:10:29:714  INFO 9068 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Notify connected event to listeners.
-18:10:29:714  INFO 9068 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.client.naming          : Grpc connection connect
-18:10:29:717  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [SUBSCRIBE-SERVICE] service:seata-server, group:DEFAULT_GROUP, clusters: 
-18:10:29:718  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [GRPC-SUBSCRIBE] service:seata-server, group:DEFAULT_GROUP, cluster: 
-18:10:29:751  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : init new ips(1) service: DEFAULT_GROUP@@seata-server -> [{"instanceId":"192.168.43.221#8091#default#DEFAULT_GROUP@@seata-server","ip":"192.168.43.221","port":8091,"weight":1.0,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"default","serviceName":"DEFAULT_GROUP@@seata-server","metadata":{},"instanceIdGenerator":"simple","ipDeleteTimeout":30000,"instanceHeartBeatInterval":5000,"instanceHeartBeatTimeOut":15000}]
-18:10:29:758  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : current ips:(1) service: DEFAULT_GROUP@@seata-server -> [{"instanceId":"192.168.43.221#8091#default#DEFAULT_GROUP@@seata-server","ip":"192.168.43.221","port":8091,"weight":1.0,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"default","serviceName":"DEFAULT_GROUP@@seata-server","metadata":{},"instanceIdGenerator":"simple","ipDeleteTimeout":30000,"instanceHeartBeatInterval":5000,"instanceHeartBeatTimeOut":15000}]
-18:10:29:772  WARN 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Duplicate subscribe for groupName: DEFAULT_GROUP, serviceName: seata-server; directly use current cached to notify.
-18:10:29:772  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Invoke event groupName: DEFAULT_GROUP, serviceName: seata-server to Listener: org.apache.seata.discovery.registry.nacos.NacosRegistryServiceImpl$$Lambda/0x000000000c5ffa10@66fff42f
-18:10:29:773  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [SUBSCRIBE-SERVICE] service:seata-server, group:DEFAULT_GROUP, clusters: 
-18:10:29:775  INFO 9068 --- [litisle-file] [main] o.a.s.c.r.n.NettyClientChannelManager    : will connect to 192.168.43.221:8091
-18:10:29:779  INFO 9068 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : NettyPool create channel to transactionRole:TMROLE,address:192.168.43.221:8091,msg:< RegisterTMRequest{version='2.5.0', applicationId='litisle-file', transactionServiceGroup='litisle_tx_group', extraData='ak=null
-digest=litisle_tx_group,172.28.144.1,1790590229778
-timestamp=1790590229778
+10:40:10:388  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from namespace attribute :null
+10:40:10:395  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : FailoverDataSource type is class com.alibaba.nacos.client.naming.backups.datasource.DiskFailoverDataSource
+10:40:10:401  INFO 32004 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
+10:40:10:401  INFO 32004 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
+10:40:10:401  INFO 32004 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
+10:40:10:402  INFO 32004 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+10:40:10:402  INFO 32004 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+10:40:10:471  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of 77cfb8bd-f899-4b06-8e5f-422ed80c36e3
+10:40:10:472  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Create naming rpc client for uuid->77cfb8bd-f899-4b06-8e5f-422ed80c36e3
+10:40:10:472  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] RpcClient init, ServerListFactory = com.alibaba.nacos.client.naming.core.NamingServerListManager
+10:40:10:472  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Registry connection listener to current client:com.alibaba.nacos.client.naming.remote.gprc.redo.NamingGrpcRedoService
+10:40:10:472  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingPushRequestHandler
+10:40:10:472  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingFuzzyWatchNotifyRequestHandler
+10:40:10:473  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
+10:40:10:474  INFO 32004 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
+10:40:10:496  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Success to connect to server [localhost:8848] on start up, connectionId = 1790649610478_172.21.0.1_48170
+10:40:10:496  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
+10:40:10:496  INFO 32004 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Notify connected event to listeners.
+10:40:10:497  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x000000008b374ff0
+10:40:10:497  INFO 32004 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.client.naming          : Grpc connection connect
+10:40:10:500  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [SUBSCRIBE-SERVICE] service:seata-server, group:DEFAULT_GROUP, clusters: 
+10:40:10:500  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [GRPC-SUBSCRIBE] service:seata-server, group:DEFAULT_GROUP, cluster: 
+10:40:10:522  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : init new ips(1) service: DEFAULT_GROUP@@seata-server -> [{"instanceId":"192.168.43.221#8091#default#DEFAULT_GROUP@@seata-server","ip":"192.168.43.221","port":8091,"weight":1.0,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"default","serviceName":"DEFAULT_GROUP@@seata-server","metadata":{},"instanceHeartBeatTimeOut":15000,"instanceHeartBeatInterval":5000,"instanceIdGenerator":"simple","ipDeleteTimeout":30000}]
+10:40:10:528  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : current ips:(1) service: DEFAULT_GROUP@@seata-server -> [{"instanceId":"192.168.43.221#8091#default#DEFAULT_GROUP@@seata-server","ip":"192.168.43.221","port":8091,"weight":1.0,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"default","serviceName":"DEFAULT_GROUP@@seata-server","metadata":{},"instanceHeartBeatTimeOut":15000,"instanceHeartBeatInterval":5000,"instanceIdGenerator":"simple","ipDeleteTimeout":30000}]
+10:40:10:543  WARN 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Duplicate subscribe for groupName: DEFAULT_GROUP, serviceName: seata-server; directly use current cached to notify.
+10:40:10:543  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Invoke event groupName: DEFAULT_GROUP, serviceName: seata-server to Listener: org.apache.seata.discovery.registry.nacos.NacosRegistryServiceImpl$$Lambda/0x000000008b627040@7a13ad55
+10:40:10:544  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [SUBSCRIBE-SERVICE] service:seata-server, group:DEFAULT_GROUP, clusters: 
+10:40:10:545  INFO 32004 --- [litisle-file] [main] o.a.s.c.r.n.NettyClientChannelManager    : will connect to 192.168.43.221:8091
+10:40:10:549  INFO 32004 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : NettyPool create channel to transactionRole:TMROLE,address:192.168.43.221:8091,msg:< RegisterTMRequest{version='2.5.0', applicationId='litisle-file', transactionServiceGroup='litisle_tx_group', extraData='ak=null
+digest=litisle_tx_group,172.28.144.1,1790649610548
+timestamp=1790649610548
 authVersion=V4
 vgroup=litisle_tx_group
 ip=172.28.144.1
 '} >
-18:10:29:887  INFO 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.serializer.Serializer
-18:10:30:069  INFO 9068 --- [litisle-file] [main] o.a.s.c.rpc.netty.TmNettyRemotingClient  : register TM success. client version:2.5.0, server version:2.5.0,channel:[id: 0xe328ca13, L:/192.168.43.221:64969 - R:/192.168.43.221:8091]
-18:10:30:073  INFO 9068 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : register success, cost 213 ms, version:2.5.0,role:TMROLE,channel:[id: 0xe328ca13, L:/192.168.43.221:64969 - R:/192.168.43.221:8091]
-18:10:30:073  INFO 9068 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Transaction Manager Client is initialized. applicationId[litisle-file] txServiceGroup[litisle_tx_group]
-18:10:30:120  INFO 9068 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.model.ResourceManager
-18:10:30:125  INFO 9068 --- [litisle-file] [main] o.a.seata.rm.datasource.AsyncWorker      : Async Commit Buffer Limit: 10000
-18:10:30:126  INFO 9068 --- [litisle-file] [main] o.a.s.r.datasource.xa.ResourceManagerXA  : ResourceManagerXA init ...
-18:10:30:132  INFO 9068 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyClientBootstrap   : NettyClientBootstrap has started
-18:10:30:133  INFO 9068 --- [litisle-file] [main] o.a.s.c.r.n.AbstractNettyRemotingClient  : register channel event listener: org.apache.seata.core.rpc.netty.RmNettyRemotingClient$1
-18:10:30:133  INFO 9068 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Resource Manager is initialized. applicationId[litisle-file] txServiceGroup[litisle_tx_group]
-18:10:30:133  INFO 9068 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Global Transaction Clients are initialized. 
-18:10:30:207  INFO 9068 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : The needed enhancement business beans are : []
-18:10:30:223  INFO 9068 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.context.ContextCore
-18:10:30:311  INFO 9068 --- [litisle-file] [nacos-grpc-client-executor-localhost-12] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Receive server push request, request = NotifySubscriberRequest, requestId = 1
-18:10:30:311  INFO 9068 --- [litisle-file] [nacos-grpc-client-executor-localhost-12] com.alibaba.nacos.common.remote.client   : [be321ce2-fa7c-4d70-b223-910cbffed45a] Ack server push request, request = NotifySubscriberRequest, requestId = 1
-18:10:30:936  INFO 9068 --- [litisle-file] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8083 (http)
-18:10:30:950  INFO 9068 --- [litisle-file] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-18:10:30:951  INFO 9068 --- [litisle-file] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
-18:10:31:063  INFO 9068 --- [litisle-file] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-18:10:31:063  INFO 9068 --- [litisle-file] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3309 ms
-18:10:31:071  INFO 9068 --- [litisle-file] [main] c.litisle.commonsecurity.xss.XssFilter   : XSS 过滤器已注册，拦截路径: /*，排除路径: []
-18:10:31:192  INFO 9068 --- [litisle-file] [main] org.redisson.Version                     : Redisson 3.52.0
-18:10:31:384  INFO 9068 --- [litisle-file] [redisson-netty-2-5] o.redisson.connection.ConnectionsHolder  : 1 connections initialized for localhost/127.0.0.1:6380
-18:10:31:525  INFO 9068 --- [litisle-file] [redisson-netty-2-4] o.redisson.connection.ConnectionsHolder  : 32 connections initialized for localhost/127.0.0.1:6380
-18:10:31:704  INFO 9068 --- [litisle-file] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
-18:10:31:869  INFO 9068 --- [litisle-file] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@57f31caf
-18:10:31:870  INFO 9068 --- [litisle-file] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
-18:10:32:157  INFO 9068 --- [litisle-file] [main] o.a.s.c.r.n.NettyClientChannelManager    : will connect to 192.168.43.221:8091
-18:10:32:157  INFO 9068 --- [litisle-file] [main] o.a.s.c.rpc.netty.RmNettyRemotingClient  : RM will register :jdbc:mysql://localhost:3307/litisle_file
-18:10:32:157  INFO 9068 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : NettyPool create channel to transactionRole:RMROLE,address:192.168.43.221:8091,msg:< RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3307/litisle_file', version='2.5.0', applicationId='litisle-file', transactionServiceGroup='litisle_tx_group', extraData='null'} >
-18:10:32:187  INFO 9068 --- [litisle-file] [main] o.a.s.c.rpc.netty.RmNettyRemotingClient  : register RM success. client version:2.5.0, server version:2.5.0,channel:[id: 0x776781d9, L:/192.168.43.221:65019 - R:/192.168.43.221:8091]
-18:10:32:187  INFO 9068 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : register success, cost 28 ms, version:2.5.0,role:RMROLE,channel:[id: 0x776781d9, L:/192.168.43.221:65019 - R:/192.168.43.221:8091]
-18:10:32:190  INFO 9068 --- [litisle-file] [main] .s.s.a.d.SeataAutoDataSourceProxyCreator : Auto proxy data source 'dataSource' by 'AT' mode.
-18:10:33:535  INFO 9068 --- [litisle-file] [main] c.a.c.sentinel.SentinelWebMvcConfigurer  : [Sentinel Starter] register SentinelWebInterceptor with urlPatterns: [/**].
-18:10:34:439  INFO 9068 --- [litisle-file] [main] c.l.c.anonymous.AnonymousAccessHandler   : 匿名白名单刷新完成，共 0 条: []
-18:10:34:444  INFO 9068 --- [litisle-file] [main] c.l.c.crypto.CryptoAutoConfiguration     : BCrypt 密码加密初始化完成，cost = 10
-18:10:35:391  INFO 9068 --- [litisle-file] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8083 (http) with context path '/'
-18:10:35:395  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Nacos client key init properties: 
+10:40:10:636  INFO 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.serializer.Serializer
+10:40:10:672  INFO 32004 --- [litisle-file] [main] o.a.s.c.rpc.netty.TmNettyRemotingClient  : register TM success. client version:2.5.0, server version:2.5.0,channel:[id: 0xae873611, L:/192.168.43.221:60385 - R:/192.168.43.221:8091]
+10:40:10:676  INFO 32004 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : register success, cost 65 ms, version:2.5.0,role:TMROLE,channel:[id: 0xae873611, L:/192.168.43.221:60385 - R:/192.168.43.221:8091]
+10:40:10:678  INFO 32004 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Transaction Manager Client is initialized. applicationId[litisle-file] txServiceGroup[litisle_tx_group]
+10:40:10:744  INFO 32004 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.model.ResourceManager
+10:40:10:746  INFO 32004 --- [litisle-file] [main] o.a.seata.rm.datasource.AsyncWorker      : Async Commit Buffer Limit: 10000
+10:40:10:747  INFO 32004 --- [litisle-file] [main] o.a.s.r.datasource.xa.ResourceManagerXA  : ResourceManagerXA init ...
+10:40:10:752  INFO 32004 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyClientBootstrap   : NettyClientBootstrap has started
+10:40:10:753  INFO 32004 --- [litisle-file] [main] o.a.s.c.r.n.AbstractNettyRemotingClient  : register channel event listener: org.apache.seata.core.rpc.netty.RmNettyRemotingClient$1
+10:40:10:753  INFO 32004 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Resource Manager is initialized. applicationId[litisle-file] txServiceGroup[litisle_tx_group]
+10:40:10:753  INFO 32004 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Global Transaction Clients are initialized. 
+10:40:10:816  INFO 32004 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : The needed enhancement business beans are : []
+10:40:10:826  INFO 32004 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.context.ContextCore
+10:40:11:080  INFO 32004 --- [litisle-file] [nacos-grpc-client-executor-localhost-10] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Receive server push request, request = NotifySubscriberRequest, requestId = 4
+10:40:11:084  INFO 32004 --- [litisle-file] [nacos-grpc-client-executor-localhost-10] com.alibaba.nacos.common.remote.client   : [77cfb8bd-f899-4b06-8e5f-422ed80c36e3] Ack server push request, request = NotifySubscriberRequest, requestId = 4
+10:40:11:543  INFO 32004 --- [litisle-file] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8083 (http)
+10:40:11:566  INFO 32004 --- [litisle-file] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+10:40:11:566  INFO 32004 --- [litisle-file] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
+10:40:11:703  INFO 32004 --- [litisle-file] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+10:40:11:704  INFO 32004 --- [litisle-file] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3098 ms
+10:40:11:713  INFO 32004 --- [litisle-file] [main] c.litisle.commonsecurity.xss.XssFilter   : XSS 过滤器已注册，拦截路径: /*，排除路径: []
+10:40:11:944  INFO 32004 --- [litisle-file] [main] org.redisson.Version                     : Redisson 3.52.0
+10:40:12:103  INFO 32004 --- [litisle-file] [redisson-netty-2-5] o.redisson.connection.ConnectionsHolder  : 1 connections initialized for localhost/127.0.0.1:6380
+10:40:12:258  INFO 32004 --- [litisle-file] [redisson-netty-2-4] o.redisson.connection.ConnectionsHolder  : 32 connections initialized for localhost/127.0.0.1:6380
+10:40:12:432  INFO 32004 --- [litisle-file] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+10:40:12:640  INFO 32004 --- [litisle-file] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@3759ea4d
+10:40:12:643  INFO 32004 --- [litisle-file] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+10:40:12:876  INFO 32004 --- [litisle-file] [main] o.a.s.c.r.n.NettyClientChannelManager    : will connect to 192.168.43.221:8091
+10:40:12:876  INFO 32004 --- [litisle-file] [main] o.a.s.c.rpc.netty.RmNettyRemotingClient  : RM will register :jdbc:mysql://localhost:3307/litisle_file
+10:40:12:876  INFO 32004 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : NettyPool create channel to transactionRole:RMROLE,address:192.168.43.221:8091,msg:< RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3307/litisle_file', version='2.5.0', applicationId='litisle-file', transactionServiceGroup='litisle_tx_group', extraData='null'} >
+10:40:12:892  INFO 32004 --- [litisle-file] [main] o.a.s.c.rpc.netty.RmNettyRemotingClient  : register RM success. client version:2.5.0, server version:2.5.0,channel:[id: 0x80c72f54, L:/192.168.43.221:50291 - R:/192.168.43.221:8091]
+10:40:12:892  INFO 32004 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : register success, cost 13 ms, version:2.5.0,role:RMROLE,channel:[id: 0x80c72f54, L:/192.168.43.221:50291 - R:/192.168.43.221:8091]
+10:40:12:894  INFO 32004 --- [litisle-file] [main] .s.s.a.d.SeataAutoDataSourceProxyCreator : Auto proxy data source 'dataSource' by 'AT' mode.
+10:40:14:042  INFO 32004 --- [litisle-file] [main] c.a.c.sentinel.SentinelWebMvcConfigurer  : [Sentinel Starter] register SentinelWebInterceptor with urlPatterns: [/**].
+10:40:14:500  INFO 32004 --- [litisle-file] [main] c.l.c.anonymous.AnonymousAccessHandler   : 匿名白名单刷新完成，共 0 条: []
+10:40:14:503  INFO 32004 --- [litisle-file] [main] c.l.c.crypto.CryptoAutoConfiguration     : BCrypt 密码加密初始化完成，cost = 10
+10:40:15:040  INFO 32004 --- [litisle-file] [main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint beneath base path '/actuator'
+10:40:15:072  INFO 32004 --- [litisle-file] [main] c.a.n.client.config.NacosConfigService   : Nacos client key init properties: 
 	serverAddr=localhost:8848
 	username=nacos
 	password=n***s
 
-18:10:35:396  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from ans.namespace attribute : null
-18:10:35:396  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from ALIBABA_ALIWARE_NAMESPACE attribute :null
-18:10:35:396  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from namespace attribute :null
-18:10:35:396  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : FailoverDataSource type is class com.alibaba.nacos.client.naming.backups.datasource.DiskFailoverDataSource
-18:10:35:397  INFO 9068 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
-18:10:35:397  INFO 9068 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
-18:10:35:397  INFO 9068 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
-18:10:35:397  INFO 9068 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
-18:10:35:397  INFO 9068 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
-18:10:35:478  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of 78df2512-8816-418a-8dd3-c7443702adc9
-18:10:35:478  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Create naming rpc client for uuid->78df2512-8816-418a-8dd3-c7443702adc9
-18:10:35:478  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [78df2512-8816-418a-8dd3-c7443702adc9] RpcClient init, ServerListFactory = com.alibaba.nacos.client.naming.core.NamingServerListManager
-18:10:35:478  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [78df2512-8816-418a-8dd3-c7443702adc9] Registry connection listener to current client:com.alibaba.nacos.client.naming.remote.gprc.redo.NamingGrpcRedoService
-18:10:35:478  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [78df2512-8816-418a-8dd3-c7443702adc9] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingPushRequestHandler
-18:10:35:479  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [78df2512-8816-418a-8dd3-c7443702adc9] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingFuzzyWatchNotifyRequestHandler
-18:10:35:479  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [78df2512-8816-418a-8dd3-c7443702adc9] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
-18:10:35:479  INFO 9068 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
-18:10:35:511  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [78df2512-8816-418a-8dd3-c7443702adc9] Success to connect to server [localhost:8848] on start up, connectionId = 1790590235492_172.21.0.1_53778
-18:10:35:512  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [78df2512-8816-418a-8dd3-c7443702adc9] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
-18:10:35:512  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [78df2512-8816-418a-8dd3-c7443702adc9] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x000000000c37b380
-18:10:35:512  INFO 9068 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [78df2512-8816-418a-8dd3-c7443702adc9] Notify connected event to listeners.
-18:10:35:512  INFO 9068 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.client.naming          : Grpc connection connect
-18:10:35:512  INFO 9068 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [REGISTER-SERVICE] public registering service litisle-file with instance Instance{instanceId='null', ip='172.28.144.1', port=8083, weight=1.0, healthy=true, enabled=true, ephemeral=true, clusterName='', serviceName='null', metadata={IPv6=null, preserved.register.source=SPRING_CLOUD}}
-18:10:35:539  INFO 9068 --- [litisle-file] [main] c.a.c.n.registry.NacosServiceRegistry    : nacos registry, DEFAULT_GROUP litisle-file 172.28.144.1:8083 register finished
-18:10:35:589  INFO 9068 --- [litisle-file] [main] c.l.c.anonymous.AnonymousPathScanner     : @Anonymous 注解扫描完成，共发现 0 个匿名接口: []
-18:10:35:589  INFO 9068 --- [litisle-file] [main] c.l.c.anonymous.AnonymousAccessHandler   : 匿名白名单刷新完成，共 0 条: []
-18:10:35:590  INFO 9068 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Started LitisleFileApplication in 10.947 seconds (process running for 12.77)
-18:10:35:603  INFO 9068 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : config listener notify warn timeout millis use default 60000 millis 
-18:10:35:604  INFO 9068 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : nacos.cache.data.init.snapshot = true 
-18:10:35:628  INFO 9068 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-shared.yaml+DEFAULT_GROUP+public
-18:10:35:633  INFO 9068 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-shared.yaml, group=DEFAULT_GROUP, cnt=1
-18:10:35:633  INFO 9068 --- [litisle-file] [main] c.a.c.n.refresh.NacosContextRefresher    : [Nacos Config] Listening config: dataId=litisle-shared.yaml, group=DEFAULT_GROUP
-18:10:35:633  INFO 9068 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-file.yaml+DEFAULT_GROUP+public
-18:10:35:634  INFO 9068 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-file.yaml, group=DEFAULT_GROUP, cnt=1
-18:10:35:634  INFO 9068 --- [litisle-file] [main] c.a.c.n.refresh.NacosContextRefresher    : [Nacos Config] Listening config: dataId=litisle-file.yaml, group=DEFAULT_GROUP
-18:10:42:270  INFO 9068 --- [litisle-file] [Thread-1] c.a.n.common.executor.ThreadPoolManager  : [ThreadPoolManager] Start destroying ThreadPool
-18:10:42:270  INFO 9068 --- [litisle-file] [Thread-7] c.a.n.common.http.HttpClientBeanHolder   : [HttpClientBeanHolder] Start destroying common HttpClient
-18:10:42:270  INFO 9068 --- [litisle-file] [Thread-1] c.a.n.common.executor.ThreadPoolManager  : [ThreadPoolManager] Completed destruction of ThreadPool
-18:10:42:270  INFO 9068 --- [litisle-file] [Thread-9] c.a.nacos.common.notify.NotifyCenter     : [NotifyCenter] Start destroying Publisher
-18:10:42:270  INFO 9068 --- [litisle-file] [Thread-9] c.a.nacos.common.notify.NotifyCenter     : [NotifyCenter] Completed destruction of Publisher
-18:10:42:270  INFO 9068 --- [litisle-file] [Thread-7] c.a.n.common.http.HttpClientBeanHolder   : [HttpClientBeanHolder] Completed destruction of HttpClient
-18:10:42:271  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] c.a.c.n.registry.NacosServiceRegistry    : De-registering from Nacos Server now...
-18:10:42:271  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [DEREGISTER-SERVICE] public deregistering service litisle-file with instance: Instance{instanceId='null', ip='172.28.144.1', port=8083, weight=1.0, healthy=true, enabled=true, ephemeral=true, clusterName='', serviceName='null', metadata={}}
-18:10:42:270 ERROR 9068 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.common.notify.SlowEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+10:40:15:073  INFO 32004 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
+10:40:15:073  INFO 32004 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
+10:40:15:073  INFO 32004 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
+10:40:15:074  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : DefaultLabelsCollectorManager get labels.....
+10:40:15:074  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : Process LabelsCollector with [name:defaultNacosLabelsCollector]
+10:40:15:074  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect properties raw labels: null
+10:40:15:074  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect properties labels: {}
+10:40:15:074  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect jvm raw labels: null
+10:40:15:076  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect jvm labels: {}
+10:40:15:076  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect env raw labels: null
+10:40:15:076  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect env labels: {}
+10:40:15:076  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : DefaultLabelsCollectorManager get labels finished,labels :{}
+10:40:15:077  INFO 32004 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+10:40:15:077  INFO 32004 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+10:40:15:138  INFO 32004 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : config listener notify warn timeout millis use default 60000 millis 
+10:40:15:138  INFO 32004 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : nacos.cache.data.init.snapshot = true 
+10:40:15:138  INFO 32004 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-file-degrade-rules.json+DEFAULT_GROUP+public
+10:40:15:139  INFO 32004 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-file-degrade-rules.json, group=DEFAULT_GROUP, cnt=1
+10:40:15:139  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of 89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0
+10:40:15:139  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Register server push request handler:com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$$Lambda/0x000000008b2840c8
+10:40:15:139  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Register server push request handler:com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$$Lambda/0x000000008b284508
+10:40:15:139  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Register server push request handler:com.alibaba.nacos.client.config.impl.ClientFuzzyWatchNotifyRequestHandler
+10:40:15:139  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Registry connection listener to current client:com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$1
+10:40:15:139  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] RpcClient init, ServerListFactory = com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$2
+10:40:15:139  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
+10:40:15:140  INFO 32004 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
+10:40:15:187  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Success to connect to server [localhost:8848] on start up, connectionId = 1790649615145_172.21.0.1_48176
+10:40:15:187  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
+10:40:15:187  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x000000008b374ff0
+10:40:15:187  INFO 32004 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Notify connected event to listeners.
+10:40:15:187  INFO 32004 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] c.a.n.client.config.impl.ClientWorker    : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Connected,notify listen context...
+10:40:15:187  INFO 32004 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] c.a.n.client.config.impl.ClientWorker    : [89d7c9fe-075e-4ed1-b1f5-0dacee7091b5_config-0] Connected,notify fuzzy listen context...
+10:40:15:272  INFO 32004 --- [litisle-file] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8083 (http) with context path '/'
+10:40:15:274  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Nacos client key init properties: 
+	serverAddr=localhost:8848
+	username=nacos
+	password=n***s
+
+10:40:15:275  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from ans.namespace attribute : null
+10:40:15:275  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from ALIBABA_ALIWARE_NAMESPACE attribute :null
+10:40:15:275  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from namespace attribute :null
+10:40:15:275  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : FailoverDataSource type is class com.alibaba.nacos.client.naming.backups.datasource.DiskFailoverDataSource
+10:40:15:275  INFO 32004 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
+10:40:15:275  INFO 32004 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
+10:40:15:275  INFO 32004 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
+10:40:15:275  INFO 32004 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+10:40:15:275  INFO 32004 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+10:40:15:336  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of 738009a5-267b-4e92-9ca5-886715ae4359
+10:40:15:336  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Create naming rpc client for uuid->738009a5-267b-4e92-9ca5-886715ae4359
+10:40:15:336  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [738009a5-267b-4e92-9ca5-886715ae4359] RpcClient init, ServerListFactory = com.alibaba.nacos.client.naming.core.NamingServerListManager
+10:40:15:336  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [738009a5-267b-4e92-9ca5-886715ae4359] Registry connection listener to current client:com.alibaba.nacos.client.naming.remote.gprc.redo.NamingGrpcRedoService
+10:40:15:336  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [738009a5-267b-4e92-9ca5-886715ae4359] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingPushRequestHandler
+10:40:15:336  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [738009a5-267b-4e92-9ca5-886715ae4359] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingFuzzyWatchNotifyRequestHandler
+10:40:15:337  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [738009a5-267b-4e92-9ca5-886715ae4359] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
+10:40:15:337  INFO 32004 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
+10:40:15:358  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [738009a5-267b-4e92-9ca5-886715ae4359] Success to connect to server [localhost:8848] on start up, connectionId = 1790649615342_172.21.0.1_48182
+10:40:15:359  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [738009a5-267b-4e92-9ca5-886715ae4359] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
+10:40:15:359  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [738009a5-267b-4e92-9ca5-886715ae4359] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x000000008b374ff0
+10:40:15:359  INFO 32004 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [738009a5-267b-4e92-9ca5-886715ae4359] Notify connected event to listeners.
+10:40:15:359  INFO 32004 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.client.naming          : Grpc connection connect
+10:40:15:359  INFO 32004 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [REGISTER-SERVICE] public registering service litisle-file with instance Instance{instanceId='null', ip='172.28.144.1', port=8083, weight=1.0, healthy=true, enabled=true, ephemeral=true, clusterName='', serviceName='null', metadata={IPv6=null, preserved.register.source=SPRING_CLOUD}}
+10:40:15:370  INFO 32004 --- [litisle-file] [main] c.a.c.n.registry.NacosServiceRegistry    : nacos registry, DEFAULT_GROUP litisle-file 172.28.144.1:8083 register finished
+10:40:15:387  INFO 32004 --- [litisle-file] [main] c.l.c.anonymous.AnonymousPathScanner     : @Anonymous 注解扫描完成，共发现 0 个匿名接口: []
+10:40:15:387  INFO 32004 --- [litisle-file] [main] c.l.c.anonymous.AnonymousAccessHandler   : 匿名白名单刷新完成，共 0 条: []
+10:40:15:387  INFO 32004 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Started LitisleFileApplication in 9.553 seconds (process running for 10.691)
+10:40:15:395  INFO 32004 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-shared.yaml+DEFAULT_GROUP+public
+10:40:15:396  INFO 32004 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-shared.yaml, group=DEFAULT_GROUP, cnt=1
+10:40:15:396  INFO 32004 --- [litisle-file] [main] c.a.c.n.refresh.NacosContextRefresher    : [Nacos Config] Listening config: dataId=litisle-shared.yaml, group=DEFAULT_GROUP
+10:40:15:396  INFO 32004 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-file.yaml+DEFAULT_GROUP+public
+10:40:15:396  INFO 32004 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-file.yaml, group=DEFAULT_GROUP, cnt=1
+10:40:15:397  INFO 32004 --- [litisle-file] [main] c.a.c.n.refresh.NacosContextRefresher    : [Nacos Config] Listening config: dataId=litisle-file.yaml, group=DEFAULT_GROUP
+10:40:15:404  INFO 32004 --- [litisle-file] [nacos.client.config.listener.task-0] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [notify-listener] task submitted to user executor, dataId=litisle-file-degrade-rules.json, group=DEFAULT_GROUP,tenant=public, md5=8690ca41b80fc5d092fb1f306634b09e, listener=com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource$1@503470b2 
+10:40:15:407  INFO 32004 --- [litisle-file] [sentinel-nacos-ds-update-thread-1] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [notify-ok] dataId=litisle-file-degrade-rules.json, group=DEFAULT_GROUP,tenant=public, md5=8690ca41b80fc5d092fb1f306634b09e, listener=com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource$1@503470b2 ,job run cost=2 millis.
+10:40:15:888  INFO 32004 --- [litisle-file] [RMI TCP Connection(4)-192.168.43.221] c.a.c.s.e.SentinelHealthIndicator        : Find sentinel dashboard server list: [Endpoint{protocol=HTTP, host='localhost, port=8090}]
+10:40:15:893  INFO 32004 --- [litisle-file] [RMI TCP Connection(3)-192.168.43.221] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+10:40:15:893  INFO 32004 --- [litisle-file] [RMI TCP Connection(3)-192.168.43.221] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+10:40:15:896  INFO 32004 --- [litisle-file] [RMI TCP Connection(3)-192.168.43.221] o.s.web.servlet.DispatcherServlet        : Completed initialization in 3 ms
+10:47:47:686 ERROR 32004 --- [litisle-file] [http-nio-8083-exec-1] c.l.c.exception.GlobalExceptionHandler   : 系统异常
+
+org.springframework.web.servlet.resource.NoResourceFoundException: No static resource actuator/prometheus.
+	at org.springframework.web.servlet.resource.ResourceHttpRequestHandler.handleRequest(ResourceHttpRequestHandler.java:585) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.mvc.HttpRequestHandlerAdapter.handle(HttpRequestHandlerAdapter.java:52) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:903) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:564) ~[tomcat-embed-core-10.1.55.jar:6.0]
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658) ~[tomcat-embed-core-10.1.55.jar:6.0]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:193) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51) ~[tomcat-embed-websocket-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at com.litisle.commonsecurity.xss.XssFilter.doXssFilter(XssFilter.java:125) ~[classes/:na]
+	at com.litisle.commonsecurity.xss.XssFilter.lambda$0(XssFilter.java:94) ~[classes/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at cn.dev33.satoken.filter.SaFirewallCheckFilterForJakartaServlet.doFilter(SaFirewallCheckFilterForJakartaServlet.java:69) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at cn.dev33.satoken.filter.SaTokenCorsFilterForJakartaServlet.doFilter(SaTokenCorsFilterForJakartaServlet.java:52) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at cn.dev33.satoken.filter.SaTokenContextFilterForJakartaServlet.doFilter(SaTokenContextFilterForJakartaServlet.java:40) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.ServerHttpObservationFilter.doFilterInternal(ServerHttpObservationFilter.java:110) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at com.litisle.commonsecurity.trace.TraceIdFilter.doFilterInternal(TraceIdFilter.java:49) ~[classes/:na]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:165) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:88) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:492) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:113) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:83) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:72) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:342) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:399) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:1272) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1797) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:973) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:491) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at java.base/java.lang.Thread.run(Thread.java:1474) ~[na:na]
+
+10:47:50:981 ERROR 32004 --- [litisle-file] [http-nio-8083-exec-2] c.l.c.exception.GlobalExceptionHandler   : 系统异常
+
+org.springframework.web.servlet.resource.NoResourceFoundException: No static resource actuator/prometheus.
+	at org.springframework.web.servlet.resource.ResourceHttpRequestHandler.handleRequest(ResourceHttpRequestHandler.java:585) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.mvc.HttpRequestHandlerAdapter.handle(HttpRequestHandlerAdapter.java:52) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:903) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:564) ~[tomcat-embed-core-10.1.55.jar:6.0]
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658) ~[tomcat-embed-core-10.1.55.jar:6.0]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:193) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51) ~[tomcat-embed-websocket-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at com.litisle.commonsecurity.xss.XssFilter.doXssFilter(XssFilter.java:125) ~[classes/:na]
+	at com.litisle.commonsecurity.xss.XssFilter.lambda$0(XssFilter.java:94) ~[classes/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at cn.dev33.satoken.filter.SaFirewallCheckFilterForJakartaServlet.doFilter(SaFirewallCheckFilterForJakartaServlet.java:69) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at cn.dev33.satoken.filter.SaTokenCorsFilterForJakartaServlet.doFilter(SaTokenCorsFilterForJakartaServlet.java:52) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at cn.dev33.satoken.filter.SaTokenContextFilterForJakartaServlet.doFilter(SaTokenContextFilterForJakartaServlet.java:40) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.ServerHttpObservationFilter.doFilterInternal(ServerHttpObservationFilter.java:110) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at com.litisle.commonsecurity.trace.TraceIdFilter.doFilterInternal(TraceIdFilter.java:49) ~[classes/:na]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:165) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:88) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:492) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:113) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:83) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:72) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:342) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:399) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:1272) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1797) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:973) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:491) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at java.base/java.lang.Thread.run(Thread.java:1474) ~[na:na]
+
+10:47:55:269 ERROR 32004 --- [litisle-file] [http-nio-8083-exec-5] c.l.c.exception.GlobalExceptionHandler   : 系统异常
+
+org.springframework.web.servlet.resource.NoResourceFoundException: No static resource actuator/prometheus.
+	at org.springframework.web.servlet.resource.ResourceHttpRequestHandler.handleRequest(ResourceHttpRequestHandler.java:585) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.mvc.HttpRequestHandlerAdapter.handle(HttpRequestHandlerAdapter.java:52) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:903) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:564) ~[tomcat-embed-core-10.1.55.jar:6.0]
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885) ~[spring-webmvc-6.2.19.jar:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658) ~[tomcat-embed-core-10.1.55.jar:6.0]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:193) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51) ~[tomcat-embed-websocket-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at com.litisle.commonsecurity.xss.XssFilter.doXssFilter(XssFilter.java:125) ~[classes/:na]
+	at com.litisle.commonsecurity.xss.XssFilter.lambda$0(XssFilter.java:94) ~[classes/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at cn.dev33.satoken.filter.SaFirewallCheckFilterForJakartaServlet.doFilter(SaFirewallCheckFilterForJakartaServlet.java:69) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at cn.dev33.satoken.filter.SaTokenCorsFilterForJakartaServlet.doFilter(SaTokenCorsFilterForJakartaServlet.java:52) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at cn.dev33.satoken.filter.SaTokenContextFilterForJakartaServlet.doFilter(SaTokenContextFilterForJakartaServlet.java:40) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.ServerHttpObservationFilter.doFilterInternal(ServerHttpObservationFilter.java:110) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at com.litisle.commonsecurity.trace.TraceIdFilter.doFilterInternal(TraceIdFilter.java:49) ~[classes/:na]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:165) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:88) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:492) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:113) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:83) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:72) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:342) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:399) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:1272) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1797) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:973) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:491) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63) ~[tomcat-embed-core-10.1.55.jar:10.1.55]
+	at java.base/java.lang.Thread.run(Thread.java:1474) ~[na:na]
+
+10:57:17:081  INFO 32004 --- [litisle-file] [Thread-7] c.a.n.common.http.HttpClientBeanHolder   : [HttpClientBeanHolder] Start destroying common HttpClient
+10:57:17:081  INFO 32004 --- [litisle-file] [Thread-9] c.a.nacos.common.notify.NotifyCenter     : [NotifyCenter] Start destroying Publisher
+10:57:17:081  INFO 32004 --- [litisle-file] [Thread-1] c.a.n.common.executor.ThreadPoolManager  : [ThreadPoolManager] Start destroying ThreadPool
+10:57:17:098  INFO 32004 --- [litisle-file] [Thread-9] c.a.nacos.common.notify.NotifyCenter     : [NotifyCenter] Completed destruction of Publisher
+10:57:17:100  INFO 32004 --- [litisle-file] [Thread-1] c.a.n.common.executor.ThreadPoolManager  : [ThreadPoolManager] Completed destruction of ThreadPool
+10:57:17:100 ERROR 32004 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.common.ability.AbstractAbilityControlManager$AbilityUpdateEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
 
 java.lang.InterruptedException
 	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
@@ -163,7 +403,7 @@ java.lang.InterruptedException
 	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
 	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
 
-18:10:42:270 ERROR 9068 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.naming.event.InstancesChangeEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+10:57:17:098 ERROR 32004 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.naming.event.NamingFuzzyWatchNotifyEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
 
 java.lang.InterruptedException
 	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
@@ -171,7 +411,7 @@ java.lang.InterruptedException
 	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
 	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
 
-18:10:42:270 ERROR 9068 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.config.impl.ConfigFuzzyWatchNotifyEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+10:57:17:098 ERROR 32004 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.common.notify.SlowEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
 
 java.lang.InterruptedException
 	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
@@ -179,7 +419,7 @@ java.lang.InterruptedException
 	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
 	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
 
-18:10:42:270 ERROR 9068 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.naming.event.NamingFuzzyWatchLoadEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+10:57:17:098 ERROR 32004 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.config.impl.ConfigFuzzyWatchNotifyEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
 
 java.lang.InterruptedException
 	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
@@ -187,7 +427,7 @@ java.lang.InterruptedException
 	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
 	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
 
-18:10:42:270 ERROR 9068 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.naming.event.NamingFuzzyWatchNotifyEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+10:57:17:098 ERROR 32004 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.naming.event.NamingFuzzyWatchLoadEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
 
 java.lang.InterruptedException
 	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
@@ -195,7 +435,7 @@ java.lang.InterruptedException
 	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
 	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
 
-18:10:42:270 ERROR 9068 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.config.impl.ConfigFuzzyWatchLoadEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+10:57:17:098 ERROR 32004 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.naming.event.InstancesChangeEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
 
 java.lang.InterruptedException
 	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
@@ -203,29 +443,40 @@ java.lang.InterruptedException
 	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
 	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
 
-18:10:42:290  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] c.a.c.n.registry.NacosServiceRegistry    : De-registration finished.
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown begin
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown begin
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown stop
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown stop
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.NamingClientProxyDelegate do shutdown begin
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown begin
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown stop
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown begin
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown stop
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown begin
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Start destroying NacosRestTemplate
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Completed destruction of NacosRestTemplate
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown stop
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown naming grpc client proxy for  uuid->78df2512-8816-418a-8dd3-c7443702adc9
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown grpc redo service executor java.util.concurrent.ScheduledThreadPoolExecutor@51b4ab43[Running, pool size = 1, active threads = 0, queued tasks = 1, completed tasks = 2]
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.common.remote.client   : Shutdown rpc client, set status to shutdown
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.common.remote.client   : Shutdown client event executor java.util.concurrent.ScheduledThreadPoolExecutor@7ebd31df[Running, pool size = 2, active threads = 2, queued tasks = 0, completed tasks = 0]
-18:10:42:291  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.common.remote.client   : Close current connection 1790590235492_172.21.0.1_53778
-18:10:42:301  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.remote.client.grpc.GrpcClient    : Shutdown grpc executor java.util.concurrent.ThreadPoolExecutor@315203b1[Running, pool size = 15, active threads = 1, queued tasks = 0, completed tasks = 14]
-18:10:42:301  INFO 9068 --- [litisle-file] [nacos-grpc-client-executor-localhost-14] c.a.n.c.remote.client.grpc.GrpcClient    : [1790590235492_172.21.0.1_53778]Ignore complete event,isRunning:false,isAbandon=false
-18:10:42:301  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : shutdown and remove naming rpc client  for uuid ->78df2512-8816-418a-8dd3-c7443702adc9
-18:10:42:302 ERROR 9068 --- [litisle-file] [SpringContextShutdownHook] c.a.c.n.r.NacosGracefulShutdownDelegate  : Error occurred while performing Nacos client graceful shutdown
+10:57:17:098 ERROR 32004 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.config.impl.ConfigFuzzyWatchLoadEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+
+java.lang.InterruptedException
+	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
+	at java.base/java.util.concurrent.ArrayBlockingQueue.take(ArrayBlockingQueue.java:421) ~[na:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
+
+10:57:17:197  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] c.a.c.n.registry.NacosServiceRegistry    : De-registering from Nacos Server now...
+10:57:17:206  INFO 32004 --- [litisle-file] [Thread-7] c.a.n.common.http.HttpClientBeanHolder   : [HttpClientBeanHolder] Completed destruction of HttpClient
+10:57:17:209  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [DEREGISTER-SERVICE] public deregistering service litisle-file with instance: Instance{instanceId='null', ip='172.28.144.1', port=8083, weight=1.0, healthy=true, enabled=true, ephemeral=true, clusterName='', serviceName='null', metadata={}}
+10:57:17:510  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] c.a.c.n.registry.NacosServiceRegistry    : De-registration finished.
+10:57:17:528  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown begin
+10:57:17:528  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown begin
+10:57:17:530  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown stop
+10:57:17:530  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown stop
+10:57:17:530  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.NamingClientProxyDelegate do shutdown begin
+10:57:17:531  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown begin
+10:57:17:531  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown stop
+10:57:17:534  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown begin
+10:57:17:534  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown stop
+10:57:17:534  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown begin
+10:57:17:534  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Start destroying NacosRestTemplate
+10:57:17:542  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Completed destruction of NacosRestTemplate
+10:57:17:542  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown stop
+10:57:17:542  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown naming grpc client proxy for  uuid->738009a5-267b-4e92-9ca5-886715ae4359
+10:57:17:546  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown grpc redo service executor java.util.concurrent.ScheduledThreadPoolExecutor@589b0021[Running, pool size = 1, active threads = 0, queued tasks = 1, completed tasks = 340]
+10:57:17:550  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.common.remote.client   : Shutdown rpc client, set status to shutdown
+10:57:17:550  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.common.remote.client   : Shutdown client event executor java.util.concurrent.ScheduledThreadPoolExecutor@28c33ed7[Running, pool size = 2, active threads = 2, queued tasks = 0, completed tasks = 0]
+10:57:17:551  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.common.remote.client   : Close current connection 1790649615342_172.21.0.1_48182
+10:57:17:638  INFO 32004 --- [litisle-file] [nacos-grpc-client-executor-localhost-402] c.a.n.c.remote.client.grpc.GrpcClient    : [1790649615342_172.21.0.1_48182]Ignore complete event,isRunning:false,isAbandon=false
+10:57:17:919  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.remote.client.grpc.GrpcClient    : Shutdown grpc executor java.util.concurrent.ThreadPoolExecutor@7bc1ae33[Running, pool size = 7, active threads = 0, queued tasks = 0, completed tasks = 403]
+10:57:17:919  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : shutdown and remove naming rpc client  for uuid ->738009a5-267b-4e92-9ca5-886715ae4359
+10:57:17:923 ERROR 32004 --- [litisle-file] [SpringContextShutdownHook] c.a.c.n.r.NacosGracefulShutdownDelegate  : Error occurred while performing Nacos client graceful shutdown
 
 java.lang.NullPointerException: Cannot read field "sharePublisher" because "com.alibaba.nacos.common.notify.NotifyCenter.INSTANCE" is null
 	at com.alibaba.nacos.common.notify.NotifyCenter.deregisterSubscriber(NotifyCenter.java:242) ~[nacos-client-3.0.3.jar:na]
@@ -247,42 +498,378 @@ java.lang.NullPointerException: Cannot read field "sharePublisher" because "com.
 	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.doClose(ServletWebServerApplicationContext.java:179) ~[spring-boot-3.5.15.jar:3.5.15]
 	at org.springframework.context.support.AbstractApplicationContext$1.run(AbstractApplicationContext.java:1075) ~[spring-context-6.2.19.jar:6.2.19]
 
-18:10:42:305  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown        : Commencing graceful shutdown. Waiting for active requests to complete
-18:10:42:312  INFO 9068 --- [litisle-file] [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown        : Graceful shutdown complete
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown begin
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown begin
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown stop
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown stop
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.NamingClientProxyDelegate do shutdown begin
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown begin
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown stop
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown begin
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown stop
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown begin
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Start destroying NacosRestTemplate
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Completed destruction of NacosRestTemplate
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown stop
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown naming grpc client proxy for  uuid->78df2512-8816-418a-8dd3-c7443702adc9
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown grpc redo service executor java.util.concurrent.ScheduledThreadPoolExecutor@51b4ab43[Terminated, pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 2]
-18:10:42:322  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : shutdown and remove naming rpc client  for uuid ->78df2512-8816-418a-8dd3-c7443702adc9
-18:10:42:322  WARN 9068 --- [litisle-file] [SpringContextShutdownHook] o.s.b.f.support.DisposableBeanAdapter    : Custom destroy method 'close' on bean with name 'nacosServiceRegistry' propagated an exception: java.lang.NullPointerException: Cannot read field "sharePublisher" because "com.alibaba.nacos.common.notify.NotifyCenter.INSTANCE" is null
-18:10:42:326  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
-18:10:42:333  INFO 9068 --- [litisle-file] [SpringContextShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
-18:10:42:349  INFO 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : channel inactive: [id: 0xe328ca13, L:/192.168.43.221:64969 ! R:/192.168.43.221:8091]
-18:10:42:349  INFO 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.NettyClientChannelManager    : return to pool, rm channel:[id: 0xe328ca13, L:/192.168.43.221:64969 ! R:/192.168.43.221:8091]
-18:10:42:349  INFO 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : channel valid false,channel:[id: 0xe328ca13, L:/192.168.43.221:64969 ! R:/192.168.43.221:8091]
-18:10:42:349  INFO 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : will destroy channel:[id: 0xe328ca13, L:/192.168.43.221:64969 ! R:/192.168.43.221:8091]
-18:10:42:349  INFO 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0xe328ca13, L:/192.168.43.221:64969 ! R:/192.168.43.221:8091]) will closed
-18:10:42:349  INFO 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0xe328ca13, L:/192.168.43.221:64969 ! R:/192.168.43.221:8091]) will closed
-18:10:42:350  WARN 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.ChannelEventHandler    : Channel inactive: /192.168.43.221:8091
-18:10:42:350  WARN 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.TmNettyRemotingClient  : Channel inactive: /192.168.43.221:8091
-18:10:42:351  INFO 9068 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : channel inactive: [id: 0x776781d9, L:/192.168.43.221:65019 ! R:/192.168.43.221:8091]
-18:10:42:351  INFO 9068 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.NettyClientChannelManager    : return to pool, rm channel:[id: 0x776781d9, L:/192.168.43.221:65019 ! R:/192.168.43.221:8091]
-18:10:42:351  INFO 9068 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : Cleaned up 0 pending requests for disconnected channel: /192.168.43.221:8091
-18:10:42:351  INFO 9068 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : channel valid false,channel:[id: 0x776781d9, L:/192.168.43.221:65019 ! R:/192.168.43.221:8091]
-18:10:42:351  INFO 9068 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : will destroy channel:[id: 0x776781d9, L:/192.168.43.221:65019 ! R:/192.168.43.221:8091]
-18:10:42:351  INFO 9068 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0x776781d9, L:/192.168.43.221:65019 ! R:/192.168.43.221:8091]) will closed
-18:10:42:351  INFO 9068 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0x776781d9, L:/192.168.43.221:65019 ! R:/192.168.43.221:8091]) will closed
-18:10:42:351  WARN 9068 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.ChannelEventHandler    : Channel inactive: /192.168.43.221:8091
-18:10:42:352  WARN 9068 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.RmNettyRemotingClient  : Channel inactive: /192.168.43.221:8091
-18:10:42:352  INFO 9068 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : Cleaned up 0 pending requests for disconnected channel: /192.168.43.221:8091
+10:57:18:117  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown        : Commencing graceful shutdown. Waiting for active requests to complete
+10:57:18:306  INFO 32004 --- [litisle-file] [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown        : Graceful shutdown complete
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown begin
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown begin
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown stop
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown stop
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.NamingClientProxyDelegate do shutdown begin
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown begin
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown stop
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown begin
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown stop
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown begin
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Start destroying NacosRestTemplate
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Completed destruction of NacosRestTemplate
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown stop
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown naming grpc client proxy for  uuid->738009a5-267b-4e92-9ca5-886715ae4359
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown grpc redo service executor java.util.concurrent.ScheduledThreadPoolExecutor@589b0021[Terminated, pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 340]
+10:57:18:470  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : shutdown and remove naming rpc client  for uuid ->738009a5-267b-4e92-9ca5-886715ae4359
+10:57:18:489  WARN 32004 --- [litisle-file] [SpringContextShutdownHook] o.s.b.f.support.DisposableBeanAdapter    : Custom destroy method 'close' on bean with name 'nacosServiceRegistry' propagated an exception: java.lang.NullPointerException: Cannot read field "sharePublisher" because "com.alibaba.nacos.common.notify.NotifyCenter.INSTANCE" is null
+10:57:18:517  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+10:57:18:594  INFO 32004 --- [litisle-file] [SpringContextShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+10:57:18:678  INFO 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : channel inactive: [id: 0xae873611, L:/192.168.43.221:60385 ! R:/192.168.43.221:8091]
+10:57:18:678  INFO 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.NettyClientChannelManager    : return to pool, rm channel:[id: 0xae873611, L:/192.168.43.221:60385 ! R:/192.168.43.221:8091]
+10:57:18:679  INFO 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : channel valid false,channel:[id: 0xae873611, L:/192.168.43.221:60385 ! R:/192.168.43.221:8091]
+10:57:18:679  INFO 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : will destroy channel:[id: 0xae873611, L:/192.168.43.221:60385 ! R:/192.168.43.221:8091]
+10:57:18:679  INFO 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0xae873611, L:/192.168.43.221:60385 ! R:/192.168.43.221:8091]) will closed
+10:57:18:679  INFO 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0xae873611, L:/192.168.43.221:60385 ! R:/192.168.43.221:8091]) will closed
+10:57:18:679  WARN 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.ChannelEventHandler    : Channel inactive: /192.168.43.221:8091
+10:57:18:680  WARN 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.TmNettyRemotingClient  : Channel inactive: /192.168.43.221:8091
+10:57:18:680  INFO 32004 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : channel inactive: [id: 0x80c72f54, L:/192.168.43.221:50291 ! R:/192.168.43.221:8091]
+10:57:18:680  INFO 32004 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.NettyClientChannelManager    : return to pool, rm channel:[id: 0x80c72f54, L:/192.168.43.221:50291 ! R:/192.168.43.221:8091]
+10:57:18:680  INFO 32004 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : channel valid false,channel:[id: 0x80c72f54, L:/192.168.43.221:50291 ! R:/192.168.43.221:8091]
+10:57:18:680  INFO 32004 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : will destroy channel:[id: 0x80c72f54, L:/192.168.43.221:50291 ! R:/192.168.43.221:8091]
+10:57:18:680  INFO 32004 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0x80c72f54, L:/192.168.43.221:50291 ! R:/192.168.43.221:8091]) will closed
+10:57:18:680  INFO 32004 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0x80c72f54, L:/192.168.43.221:50291 ! R:/192.168.43.221:8091]) will closed
+10:57:18:680  WARN 32004 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.ChannelEventHandler    : Channel inactive: /192.168.43.221:8091
+10:57:18:680  WARN 32004 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.RmNettyRemotingClient  : Channel inactive: /192.168.43.221:8091
+10:57:18:682  INFO 32004 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : Cleaned up 0 pending requests for disconnected channel: /192.168.43.221:8091
+10:57:18:682  INFO 32004 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : Cleaned up 0 pending requests for disconnected channel: /192.168.43.221:8091
+10:58:08:243  INFO 18132 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Ignore load compatible class io.seata.config.ExtConfigurationProvider, because is not assignable from origin type org.apache.seata.config.ExtConfigurationProvider
+10:58:08:290  INFO 18132 --- [litisle-file] [main] o.a.seata.config.ConfigurationFactory    : load Configuration from :FileConfiguration$$EnhancerByCGLIB$$9e6bf6fd
+10:58:08:431  INFO 18132 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Starting LitisleFileApplication using Java 25.0.1 with PID 18132 (E:\NewJavaPro\LitIsle\litisle-file\target\classes started by K.1 in E:\NewJavaPro\LitIsle)
+10:58:08:432 DEBUG 18132 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Running with Spring Boot v3.5.15, Spring v6.2.19
+10:58:08:433  INFO 18132 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : The following 1 profile is active: "local"
+10:58:08:489  INFO 18132 --- [litisle-file] [main] c.a.c.n.c.NacosConfigDataLoader          : [Nacos Config] Load config[dataId=litisle-shared.yaml, group=DEFAULT_GROUP] success
+10:58:08:490  WARN 18132 --- [litisle-file] [main] c.a.c.n.c.NacosConfigDataLoader          : [Nacos Config] config[dataId=litisle-file.yaml, group=DEFAULT_GROUP] is empty
+10:58:09:875  INFO 18132 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+10:58:09:878  INFO 18132 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+10:58:09:919  INFO 18132 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 17 ms. Found 0 Redis repository interfaces.
+10:58:10:194  INFO 18132 --- [litisle-file] [main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=1ed5e1dd-cec5-338d-b3fa-785e4832cb2c
+10:58:10:260  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.apache.seata.spring.boot.autoconfigure.SeataCoreAutoConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.SeataCoreAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:260  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'springApplicationContextProvider' of type [org.apache.seata.spring.boot.autoconfigure.provider.SpringApplicationContextProvider] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:261  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.apache.seata.spring.boot.autoconfigure.SeataAutoConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.SeataAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:291  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'failureHandler' of type [org.apache.seata.tm.api.DefaultFailureHandlerImpl] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:296  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.cloud.commons.config.CommonsConfigAutoConfiguration' of type [org.springframework.cloud.commons.config.CommonsConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:298  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration' of type [org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:299  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'loadBalancerClientsDefaultsMappingsProvider' of type [org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration$$Lambda/0x00000000255e6480] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:299  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'defaultsBindHandlerAdvisor' of type [org.springframework.cloud.commons.config.DefaultsBindHandlerAdvisor] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:302  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'springCloudAlibabaConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.properties.SpringCloudAlibabaConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:305  WARN 18132 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'seataProperties' of type [org.apache.seata.spring.boot.autoconfigure.properties.SeataProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+10:58:10:308  INFO 18132 --- [litisle-file] [main] o.a.s.s.b.a.SeataAutoConfiguration       : Automatically configure Seata
+10:58:10:318  INFO 18132 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.spring.annotation.ScannerChecker
+10:58:10:333  INFO 18132 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.integration.tx.api.remoting.RemotingParser
+10:58:10:333  INFO 18132 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Initializing Global Transaction Clients ... 
+10:58:10:433  INFO 18132 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.auth.AuthSigner
+10:58:10:435  INFO 18132 --- [litisle-file] [main] o.a.s.c.r.n.AbstractNettyRemotingClient  : register channel event listener: org.apache.seata.core.rpc.netty.TmNettyRemotingClient$2
+10:58:10:442  INFO 18132 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyClientBootstrap   : NettyClientBootstrap has started
+10:58:10:445  INFO 18132 --- [litisle-file] [main] o.a.s.d.registry.RegistryFactory         : use registry center type: nacos
+10:58:10:452  INFO 18132 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.discovery.registry.RegistryProvider
+10:58:10:457  INFO 18132 --- [litisle-file] [main] o.a.s.d.r.n.NacosRegistryServiceImpl     : Nacos check auth with userName/password.
+10:58:10:458  INFO 18132 --- [litisle-file] [main] o.a.s.d.r.n.NacosRegistryServiceImpl     : Nacos check auth with userName/password.
+10:58:10:461  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Nacos client key init properties: 
+	serverAddr=localhost:8848
+	username=nacos
+	password=n***s
+
+10:58:10:462  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from namespace attribute :null
+10:58:10:469  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : FailoverDataSource type is class com.alibaba.nacos.client.naming.backups.datasource.DiskFailoverDataSource
+10:58:10:474  INFO 18132 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
+10:58:10:474  INFO 18132 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
+10:58:10:474  INFO 18132 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
+10:58:10:475  INFO 18132 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+10:58:10:475  INFO 18132 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+10:58:10:545  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of a053d8c8-a5f7-4375-84d7-1a41e15d8a10
+10:58:10:547  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Create naming rpc client for uuid->a053d8c8-a5f7-4375-84d7-1a41e15d8a10
+10:58:10:548  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] RpcClient init, ServerListFactory = com.alibaba.nacos.client.naming.core.NamingServerListManager
+10:58:10:548  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Registry connection listener to current client:com.alibaba.nacos.client.naming.remote.gprc.redo.NamingGrpcRedoService
+10:58:10:548  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingPushRequestHandler
+10:58:10:549  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingFuzzyWatchNotifyRequestHandler
+10:58:10:549  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
+10:58:10:550  INFO 18132 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
+10:58:10:578  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Success to connect to server [localhost:8848] on start up, connectionId = 1790650690557_172.21.0.1_53728
+10:58:10:579  INFO 18132 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Notify connected event to listeners.
+10:58:10:579  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
+10:58:10:579  INFO 18132 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.client.naming          : Grpc connection connect
+10:58:10:579  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x0000000025373c18
+10:58:10:583  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [SUBSCRIBE-SERVICE] service:seata-server, group:DEFAULT_GROUP, clusters: 
+10:58:10:583  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [GRPC-SUBSCRIBE] service:seata-server, group:DEFAULT_GROUP, cluster: 
+10:58:10:615  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : init new ips(1) service: DEFAULT_GROUP@@seata-server -> [{"instanceId":"192.168.43.221#8091#default#DEFAULT_GROUP@@seata-server","ip":"192.168.43.221","port":8091,"weight":1.0,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"default","serviceName":"DEFAULT_GROUP@@seata-server","metadata":{},"instanceIdGenerator":"simple","ipDeleteTimeout":30000,"instanceHeartBeatTimeOut":15000,"instanceHeartBeatInterval":5000}]
+10:58:10:623  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : current ips:(1) service: DEFAULT_GROUP@@seata-server -> [{"instanceId":"192.168.43.221#8091#default#DEFAULT_GROUP@@seata-server","ip":"192.168.43.221","port":8091,"weight":1.0,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"default","serviceName":"DEFAULT_GROUP@@seata-server","metadata":{},"instanceIdGenerator":"simple","ipDeleteTimeout":30000,"instanceHeartBeatTimeOut":15000,"instanceHeartBeatInterval":5000}]
+10:58:10:646  WARN 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Duplicate subscribe for groupName: DEFAULT_GROUP, serviceName: seata-server; directly use current cached to notify.
+10:58:10:646  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Invoke event groupName: DEFAULT_GROUP, serviceName: seata-server to Listener: org.apache.seata.discovery.registry.nacos.NacosRegistryServiceImpl$$Lambda/0x0000000025621840@1ac68548
+10:58:10:647  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [SUBSCRIBE-SERVICE] service:seata-server, group:DEFAULT_GROUP, clusters: 
+10:58:10:648  INFO 18132 --- [litisle-file] [main] o.a.s.c.r.n.NettyClientChannelManager    : will connect to 192.168.43.221:8091
+10:58:10:654  INFO 18132 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : NettyPool create channel to transactionRole:TMROLE,address:192.168.43.221:8091,msg:< RegisterTMRequest{version='2.5.0', applicationId='litisle-file', transactionServiceGroup='litisle_tx_group', extraData='ak=null
+digest=litisle_tx_group,172.28.144.1,1790650690653
+timestamp=1790650690653
+authVersion=V4
+vgroup=litisle_tx_group
+ip=172.28.144.1
+'} >
+10:58:10:740  INFO 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.serializer.Serializer
+10:58:10:771  INFO 18132 --- [litisle-file] [main] o.a.s.c.rpc.netty.TmNettyRemotingClient  : register TM success. client version:2.5.0, server version:2.5.0,channel:[id: 0x59242f03, L:/192.168.43.221:56450 - R:/192.168.43.221:8091]
+10:58:10:774  INFO 18132 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : register success, cost 60 ms, version:2.5.0,role:TMROLE,channel:[id: 0x59242f03, L:/192.168.43.221:56450 - R:/192.168.43.221:8091]
+10:58:10:776  INFO 18132 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Transaction Manager Client is initialized. applicationId[litisle-file] txServiceGroup[litisle_tx_group]
+10:58:10:832  INFO 18132 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.model.ResourceManager
+10:58:10:835  INFO 18132 --- [litisle-file] [main] o.a.seata.rm.datasource.AsyncWorker      : Async Commit Buffer Limit: 10000
+10:58:10:836  INFO 18132 --- [litisle-file] [main] o.a.s.r.datasource.xa.ResourceManagerXA  : ResourceManagerXA init ...
+10:58:10:843  INFO 18132 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyClientBootstrap   : NettyClientBootstrap has started
+10:58:10:844  INFO 18132 --- [litisle-file] [main] o.a.s.c.r.n.AbstractNettyRemotingClient  : register channel event listener: org.apache.seata.core.rpc.netty.RmNettyRemotingClient$1
+10:58:10:844  INFO 18132 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Resource Manager is initialized. applicationId[litisle-file] txServiceGroup[litisle_tx_group]
+10:58:10:844  INFO 18132 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Global Transaction Clients are initialized. 
+10:58:10:919  INFO 18132 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : The needed enhancement business beans are : []
+10:58:10:941  INFO 18132 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.context.ContextCore
+10:58:11:189  INFO 18132 --- [litisle-file] [nacos-grpc-client-executor-localhost-11] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Receive server push request, request = NotifySubscriberRequest, requestId = 9
+10:58:11:190  INFO 18132 --- [litisle-file] [nacos-grpc-client-executor-localhost-11] com.alibaba.nacos.common.remote.client   : [a053d8c8-a5f7-4375-84d7-1a41e15d8a10] Ack server push request, request = NotifySubscriberRequest, requestId = 9
+10:58:11:807  INFO 18132 --- [litisle-file] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8083 (http)
+10:58:11:834  INFO 18132 --- [litisle-file] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+10:58:11:836  INFO 18132 --- [litisle-file] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
+10:58:12:039  INFO 18132 --- [litisle-file] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+10:58:12:040  INFO 18132 --- [litisle-file] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3548 ms
+10:58:12:053  INFO 18132 --- [litisle-file] [main] c.litisle.commonsecurity.xss.XssFilter   : XSS 过滤器已注册，拦截路径: /*，排除路径: []
+10:58:12:418  INFO 18132 --- [litisle-file] [main] org.redisson.Version                     : Redisson 3.52.0
+10:58:12:623  INFO 18132 --- [litisle-file] [redisson-netty-2-5] o.redisson.connection.ConnectionsHolder  : 1 connections initialized for localhost/127.0.0.1:6380
+10:58:12:797  INFO 18132 --- [litisle-file] [redisson-netty-2-4] o.redisson.connection.ConnectionsHolder  : 32 connections initialized for localhost/127.0.0.1:6380
+10:58:12:990  INFO 18132 --- [litisle-file] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+10:58:13:241  INFO 18132 --- [litisle-file] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@508863eb
+10:58:13:243  INFO 18132 --- [litisle-file] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+10:58:13:478  INFO 18132 --- [litisle-file] [main] o.a.s.c.r.n.NettyClientChannelManager    : will connect to 192.168.43.221:8091
+10:58:13:478  INFO 18132 --- [litisle-file] [main] o.a.s.c.rpc.netty.RmNettyRemotingClient  : RM will register :jdbc:mysql://localhost:3307/litisle_file
+10:58:13:478  INFO 18132 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : NettyPool create channel to transactionRole:RMROLE,address:192.168.43.221:8091,msg:< RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3307/litisle_file', version='2.5.0', applicationId='litisle-file', transactionServiceGroup='litisle_tx_group', extraData='null'} >
+10:58:13:499  INFO 18132 --- [litisle-file] [main] o.a.s.c.rpc.netty.RmNettyRemotingClient  : register RM success. client version:2.5.0, server version:2.5.0,channel:[id: 0x036cd4e4, L:/192.168.43.221:60336 - R:/192.168.43.221:8091]
+10:58:13:500  INFO 18132 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : register success, cost 20 ms, version:2.5.0,role:RMROLE,channel:[id: 0x036cd4e4, L:/192.168.43.221:60336 - R:/192.168.43.221:8091]
+10:58:13:502  INFO 18132 --- [litisle-file] [main] .s.s.a.d.SeataAutoDataSourceProxyCreator : Auto proxy data source 'dataSource' by 'AT' mode.
+10:58:14:615  INFO 18132 --- [litisle-file] [main] c.a.c.sentinel.SentinelWebMvcConfigurer  : [Sentinel Starter] register SentinelWebInterceptor with urlPatterns: [/**].
+10:58:14:964  INFO 18132 --- [litisle-file] [main] c.l.c.anonymous.AnonymousAccessHandler   : 匿名白名单刷新完成，共 0 条: []
+10:58:14:966  INFO 18132 --- [litisle-file] [main] c.l.c.crypto.CryptoAutoConfiguration     : BCrypt 密码加密初始化完成，cost = 10
+10:58:15:635  INFO 18132 --- [litisle-file] [main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 2 endpoints beneath base path '/actuator'
+10:58:15:673  INFO 18132 --- [litisle-file] [main] c.a.n.client.config.NacosConfigService   : Nacos client key init properties: 
+	serverAddr=localhost:8848
+	username=nacos
+	password=n***s
+
+10:58:15:674  INFO 18132 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
+10:58:15:674  INFO 18132 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
+10:58:15:674  INFO 18132 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
+10:58:15:675  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : DefaultLabelsCollectorManager get labels.....
+10:58:15:676  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : Process LabelsCollector with [name:defaultNacosLabelsCollector]
+10:58:15:676  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect properties raw labels: null
+10:58:15:676  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect properties labels: {}
+10:58:15:676  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect jvm raw labels: null
+10:58:15:676  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect jvm labels: {}
+10:58:15:676  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect env raw labels: null
+10:58:15:676  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect env labels: {}
+10:58:15:676  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : DefaultLabelsCollectorManager get labels finished,labels :{}
+10:58:15:676  INFO 18132 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+10:58:15:676  INFO 18132 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+10:58:15:744  INFO 18132 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : config listener notify warn timeout millis use default 60000 millis 
+10:58:15:745  INFO 18132 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : nacos.cache.data.init.snapshot = true 
+10:58:15:755  INFO 18132 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-file-degrade-rules.json+DEFAULT_GROUP+public
+10:58:15:756  INFO 18132 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-file-degrade-rules.json, group=DEFAULT_GROUP, cnt=1
+10:58:15:757  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of 763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0
+10:58:15:757  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Register server push request handler:com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$$Lambda/0x00000000252829e0
+10:58:15:757  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Register server push request handler:com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$$Lambda/0x0000000025282e20
+10:58:15:757  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Register server push request handler:com.alibaba.nacos.client.config.impl.ClientFuzzyWatchNotifyRequestHandler
+10:58:15:757  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Registry connection listener to current client:com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$1
+10:58:15:757  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] RpcClient init, ServerListFactory = com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$2
+10:58:15:757  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
+10:58:15:758  INFO 18132 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
+10:58:15:793  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Success to connect to server [localhost:8848] on start up, connectionId = 1790650695766_172.21.0.1_53760
+10:58:15:793  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
+10:58:15:793  INFO 18132 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Notify connected event to listeners.
+10:58:15:793  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x0000000025373c18
+10:58:15:793  INFO 18132 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] c.a.n.client.config.impl.ClientWorker    : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Connected,notify listen context...
+10:58:15:793  INFO 18132 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] c.a.n.client.config.impl.ClientWorker    : [763c538d-6cb3-4cdd-acda-a2c439a6c54b_config-0] Connected,notify fuzzy listen context...
+10:58:15:899  INFO 18132 --- [litisle-file] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8083 (http) with context path '/'
+10:58:15:902  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Nacos client key init properties: 
+	serverAddr=localhost:8848
+	username=nacos
+	password=n***s
+
+10:58:15:902  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from ans.namespace attribute : null
+10:58:15:902  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from ALIBABA_ALIWARE_NAMESPACE attribute :null
+10:58:15:902  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from namespace attribute :null
+10:58:15:902  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : FailoverDataSource type is class com.alibaba.nacos.client.naming.backups.datasource.DiskFailoverDataSource
+10:58:15:904  INFO 18132 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
+10:58:15:904  INFO 18132 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
+10:58:15:904  INFO 18132 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
+10:58:15:904  INFO 18132 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+10:58:15:904  INFO 18132 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+10:58:15:963  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of c5ff1573-cb34-4ac6-8234-d3742404612d
+10:58:15:963  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Create naming rpc client for uuid->c5ff1573-cb34-4ac6-8234-d3742404612d
+10:58:15:963  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [c5ff1573-cb34-4ac6-8234-d3742404612d] RpcClient init, ServerListFactory = com.alibaba.nacos.client.naming.core.NamingServerListManager
+10:58:15:964  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [c5ff1573-cb34-4ac6-8234-d3742404612d] Registry connection listener to current client:com.alibaba.nacos.client.naming.remote.gprc.redo.NamingGrpcRedoService
+10:58:15:964  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [c5ff1573-cb34-4ac6-8234-d3742404612d] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingPushRequestHandler
+10:58:15:964  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [c5ff1573-cb34-4ac6-8234-d3742404612d] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingFuzzyWatchNotifyRequestHandler
+10:58:15:964  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [c5ff1573-cb34-4ac6-8234-d3742404612d] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
+10:58:15:964  INFO 18132 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
+10:58:15:990  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [c5ff1573-cb34-4ac6-8234-d3742404612d] Success to connect to server [localhost:8848] on start up, connectionId = 1790650695971_172.21.0.1_53772
+10:58:15:990  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [c5ff1573-cb34-4ac6-8234-d3742404612d] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
+10:58:15:990  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [c5ff1573-cb34-4ac6-8234-d3742404612d] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x0000000025373c18
+10:58:15:990  INFO 18132 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [c5ff1573-cb34-4ac6-8234-d3742404612d] Notify connected event to listeners.
+10:58:15:990  INFO 18132 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.client.naming          : Grpc connection connect
+10:58:15:990  INFO 18132 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [REGISTER-SERVICE] public registering service litisle-file with instance Instance{instanceId='null', ip='172.28.144.1', port=8083, weight=1.0, healthy=true, enabled=true, ephemeral=true, clusterName='', serviceName='null', metadata={IPv6=null, preserved.register.source=SPRING_CLOUD}}
+10:58:16:003  INFO 18132 --- [litisle-file] [main] c.a.c.n.registry.NacosServiceRegistry    : nacos registry, DEFAULT_GROUP litisle-file 172.28.144.1:8083 register finished
+10:58:16:031  INFO 18132 --- [litisle-file] [main] c.l.c.anonymous.AnonymousPathScanner     : @Anonymous 注解扫描完成，共发现 0 个匿名接口: []
+10:58:16:031  INFO 18132 --- [litisle-file] [main] c.l.c.anonymous.AnonymousAccessHandler   : 匿名白名单刷新完成，共 0 条: []
+10:58:16:031  INFO 18132 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Started LitisleFileApplication in 9.597 seconds (process running for 10.581)
+10:58:16:039  INFO 18132 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-shared.yaml+DEFAULT_GROUP+public
+10:58:16:039  INFO 18132 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-shared.yaml, group=DEFAULT_GROUP, cnt=1
+10:58:16:039  INFO 18132 --- [litisle-file] [main] c.a.c.n.refresh.NacosContextRefresher    : [Nacos Config] Listening config: dataId=litisle-shared.yaml, group=DEFAULT_GROUP
+10:58:16:040  INFO 18132 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-file.yaml+DEFAULT_GROUP+public
+10:58:16:040  INFO 18132 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-file.yaml, group=DEFAULT_GROUP, cnt=1
+10:58:16:040  INFO 18132 --- [litisle-file] [main] c.a.c.n.refresh.NacosContextRefresher    : [Nacos Config] Listening config: dataId=litisle-file.yaml, group=DEFAULT_GROUP
+10:58:16:242  INFO 18132 --- [litisle-file] [RMI TCP Connection(6)-192.168.43.221] c.a.c.s.e.SentinelHealthIndicator        : Find sentinel dashboard server list: [Endpoint{protocol=HTTP, host='localhost, port=8090}]
+10:58:16:244  INFO 18132 --- [litisle-file] [RMI TCP Connection(3)-192.168.43.221] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+10:58:16:244  INFO 18132 --- [litisle-file] [RMI TCP Connection(3)-192.168.43.221] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+10:58:16:246  INFO 18132 --- [litisle-file] [RMI TCP Connection(3)-192.168.43.221] o.s.web.servlet.DispatcherServlet        : Completed initialization in 2 ms
+11:01:54:106  INFO 18132 --- [litisle-file] [Thread-9] c.a.nacos.common.notify.NotifyCenter     : [NotifyCenter] Start destroying Publisher
+11:01:54:106  INFO 18132 --- [litisle-file] [Thread-1] c.a.n.common.executor.ThreadPoolManager  : [ThreadPoolManager] Start destroying ThreadPool
+11:01:54:106  INFO 18132 --- [litisle-file] [Thread-7] c.a.n.common.http.HttpClientBeanHolder   : [HttpClientBeanHolder] Start destroying common HttpClient
+11:01:54:112  INFO 18132 --- [litisle-file] [Thread-9] c.a.nacos.common.notify.NotifyCenter     : [NotifyCenter] Completed destruction of Publisher
+11:01:54:113  INFO 18132 --- [litisle-file] [Thread-1] c.a.n.common.executor.ThreadPoolManager  : [ThreadPoolManager] Completed destruction of ThreadPool
+11:01:54:115  INFO 18132 --- [litisle-file] [Thread-7] c.a.n.common.http.HttpClientBeanHolder   : [HttpClientBeanHolder] Completed destruction of HttpClient
+11:01:54:120  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] c.a.c.n.registry.NacosServiceRegistry    : De-registering from Nacos Server now...
+11:01:54:121  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [DEREGISTER-SERVICE] public deregistering service litisle-file with instance: Instance{instanceId='null', ip='172.28.144.1', port=8083, weight=1.0, healthy=true, enabled=true, ephemeral=true, clusterName='', serviceName='null', metadata={}}
+11:01:54:113 ERROR 18132 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.naming.event.NamingFuzzyWatchLoadEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+
+java.lang.InterruptedException
+	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
+	at java.base/java.util.concurrent.ArrayBlockingQueue.take(ArrayBlockingQueue.java:421) ~[na:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
+
+11:01:54:113 ERROR 18132 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.naming.event.NamingFuzzyWatchNotifyEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+
+java.lang.InterruptedException
+	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
+	at java.base/java.util.concurrent.ArrayBlockingQueue.take(ArrayBlockingQueue.java:421) ~[na:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
+
+11:01:54:112 ERROR 18132 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.common.notify.SlowEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+
+java.lang.InterruptedException
+	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
+	at java.base/java.util.concurrent.ArrayBlockingQueue.take(ArrayBlockingQueue.java:421) ~[na:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
+
+11:01:54:113 ERROR 18132 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.naming.event.InstancesChangeEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+
+java.lang.InterruptedException
+	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
+	at java.base/java.util.concurrent.ArrayBlockingQueue.take(ArrayBlockingQueue.java:421) ~[na:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
+
+11:01:54:113 ERROR 18132 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.common.ability.AbstractAbilityControlManager$AbilityUpdateEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+
+java.lang.InterruptedException
+	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
+	at java.base/java.util.concurrent.ArrayBlockingQueue.take(ArrayBlockingQueue.java:421) ~[na:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
+
+11:01:54:113 ERROR 18132 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.config.impl.ConfigFuzzyWatchNotifyEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+
+java.lang.InterruptedException
+	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
+	at java.base/java.util.concurrent.ArrayBlockingQueue.take(ArrayBlockingQueue.java:421) ~[na:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
+
+11:01:54:113 ERROR 18132 --- [litisle-file] [nacos.publisher-com.alibaba.nacos.client.config.impl.ConfigFuzzyWatchLoadEvent] c.a.nacos.common.notify.NotifyCenter     : Event listener exception : 
+
+java.lang.InterruptedException
+	at java.base/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:1767) ~[na:na]
+	at java.base/java.util.concurrent.ArrayBlockingQueue.take(ArrayBlockingQueue.java:421) ~[na:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.openEventHandler(DefaultPublisher.java:111) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.common.notify.DefaultPublisher.run(DefaultPublisher.java:95) ~[nacos-client-3.0.3.jar:na]
+
+11:01:54:181  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] c.a.c.n.registry.NacosServiceRegistry    : De-registration finished.
+11:01:54:183  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown begin
+11:01:54:184  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown begin
+11:01:54:184  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown stop
+11:01:54:184  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown stop
+11:01:54:184  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.NamingClientProxyDelegate do shutdown begin
+11:01:54:184  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown begin
+11:01:54:184  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown stop
+11:01:54:184  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown begin
+11:01:54:184  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown stop
+11:01:54:185  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown begin
+11:01:54:185  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Start destroying NacosRestTemplate
+11:01:54:185  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Completed destruction of NacosRestTemplate
+11:01:54:185  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown stop
+11:01:54:185  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown naming grpc client proxy for  uuid->c5ff1573-cb34-4ac6-8234-d3742404612d
+11:01:54:185  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown grpc redo service executor java.util.concurrent.ScheduledThreadPoolExecutor@1861c4a9[Running, pool size = 1, active threads = 0, queued tasks = 1, completed tasks = 72]
+11:01:54:185  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.common.remote.client   : Shutdown rpc client, set status to shutdown
+11:01:54:186  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.common.remote.client   : Shutdown client event executor java.util.concurrent.ScheduledThreadPoolExecutor@697714d8[Running, pool size = 2, active threads = 2, queued tasks = 0, completed tasks = 0]
+11:01:54:186  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.common.remote.client   : Close current connection 1790650695971_172.21.0.1_53772
+11:01:54:189  INFO 18132 --- [litisle-file] [nacos-grpc-client-executor-localhost-98] c.a.n.c.remote.client.grpc.GrpcClient    : [1790650695971_172.21.0.1_53772]Ignore complete event,isRunning:false,isAbandon=false
+11:01:54:196  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.remote.client.grpc.GrpcClient    : Shutdown grpc executor java.util.concurrent.ThreadPoolExecutor@1d57b043[Running, pool size = 7, active threads = 0, queued tasks = 0, completed tasks = 99]
+11:01:54:197  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : shutdown and remove naming rpc client  for uuid ->c5ff1573-cb34-4ac6-8234-d3742404612d
+11:01:54:198 ERROR 18132 --- [litisle-file] [SpringContextShutdownHook] c.a.c.n.r.NacosGracefulShutdownDelegate  : Error occurred while performing Nacos client graceful shutdown
+
+java.lang.NullPointerException: Cannot read field "sharePublisher" because "com.alibaba.nacos.common.notify.NotifyCenter.INSTANCE" is null
+	at com.alibaba.nacos.common.notify.NotifyCenter.deregisterSubscriber(NotifyCenter.java:242) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.client.naming.remote.gprc.NamingGrpcClientProxy.shutdown(NamingGrpcClientProxy.java:537) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.client.naming.remote.NamingClientProxyDelegate.shutdown(NamingClientProxyDelegate.java:212) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.nacos.client.naming.NacosNamingService.shutDown(NacosNamingService.java:637) ~[nacos-client-3.0.3.jar:na]
+	at com.alibaba.cloud.nacos.NacosServiceManager.nacosServiceShutDown(NacosServiceManager.java:117) ~[spring-cloud-starter-alibaba-nacos-discovery-2025.0.0.0.jar:2025.0.0.0]
+	at com.alibaba.cloud.nacos.registry.NacosServiceRegistry.close(NacosServiceRegistry.java:120) ~[spring-cloud-starter-alibaba-nacos-discovery-2025.0.0.0.jar:2025.0.0.0]
+	at org.springframework.cloud.client.serviceregistry.AbstractAutoServiceRegistration.stop(AbstractAutoServiceRegistration.java:311) ~[spring-cloud-commons-4.3.3.jar:4.3.3]
+	at com.alibaba.cloud.nacos.registry.NacosGracefulShutdownDelegate.doGracefulShutdown(NacosGracefulShutdownDelegate.java:69) ~[spring-cloud-starter-alibaba-nacos-discovery-2025.0.0.0.jar:2025.0.0.0]
+	at com.alibaba.cloud.nacos.registry.NacosGracefulShutdownDelegate.onApplicationEvent(NacosGracefulShutdownDelegate.java:64) ~[spring-cloud-starter-alibaba-nacos-discovery-2025.0.0.0.jar:2025.0.0.0]
+	at com.alibaba.cloud.nacos.registry.NacosGracefulShutdownDelegate.onApplicationEvent(NacosGracefulShutdownDelegate.java:34) ~[spring-cloud-starter-alibaba-nacos-discovery-2025.0.0.0.jar:2025.0.0.0]
+	at org.springframework.context.event.SimpleApplicationEventMulticaster.doInvokeListener(SimpleApplicationEventMulticaster.java:185) ~[spring-context-6.2.19.jar:6.2.19]
+	at org.springframework.context.event.SimpleApplicationEventMulticaster.invokeListener(SimpleApplicationEventMulticaster.java:178) ~[spring-context-6.2.19.jar:6.2.19]
+	at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:156) ~[spring-context-6.2.19.jar:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.publishEvent(AbstractApplicationContext.java:455) ~[spring-context-6.2.19.jar:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.publishEvent(AbstractApplicationContext.java:388) ~[spring-context-6.2.19.jar:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.doClose(AbstractApplicationContext.java:1187) ~[spring-context-6.2.19.jar:6.2.19]
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.doClose(ServletWebServerApplicationContext.java:179) ~[spring-boot-3.5.15.jar:3.5.15]
+	at org.springframework.context.support.AbstractApplicationContext$1.run(AbstractApplicationContext.java:1075) ~[spring-context-6.2.19.jar:6.2.19]
+
+11:01:54:349  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown        : Commencing graceful shutdown. Waiting for active requests to complete
+11:01:54:364  INFO 18132 --- [litisle-file] [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown        : Graceful shutdown complete
+11:01:54:391  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown begin
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown begin
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.backups.FailoverReactor do shutdown stop
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.cache.ServiceInfoHolder do shutdown stop
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.NamingClientProxyDelegate do shutdown begin
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown begin
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.core.ServiceInfoUpdateService do shutdown stop
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown begin
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] c.a.n.c.a.AbstractServerListManager      : com.alibaba.nacos.client.naming.core.NamingServerListManager do shutdown stop
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown begin
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Start destroying NacosRestTemplate
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : [NamingHttpClientManager] Completed destruction of NacosRestTemplate
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : com.alibaba.nacos.client.naming.remote.http.NamingHttpClientProxy do shutdown stop
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown naming grpc client proxy for  uuid->c5ff1573-cb34-4ac6-8234-d3742404612d
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : Shutdown grpc redo service executor java.util.concurrent.ScheduledThreadPoolExecutor@1861c4a9[Terminated, pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 72]
+11:01:54:392  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.alibaba.nacos.client.naming          : shutdown and remove naming rpc client  for uuid ->c5ff1573-cb34-4ac6-8234-d3742404612d
+11:01:54:394  WARN 18132 --- [litisle-file] [SpringContextShutdownHook] o.s.b.f.support.DisposableBeanAdapter    : Custom destroy method 'close' on bean with name 'nacosServiceRegistry' propagated an exception: java.lang.NullPointerException: Cannot read field "sharePublisher" because "com.alibaba.nacos.common.notify.NotifyCenter.INSTANCE" is null
+11:01:54:398  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+11:01:54:407  INFO 18132 --- [litisle-file] [SpringContextShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+11:01:54:426  INFO 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : channel inactive: [id: 0x59242f03, L:/192.168.43.221:56450 ! R:/192.168.43.221:8091]
+11:01:54:426  INFO 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.NettyClientChannelManager    : return to pool, rm channel:[id: 0x59242f03, L:/192.168.43.221:56450 ! R:/192.168.43.221:8091]
+11:01:54:426  INFO 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : channel valid false,channel:[id: 0x59242f03, L:/192.168.43.221:56450 ! R:/192.168.43.221:8091]
+11:01:54:426  INFO 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : will destroy channel:[id: 0x59242f03, L:/192.168.43.221:56450 ! R:/192.168.43.221:8091]
+11:01:54:426  INFO 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0x59242f03, L:/192.168.43.221:56450 ! R:/192.168.43.221:8091]) will closed
+11:01:54:426  INFO 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0x59242f03, L:/192.168.43.221:56450 ! R:/192.168.43.221:8091]) will closed
+11:01:54:427  WARN 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.ChannelEventHandler    : Channel inactive: /192.168.43.221:8091
+11:01:54:427  INFO 18132 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : channel inactive: [id: 0x036cd4e4, L:/192.168.43.221:60336 ! R:/192.168.43.221:8091]
+11:01:54:427  INFO 18132 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.NettyClientChannelManager    : return to pool, rm channel:[id: 0x036cd4e4, L:/192.168.43.221:60336 ! R:/192.168.43.221:8091]
+11:01:54:427  INFO 18132 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : channel valid false,channel:[id: 0x036cd4e4, L:/192.168.43.221:60336 ! R:/192.168.43.221:8091]
+11:01:54:427  INFO 18132 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.NettyPoolableFactory   : will destroy channel:[id: 0x036cd4e4, L:/192.168.43.221:60336 ! R:/192.168.43.221:8091]
+11:01:54:427  WARN 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.rpc.netty.TmNettyRemotingClient  : Channel inactive: /192.168.43.221:8091
+11:01:54:427  INFO 18132 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0x036cd4e4, L:/192.168.43.221:60336 ! R:/192.168.43.221:8091]) will closed
+11:01:54:428  INFO 18132 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : ChannelHandlerContext(AbstractNettyRemotingClient$ClientHandler#0, [id: 0x036cd4e4, L:/192.168.43.221:60336 ! R:/192.168.43.221:8091]) will closed
+11:01:54:428  WARN 18132 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.ChannelEventHandler    : Channel inactive: /192.168.43.221:8091
+11:01:54:428  WARN 18132 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.rpc.netty.RmNettyRemotingClient  : Channel inactive: /192.168.43.221:8091
+11:01:54:428  INFO 18132 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : Cleaned up 0 pending requests for disconnected channel: /192.168.43.221:8091
+11:01:54:428  INFO 18132 --- [litisle-file] [NettyClientSelector_RMROLE_1_1_28] o.a.s.c.r.n.AbstractNettyRemotingClient  : Cleaned up 0 pending requests for disconnected channel: /192.168.43.221:8091

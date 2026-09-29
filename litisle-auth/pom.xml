@@ -75,6 +75,12 @@
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
         </dependency>
+        <!-- Sentinel 规则 Nacos 数据源：规则持久化 Nacos，
+             监听 dataId=litisle-auth-degrade-rules.json（见 application-local.yaml datasource 配置） -->
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+        </dependency>
 
         <!-- 邮箱发送：版本由父 POM 的 spring-boot-starter-parent 3.5.15 统一管理，严禁写 <version> -->
         <dependency>
@@ -118,6 +124,18 @@
             <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
         </dependency>
 
+
+        <!-- Actuator 监控端点：提供 /actuator/prometheus 暴露 RedisGuard 指标（熔断降级告警数据源） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Prometheus 指标注册表：提供 /actuator/prometheus 端点（actuator 本体不含，必须单独引入） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

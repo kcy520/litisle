@@ -46,6 +46,13 @@
             <scope>provided</scope>
         </dependency>
 
+        <!--micrometer-RedisGuard状态切换指标埋点使用-provided（消费方引 actuator 即自带，无则指标静默停用） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

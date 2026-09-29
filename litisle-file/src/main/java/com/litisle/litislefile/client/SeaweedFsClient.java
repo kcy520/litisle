@@ -1,5 +1,6 @@
 package com.litisle.litislefile.client;
 
+import com.alibaba.csp.sentinel.annotation.SentinelResource;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
@@ -120,7 +121,12 @@ public class SeaweedFsClient {
      * 不变量「判重键(sha256 hex) == 校验值(SHA256 Base64)」由隐式转为显式，口径唯一。</p>
      * <p>校验失败（网关比对不符）抛 BizException(FILE_CHECKSUM_MISMATCH) 并打 warn 日志，
      * 与「存储不可用」分离；其余 SdkException 转 FILE_STORAGE_UNAVAILABLE，fail-fast 不重试</p>
+     * <p>存储后端保护：声明为 Sentinel 资源 seaweedfs-put，熔断规则持久化在
+     * Nacos（litisle-file-degrade-rules.json）；熔断打开时抛 DegradeException，
+     * 上传链路按「put 失败」既有语义处理（DB 保留 status=0，对账任务补偿）</p>
      */
+    // 把 SeaweedFS 上传方法声明为一个 Sentinel 受保护资源，
+    @SentinelResource("seaweedfs-put")//对方法调用进行流量控制 / 熔断降级 / 系统保护
     public void put(String bucket, String key, byte[] bytes, String contentType, String checksumSha256Base64) {
         // 构建 PutObjectRequest：指定目标桶、对象 key 和 Content-Type（便于浏览器/下载时正确识别类型）
         PutObjectRequest.Builder builder = PutObjectRequest.builder()
@@ -186,7 +192,10 @@ public class SeaweedFsClient {
      * 流式读取对象（服务端代理下载用，不整份载入内存）
      * <p>start/end 为闭区间字节范围；均为 null 时读全量（不传 S3 Range 头）。
      * 返回流由调用方负责关闭；对象不存在抛 BizException(FILE_NOT_FOUND)</p>
+     * <p>存储后端保护：声明为 Sentinel 资源 seaweedfs-get-stream，熔断规则同 seaweedfs-put，
+     * 防存储故障期连接超时打满 fileIoExecutor 工作线程</p>
      */
+    @SentinelResource("seaweedfs-get-stream")
     public ResponseInputStream<GetObjectResponse> getStream(String bucket, String key, Long start, Long end) {
         try {
             GetObjectRequest.Builder builder = GetObjectRequest.builder()

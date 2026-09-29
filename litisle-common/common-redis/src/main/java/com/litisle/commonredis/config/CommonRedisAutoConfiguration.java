@@ -7,11 +7,13 @@ import com.litisle.commonredis.login.LoginRetryLimiter;
 import com.litisle.commonredis.idempotent.IdempotentAspect;
 import com.litisle.commonredis.idempotent.IdempotentKeyBuilder;
 import com.litisle.commonredis.lock.RedissonLock;
+import com.litisle.commonredis.guard.RedisGuard;
 import com.litisle.commonredis.ratelimit.LocalRateLimiter;
 import com.litisle.commonredis.ratelimit.RateLimiterAspect;
 import com.litisle.commonredis.ratelimit.RateLimiterKeyBuilder;
 import com.litisle.commonredis.ratelimit.RedisRateLimiter;
 import com.litisle.commonredis.util.RedisUtil;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -79,8 +81,9 @@ public class CommonRedisAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public LoginRetryLimiter loginRetryLimiter(StringRedisTemplate stringRedisTemplate) {
-        return new LoginRetryLimiter(stringRedisTemplate);
+    public LoginRetryLimiter loginRetryLimiter(StringRedisTemplate stringRedisTemplate,
+                                               RedisGuard redisGuard) {
+        return new LoginRetryLimiter(stringRedisTemplate, redisGuard);
     }
 
     /**
@@ -130,6 +133,23 @@ public class CommonRedisAutoConfiguration {
      * 系统级限流（如 FileGlobalQpsInterceptor）共用，保证单一事实来源
      */
     /**
+     * Redis 三态熔断守护（SSOT：RedisRateLimiter 与 LoginRetryLimiter 共用同一状态机）
+     * Redis 故障时统一调度「走 Redis / 半开探测 / 走本地兑底」，见 guard/RedisGuard
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public RedisGuard redisGuard(RateLimitFallbackProperties fallbackProperties,
+                                 ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        RedisGuard redisGuard = new RedisGuard(fallbackProperties);
+        // MeterRegistry 可选注入：消费方带 actuator 则指标自动生效，否则静默停用
+        MeterRegistry meterRegistry = meterRegistryProvider.getIfAvailable();
+        if (meterRegistry != null) {
+            redisGuard.setMeterRegistry(meterRegistry);
+        }
+        return redisGuard;
+    }
+
+    /**
      * 本地兑底限流器（单机固定窗口计数，Redis 故障降级期使用）
      */
     @Bean
@@ -149,8 +169,9 @@ public class CommonRedisAutoConfiguration {
     @ConditionalOnMissingBean
     public RedisRateLimiter redisRateLimiter(RedisTemplate<String, Object> redisTemplate,
                                              LocalRateLimiter localRateLimiter,
-                                             RateLimitFallbackProperties fallbackProperties) {
-        return new RedisRateLimiter(redisTemplate, localRateLimiter, fallbackProperties);
+                                             RateLimitFallbackProperties fallbackProperties,
+                                             RedisGuard redisGuard) {
+        return new RedisRateLimiter(redisTemplate, localRateLimiter, fallbackProperties, redisGuard);
     }
 
     /**
