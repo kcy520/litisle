@@ -1,0 +1,19 @@
+# ============================================================================
+# Prometheus 抓取配置 - litisle 微服务监控链路（第4层：拉取端）
+# 与 next_update.md 待办清单一致：job=litisle-services，直连各服务 8xxx 端口
+# 注意：容器内必须用 host.docker.internal（不能写 localhost），
+#       extra_hosts 的 host-gateway 映射已在 compose.yaml 中配置
+# ============================================================================
+
+global:
+  scrape_interval: 15s     # 抓取周期
+  evaluation_interval: 15s # 规则评估周期（Alertmanager 后置接入时 rule_files 生效）
+
+scrape_configs:
+  - job_name: litisle-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - host.docker.internal:8082  # litisle-auth
+          - host.docker.internal:8081  # litisle-user
+          - host.docker.internal:8083  # litisle-file
