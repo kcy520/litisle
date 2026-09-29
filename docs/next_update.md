@@ -27,9 +27,24 @@
 
 
 - [ ] Sentinel Dashboard 改规则只推内存、重启丢——操作纪律：规则增删改一律去 Nacos 控制台。
-- [ ] 网关封禁 /actuator/**（安全项，2026-09-29 引入 actuator 后新增）：actuator 端点已免登录放行，
-  若网关把 /actuator/** 路由到公网，等于把健康/指标端点免登录裸奔到外网——
-  需确认网关路由表无 /actuator 匹配，或显式拉黑该前缀。
+- [ ] 【开发环境】Prometheus Docker 部署（监控链路第4层拉取端）：
+  ① 新建 docker/init/prometheus/prometheus.yml（job=litisle-services，
+    metrics_path=/actuator/prometheus，targets=host.docker.internal:8082/8081/8083
+    对应 auth/user/file，容器内必须用 host.docker.internal 不能写 localhost）；
+  ② docker run -d --name prometheus -p 9090:9090 -v 挂载上述配置 + prometheus-data 卷
+    （--storage.tsdb.retention.time=15d）；
+  ③ 验证：localhost:9090/targets 三 target 全 UP；查询 redis_guard_degraded
+    能读出 application=litisle-auth/user/file 三条序列值为 0.0；
+  ④ Alertmanager 后置：待指标数据积累、明确告警阈值后再加容器与 rule_files
+    （如 redis_guard_degraded == 1 for 5m），零代码改动。
+- [ ] 【生产部署】监控端口网络隔离（监控链路安全前提）：各服务 8xxx 端口的 /actuator/**
+  免登录放行的是「路径」而非「来源 IP」，生产环境必须通过防火墙/安全组确保业务端口
+  仅对内网开放（Prometheus 所在网段可达即可，公网不可达）；或升级为
+  management.server.port 独立管理端口 + 网络层仅放行 Prometheus IP 段（与网关
+  8081 方案同一套纪律）。开发环境单机直连现状合规，无需处理。
+- [x] 网关封禁 /actuator/**（2026-09-29 完成）：已确认路由表全部为 /api/** 前缀无匹配、
+  网关自身未引 actuator 依赖；并删除匿名白名单中的 /actuator/** 放行项（见 gateway
+  application.yml 白名单注释），双保险封禁。
 
 ***
 
