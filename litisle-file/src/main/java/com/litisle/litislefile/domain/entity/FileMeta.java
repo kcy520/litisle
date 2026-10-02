@@ -129,12 +129,12 @@ public class FileMeta implements Serializable {
     private UploadStatusEnum status;
 
     /**
-     * 违规审核三态（default-deny）
-     * <p>0-违规 / 1-正常 / 2-待检测</p>
-     * <p>【预留｜已定接入，暂未开发】</p>
-     * <p>审核链路：status=1 后异步消息 → 病毒/违规检测 → 写 safe_flag</p>
-     * <p>getUrl/batchGetUrls 返回前校验（访问闸口单点收口）</p>
-     * <p>启用时需同步 Sql-Document §八建表语句加列（见 seaweedfs笔记.md §3.6/§3.6.3）</p>
+     * 违规审核四态（default-deny）
+     * <p>0-违规 / 1-正常 / 2-待审 / 3-存疑（SSOT 为 SafeFlagEnum，代码已是四态）</p>
+     * <p>审核链路（已接入）：PUBLIC 面上传缓存未命中落 2 + 发 image.submit → review 机审/人审
+     * → moderation.result 事件回写 1/0/3（REJECT 同时写拒传黑名单 + 物理隔离）</p>
+     * <p>闸口按曝光面分层（§4.4.5）：=0 拒绝；PUBLIC 高曝光面仅 =1 放行、2/3 返回占位图；
+     * PRIVATE 低曝光面不占位（owner/REVIEWER/ADMIN 按角色放行）</p>
      */
     @TableField("safe_flag")
     private SafeFlagEnum safeFlag;

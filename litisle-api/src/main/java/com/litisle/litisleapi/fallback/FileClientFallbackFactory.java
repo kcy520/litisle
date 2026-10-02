@@ -3,6 +3,7 @@ package com.litisle.litisleapi.fallback;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
+import com.litisle.litisleapi.dto.file.FileContentDTO;
 import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litisleapi.dto.file.FileRefDTO;
 import com.litisle.litisleapi.feign.FileClient;
@@ -71,6 +72,47 @@ public class FileClientFallbackFactory implements FallbackFactory<FileClient> {
                 log.error("远程调用 file 模块 batchGetUrls 失败！size = {}，降级返回空 Map",
                         fileIds == null ? 0 : fileIds.size(), cause);
                 return Result.success(Map.of());
+            }
+
+            /**
+             * 核心审核写操作 fail-fast：静默成功会导致违规图未隔离/隔离图未恢复（证据链断裂），
+             * 异常必须穿透到调用方（moderation 侧）由其重试或告警
+             */
+            @Override
+            public Result<Void> quarantine(String fileId) {
+                log.error("远程调用 file 模块 quarantine 失败！fileId = {}", fileId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "文件服务暂不可用，违规图隔离失败，请稍后重试", cause);
+            }
+
+            /**
+             * 核心审核写操作 fail-fast：与 quarantine 对称
+             */
+            @Override
+            public Result<Void> unquarantine(String fileId) {
+                log.error("远程调用 file 模块 unquarantine 失败！fileId = {}", fileId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "文件服务暂不可用，隔离恢复失败，请稍后重试", cause);
+            }
+
+            /**
+             * 读操作静默降级：返回空 Map；调用方（review 复审聚合/申诉恢复）须将缺失的
+             * fileId 视为未知态保守处理——不唤醒挂起的复审任务/保持占位（宁严勿松），
+             * 严禁把「读不到」当「safe_flag=1 放行」
+             */
+            @Override
+            public Result<Map<String, Integer>> batchGetSafeFlags(List<String> fileIds) {
+                log.error("远程调用 file 模块 batchGetSafeFlags 失败！size = {}，降级返回空 Map",
+                        fileIds == null ? 0 : fileIds.size(), cause);
+                return Result.success(Map.of());
+            }
+
+            /**
+             * 审核链路核心读依赖 fail-fast：取不到字节流则机审无法进行，静默降级会让
+             * review 侧误判「无内容可审」；快速失败由其重试/熔断后转人审
+             */
+            @Override
+            public Result<FileContentDTO> getContent(String fileId) {
+                log.error("远程调用 file 模块 getContent 失败！fileId = {}", fileId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "文件服务暂不可用，取图失败，请稍后重试", cause);
             }
         };
     }

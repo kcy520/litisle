@@ -62,6 +62,12 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- RabbitMQ（审核结果消费：moderation.result / moderation.appeal.result 回写 safe_flag） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
         <!-- common-core：Result / BizException / ErrorCode / HeaderConstant -->
         <dependency>
             <groupId>com.litisle</groupId>

@@ -1,0 +1,33 @@
+# ============================================================================
+
+# SeaweedFS 安全配置（JWT 验签）
+
+# 加载机制：master / volume / filer / s3 共同读取，搜索路径优先级：
+
+#   ./security.toml → $HOME/.seaweedfs/security.toml → /etc/seaweedfs/security.toml
+
+# compose.yaml 已将本文件挂载到 /etc/seaweedfs/security.toml，无需命令行参数
+
+# ============================================================================
+
+# S3 网关内部对 Filer 发起写请求时的签名密钥
+
+# ⚠️ 必须与下方 [jwt.filer_signing] 的 key 同值（S3 签发 / Filer 验签须匹配）
+[jwt.signing]
+key = "litisle-filer-jwt-dev-key-please-rotate-in-prod"
+expires_after_seconds = 10
+
+# Filer 写操作强制验签：拦截 8888 端口的匿名 PUT/DELETE
+
+# 修复缺口：此前能触达 8888 的客户端可绕过 file 服务直写/直删桶对象，
+
+# 配额/魔数校验/判重/审核闸口全部被旁路
+[jwt.filer_signing]
+key = "litisle-filer-jwt-dev-key-please-rotate-in-prod"
+expires_after_seconds = 10
+
+# ⚠️ 刻意不配置 [jwt.filer_signing.read]：读保持匿名，
+
+# 前端公开直链（/buckets/{bucket}/{path} 匿名 GET）不受影响
+
+# ⚠️ key 为开发期写死值，生产环境必须轮换（此文件不含敏感业务数据，可入仓库）

@@ -76,6 +76,23 @@ spring:
           max-idle: 10
           min-idle: 0
 
+  # ================================
+  # RabbitMQ（审核结果消费：moderation.result / moderation.appeal.result）
+  # 账号/vhost 与 docker/init/rabbitmq/definitions.json 保持一致（litisle / litisle_pass / /litisle）
+  # ================================
+  rabbitmq:
+    host: ${litisle.rabbitmq.host:localhost}
+    port: ${litisle.rabbitmq.port:5672}
+    username: ${litisle.rabbitmq.username:litisle}
+    password: ${litisle.rabbitmq.password:litisle_pass}
+    virtual-host: /litisle
+    listener:
+      simple:
+        # 手动 ACK：消费成功 ack；业务异常 nack requeue=false 入 DLQ（防毒丸消息无限重投）
+        acknowledge-mode: manual
+        # 消费者预取上限（防一次拉取海量消息导致内存 OOM）
+        prefetch: 10
+
 # ================================
 # MyBatis-Plus 配置
 # ================================
@@ -131,11 +148,11 @@ litisle:
       #   完整直链 = {public-url-base}/{bucket}/{path} = .../buckets/avatar/2026/09/25/xxx.jpg
       # 接 CDN 后改为 CDN 域名（如 https://img.litisle.com，回源同理指向 Filer /buckets）
       public-url-base: http://${litisle.seaweed.host:localhost}:${litisle.seaweed.filer-port:8888}/buckets
-      # S3 访问凭证（与 docker/init/seaweedfs/s3.json 保持一致）
+      # S3 访问凭证（与 docker/init/seaweedfs/s3.json 中 file-service 身份保持一致）
       # s3.json 里写死了 accessKey / secretKey
       # 生产环境通过环境变量 LITISLE_S3_ACCESS_KEY / LITISLE_S3_SECRET_KEY 覆盖
-      access-key: ${LITISLE_S3_ACCESS_KEY:litisle}
-      secret-key: ${LITISLE_S3_SECRET_KEY:litisle_s3_pass}
+      access-key: ${LITISLE_S3_ACCESS_KEY:file_ak}
+      secret-key: ${LITISLE_S3_SECRET_KEY:file_sk}
       # 预签名短时效 URL 有效期（分钟）：私有文件（授权文件等）鉴权下载
       presign-expire-minutes: 30
       # 业务 collection 划分（对应 Volume Server replication=001 副本策略）
@@ -168,6 +185,12 @@ litisle:
       compensate-threshold-minutes: 30
       # Step2 软删缓冲期（天）：del_flag=1 超此时间才物理清理（防误删不可恢复）
       physical-clean-delay-days: 7
+      # Step2 隔离前缀：path 以此开头的记录跳过物理清理
+      # 违规图保留期由 moderation 侧（litisle.moderation.quarantine.retention-days，当前=10 天）控制，
+      # 防 file 侧 7 天清理提前删除违规图证据、致申诉无法复核（两套保留期打架）
+      quarantine-prefix: quarantine/
+      # 「file 侧跳过隔离清理」开关：默认 true；置 false 时退回 file 侧保留期口径（仅调试用）
+      skip-quarantine-cleanup: true
     # 文件 IO 线程池：上传/下载阻塞 IO 隔离（下载走 StreamingResponseBody，由该池执行）
     # 慢客户端不再占用 Tomcat 工作线程，防止主线程池被打满
     executor:
@@ -184,6 +207,15 @@ litisle:
       global-qps-window-seconds: 1
       # 窗口内最大请求数（全站合计）
       global-qps-max-count: 200
+
+    moderation:
+      # 图片机审 provider（审核结果缓存 key 版本段）
+      # ⚠️ 必须与 review 侧 image-provider 配置一致，不一致 → 缓存 key 漂移、上传前置检查永不命中
+      image-provider: onnx
+      # 图片机审模型版本（同上，与 review 侧保持一致）
+      image-model-version: v1
+      # PUBLIC 高曝光面待审/存疑占位图（前端静态资源相对路径）
+      pending-placeholder-url: /img/file-pending.svg
 
 # ================================
 # Knife4j API 文档配置

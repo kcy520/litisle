@@ -43,8 +43,8 @@ litisle:
     port: 3307
     database: litisle_file
     username: test_k.1
-    # ✅ 与 .env 中 COMPOSE_MYSQL_PASSWORD 保持一致
-    password: ${COMPOSE_MYSQL_PASSWORD:123}
+    # 本地环境字面值（与 compose .env 中 COMPOSE_MYSQL_PASSWORD 保持一致，改 .env 时需同步此处）
+    password: 123
 
   # ================================
   # Redis 配置（IDEA 本地运行：使用宿主机映射端口）
@@ -53,7 +53,8 @@ litisle:
   redis:
     host: localhost
     port: 6380
-    password: ${COMPOSE_REDIS_PASSWORD:123}
+    # 本地环境字面值（与 compose .env 中 COMPOSE_REDIS_PASSWORD 保持一致，改 .env 时需同步此处）
+    password: 123
 
   # ================================
   # SeaweedFS 配置（IDEA 本地运行：使用宿主机映射端口）
@@ -64,3 +65,13 @@ litisle:
     s3-port: 8333
     # Filer HTTP 端口（公开直链拼接用，与 compose 端口映射 8888 一致）
     filer-port: 8888
+
+  # ================================
+  # SeaweedFS S3 凭证（本地环境写死字面值，与 docker/init/seaweedfs/s3.json
+  # 中 file-service 身份保持一致；生产环境仍走主 yml 的
+  # LITISLE_S3_ACCESS_KEY / LITISLE_S3_SECRET_KEY 环境变量注入）
+  # ================================
+  file:
+    seaweedfs:
+      access-key: file_ak
+      secret-key: file_sk

@@ -1,5 +1,6 @@
 package com.litisle.litislefile.domain.vo;
 
+import com.litisle.litislefile.enums.SafeFlagEnum;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -59,4 +60,9 @@ public class FileUploadVO implements Serializable {
      * 是否秒传命中（true=复用已有文件，未实际传输）
      */
     private Boolean deduplicated;
+
+    /**
+     * 违规审核状态：PENDING(2)=送审中（前端轮询 meta 接口直至终态），NORMAL(1)=可展示
+     */
+    private SafeFlagEnum safeFlag;
 }

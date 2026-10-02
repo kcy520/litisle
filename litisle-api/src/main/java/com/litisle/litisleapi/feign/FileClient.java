@@ -2,6 +2,7 @@ package com.litisle.litisleapi.feign;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.config.FeignApiConfig;
+import com.litisle.litisleapi.dto.file.FileContentDTO;
 import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litisleapi.dto.file.FileRefDTO;
 import com.litisle.litisleapi.fallback.FileClientFallbackFactory;
@@ -68,5 +69,52 @@ public interface FileClient {
      */
     @PostMapping("/api/feign/file/batch-urls")
     Result<Map<String, String>> batchGetUrls(@RequestBody List<String> fileIds);
+
+    /**
+     * 违规图隔离（审核 REJECT 时调用）：对象移入 quarantine/ 前缀 + safe_flag=0（幂等）
+     * <p>核心审核写操作，降级 fail-fast（静默成功会致违规图未隔离、证据链断裂）；
+     * del_flag 保持 0，file_ref 不变式不破坏
+     *
+     * @param fileId 文件ID
+     */
+    @PostMapping("/api/feign/file/{fileId}/quarantine")
+    Result<Void> quarantine(@PathVariable("fileId") String fileId);
+
+    /**
+     * 隔离恢复（申诉改判 PASS 时调用）：对象移回原前缀 + safe_flag 回 1（幂等）
+     * <p>核心审核写操作，降级 fail-fast（与 quarantine 对称）
+     *
+     * @param fileId 文件ID
+     */
+    @PostMapping("/api/feign/file/{fileId}/unquarantine")
+    Result<Void> unquarantine(@PathVariable("fileId") String fileId);
+
+    /**
+     * 批量读取 safe_flag（review 复审聚合/申诉恢复用，禁止跨库直查 file_meta）
+     * <p>value 为 safe_flag code（0-违规/1-正常/2-待审/3-存疑，SSOT 为 file 侧 SafeFlagEnum，
+     * 契约库不反向依赖 file 模块故传 int）；仅返回活跃记录（del_flag=0），
+     * 查不到的 fileId 不在 Map 中，调用方须视为未知态保守处理（不唤醒/保持占位）
+     * <p>读操作，降级静默返回空 Map（见 FileClientFallbackFactory），调用方严禁把
+     * 「读不到」当「safe_flag=1 放行」
+     *
+     * @param fileIds 文件ID列表（空列表提供方直接返回空 Map）
+     */
+    @PostMapping("/api/feign/file/batch-safe-flags")
+    Result<Map<String, Integer>> batchGetSafeFlags(@RequestBody List<String> fileIds);
+
+    /**
+     * 机审取图契约端点（字节流形态，SSRF 防护唯一入口）
+     * <p>机审取图一律按 fileId 走本端点取原始字节流，严禁按用户 URL 抓取（Review-Plan
+     * §4.2.2 取图纪律）；云 API 审核同样优先传字节流而非内网 URL。byte[] 经 Jackson
+     * 序列化为 Base64（≤10MB 图片内网传输可接受），不签发内网 presign URL，
+     * 杜绝「review 侧按 URL 请求」引入的 SSRF/内网探测面
+     * <p>本端点不过 safe_flag 闸口：申诉复核需重取隔离图（safe_flag=0）；
+     * 仅服务间可用（网关未路由 /api/feign/**），不占公开面访问配额；
+     * 审核链路核心读依赖，降级 fail-fast（取不到字节流机审无法进行）
+     *
+     * @param fileId 文件ID
+     */
+    @GetMapping("/api/feign/file/{fileId}/content")
+    Result<FileContentDTO> getContent(@PathVariable("fileId") String fileId);
 
 }

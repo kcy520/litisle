@@ -1,14 +1,40 @@
 {
   "identities": [
     {
+      "name": "file-service",
+      "credentials": [
+        {
+          "accessKey": "file_ak",
+          "secretKey": "file_sk"
+        }
+      ],
+      "actions": [
+        "Read:avatar", "Read:cover", "Read:article", "Read:license",
+        "Write:avatar", "Write:cover", "Write:article", "Write:license"
+      ]
+    },
+    {
+      "name": "reconcile-task",
+      "credentials": [
+        {
+          "accessKey": "task_ak",
+          "secretKey": "task_sk"
+        }
+      ],
+      "actions": [
+        "Read:avatar", "Read:cover", "Read:article", "Read:license",
+        "Write:avatar", "Write:cover", "Write:article", "Write:license"
+      ]
+    },
+    {
       "name": "litisle",
-      "actions": ["Admin", "Read", "Write"],
       "credentials": [
         {
           "accessKey": "litisle",
           "secretKey": "litisle_s3_pass"
         }
-      ]
+      ],
+      "actions": ["Admin"]
     }
   ]
 }

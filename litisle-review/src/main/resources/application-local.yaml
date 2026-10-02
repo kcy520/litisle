@@ -43,8 +43,8 @@ litisle:
     port: 3307
     database: litisle_review
     username: test_k.1
-    # ✅ 与 .env 中 COMPOSE_MYSQL_PASSWORD 保持一致
-    password: ${COMPOSE_MYSQL_PASSWORD:123}
+    # 本地环境字面值（与 compose .env 中 COMPOSE_MYSQL_PASSWORD 保持一致，改 .env 时需同步此处）
+    password: 123
 
   # ================================
   # Redis 配置（IDEA 本地运行：使用宿主机映射端口）
@@ -53,7 +53,8 @@ litisle:
   redis:
     host: localhost
     port: 6380
-    password: ${COMPOSE_REDIS_PASSWORD:123}
+    # 本地环境字面值（与 compose .env 中 COMPOSE_REDIS_PASSWORD 保持一致，改 .env 时需同步此处）
+    password: 123
 
   # ================================
   # RabbitMQ 配置（IDEA 本地运行：使用宿主机映射端口）

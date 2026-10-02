@@ -286,7 +286,20 @@ public enum ErrorCode {
     /**
      * 存储配额已用尽（per-user 总容量或文件数超限）
      */
-    FILE_QUOTA_EXCEEDED(90007, "存储配额已用尽");
+    FILE_QUOTA_EXCEEDED(90007, "存储配额已用尽"),
+
+    /**
+     * 文件违规禁止访问（safe_flag=0，访问闸口拒绝；审核链路单点收口）
+     */
+    FILE_VIOLATIVE(90008, "文件违规，禁止访问"),
+
+    /** 上传链路：命中审核黑名单/审核缓存 REJECT 结论，拒传（不落库不进 MQ） */
+    /**
+     * 文件审核中，暂不可访问（PUBLIC 高曝光面 safe_flag=2/3 在 download 流链路的专用错误码；
+     * getUrl/batchGetUrls 同状态返回占位图 URL，下载流无占位语义故明确报错）
+     */
+    FILE_NOT_READY(90010, "文件审核中，暂不可访问"),
+    FILE_UPLOAD_REJECTED(90009, "图片未通过审核，禁止上传");
 
 
 

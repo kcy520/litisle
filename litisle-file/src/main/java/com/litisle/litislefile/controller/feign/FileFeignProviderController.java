@@ -3,6 +3,7 @@ package com.litisle.litislefile.controller.feign;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
+import com.litisle.litisleapi.dto.file.FileContentDTO;
 import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litisleapi.dto.file.FileRefDTO;
 import com.litisle.litisleapi.feign.FileClient;
@@ -84,6 +85,45 @@ public class FileFeignProviderController implements FileClient {
     public Result<Map<String, String>> batchGetUrls(List<String> fileIds) {
         log.info("远程api调用batchGetUrls size:{}", fileIds == null ? 0 : fileIds.size());
         return Result.success(fileService.batchGetUrls(fileIds));
+    }
+
+    /**
+     * 违规图隔离（审核 REJECT）：委托 Service 移入 quarantine/ 前缀 + safe_flag=0（幂等）
+     */
+    @Override
+    public Result<Void> quarantine(String fileId) {
+        log.info("远程api调用quarantine fileId:{}", fileId);
+        fileService.quarantine(fileId);
+        return Result.success();
+    }
+
+    /**
+     * 隔离恢复（申诉改判 PASS）：委托 Service 移回原前缀 + safe_flag 回 1（幂等）
+     */
+    @Override
+    public Result<Void> unquarantine(String fileId) {
+        log.info("远程api调用unquarantine fileId:{}", fileId);
+        fileService.unquarantine(fileId);
+        return Result.success();
+    }
+
+    /**
+     * 批量读取 safe_flag（review 复审聚合/申诉恢复）：委托 Service 仅查活跃记录
+     */
+    @Override
+    public Result<Map<String, Integer>> batchGetSafeFlags(List<String> fileIds) {
+        log.info("远程api调用batchGetSafeFlags size:{}", fileIds == null ? 0 : fileIds.size());
+        return Result.success(fileService.batchGetSafeFlags(fileIds));
+    }
+
+    /**
+     * 机审取图（字节流，SSRF 防护唯一入口）：委托 Service 读对象原始字节，
+     * 不过 safe_flag 闸口（申诉复核需重取隔离图）
+     */
+    @Override
+    public Result<FileContentDTO> getContent(String fileId) {
+        log.info("远程api调用getContent fileId:{}", fileId);
+        return Result.success(fileService.getInternalContent(fileId));
     }
 
     /**

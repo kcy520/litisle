@@ -3,6 +3,7 @@ package com.litisle.litislefile.domain.vo;
 
 import com.litisle.litislefile.enums.AccessLevelEnum;
 import com.litisle.litislefile.enums.AlignEnum;
+import com.litisle.litislefile.enums.SafeFlagEnum;
 import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -72,4 +73,10 @@ public class FileMetaVO implements Serializable {
      * 上传时间
      */
     private LocalDateTime createTime;
+
+    /**
+     * 违规审核状态（四态 default-deny）：VIOLATIVE(0)/NORMAL(1)/PENDING(2)/SUSPICIOUS(3)；
+     * 前端据此轮询审核态（PENDING/SUSPICIOUS 展示占位图，VIOLATIVE 不可访问）
+     */
+    private SafeFlagEnum safeFlag;
 }

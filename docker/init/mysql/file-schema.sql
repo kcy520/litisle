@@ -44,7 +44,7 @@ create table if not exists `file_meta`
     `align`       tinyint         null comment '对齐：1-左 2-左偏中 3-中 4-中偏右 5-右（图片专用）',
     `access`      tinyint         not null default 0 comment '访问级别：0-私有 1-公开',
     `status`      tinyint         not null default 0 comment '上传状态：0-上传中（锁内占位写库）1-上传完成（锁外 put 成功后更新）；put 失败保留 0，由对账任务清理（见 seaweedfs笔记.md §3.4）',
-    `safe_flag`   tinyint         not null default 2 comment '【预留｜已定接入，暂未开发】违规审核（三态 default-deny）：0-违规（禁止访问）1-正常 2-待检测（默认；放行以检测完成为前提，而非未检出违规，避免异步检测窗口内未检图被放行）；启用链路：status=1 后异步消息 → 病毒/违规检测 → 写本列；getUrl/batchGetUrls 返回前校验（访问闸口，见 seaweedfs笔记.md §3.6/§3.6.3）',
+    `safe_flag`   tinyint         not null default 2 comment '违规审核（四态 default-deny）：0-违规（禁止访问+物理隔离）1-正常 2-待审（默认；PUBLIC 面上传缓存未命中即落 2，放行以审核完成为前提，避免异步审核窗口内未审图被放行）3-存疑（转人审）；闸口按曝光面分层：=0 拒绝；PUBLIC 仅 =1 放行、2/3 返回占位图；PRIVATE 不占位（owner/REVIEWER/ADMIN）；链路：image.submit → review 机审/人审 → moderation.result 回写（见 seaweedfs笔记.md §3.6/§3.6.3）',
     `sha256`      varchar(64)     not null comment 'SHA256 摘要（联合判重键：sha256+size+biz_type，PRIVATE 追加 owner_id 隔离）',
     `del_flag`    tinyint         not null default 0 comment '删除标志：仅当 file_ref 无活跃引用才可置 1（方案C，防秒传共享悬空他人引用）；置 1 后不再参与秒传判重',
     `create_time` datetime        not null default current_timestamp comment '上传时间',
@@ -82,9 +82,9 @@ create table if not exists `file_ref`
 --   判重限定 biz_type → 命中记录 bucket 必等于本次请求 bucket，URL 永不跨桶坏链（seaweedfs笔记.md §3.4.5）；
 --   PRIVATE/LICENSE 去重追加 owner_id（最左前缀匹配 + 回表过滤，后期量大再扩 owner_id 进索引）。
 -- - `access` 区分公开/私有：公开文件走 CDN 直链，私有文件走预签名短时效 URL。
--- - `safe_flag` 预留列：违规信息审核（已定接入、暂未开发）。建表一次到位避免将来改表，三态化
---   default-deny（default 2）：公开资源放行以"检测完成"为前提，而非"未检出违规"；启用仅需
---   MQ 异步消费写本列，主链路零改动（设计见 seaweedfs笔记.md §3.6）。
+-- - `safe_flag` 审核列（已接入）：违规信息审核，四态 default-deny（default 2）：公开资源放行以
+--   "审核完成"为前提，而非"未检出违规"；上传侧发 image.submit，MQ 消费 moderation.result 写本列，
+--   主链路零改动（设计见 seaweedfs笔记.md §3.6 + Review-Plan §4.4.5）。
 -- - 闸口按曝光面分层放行：高曝光（ARTICLE_IMG/COVER，公开可见）仅 safe_flag=1 放行、2 展示占位图；
 --   低曝光（AVATAR / LICENSE，私有仅本人/管理员可见）2 放行、检出违规置 0 并强制刷新。
 -- - `align` 放此表为冗余可选：实际对齐信息以 article_image 为准，此处冗余便于文件维度查询。

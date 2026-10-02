@@ -36,4 +36,5 @@ import java.time.LocalDateTime;
  *    - 消费失败重试耗尽后入死信队列，不阻塞主流程
  */
 public class UserRegisteredEvent {
+
 }

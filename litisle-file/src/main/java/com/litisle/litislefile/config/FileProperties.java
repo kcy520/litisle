@@ -20,7 +20,9 @@ import java.util.Map;
  * - upload.maxTotalSize（默认 209715200 = 200MB）/ maxFileCount（默认 200）：per-user 存储配额（软限）
  * - thumbnail.enabled / width(300) / height(300)
  * - limit.globalQpsWindowSeconds(1) / globalQpsMaxCount(200)：全站 QPS 上限（运营可调，外置到 yml/Nacos）
- * - reconcile-task：对账任务参数（补偿阈值 30min / 软删缓冲期 7 天，运营可调，外置到 yml/Nacos）
+ * - moderation.imageProvider("onnx") / imageModelVersion("v1")：图片审核结果缓存 key 版本段，
+ *   须与 review 侧 provider/模型版本配置保持一致（不一致 → 缓存 key 漂移、前置检查永不命中）
+ * - reconcile-task：对账任务参数（补偿阈值 30min / 软删缓冲期 7 天 / 隔离前缀跳过开关，运营可调，外置到 yml/Nacos）
  *   ⚠️ cron 不走此 Bean——@Scheduled 注解要求编译期常量，无法注入 Bean 值，
  *   由占位符 ${litisle.file.reconcile-task.cron:...} 直接读取（见 FileReconcileTask.CRON_DAILY_2AM）
  */
@@ -35,6 +37,18 @@ public class FileProperties {
     private ReconcileTask reconcileTask = new ReconcileTask();
     private Executor executor = new Executor();
     private Limit limit = new Limit();
+    private Moderation moderation = new Moderation();
+
+    /** 审核联动配置（对应 yml: litisle.file.moderation） */
+    @Data
+    public static class Moderation {
+        /** review 侧图片机审 provider（onnx/云API）：纳入审核缓存 key，与 review 侧漂移会导致缓存永远 miss */
+        private String imageProvider = "onnx";
+        /** review 侧机审模型版本：同上纳入缓存 key */
+        private String imageModelVersion = "v1";
+        /** PUBLIC 高曝光面待审/存疑占位图 URL（前端静态资源，渲染占位不泄露真实直链），外置 yml 运营可调 */
+        private String pendingPlaceholderUrl = "/img/file-pending.svg";
+    }
 
     /** SeaweedFS S3 连接配置（对应 yml: litisle.file.seaweedfs） */
     @Data
@@ -78,6 +92,10 @@ public class FileProperties {
         private int compensateThresholdMinutes = 30;
         /** Step2 软删缓冲期（天）：del_flag=1 超此时间才物理清理（防误删不可恢复） */
         private int physicalCleanDelayDays = 7;
+        /** Step2 隔离前缀：path 以此开头的记录跳过物理清理（违规图保留期由 moderation 侧控制，防两套保留期打架） */
+        private String quarantinePrefix = "quarantine/";
+        /** Step2 是否跳过隔离前缀记录的物理清理（默认 true；置 false 时退回 file 侧保留期口径，仅调试用） */
+        private boolean skipQuarantineCleanup = true;
     }
 
     /** 文件 IO 线程池参数（对应 yml: litisle.file.executor） */
@@ -103,4 +121,5 @@ public class FileProperties {
         /** 文件服务全站 QPS 上限：所有 /api/file/** 合计每秒最多 200 次 */
         private long globalQpsMaxCount = 200L;
     }
+
 }

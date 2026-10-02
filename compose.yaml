@@ -328,6 +328,7 @@ services:
     command: >
       server -dir=/data -master -volume -filer -s3
       -master.port=9333 -volume.port=8080 -filer.port=8888 -s3.port=8333
+      -filer.recycleBinMaxHours=168
       -s3.config=/etc/seaweedfs/s3.json -volume.max=0
     ports:
       - "9333:9333"   # Master UI/API
@@ -337,6 +338,9 @@ services:
     volumes:
       - seaweed-data:/data
       - ./docker/init/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+      # Filer JWT 验签配置：写操作强制验签、读匿名保留
+      # （/etc/seaweedfs 为 SeaweedFS 自动搜索路径，无需命令行参数指定）
+      - ./docker/init/seaweedfs/security.toml:/etc/seaweedfs/security.toml:ro
     restart: unless-stopped
 
 # ============================================================================

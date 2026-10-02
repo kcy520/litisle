@@ -9,6 +9,7 @@ import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -223,6 +224,24 @@ public class SeaweedFsClient {
             s3.deleteObject(DeleteObjectRequest.builder()
                     .bucket(bucket)
                     .key(key)
+                    .build());
+        } catch (SdkException e) {
+            throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
+        }
+    }
+
+    /**
+     * 同桶内复制对象（隔离移动的底层原语：S3 无原生 move，copy + delete 源 = 移动）
+     * <p>使用场景：违规图隔离（REJECT 移入 quarantine/ 前缀）与申诉改判恢复（移回原前缀）。
+     * 同 key 复制为覆盖语义，天然幂等，重试安全</p>
+     */
+    public void copyObject(String bucket, String srcKey, String dstKey) {
+        try {
+            s3.copyObject(CopyObjectRequest.builder()
+                    .sourceBucket(bucket)
+                    .sourceKey(srcKey)
+                    .destinationBucket(bucket)
+                    .destinationKey(dstKey)
                     .build());
         } catch (SdkException e) {
             throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);

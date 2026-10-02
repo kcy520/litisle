@@ -1,10 +1,12 @@
 package com.litisle.litislefile.service;
 
+import com.litisle.litisleapi.dto.file.FileContentDTO;
 import com.litisle.litislefile.domain.dto.FileDownloadResource;
 import com.litisle.litislefile.domain.vo.FileMetaVO;
 import com.litisle.litislefile.domain.vo.FileUploadVO;
 import com.litisle.litislefile.domain.vo.PresignVO;
 import com.litisle.litislefile.domain.vo.ThumbnailVO;
+import com.litisle.litislefile.enums.SafeFlagEnum;
 import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -110,4 +112,41 @@ public interface FileService {
      * Step3 无引用才 del_flag=1 + delete_time=now()（物理清理交对账任务，7 天缓冲）
      */
     void delete(String fileId, Long operatorId);
+
+    /**
+     * 违规图隔离（审核链路：moderation 侧 REJECT 时经 Feign 调用）：
+     * 对象（本体 + 缩略图派生 key）从原前缀整体移入 quarantine/ 前缀，safe_flag=0；
+     * del_flag 保持 0 不破坏 file_ref 不变式；幂等（已在隔离前缀则跳过）
+     */
+    void quarantine(String fileId);
+
+    /**
+     * 隔离恢复（申诉链路：改判 PASS 时经 Feign 调用）：
+     * 对象从 quarantine/ 前缀移回原前缀，safe_flag 回 1；幂等（不在隔离前缀则跳过）
+     */
+    void unquarantine(String fileId);
+
+    /**
+     * 审核结果回写 safe_flag（仅元数据更新，不移动对象）
+     * <p>moderation.result 事件：PASS→1 / SUSPICIOUS→3；REJECT 走 quarantine（含移动+置 0）。
+     * 幂等（已处于目标态则跳过）</p>
+     */
+    void updateSafeFlag(String fileId, SafeFlagEnum safeFlag);
+
+    /**
+     * 批量读取 safe_flag（file 客户端契约提供方）：仅供 review 复审聚合/申诉恢复使用，
+     * 禁止跨库直查 file_meta；仅返回活跃记录（del_flag=0），查不到的 fileId 不在 Map 中
+     *
+     * @param fileIds 文件ID列表
+     * @return fileId → safe_flag code（SafeFlagEnum：0-违规/1-正常/2-待审/3-存疑）
+     */
+    Map<String, Integer> batchGetSafeFlags(List<String> fileIds);
+
+    /**
+     * 机审取图（file 客户端契约提供方）：按 fileId 读对象原始字节流；
+     * 不过 safe_flag 闸口（申诉复核需重取隔离图 safe_flag=0）；仅服务间可用，不占公开面配额
+     *
+     * @param fileId 文件ID
+     */
+    FileContentDTO getInternalContent(String fileId);
 }

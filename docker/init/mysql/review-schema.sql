@@ -66,7 +66,7 @@ index `idx_task` (`review_task_id`),
 index `idx_create` (`create_time`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '审核记录表（append-only 不可改不可删：《网络安全法》留痕硬凭证留存≥6个月，到期归档任务迁移历史存储，改判/申诉均追加新行）';
-​ 
+
 # 2. 举报表
 create table if not exists `report`
 (
@@ -90,7 +90,7 @@ index `idx_status` (`status`),
 index `idx_reporter_id` (`reporter_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '举报表（防刷：uk_active 生成列唯一索引兜底并发重复，应用层保留友好提示——同一 reporter_id+target_type+target_id 存在 status<3 的举报即拒绝）';
-​
+
 # 2.1 举报证据关联表
 create table if not exists `report_evidence`
 (
@@ -101,7 +101,7 @@ primary key (`report_id`, `file_id`),
 index `idx_file_id` (`file_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '举报证据关联表（JOIN file_meta 校验证据归属与 safe_flag；管理端展示走 REVIEWER/ADMIN 鉴权预签名直读，不受公开闸口占位影响——审核员是看图裁决的人，详见 Review-Architecture-Development-Plan.md §4.4.5）';
-​
+
 # 3. 申诉表
 create table if not exists `appeal`
 (
@@ -129,7 +129,7 @@ index `idx_punish_id` (`punish_id`),
 index `idx_status` (`status`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '申诉表';
-​
+
 # 4. 违规分累积表
 create table if not exists `violation_score`
 (
@@ -140,7 +140,7 @@ create table if not exists `violation_score`
 `update_time`        datetime        not null default current_timestamp on update current_timestamp comment '更新时间'
 ) engine = InnoDB
 default charset = utf8mb4 comment = '违规分累积表（窄状态表：只存当前态，历史流水见 punish_log；最近处罚按 punish_log.user_id 倒序取一条，避免双写不一致）';
-​
+
 # 4.1 处罚流水表（append-only，与状态表分离）
 create table if not exists `punish_log`
 (
@@ -163,7 +163,7 @@ index `idx_review_task_id` (`review_task_id`),
 index `idx_biz` (`biz_type`, `biz_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '处罚流水表（历史行不可删除；申诉裁决=2-撤销 时 status 就地置 2 + violation_score 重算——与 moderation_record 的真 append-only（改判追加新行）区分，本表允许状态列就地更新、行不删）';
-​
+
 # 5. 敏感词库版本表（DFA 热更/缓存失效的版本单一来源：scene 级单调递增）
 create table if not exists `sensitive_word_version`
 (
@@ -192,7 +192,7 @@ index `idx_scene_status` (`scene`, `status`),
 unique key `uk_scene_word` (`scene`, `word`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '敏感词库表（物理删除：唯一键与逻辑删除互斥，配置类小表可全量重建，删除即物理删、updated_by 留审计痕）';
-​
+
 # 6. 作家申请表
 create table if not exists `author_apply`
 (
@@ -211,69 +211,69 @@ index `idx_status` (`status`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '作家申请表';
 
-设计原因：
-
-review_task 不加 del_flag：审核记录不可删除（设计文档审计规范），所有变更走 status 流转。
-
-review_task 唯一键 uk_biz_scene(biz_type, biz_id, scene) + 幂等 upsert 建任务：一个内容主体
-（同一 biz_type+biz_id+scene）只保留一行任务——否则编辑重发/举报复审/超时补偿重发会堆出
-同键多行，消费端按此键定位歧义复发。幂等语义：命中已有行则复用同行（重置 status=0、
-更新 content_hash、retry_count 归零），旧任务未终态时先追加一条 moderation_record 标记
-superseded 再重置（并清空 assignee/claim_time/decided_by/opinion/decide_time，防旧认领人残留；同时清空机审证据列
-mod_verdict=0/layer1_hit=0/hit_words=null/layer2_risk=0——重置仅因内容变更或终态触发，旧证据属
-旧内容，不清则人审队列按 mod_verdict/layer2_risk 展示与排序时张冠李戴）；历史链路靠
-moderation_record（append-only）保留，不需多行任务——
-与「review_task 是状态机、moderation_record 是流水」职责分离口径一致。
-重置例外（多举报不打断在审）：仅 content_hash 变化（编辑重发）或已有任务终态（status∈{1,3,4}）才重置，
-重置目标态按场景分列——发布场景置 0、*_RE_REVIEW 复审场景置 2（直进人审）；命中行 content_hash 未变
-且非终态（status∈{0,2}）时只复用不重置（保留 status/assignee，仅回填 report.review_task_id），
-防同内容第二条举报把已认领在审任务打回 0、清空 assignee。多举报同任务裁决：decide 回写
-`update report set status=3 where review_task_id=? and status<3` 一次闭环全部关联举报。
-（该唯一键覆盖 idx_biz 前缀，原 idx_biz 普通索引已移除避免冗余。）
-
-scene 场景枚举扩展与存量迁移：新增 ARTICLE_RE_REVIEW/COMMENT_RE_REVIEW/MESSAGE_RE_REVIEW 三个
-举报复审场景（与发布场景分列，防举报转人工 upsert 撞已终态发布任务被重置）。scene 为 not null
-无默认值：若存量表已有数据，ALTER 须先加可空列 → 按 biz_type 回填默认场景 → 再改 not null，
-禁直接加 not null 无默认值列（存量迁移会失败）。
-
-统一建任务规则：凡走异步机审的内容（文本/图片/私信）一律建 review_task——否则 SUSPICIOUS
-进不了人审队列、申诉也无 appeal.review_task_id 可挂；图片 biz_type=6（biz_id=file_meta.id、
-scene=IMAGE、content_hash=文件 sha256）。唯一例外 USERNAME 同步拒绝不建任务，仅落
-moderation_record（biz_id=0），避免每次注册失败堆一行废任务。
-
-moderation_record 与 review_task 职责分离：review_task 是任务状态机（assignee/status 可变更），
-moderation_record 是审核流水（append-only，每次机审/人审/申诉改判追加一行，不 UPDATE）。
-同一任务多次审核形成多行流水，链路可回溯；idx_hash 支撑审核缓存查重兜底（Redis miss 后查表，
-数据丢失不重复烧模型费）；命中词/凭证/理由/场景（scene）四列自包含，单行即可对外出具审核凭证无需 JOIN
-（设计见 Review-Architecture-Development-Plan.md §4.4.1）。trace_id 与 provider_trace_id 分列：
-前者是网关→MQ→消费端内部链路追踪 ID（排障），后者是云厂商/LLM 对外合规凭证（出证）；
-hit_words 用 text 与 review_task 同纪律，留痕写入宁存不下不可丢；
-idx_hash 三列 (content_hash, scene, id)，scene 前置防跨场景误复用，id 自增即时间序取最近一次结论免
-filesort；provider/wordlib_ver/model_version 列支撑兜底按厂商/词库/模型版本比对（防 onnx→aliyun、
-词库热更、同 provider 模型/prompt 升级后复用旧结论）。
-
-appeal 表补 review_task_id 列：机审驳回（REJECT）场景既无 report 也无 punish，
-申诉记录靠该列定位被驳回内容并回写业务状态（见 Review-Architecture-Development-Plan.md §4.2.3）。
-防重复申诉走应用层校验：同一 review_task_id/report_id/punish_id 存在任意状态申诉即拒绝再次发起
-（含已裁决维持，防维持后反复申诉；review_task_id 可空不便建唯一索引，查询走既有
-idx_review_task_id；@Idempotent 只防请求级重复）。
-
-sensitive_word_library 同时支持黑/白名单与多场景：对应设计文档"评论加载白名单 / 用户名不加载白名单"的差异化策略，按 scene 过滤加载。IMAGE/ARTICLE_IMG_RE_REVIEW 等图片场景不走 DFA：
-WordLibraryLoader 仅加载文本场景（ARTICLE/COMMENT/USERNAME/MESSAGE），图片任务按 scene
-查词库为空属预期，跳过不报错。
-
-DFA 闸门跨服务部署：DFA 门面与 WordLibraryLoader 下沉共享模块（litisle-api），发布链路在
-各业务服务本地执行免网络；词库 SSOT 仍在 sensitive_word_library 表，变更经 Redis Pub +
-version 乐观比对广播各实例重建（见 Review-Architecture-Development-Plan.md §4.1/§4.3）；
-新实例冷启动走 Redis 全量快照优先（词库热更时顺带重写快照 key），miss 时直连本库只读
-词表兑底——业务方「不跨库直查」约定的唯一特例（配置类小表：无 join、无写竞争、只读）。
-
-violation_score 用 user_id 作主键：一用户一行，分数累加用 SQL 原子自增（set score = score + Δ）
-与状态列条件更新，不引入 version 乐观锁——本表为窄状态表，重算依据在 punish_log 流水（每行 Δ
-见 punish_log.score 快照），乐观锁属多余复杂度；Redis 计数器仅作人审队列/预警的快速视图
-（如违规分即将触顶提醒）。重放口径两作用域分列：① 展示/预警 score=全部 status=1 生效行累计
-（含机审 action=3）；② 自动禁言/封禁阈值判定=只重放 action∈{1,2}（影响登录态）的 status=1
-行，机审 action=3 不计入——避免 Redis 与 DB 双写漂移导致误禁，且机审误判在申诉裁决前不触发
-真实封禁（与「append-only 流水即重算依据」「机审不驱动自动处罚」口径一致）。
-
-author_apply 独立于 sys_user：申请记录需保留历史，多次申请形成流水。
+# 设计原因：
+#
+# review_task 不加 del_flag：审核记录不可删除（设计文档审计规范），所有变更走 status 流转。
+#
+# review_task 唯一键 uk_biz_scene(biz_type, biz_id, scene) + 幂等 upsert 建任务：一个内容主体
+# （同一 biz_type+biz_id+scene）只保留一行任务——否则编辑重发/举报复审/超时补偿重发会堆出
+# 同键多行，消费端按此键定位歧义复发。幂等语义：命中已有行则复用同行（重置 status=0、
+# 更新 content_hash、retry_count 归零），旧任务未终态时先追加一条 moderation_record 标记
+# superseded 再重置（并清空 assignee/claim_time/decided_by/opinion/decide_time，防旧认领人残留；同时清空机审证据列
+# mod_verdict=0/layer1_hit=0/hit_words=null/layer2_risk=0——重置仅因内容变更或终态触发，旧证据属
+# 旧内容，不清则人审队列按 mod_verdict/layer2_risk 展示与排序时张冠李戴）；历史链路靠
+# moderation_record（append-only）保留，不需多行任务——
+# 与「review_task 是状态机、moderation_record 是流水」职责分离口径一致。
+# 重置例外（多举报不打断在审）：仅 content_hash 变化（编辑重发）或已有任务终态（status∈{1,3,4}）才重置，
+# 重置目标态按场景分列——发布场景置 0、*_RE_REVIEW 复审场景置 2（直进人审）；命中行 content_hash 未变
+# 且非终态（status∈{0,2}）时只复用不重置（保留 status/assignee，仅回填 report.review_task_id），
+# 防同内容第二条举报把已认领在审任务打回 0、清空 assignee。多举报同任务裁决：decide 回写
+# `update report set status=3 where review_task_id=? and status<3` 一次闭环全部关联举报。
+# （该唯一键覆盖 idx_biz 前缀，原 idx_biz 普通索引已移除避免冗余。）
+#
+# scene 场景枚举扩展与存量迁移：新增 ARTICLE_RE_REVIEW/COMMENT_RE_REVIEW/MESSAGE_RE_REVIEW 三个
+# 举报复审场景（与发布场景分列，防举报转人工 upsert 撞已终态发布任务被重置）。scene 为 not null
+# 无默认值：若存量表已有数据，ALTER 须先加可空列 → 按 biz_type 回填默认场景 → 再改 not null，
+# 禁直接加 not null 无默认值列（存量迁移会失败）。
+#
+# 统一建任务规则：凡走异步机审的内容（文本/图片/私信）一律建 review_task——否则 SUSPICIOUS
+# 进不了人审队列、申诉也无 appeal.review_task_id 可挂；图片 biz_type=6（biz_id=file_meta.id、
+# scene=IMAGE、content_hash=文件 sha256）。唯一例外 USERNAME 同步拒绝不建任务，仅落
+# moderation_record（biz_id=0），避免每次注册失败堆一行废任务。
+#
+# moderation_record 与 review_task 职责分离：review_task 是任务状态机（assignee/status 可变更），
+# moderation_record 是审核流水（append-only，每次机审/人审/申诉改判追加一行，不 UPDATE）。
+# 同一任务多次审核形成多行流水，链路可回溯；idx_hash 支撑审核缓存查重兜底（Redis miss 后查表，
+# 数据丢失不重复烧模型费）；命中词/凭证/理由/场景（scene）四列自包含，单行即可对外出具审核凭证无需 JOIN
+# （设计见 Review-Architecture-Development-Plan.md §4.4.1）。trace_id 与 provider_trace_id 分列：
+# 前者是网关→MQ→消费端内部链路追踪 ID（排障），后者是云厂商/LLM 对外合规凭证（出证）；
+# hit_words 用 text 与 review_task 同纪律，留痕写入宁存不下不可丢；
+# idx_hash 三列 (content_hash, scene, id)，scene 前置防跨场景误复用，id 自增即时间序取最近一次结论免
+# filesort；provider/wordlib_ver/model_version 列支撑兜底按厂商/词库/模型版本比对（防 onnx→aliyun、
+# 词库热更、同 provider 模型/prompt 升级后复用旧结论）。
+#
+# appeal 表补 review_task_id 列：机审驳回（REJECT）场景既无 report 也无 punish，
+# 申诉记录靠该列定位被驳回内容并回写业务状态（见 Review-Architecture-Development-Plan.md §4.2.3）。
+# 防重复申诉走应用层校验：同一 review_task_id/report_id/punish_id 存在任意状态申诉即拒绝再次发起
+# （含已裁决维持，防维持后反复申诉；review_task_id 可空不便建唯一索引，查询走既有
+# idx_review_task_id；@Idempotent 只防请求级重复）。
+#
+# sensitive_word_library 同时支持黑/白名单与多场景：对应设计文档"评论加载白名单 / 用户名不加载白名单"的差异化策略，按 scene 过滤加载。IMAGE/ARTICLE_IMG_RE_REVIEW 等图片场景不走 DFA：
+# WordLibraryLoader 仅加载文本场景（ARTICLE/COMMENT/USERNAME/MESSAGE），图片任务按 scene
+# 查词库为空属预期，跳过不报错。
+#
+# DFA 闸门跨服务部署：DFA 门面与 WordLibraryLoader 下沉共享模块（litisle-api），发布链路在
+# 各业务服务本地执行免网络；词库 SSOT 仍在 sensitive_word_library 表，变更经 Redis Pub +
+# version 乐观比对广播各实例重建（见 Review-Architecture-Development-Plan.md §4.1/§4.3）；
+# 新实例冷启动走 Redis 全量快照优先（词库热更时顺带重写快照 key），miss 时直连本库只读
+# 词表兑底——业务方「不跨库直查」约定的唯一特例（配置类小表：无 join、无写竞争、只读）。
+#
+# violation_score 用 user_id 作主键：一用户一行，分数累加用 SQL 原子自增（set score = score + Δ）
+# 与状态列条件更新，不引入 version 乐观锁——本表为窄状态表，重算依据在 punish_log 流水（每行 Δ
+# 见 punish_log.score 快照），乐观锁属多余复杂度；Redis 计数器仅作人审队列/预警的快速视图
+# （如违规分即将触顶提醒）。重放口径两作用域分列：① 展示/预警 score=全部 status=1 生效行累计
+# （含机审 action=3）；② 自动禁言/封禁阈值判定=只重放 action∈{1,2}（影响登录态）的 status=1
+# 行，机审 action=3 不计入——避免 Redis 与 DB 双写漂移导致误禁，且机审误判在申诉裁决前不触发
+# 真实封禁（与「append-only 流水即重算依据」「机审不驱动自动处罚」口径一致）。
+#
+# author_apply 独立于 sys_user：申请记录需保留历史，多次申请形成流水。

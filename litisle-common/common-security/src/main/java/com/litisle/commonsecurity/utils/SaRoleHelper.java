@@ -28,6 +28,10 @@ public class SaRoleHelper {
         );
     }
 
+    public static boolean isReviewer() {
+        return StpUtil.hasRole(RoleCodeEnum.REVIEWER.getCode());
+    }
+
     /* ================= 校验（抛异常） ================= */
 
     public static void checkAuthor() {

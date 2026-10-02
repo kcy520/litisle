@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
  *   S3 head 对象存在（put 实际成功但 status 更新丢失）→ 置 status=1 恢复；
  *   对象不存在（put 失败的幽灵记录）→ del_flag=1 + delete_time=now() 废弃
  * Step2 物理清理：扫 del_flag=1 且 delete_time 超 7 天（方案C 软删缓冲期）→
+ *   跳过 quarantine/ 前缀记录（违规图保留期由 moderation 侧 quarantine.retention-days 控制，防两套保留期打架）→
  *   前置校验 file_ref 无活跃引用（仍有引用 → 跳过并告警，防悬空他人引用）→
  *   删 SeaweedFS 本体 + 缩略图派生 key（listKeys 前缀 path 查出后逐个删，S3 delete 幂等）→
  *   删 file_meta 行 + 防御性同删 file_ref 残留行
@@ -131,9 +132,20 @@ public class FileReconcileTask {
             return 0;
         }
         int count = 0;
+        // 隔离跳过开关与前缀（外置 yml/Nacos：litisle.file.reconcile-task.skip-quarantine-cleanup / quarantine-prefix）
+        String quarantinePrefix = fileProperties.getReconcileTask().getQuarantinePrefix();
+        boolean skipQuarantine = fileProperties.getReconcileTask().isSkipQuarantineCleanup()
+                && quarantinePrefix != null && !quarantinePrefix.isEmpty();
         // 逐条处理：单条失败不影响其余（下一轮对账自愈）
         for (FileMeta meta : expired) {
             try {
+                // 隔离图（quarantine/ 前缀）跳过物理清理：违规图保留期由 moderation 侧
+                // （litisle.moderation.quarantine.retention-days，当前=10 天）控制，
+                // 防 file 侧 7 天清理提前删除违规图证据、致申诉无法复核（两套保留期打架）
+                if (skipQuarantine && meta.getPath() != null && meta.getPath().startsWith(quarantinePrefix)) {
+                    log.info("隔离图跳过物理清理（保留期由 moderation 侧控制），fileId={}", meta.getFileId());
+                    continue;
+                }
                 // 前置校验：仍有活跃引用则跳过并告警（方案C：防悬空他人引用）
                 Long activeRefs = fileRefMapper.selectCount(new LambdaQueryWrapper<FileRef>()
                         .eq(FileRef::getFileId, meta.getFileId()));

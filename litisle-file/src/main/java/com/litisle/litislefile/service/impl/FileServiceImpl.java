@@ -1,11 +1,17 @@
 package com.litisle.litislefile.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commonredis.lock.DistributedLock;
+import com.litisle.commonredis.util.RedisUtil;
 import com.litisle.commonsecurity.utils.SaRoleHelper;
+import com.litisle.litisleapi.constant.ModerationConstant;
+import com.litisle.litisleapi.constant.MqConstant;
+import com.litisle.litisleapi.dto.file.FileContentDTO;
+import com.litisle.litisleapi.event.moderation.ImageSubmitEvent;
 import com.litisle.litislefile.client.SeaweedFsClient;
 import com.litisle.litislefile.config.FileProperties;
 import com.litisle.litislefile.domain.entity.FileMeta;
@@ -17,6 +23,7 @@ import com.litisle.litislefile.domain.vo.FileUploadVO;
 import com.litisle.litislefile.domain.vo.PresignVO;
 import com.litisle.litislefile.domain.vo.ThumbnailVO;
 import com.litisle.litislefile.enums.AccessLevelEnum;
+import com.litisle.litislefile.enums.SafeFlagEnum;
 import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import com.litisle.litislefile.enums.UploadStatusEnum;
 import com.litisle.litislefile.mapper.FileMetaMapper;
@@ -26,6 +33,8 @@ import com.litisle.litislefile.thumbnail.ThumbnailGenerator;
 import com.litisle.litislefile.util.FileMagicValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -75,11 +84,10 @@ import java.util.stream.Collectors;
  *    bucket = collections 映射（avatar/cover/article/license）
  * 7. put 成功 → 解析图片宽高（ImageIO.read → width/height，用于前端布局预留）→ update status=1（上传完成）
  *    put 失败 → 保留 status=0，由对账任务清理
- * 8. 【预留｜已定接入，暂未开发】违规信息审核（内容安全扫描）：
- *    status=1 后发异步消息（fileId）→ 消费者执行病毒扫描/违规检测
- *    → 通过 → safe_flag=1；不通过 → safe_flag=0 禁止访问 + 通知管理员
- *    设计详图见 docs/seaweedfs笔记.md §3.6 / §3.6.3（先发后审取舍、接入路径）
- *    TODO: 实现 FileServiceImpl 时在此处留异步发消息埋点
+ * 8. 违规审核异步送审（Review-Plan §4.2.2 ①②）：sha256 先查 REJECT 拒传黑名单
+ *    （命中拒传 90009，不落库不进 MQ）→ 再查审核结果缓存（命中 PASS/REJECT 终局结论直接复用，
+ *    跳过 MQ）→ 未命中落 safe_flag=2 占位（default-deny），status=1 后发 image.submit MQ；
+ *    审核结果经 moderation.result 事件回写（REJECT→quarantine 物理隔离）
  * 9. 返回 fileId + deduplicated=false
  *
  * 【一致性保障】先锁内占位写库（status=0）再锁外传文件：
@@ -89,9 +97,9 @@ import java.util.stream.Collectors;
  * 【URL 获取】统一入口 getUrl(fileId)：查 file_meta → access 分流
  *    PUBLIC→publicUrlBase + bucket + path 拼直链（以命中/已有记录的 bucket/path 为准；
  *    判重已限定 biz_type，命中记录 bucket 必等于本次映射，无跨桶坏链风险）
- *    PRIVATE→presign + owner/ADMIN 权限校验 + bizType 二次校验（纵深防御）
- *    【预留｜访问闸口】审核启用后 getUrl/batchGetUrls 返回前校验 safe_flag：
- *    =0 拒绝并提示违规（单点收口，不散落到各业务服务；同上见笔记 §3.6）
+ *    PRIVATE→presign + owner/REVIEWER/ADMIN 权限校验 + bizType 二次校验（纵深防御）
+ *    【访问闸口（已接入）】getUrl/batchGetUrls/download/presign 返回前校验 safe_flag：
+ *    =0 拒绝并提示违规；PUBLIC 高曝光面仅 =1 放行、2/3 返回占位图（曝光面分层，§4.4.5）
  * 【流式代理下载（方案A，非默认）】download(fileId, operatorId, rangeHeader)：
  *    默认下载仍走直连范式（getUrl/presign 的 URL 即凭证）；本链路仅用于“必须经服务端中转”场景
  *    （鉴权收紧/防直链/水印），服务端手动透传 Range：无 Range→200 全量；合法→206；非法→416。
@@ -142,6 +150,8 @@ public class FileServiceImpl implements FileService {
     private final FileProperties fileProperties;
     private final DistributedLock distributedLock;
     private final ThumbnailGenerator thumbnailGenerator;
+    private final RedisUtil redisUtil;
+    private final RabbitTemplate rabbitTemplate;
 
     /**
      * 单文件上传（含秒传）：校验 → 流式算 SHA256 → 无锁快查判重 → 锁内双检+占位写库（status=0）
@@ -162,6 +172,16 @@ public class FileServiceImpl implements FileService {
         String sha256 = sha256Hex(file);
         long size = file.getSize();
         String mime = file.getContentType();
+
+        // 步骤2.5：审核前置检查（仅公开面图片：AVATAR/COVER/ARTICLE_IMG 上传即预审；LICENSE 私有面豁免机审落 1）
+        // ① REJECT 拒传黑名单：命中直接拒传，不落库不进 MQ（同图重传不再重烧审核费）
+        // ② 审核结果缓存：命中终局结论直接复用（PASS→1 免审直落 / REJECT→拒传），跳过 MQ
+        boolean publicFace = resolveAccess(bizType) == AccessLevelEnum.PUBLIC;
+        SafeFlagEnum initialSafeFlag = SafeFlagEnum.NORMAL;
+        if (publicFace) {
+            checkRejectBlacklist(sha256);
+            initialSafeFlag = checkAuditCache(sha256);
+        }
 
         // 步骤3：无锁快查判重（走 idx_dedup）；PRIVATE/LICENSE 追加 owner_id 隔离，防跨用户秒传探测泄露隐私
         FileMeta exist = selectByDedupKey(sha256, size, bizType, ownerId);
@@ -208,6 +228,8 @@ public class FileServiceImpl implements FileService {
                     // access 由 bizType 决定：LICENSE 强制 PRIVATE（服务层覆盖，default 仅兑底）
                     .setAccess(resolveAccess(bizType))
                     .setStatus(UploadStatusEnum.UPLOADING)
+                    // safe_flag：default-deny 占位 2（缓存 PASS 命中直落 1；LICENSE 豁免机审落 1）
+                    .setSafeFlag(initialSafeFlag)
                     .setDelFlag(DelFlag.NOT_DELETED)
                     .setCreateTime(LocalDateTime.now())
                     .setUpdateTime(LocalDateTime.now());
@@ -259,7 +281,11 @@ public class FileServiceImpl implements FileService {
         }
         fileMetaMapper.updateById(update);
 
-        // 步骤8：【预留｜已定接入，暂未开发】违规审核异步消息埋点（safe_flag 链路），暂不实现
+        // 步骤8：审核埋点（image.submit 异步送审）：仅缓存未命中（safe_flag=2 占位）时发布；
+        // 发布失败仅记 error 不回滚上传——safe_flag 停留 2（default-deny 闸口不放行，宁严勿松）
+        if (initialSafeFlag == SafeFlagEnum.PENDING) {
+            publishImageSubmitEvent(meta, sha256);
+        }
 
         // 步骤9：返回 fileId + deduplicated=false（回填刚解析的宽高）
         FileUploadVO vo = buildUploadVO(meta, false);
@@ -297,12 +323,20 @@ public class FileServiceImpl implements FileService {
     public String getUrl(String fileId, Long operatorId) {
         // 查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
         FileMeta meta = getMetaOrThrow(fileId);
-        // 【预留｜访问闸口】审核启用后此处校验 safe_flag=0 拒绝（单点收口，见笔记 §3.6）
+        // 访问闸口（曝光面分层，§4.4.5）：safe_flag=0 违规拒绝；PUBLIC 高曝光面仅 =1 放行，
+        // 2/3 待审/存疑返回占位图 URL（不泄露真实直链，前端渲染占位）；PRIVATE 低曝光面
+        // 不占位（owner/REVIEWER/ADMIN 按角色放行，审核员看证据图不被占位挡住）
         if (meta.getAccess() == AccessLevelEnum.PUBLIC) {
+            if (meta.getSafeFlag() == SafeFlagEnum.VIOLATIVE) {
+                throw new BizException(ErrorCode.FILE_VIOLATIVE);
+            }
+            if (meta.getSafeFlag() != SafeFlagEnum.NORMAL) {
+                return fileProperties.getModeration().getPendingPlaceholderUrl();
+            }
             return buildPublicUrl(meta.getBucket(), meta.getPath());
         }
-        // PRIVATE：owner/ADMIN 校验 + presign（默认 30min，口径与强制签发一致）
-        checkOwnerOrAdmin(meta, operatorId);
+        // PRIVATE：owner/REVIEWER/ADMIN 校验 + presign（默认 30min，口径与强制签发一致）
+        checkPrivateReadAccess(meta, operatorId);
         return seaweedFsClient.presign(meta.getBucket(), meta.getPath(),
                 Duration.ofMinutes(fileProperties.getSeaweedfs().getPresignExpireMinutes()));
     }
@@ -324,10 +358,15 @@ public class FileServiceImpl implements FileService {
                 .in(FileMeta::getFileId, fileIds) //一次查回所有需要的文件元数据
                 .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED));//只查未删除文件
         return metas.stream().collect(Collectors.toMap(FileMeta::getFileId, meta -> {//流式转换为 Map<fileId, url>
-            // 【预留｜访问闸口】审核启用后此处校验 safe_flag=0 拒绝
-
-            // access 分流：PUBLIC vs PRIVATE  根据文件的访问级别（PUBLIC / PRIVATE），决定返回“哪种 URL”
+            // 访问闸口（曝光面分层，与 getUrl 同口径）：safe_flag=0 违规拒绝；
+            // PUBLIC 高曝光面仅 =1 放行，2/3 返回占位图 URL（列表页渲染占位不泄露真实直链）
             if (meta.getAccess() == AccessLevelEnum.PUBLIC) {
+                if (meta.getSafeFlag() == SafeFlagEnum.VIOLATIVE) {
+                    throw new BizException(ErrorCode.FILE_VIOLATIVE);
+                }
+                if (meta.getSafeFlag() != SafeFlagEnum.NORMAL) {
+                    return fileProperties.getModeration().getPendingPlaceholderUrl();
+                }
                 return buildPublicUrl(meta.getBucket(), meta.getPath());
             }
             return seaweedFsClient.presign(meta.getBucket(), meta.getPath(),
@@ -365,10 +404,15 @@ public class FileServiceImpl implements FileService {
         //1：查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
         FileMeta meta = getMetaOrThrow(fileId);
 
-        //2：【预留｜访问闸口】审核启用后此处校验 safe_flag=0 拒绝（单点收口，见笔记 §3.6）
-        //    PRIVATE（LICENSE）：owner/ADMIN 校验（口径与 getUrl/presign 统一）
+        //2：访问闸口（曝光面分层，§4.4.5）：safe_flag=0 违规拒绝发放下载流；
+        //    PUBLIC 高曝光面 2/3 待审/存疑态无占位流语义，抛 FILE_NOT_READY（占位图仅 getUrl/batchGetUrls 有）
+        checkNotViolative(meta);
+        if (meta.getAccess() == AccessLevelEnum.PUBLIC && meta.getSafeFlag() != SafeFlagEnum.NORMAL) {
+            throw new BizException(ErrorCode.FILE_NOT_READY);
+        }
+        //    PRIVATE（LICENSE）：owner/REVIEWER/ADMIN 校验（读类口径与 getUrl/presign 统一）
         if (meta.getAccess() == AccessLevelEnum.PRIVATE) {
-            checkOwnerOrAdmin(meta, operatorId);
+            checkPrivateReadAccess(meta, operatorId);
         }
 
         /**
@@ -550,8 +594,12 @@ public class FileServiceImpl implements FileService {
     public PresignVO presign(String fileId, Integer expireMinutes, Long operatorId) {
         // 查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
         FileMeta meta = getMetaOrThrow(fileId);
-        // owner/ADMIN 校验（与 getUrl 的 PRIVATE 口径统一，预签名 URL 是可传播凭证，入口必须收紧）
-        checkOwnerOrAdmin(meta, operatorId);
+        // 访问闸口：safe_flag=0 违规拒绝（预签名 URL 是可传播凭证，与 getUrl/download 同口径收口，
+        // 否则违规 PRIVATE 文件可经 presign 绕过闸口）；PRIVATE 低曝光面 2/3 不占位，
+        // owner/REVIEWER/ADMIN 按角色放行（审核员看证据图不被占位挡住）
+        checkNotViolative(meta);
+        // owner/REVIEWER/ADMIN 校验（读类口径与 getUrl 的 PRIVATE 口径统一，预签名 URL 是可传播凭证）
+        checkPrivateReadAccess(meta, operatorId);
         // bizType 二次校验（纵深防御）：预签名单面向 PRIVATE，PUBLIC 走直链无需签名
         if (meta.getAccess() != AccessLevelEnum.PRIVATE) {
             throw new BizException(ErrorCode.PARAM_ERROR, "公开文件走直链，无需预签名");
@@ -584,6 +632,7 @@ public class FileServiceImpl implements FileService {
         return FileMetaVO.builder()
                 .fileId(meta.getFileId())
                 .ownerId(ownerOrAdmin ? meta.getOwnerId() : null)
+                .safeFlag(meta.getSafeFlag())
                 .bizType(meta.getBizType())
                 .access(meta.getAccess())
                 .mime(meta.getMime())
@@ -606,6 +655,7 @@ public class FileServiceImpl implements FileService {
         return FileMetaVO.builder()
                 .fileId(meta.getFileId())
                 .ownerId(meta.getOwnerId())
+                .safeFlag(meta.getSafeFlag())
                 .bizType(meta.getBizType())
                 .access(meta.getAccess())
                 .mime(meta.getMime())
@@ -752,7 +802,10 @@ public class FileServiceImpl implements FileService {
                 .eq(FileMeta::getSha256, sha256)
                 .eq(FileMeta::getSize, size)
                 .eq(FileMeta::getBizType, bizType)
-                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED);
+                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED)
+                // 判重排除隔离图：safe_flag=0 的隔离证据不参与秒传（黑名单/缓存过期后同图重传
+                // 不得秒传命中违规记录拿到永不展示的 fileId，重传由拒传黑名单拦截）
+                .ne(FileMeta::getSafeFlag, SafeFlagEnum.VIOLATIVE);
         if (resolveAccess(bizType) == AccessLevelEnum.PRIVATE) {
             lqw.eq(FileMeta::getOwnerId, ownerId);
         }
@@ -802,6 +855,75 @@ public class FileServiceImpl implements FileService {
     }
 
     /**
+     * 【上传链路·黑名单】REJECT 黑名单（review 侧终局 REJECT 时写入，TTL 30 天；file 侧只读）：
+     * 命中直接拒传（不落库不进 MQ），防违规图反复重传消耗审核资源。
+     * Redis key 各段均为服务端派生（sha256），不拼接用户原串
+     */
+    private void checkRejectBlacklist(String sha256) {
+        String key = String.format(ModerationConstant.IMG_REJECT_BLACKLIST_KEY, sha256);
+        if (redisUtil.hasKey(key)) {
+            log.warn("上传命中审核黑名单，拒绝上传，sha256={}", sha256);
+            throw new BizException(ErrorCode.FILE_UPLOAD_REJECTED);
+        }
+    }
+
+    /**
+     * 【上传链路·审核缓存】复用 review 侧终局结论（key 含 provider+modelVersion，TTL 72h，review 侧写入）：
+     * PASS→safe_flag=1 免审直落（跳过 MQ）；REJECT→直接拒传（与黑名单同语义）；
+     * 未命中/非终局结论（如 SUSPICIOUS）→返回 PENDING，走完整送审链路
+     */
+    private SafeFlagEnum checkAuditCache(String sha256) {
+        FileProperties.Moderation mod = fileProperties.getModeration();
+        String key = String.format(ModerationConstant.IMG_RESULT_KEY,
+                mod.getImageProvider(), mod.getImageModelVersion(), sha256);
+        String cached = redisUtil.get(key);
+        if (cached == null) {
+            return SafeFlagEnum.PENDING;
+        }
+        try {
+            int verdict = Integer.parseInt(cached);
+            if (verdict == ModerationConstant.VERDICT_PASS) {
+                log.info("上传命中审核缓存 PASS 结论，免审直落，sha256={}", sha256);
+                return SafeFlagEnum.NORMAL;
+            }
+            if (verdict == ModerationConstant.VERDICT_REJECT) {
+                log.warn("上传命中审核缓存 REJECT 结论，拒绝上传，sha256={}", sha256);
+                throw new BizException(ErrorCode.FILE_UPLOAD_REJECTED);
+            }
+        } catch (NumberFormatException e) {
+            log.warn("审核缓存 value 格式异常，降级走完整送审链路，sha256={}", sha256);
+        }
+        return SafeFlagEnum.PENDING;
+    }
+
+    /**
+     * 【上传链路·送审】发布 image.submit 事件（litisle.moderation.exchange → review 侧消费）：
+     * 事件体 JSON（两侧共用 Jackson2JsonMessageConverter），bizId=fileId、contentHash=sha256
+     * （review 侧按 hash 走内部契约取图，严禁按用户 URL 抓取）。
+     * 发布失败仅记 error 不回滚上传：safe_flag 停留 2，default-deny 闸口不放行（宁严勿松）
+     */
+    private void publishImageSubmitEvent(FileMeta meta, String sha256) {
+        try {
+            ImageSubmitEvent event = new ImageSubmitEvent();
+            event.setEventId(UUID.randomUUID().toString());
+            event.setEventTime(LocalDateTime.now());
+            event.setTraceId(MDC.get("traceId"));
+            event.setVersion(1);
+            event.setModType(ModerationConstant.MOD_TYPE_AUTO);
+            event.setBizType(ModerationConstant.BIZ_TYPE_IMAGE);
+            event.setBizId(meta.getFileId());
+            event.setScene(ModerationConstant.SCENE_IMAGE);
+            event.setContentHash(sha256);
+            event.setRetryCount(0);
+            rabbitTemplate.convertAndSend(MqConstant.EXCHANGE_MODERATION,
+                    MqConstant.ROUTING_MODERATION_IMAGE_SUBMIT, event);
+            log.info("image.submit 事件已发布，fileId={}，sha256={}", meta.getFileId(), sha256);
+        } catch (Exception e) {
+            log.error("image.submit 发布失败，safe_flag 停留 PENDING 占位，fileId={}", meta.getFileId(), e);
+        }
+    }
+
+    /**
      * 构建上传返回 VO：PUBLIC→publicUrlBase 直链；PRIVATE→预签名（默认 30min，
      * 与 AccessLevelEnum 分流口径一致）
      */
@@ -821,6 +943,7 @@ public class FileServiceImpl implements FileService {
                 .size(meta.getSize())
                 .width(meta.getWidth())
                 .height(meta.getHeight())
+                .safeFlag(meta.getSafeFlag())
                 .deduplicated(deduplicated)
                 .build();
     }
@@ -915,12 +1038,137 @@ public class FileServiceImpl implements FileService {
         return meta;
     }
 
+    /**
+     * 违规图隔离（审核链路：moderation 侧 REJECT 时经 FileClient.feign 调用）
+     */
+    @Override
+    public void quarantine(String fileId) {
+        moveBetweenQuarantinePrefix(fileId, true);
+    }
+
+    /**
+     * 隔离恢复（申诉链路：改判 PASS 时经 FileClient.feign 调用）
+     */
+    @Override
+    public void unquarantine(String fileId) {
+        moveBetweenQuarantinePrefix(fileId, false);
+    }
+
+    /**
+     * 隔离/恢复统一实现（S3 无原生 move：copy + delete 组合；两步均幂等，中途失败重试自愈）
+     * <p>前缀 SSOT：与对账任务跳过清理共用 litisle.file.reconcile-task.quarantine-prefix（防两处配置漂移）。
+     * 移入/移回按前缀可逆推导目标 key（隔离 = quarantine/ + 原 key），无需新增列记录原路径；
+     * del_flag 全程保持 0，不破坏 file_ref 不变式（隔离图不是删除，是暂存证据）</p>
+     */
+    private void moveBetweenQuarantinePrefix(String fileId, boolean toQuarantine) {
+        // 查活跃元数据（del_flag=0，不存在抛 FILE_NOT_FOUND）
+        FileMeta meta = getMetaOrThrow(fileId);
+        String prefix = fileProperties.getReconcileTask().getQuarantinePrefix();
+        boolean quarantined = meta.getPath() != null && meta.getPath().startsWith(prefix);
+        // 幂等闸口：重复隔离 / 重复恢复直接跳过（调用方与 MQ 重投均安全）
+        if (toQuarantine == quarantined) {
+            log.info("文件已处于目标状态（quarantined={}），跳过重复操作，fileId={}", quarantined, fileId);
+            return;
+        }
+        // 本体 + 全部缩略图派生 key（_thumb_*）一并移动，防隔离后缩略图仍可经旧 key 直链访问
+        List<String> keys = seaweedFsClient.listKeys(meta.getBucket(), meta.getPath());
+        for (String key : keys) {
+            // 每个对象 key 按同一前缀规则变换：移入 = quarantine/ + key；移回 = 去掉 quarantine/ 前缀
+            String targetKey = toQuarantine ? prefix + key : key.substring(prefix.length());
+            // 先 copy 后 delete：copy 同 key 覆盖幂等、delete 对不存在 key 也成功，重试安全
+            seaweedFsClient.copyObject(meta.getBucket(), key, targetKey);
+            seaweedFsClient.delete(meta.getBucket(), key);
+        }
+        // 存储移动完成后回写元数据：path 指向新前缀 + safe_flag（隔离=0 违规 / 恢复=1 正常）
+        String targetPath = toQuarantine ? prefix + meta.getPath() : meta.getPath().substring(prefix.length());
+        fileMetaMapper.updateById(new FileMeta()
+                .setId(meta.getId())
+                .setPath(targetPath)
+                .setSafeFlag(toQuarantine ? SafeFlagEnum.VIOLATIVE : SafeFlagEnum.NORMAL)
+                .setUpdateTime(LocalDateTime.now()));
+        log.info("违规图{}完成，fileId={}，path：{} → {}", toQuarantine ? "隔离" : "恢复", fileId, meta.getPath(), targetPath);
+    }
+
+    /**
+     * 审核结果回写 safe_flag（file 侧 MQ 消费入口）：按主键定点 update，幂等（已处于目标态直接跳过，
+     * MQ 重投安全）；REJECT 分支不走本方法（走 quarantine() 含物理隔离）
+     */
+    /**
+     * 批量读取 safe_flag（file 客户端契约提供方）：仅查活跃记录（del_flag=0），
+     * select 只取两列降 IO；查不到的 fileId 不在 Map 中，由调用方按未知态保守处理
+     */
+    @Override
+    public Map<String, Integer> batchGetSafeFlags(List<String> fileIds) {
+        if (fileIds == null || fileIds.isEmpty()) {
+            return Map.of();
+        }
+        List<FileMeta> metas = fileMetaMapper.selectList(new LambdaQueryWrapper<FileMeta>()
+                .select(FileMeta::getFileId, FileMeta::getSafeFlag)
+                .in(FileMeta::getFileId, fileIds)
+                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED));
+        return metas.stream()
+                .collect(Collectors.toMap(FileMeta::getFileId, m -> m.getSafeFlag().getCode()));
+    }
+
+    /**
+     * 机审取图（file 客户端契约提供方）：不过 safe_flag 闸口（申诉复核需重取隔离图
+     * safe_flag=0）；seaweedFsClient.get 整读（≤10MB，与上传同步瓶颈同源）
+     */
+    @Override
+    public FileContentDTO getInternalContent(String fileId) {
+        FileMeta meta = getMetaOrThrow(fileId);
+        byte[] bytes = seaweedFsClient.get(meta.getBucket(), meta.getPath());
+        FileContentDTO dto = new FileContentDTO();
+        dto.setFileId(meta.getFileId());
+        dto.setMime(meta.getMime());
+        dto.setContent(bytes);
+        return dto;
+    }
+
+    public void updateSafeFlag(String fileId, SafeFlagEnum target) {
+        FileMeta meta = getMetaOrThrow(fileId);
+        // 幂等闸口：重复事件/重投直接跳过
+        if (meta.getSafeFlag() == target) {
+            log.info("safe_flag 已处于目标状态，跳过回写，fileId={}，target={}", fileId, target);
+            return;
+        }
+        int affected = fileMetaMapper.update(null, new LambdaUpdateWrapper<FileMeta>()
+                .eq(FileMeta::getId, meta.getId())
+                .set(FileMeta::getSafeFlag, target)
+                .set(FileMeta::getUpdateTime, LocalDateTime.now()));
+        if (affected == 0) {
+            throw new BizException(ErrorCode.FILE_NOT_FOUND);
+        }
+        log.info("safe_flag 回写完成，fileId={}，{} → {}", fileId, meta.getSafeFlag(), target);
+    }
+
+    /** 访问闸口（单点收口）：safe_flag=0 违规拒绝发放任何形式的访问入口（直链/预签名/下载流） */
+    private void checkNotViolative(FileMeta meta) {
+        if (meta.getSafeFlag() == SafeFlagEnum.VIOLATIVE) {
+            throw new BizException(ErrorCode.FILE_VIOLATIVE);
+        }
+    }
+
     /** owner/ADMIN 口径：operatorId 与 ownerId 一致或 ADMIN，否则 NO_PERMISSION */
     private void checkOwnerOrAdmin(FileMeta meta, Long operatorId) {
         if (operatorId != null && operatorId.equals(meta.getOwnerId())) {
             return;
         }
         if (!SaRoleHelper.isAdmin()) {
+            throw new BizException(ErrorCode.NO_PERMISSION);
+        }
+    }
+
+    /**
+     * 私有面读类权限（getUrl/download/presign）：owner/REVIEWER/ADMIN——
+     * 审核员查看证据图（LICENSE/申诉材料等 PRIVATE 面文件）不被权限挡住（§4.4.5）；
+     * 删除等敏感写操作不走本方法，仍收口 checkOwnerOrAdmin（REVIEWER 无写权限）
+     */
+    private void checkPrivateReadAccess(FileMeta meta, Long operatorId) {
+        if (operatorId != null && operatorId.equals(meta.getOwnerId())) {
+            return;
+        }
+        if (!SaRoleHelper.isAdmin() && !SaRoleHelper.isReviewer()) {
             throw new BizException(ErrorCode.NO_PERMISSION);
         }
     }
