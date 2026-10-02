@@ -697,7 +697,8 @@ litisle-notification
 | 事件                     | 生产者           | 消费者                                    |
 | ------------------------ | ---------------- | ----------------------------------------- |
 | `content.submitted`      | content          | review                                    |
-| `content.published`      | content          | search、notification                      |
+| `content.published`      | content          | search、notification、ai(RAG 摄入)        |
+| `content.unpublished`    | content          | search、ai(RAG 移除向量)；覆盖删除/转私密/复审驳回下架/封禁连带下架 |
 | `social.liked/commented` | social           | notification、search(热度)                |
 | `review.decided`         | review           | content、notification                     |
 | `payment.rewarded`       | payment          | notification                              |
@@ -760,10 +761,10 @@ litisle-notification
 | 维度 | 描述 |
 |------|------|
 | 触发时机 | 文章审核通过并发布后（监听 `content.published` 事件） |
-| 入库条件 | 仅 `visibility=PUBLIC`；正文 ≥ 200 字；非水帖；DFA 未命中高风险；作家角色优先 |
+| 入库条件 | 仅 `visibility=PUBLIC`；**审核终态 PASS（含人审）**；正文 ≥ 200 字；非水帖；DFA 未命中高风险；作家角色优先；**入库前回查文章当前 status=2 且 visibility=PUBLIC**（不纯信事件，防乱序/下架残留） |
 | 处理动作 | 正文清洗 → 切片（~500 字/段，重叠 50 字）→ Embedding 向量化 → 写入 ES `article_chunks` 索引 |
 | 更新处理 | 文章修改重发 → 删旧块写新块（幂等，按 `articleId` 覆盖） |
-| 删除处理 | 文章删除/转私密 → 监听 `content.unpublished` 事件 → 从 ES 移除对应 chunk |
+| 删除处理 | 文章删除/转私密/**复审驳回下架/作者封禁连带下架** → 监听 `content.unpublished` 事件 → 从 ES 移除对应 chunk（**下架路径必须同发此事件**，见 §2.4 事件矩阵——否则违规/封禁内容 chunk 永久残留向量库，违反隐私红线） |
 | 用户感知 | 无。作者不操作，读者下次问小月就能被引用到 |
 
 **入库质量门控**：
@@ -809,7 +810,7 @@ litisle-notification
 | 维度 | 描述 |
 |------|------|
 | 触发入口 | 现有小月对话界面，无新页面 |
-| 检索条件 | 用户问题 → Embedding → ES KNN TopK（默认 5 条）→ 相似度 ≥ 0.65 才采用 |
+| 检索条件 | 用户问题 → Embedding → ES KNN TopK（默认 5 条）→ **强制 filter `visibility=PUBLIC`** → 相似度 ≥ 0.65 才采用；引用卡片展示前回查文章当前状态（非 PUBLIC/已下架则不展示，防删除事件丢失残留 chunk 被越权引用） |
 | 路由判断 | 寒暄/纯润色/短消息 → 不查 RAG，直接 LLM 回答 |
 | 回答呈现 | LLM 生成回答 + 末尾附引用卡片（文章标题、作者、点击跳转） |
 | 无结果处理 | 站内无相关内容 → 纯 LLM 回答，不展示引用区 |
@@ -845,7 +846,9 @@ litisle-notification
 
 - 仅 `visibility=PUBLIC` 的已发布文章进向量库
 - 私密/密码访问/草稿/审核驳回内容永远不进向量库
-- 文章删除/转私密 → 监听 `content.unpublished` 事件 → 从 ES 移除对应 chunk
+- 文章删除/转私密/复审驳回下架/封禁连带下架 → 监听 `content.unpublished` 事件 → 从 ES 移除对应 chunk（下架路径必须同发此事件）
+- **检索侧纵深防御**：KNN 查询强制 filter `visibility=PUBLIC`；引用卡片展示前回查文章当前态，防删除事件丢失/乱序致残留 chunk 被引用
+- **RAG 内容视为不可信数据**：站内文章正文是 UGC，拼入小月 prompt 时按不可信数据包裹、**不拼入 system 段**，防恶意作者在正文埋 prompt 注入指令经检索命中污染小月（与审核模块「间接注入」同纪律）
 
 ### 2.6.3 RAG 架构设计要点
 
@@ -853,12 +856,13 @@ litisle-notification
 |------|----------|
 | 入库质量 | 不是所有文章都进。设门槛（字数、角色、可见性、DFA 风险），避免水帖污染知识库 |
 | 分层索引 | 作家文章/热门内容优先进核心层；普通读者文章降权；私密/草稿永不进 |
-| 异步解耦 | 摄入走 MQ（`content.published` 事件），不阻塞发布链路；失败可重试 |
+| 异步解耦 | 摄入走 MQ（`content.published` 事件），不阻塞发布链路；失败可重试，重试耗尽进 DLQ + 告警（防文章永久漏入库无感知） |
 | 批量发布 | 消费端合并请求调 Embedding API，避免限流和重复调用 |
 | 幂等覆盖 | 同一 `articleId` 重复发布不会重复建索引，按 `articleId` 删除旧 chunk 后写入新 chunk |
+| 乱序防御 | ingest 消费前回查文章当前可见性/状态（非 PUBLIC 或已下架则跳过写入），防 `unpublished` 先于 `published` 到达时已删 chunk 被写回 |
 | 检索路由 | 简单问题（寒暄/润色）不查 RAG，规则判断即可，不需要 LLM 分类 |
 | 相似度阈值 | TopK 结果低于 0.65 阈值直接丢弃，不塞进 prompt |
-| 降级策略 | ES 向量检索不可用 → 纯 LLM 回答；Embedding 失败 → 延迟重试 |
+| 降级策略 | ES 向量检索不可用 → 纯 LLM 回答；Embedding 失败 → 延迟重试（耗尽进 DLQ + 告警） |
 | 存储选型 | 复用现有 ES 集群的 `dense_vector`，百万级 chunk 够用；后期数据量激增再考虑 Milvus |
 | 隐私红线 | 仅自己可见/密码访问/草稿/审核驳回内容永远不进向量库 |
 | 成本控制 | Query Embedding 不是每次都调；路由判断省掉的不仅是 QPS，还有 API 费用 |
