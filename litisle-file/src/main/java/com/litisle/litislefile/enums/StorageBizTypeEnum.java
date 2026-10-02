@@ -17,7 +17,7 @@ import lombok.Getter;
  * 修复 @JsonValue(desc) 下拉框与 MVC name-only 绑定口径不一致问题）
  */
 @Getter
-public enum BizTypeEnum implements DictEnum {
+public enum StorageBizTypeEnum implements DictEnum {
 
     /** 头像，默认 PUBLIC（直链，CDN 友好） */
     AVATAR("avatar", "头像"),
@@ -39,7 +39,7 @@ public enum BizTypeEnum implements DictEnum {
     @JsonValue
     private final String desc;
 
-    BizTypeEnum(String code, String desc) {
+    StorageBizTypeEnum(String code, String desc) {
         this.code = code;
         this.desc = desc;
     }

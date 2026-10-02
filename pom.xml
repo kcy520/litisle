@@ -84,6 +84,11 @@
         <!-- AWS SDK v2（litisle-file 对接 SeaweedFS S3 网关） -->
         <aws-sdk.version>2.32.6</aws-sdk.version>
 
+        <!-- DFA 敏感词（litisle-review 同步闸门，零传递依赖；0.27.2 不存在于中央仓库，0.27.x 最高为 0.27.1） -->
+        <sensitive-word.version>0.27.1</sensitive-word.version>
+        <!-- ONNX Runtime（litisle-review 本地鉴黄，JDK 25 兼容） -->
+        <onnxruntime.version>1.20.0</onnxruntime.version>
+
     </properties>
 
 
@@ -171,6 +176,19 @@
                 <version>${aws-sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+
+            <!-- DFA 敏感词（litisle-review 同步闸门） -->
+            <dependency>
+                <groupId>com.github.houbb</groupId>
+                <artifactId>sensitive-word</artifactId>
+                <version>${sensitive-word.version}</version>
+            </dependency>
+            <!-- ONNX Runtime（litisle-review 本地鉴黄） -->
+            <dependency>
+                <groupId>com.microsoft.onnxruntime</groupId>
+                <artifactId>onnxruntime</artifactId>
+                <version>${onnxruntime.version}</version>
             </dependency>
 
 

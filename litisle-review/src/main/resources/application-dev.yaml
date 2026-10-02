@@ -17,7 +17,7 @@ litisle:
   db:
     host: litisle-mysql
     port: 3306
-    database: litisle_file
+    database: litisle_review
     username: test_k.1
     password: ${COMPOSE_MYSQL_PASSWORD:123}
 
@@ -31,11 +31,12 @@ litisle:
     password: ${COMPOSE_REDIS_PASSWORD:123}
 
   # ================================
-  # SeaweedFS 配置（Docker 环境：使用容器名）
-  # 容器名按 docker-compose.yml 中实际服务名填写
+  # RabbitMQ 配置（Docker 环境：使用容器名）
+  # 容器名：litisle-rabbitmq，容器内端口 5672；账号/vhost 见 definitions.json
   # ================================
-  seaweed:
-    host: litisle-seaweedfs
-    s3-port: 8333
-    # Filer HTTP 端口（公开直链拼接用，容器间同端口 8888）
-    filer-port: 8888
+  rabbitmq:
+    host: litisle-rabbitmq
+    port: 5672
+    username: litisle
+    password: litisle_pass
+    vhost: /litisle

@@ -3,7 +3,7 @@ package com.litisle.litislefile.domain.vo;
 
 import com.litisle.litislefile.enums.AccessLevelEnum;
 import com.litisle.litislefile.enums.AlignEnum;
-import com.litisle.litislefile.enums.BizTypeEnum;
+import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -36,7 +36,7 @@ public class FileMetaVO implements Serializable {
     /**
      * 业务类型（AVATAR/COVER/ARTICLE_IMG/LICENSE）
      */
-    private BizTypeEnum bizType;
+    private StorageBizTypeEnum bizType;
 
     /**
      * 访问级别：PRIVATE(0) / PUBLIC(1)

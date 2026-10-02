@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.litisle.litislereview.enums.AppealStatusEnum;
-import com.litisle.litislereview.enums.BizTypeEnum;
+import com.litisle.litislereview.enums.ModerationBizTypeEnum;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.experimental.Accessors;
@@ -96,7 +96,7 @@ public class Appeal implements Serializable {
      * 申诉目标内容业务类型（提交时由关联列解析落库；三者交叉须内容身份一致，冲突拒收）
      */
     @TableField("biz_type")
-    private BizTypeEnum bizType;
+    private ModerationBizTypeEnum bizType;
 
     /**
      * 申诉目标内容业务ID（同 biz_type 语义）

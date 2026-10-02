@@ -1,13 +1,13 @@
 # ================================
 # Sentinel 本地心跳端口
-# 同机多服务需错开：auth 8719 / user 8720 / file 8721
+# 同机多服务需错开：auth 8719 / user 8720 / file 8721 / review 8722
 # dashboard 地址在 Nacos 共享配置 litisle-shared.yaml 统一维护
 # ================================
 spring:
   cloud:
     sentinel:
       transport:
-        port: 8721
+        port: 8722
       # ================================
       # Sentinel 规则 Nacos 数据源（选型定稿：规则属运营参数，外置 Nacos/热更新/重启不丢）
       # 规则实体 JSON 由运维/开发在 Nacos 控制台维护（dataId 见下），
@@ -19,7 +19,7 @@ spring:
             server-addr: ${litisle.nacos.server-addr}
             username: ${litisle.nacos.username}
             password: ${litisle.nacos.password}
-            data-id: litisle-file-degrade-rules.json
+            data-id: litisle-review-degrade-rules.json
             group-id: DEFAULT_GROUP
             rule-type: degrade
 
@@ -41,7 +41,7 @@ litisle:
   db:
     host: localhost
     port: 3307
-    database: litisle_file
+    database: litisle_review
     username: test_k.1
     # ✅ 与 .env 中 COMPOSE_MYSQL_PASSWORD 保持一致
     password: ${COMPOSE_MYSQL_PASSWORD:123}
@@ -56,11 +56,12 @@ litisle:
     password: ${COMPOSE_REDIS_PASSWORD:123}
 
   # ================================
-  # SeaweedFS 配置（IDEA 本地运行：使用宿主机映射端口）
-  # 注意：docker-compose.yml 中 SeaweedFS S3 网关宿主机端口需按实际映射填写
+  # RabbitMQ 配置（IDEA 本地运行：使用宿主机映射端口）
+  # 账号/vhost 由 docker/init/rabbitmq/definitions.json 硬编码，vhost=/litisle
   # ================================
-  seaweed:
+  rabbitmq:
     host: localhost
-    s3-port: 8333
-    # Filer HTTP 端口（公开直链拼接用，与 compose 端口映射 8888 一致）
-    filer-port: 8888
+    port: 5672
+    username: litisle
+    password: litisle_pass
+    vhost: /litisle

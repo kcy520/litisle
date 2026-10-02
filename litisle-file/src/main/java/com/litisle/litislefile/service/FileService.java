@@ -5,7 +5,7 @@ import com.litisle.litislefile.domain.vo.FileMetaVO;
 import com.litisle.litislefile.domain.vo.FileUploadVO;
 import com.litisle.litislefile.domain.vo.PresignVO;
 import com.litisle.litislefile.domain.vo.ThumbnailVO;
-import com.litisle.litislefile.enums.BizTypeEnum;
+import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -37,12 +37,12 @@ public interface FileService {
      * @param bizType  业务类型（决定 bucket/access/MIME 白名单）
      * @param ownerId  上传者ID（网关 X-User-Id）
      */
-    FileUploadVO upload(MultipartFile file, BizTypeEnum bizType, Long ownerId);
+    FileUploadVO upload(MultipartFile file, StorageBizTypeEnum bizType, Long ownerId);
 
     /**
      * 批量上传（正文多图，上限 9 张，逐个走单文件链路）
      */
-    List<FileUploadVO> uploadBatch(List<MultipartFile> files, BizTypeEnum bizType, Long ownerId);
+    List<FileUploadVO> uploadBatch(List<MultipartFile> files, StorageBizTypeEnum bizType, Long ownerId);
 
     /**
      * 获取访问 URL（统一入口：PUBLIC→直链；PRIVATE→owner/ADMIN 校验后预签名 30min）
@@ -97,12 +97,12 @@ public interface FileService {
     /**
      * 引用登记（方案C：业务方建立引用时调用，与业务表同事务由调用方保证）
      */
-    void bindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId);
+    void bindRef(String fileId, StorageBizTypeEnum bizType, Long bizId, Long ownerId);
 
     /**
      * 解除引用登记（方案C：业务方解绑引用时调用）
      */
-    void unbindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId);
+    void unbindRef(String fileId, StorageBizTypeEnum bizType, Long bizId, Long ownerId);
 
     /**
      * 删除（方案C 解绑语义）：校验 owner/ADMIN →

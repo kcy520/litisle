@@ -20,7 +20,89 @@
 
 #### 代码修改类
 
+##### file 模块 · 审核隔离条件接入（对齐 Review-Plan §4.2.2 / §907 定稿口径）
 
+- [ ] **【最高优先级】FileReconcileTask Step2 跳过 `quarantine/` 前缀**：物理清理扫 del_flag=1 且超 7 天时，
+  对 path 以 `quarantine/` 开头的记录直接跳过——违规图保留期由 moderation 侧按
+  `litisle.moderation.quarantine.retention-days`（当前=10 天）控制，防 file 侧 7 天清理提前删除违规图证据、
+  致申诉无法复核（两套保留期打架）。
+- [ ] **FileClient 新增 `quarantine(fileId)` / `unquarantine(fileId)`**（litisle-api）：
+  REJECT 时将对象从原前缀移入 `quarantine/`（safe_flag=0，del_flag 保持 0 不破坏 file_ref 不变式）；
+  申诉改判 PASS 时从 `quarantine/` 移回原前缀（safe_flag 回 1）；file 模块补对应 `/api/feign/file/**` 端点。
+- [ ] **file 模块消费审核结果回写 safe_flag**：消费 `moderation.result`（REJECT→0 / PASS→1 / SUSPICIOUS→3）
+  与 `moderation.appeal.result`（改判 PASS→0 回 1 + 移回原前缀）；并在 `getUrl / batchGetUrls / download`
+  落访问闸口（safe_flag=0 拒绝并提示违规，单点收口，不散落到各业务服务）。
+- [ ] **`quarantine/` 前缀常量与「file 侧跳过清理」开关外置 yml**：保留期仍归 moderation 侧控制，
+  避免双头配置打架。
+- [ ] **建立「存储类型 → 审核触发时机」映射（运行时，非新增枚举/bucket）**：review 侧 `biz_type=6`
+  为粗粒度审核类型，需经 `FileClient.getFileInfo` 读 `file_meta.biz_type` 区分 `AVATAR/COVER`
+  （上传即审）与 `ARTICLE_IMG`（上传预审 + 发布复审）；`StorageBizTypeEnum`（存储维度）与
+  `ModerationBizTypeEnum`（审核维度）保持正交，不合并、不互相补齐。
+
+##### file 模块 · 审核文档补充项（Review-Plan 全文扫描，2026-10-02）
+
+**【上传链路】**
+
+- [ ] **拒传黑名单 + 审核缓存前置检查**（Review-Plan §4.2.2 ①/§2.1）：上传流式算完 sha256 后
+  先查 Redis REJECT 黑名单（命中直接拒传 70001 同族错误码，**不落库不进 MQ**）→ 再查审核缓存
+  （命中 PASS/REJECT 终局结论直接复用，跳过 MQ）；黑名单 TTL 30 天、缓存 TTL 72h。
+- [ ] **落 safe_flag=2 占位 + 发 image.submit MQ**（§4.2.2 ②，即现有「步骤8 埋点」）：缓存未命中时
+  落库 safe_flag=2（default-deny，闸口不放行）+ 发 MQ；上传异步不阻塞，前端轮询 safe_flag——
+  这是清单第 3 条「消费侧回写」的上游触发半边。
+- [ ] **判重排除隔离图**（§2.1，隐蔽坑）：隔离图 del_flag 全程保持 0，但当前判重 WHERE 为
+  `sha256+size+biz_type+del_flag=0`——黑名单/缓存过期后同图重传会秒传命中 safe_flag=0 记录，
+  用户拿到永不展示的 fileId。判重须追加 `safe_flag != 0` 排除。
+
+**【FileClient 契约】**
+
+- [ ] **safe_flag 批量读取端点**（§4.1 边界表/§4.2.2 ④）：review 复审再聚合（图片人审终审后唤醒
+  挂起的文章复审任务）与申诉恢复需经 FileClient 批量读各图 safe_flag（禁止跨库直查）。
+- [ ] **机审取图契约端点**（§4.2.2 取图纪律，SSRF 防护唯一入口）：机审取图一律按 fileId 走内部
+  契约（预签名/内部字节流），严禁按用户 URL 抓取；需定端点形态（字节流 vs presign）——
+  review→file 内部高优调用，不占公开面配额。
+
+**【权限与元数据】**
+
+- [ ] **证据图 REVIEWER/ADMIN 直读**（§4.4.5）：审核员看证据图裁决不能被 safe_flag=2/3 占位挡住，
+  私有面权限从 owner/ADMIN 扩到 owner/REVIEWER/ADMIN（证据图归 PRIVATE 面按角色放行，上传不触发
+  机审——私有面豁免）；同时闸口语义细化：高曝光面仅 safe_flag=1 放行，**2/3 返回占位图标记**
+  （不止 =0 拒绝）。
+- [ ] **safe_flag 列注释/建表语句同步**（§4.4.3）：删「【预留｜已定接入，暂未开发】」标记，改四态
+  定义 + 触发链路说明；SafeFlagEnum 代码已是四态（已完成），但 FileMeta 字段注释与
+  file-schema.sql 列注释仍为「三态+预留」旧口径。
+
+> 归位备注：绑定闸口（换头像/封面绑定时 safe_flag=0 拒绝绑定 70001，2/3 可绑定）属 **user 模块**
+> 改动，记录在 user 侧待办，不混入本清单。
+
+##### file 模块 · SeaweedFS 存储治理加固（2026-10-02 评估定稿）
+
+> 维度结论：collection ✅ 已达标；replication 开发期够用、生产前必调；disk / 存储 TTL 暂不做
+> （删除语义均为业务条件删除，存储 TTL 盲删不适用）；filer.conf 侧有真实缺口，最值得补。
+
+**【现在就可做（零/低成本）】**
+
+- [ ] **Filer 启用 JWT 签名（最严重缺口）**：项目无 filer.toml（Filer 跑默认配置），公开直链走
+  8888 匿名 GET 没问题，但 Filer 默认同样接受**匿名 PUT/DELETE**——能触达 8888 的客户端可绕过
+  file 服务直写/直删桶对象，配额/魔数/判重/审核全部被旁路。建 filer.toml 启用 `[jwt.signing]`
+  （与 S3 网关同密钥），写操作强制验签、读匿名保留。
+- [ ] **Filer 开回收站**：启动参数 `-recycleBinMaxHours=168`（7 天），误删/误清窗口内可捞回，
+  与应用层 7 天软删缓冲双保险；零代码改动，开发期即可开。
+- [ ] **s3.json 拆最小权限身份**：现为单身份 `litisle` 挂 `Admin+Read+Write` 全量权限，违反最小权限
+  且无桶级配额。按服务拆身份（file 服务 / 对账任务各一），action 收敛到桶级；未来接 CDN 时
+  另加匿名只读身份限 `Read:article` 等。
+
+**【生产上线前必做】**
+
+- [ ] **replication ≥ 010 + Volume 多机**：用户上传原件不可再生，单副本（replication=001）不达
+  生产标准；⚠️ 副本策略只影响新写入 volume，存量不自动补副本，须在首次生产写入前定稿。
+- [ ] **Filer 元数据切 MySQL**：当前 leveldb 与数据同盘，盘坏 = 目录全丢（比丢文件更致命）；
+  复用已有 MySQL 实例。开发期 leveldb 无所谓。
+
+**【暂不做（防过度工程，附触发条件）】**
+
+- disk 冷热分层（`-disk=ssd/hdd` + `010` 规范）：生产 Volume 多机时一并设计，不单独排期。
+- 存储 TTL：quarantine 保留期（需按 appeal 待裁决态顺延）与对账清理（需 file_ref 活跃引用前置校验）
+  均为业务条件删除，不适用存储 TTL；二期大文件分片的半途清理走 S3 桶生命周期规则（已定双保险方案）。
 
 #### 测试类
 

@@ -32,6 +32,136 @@
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
+        <!-- Web MVC：机审/人审/申诉/举报 REST 接口 + Jackson 序列化 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- 参数校验（申诉/举报/裁决等入参校验） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- RabbitMQ：moderation.exchange 异步机审 + x-delay 退避重试 + DLX 兜底 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
+        <!-- Actuator 监控端点：暴露 /actuator/prometheus（moderation_total/backlog 等指标） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Prometheus 指标注册表：提供 /actuator/prometheus 端点（actuator 本体不含） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- common-core：Result / BizException / ErrorCode / DictEnum -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-redis：Redisson 锁（去重短锁/词库热更）+ @Idempotent/@RateLimiter + RedisTemplate -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-redis</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-security：Sa-Token 鉴权 + 角色校验 + @AuditLog 审计 + UGC XSS 过滤 -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-security</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- MyBatis-Plus：ReviewTaskMapper/ReportMapper 等 extends BaseMapper（yml 已配置） -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        </dependency>
+        <!-- MySQL 驱动（litisle_review 库） -->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+        </dependency>
+
+        <!-- Redis 连接池（yml lettuce pool 配置的前提） -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
+
+        <!-- DFA 敏感词同步闸门（零传递依赖，词库版本化热更；版本由父 POM 托管） -->
+        <dependency>
+            <groupId>com.github.houbb</groupId>
+            <artifactId>sensitive-word</artifactId>
+        </dependency>
+
+        <!-- ONNX 本地鉴黄（开发期 image-provider=onnx，CPU 推理；版本由父 POM 托管） -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+        </dependency>
+
+        <!-- Feign：回查 ContentClient/FileClient/MessageClient（fallbackFactory fail-fast） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <!-- Feign 负载均衡 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+        <!-- Sentinel：Feign fallbackFactory 生效前提（feign.sentinel.enabled: true） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <!-- Sentinel 规则 Nacos 数据源：dataId=litisle-review-degrade-rules.json（见 application-local.yaml） -->
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+        </dependency>
+
+        <!-- Nacos 服务注册发现（被网关 lb://litisle-review 路由的前提） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!-- Nacos 配置中心（拉取 litisle-shared.yaml 共享配置） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
+        <!-- api 模块：Feign 接口定义（ContentClient/FileClient/MessageClient）与公共 DTO -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>litisle-api</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!-- API 文档（yml knife4j 段已配置，扫 controller 包） -->
+        <dependency>
+            <groupId>com.github.xiaoymin</groupId>
+            <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+        </dependency>
+
+        <!--lombok-->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

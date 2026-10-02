@@ -9,7 +9,7 @@ import com.litisle.litislefile.domain.vo.FileMetaVO;
 import com.litisle.litislefile.domain.vo.FileUploadVO;
 import com.litisle.litislefile.domain.vo.PresignVO;
 import com.litisle.litislefile.domain.vo.ThumbnailVO;
-import com.litisle.litislefile.enums.BizTypeEnum;
+import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import com.litisle.litislefile.service.FileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,9 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -80,7 +78,7 @@ public class FileController {
     @PostMapping("/upload")
     @SaCheckLogin
     public Result<FileUploadVO> upload(@RequestParam("file") MultipartFile file,
-                                       @RequestParam("bizType") BizTypeEnum bizType) {
+                                       @RequestParam("bizType") StorageBizTypeEnum bizType) {
         // StpUtil 取当前登录人作为 ownerId（Sa-Token 会话共享口径），委托 Service 走秒传判重上传链路
         return Result.success(fileService.upload(file, bizType, StpUtil.getLoginIdAsLong()));
     }
@@ -94,7 +92,7 @@ public class FileController {
     @PostMapping("/upload/batch")
     @SaCheckLogin
     public Result<List<FileUploadVO>> uploadBatch(@RequestParam("files") List<MultipartFile> files,
-                                                  @RequestParam("bizType") BizTypeEnum bizType) {
+                                                  @RequestParam("bizType") StorageBizTypeEnum bizType) {
         // 逐个委托单文件链路；中途失败已成功的不回滚，部分成功由调用方处理
         return Result.success(fileService.uploadBatch(files, bizType, StpUtil.getLoginIdAsLong()));
     }

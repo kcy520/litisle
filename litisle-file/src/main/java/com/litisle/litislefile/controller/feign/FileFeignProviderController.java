@@ -7,7 +7,7 @@ import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litisleapi.dto.file.FileRefDTO;
 import com.litisle.litisleapi.feign.FileClient;
 import com.litisle.litislefile.domain.vo.FileMetaVO;
-import com.litisle.litislefile.enums.BizTypeEnum;
+import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import com.litisle.litislefile.service.FileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -89,8 +89,8 @@ public class FileFeignProviderController implements FileClient {
     /**
      * bizType 字符串 → 枚举（DictEnum 三值兼容：枚举名/code/中文描述均可，忽略大小写）
      */
-    private BizTypeEnum parseBizType(String bizType) {
-        return Arrays.stream(BizTypeEnum.values())
+    private StorageBizTypeEnum parseBizType(String bizType) {
+        return Arrays.stream(StorageBizTypeEnum.values())
                 .filter(e -> e.getName().equalsIgnoreCase(bizType)
                         || e.getCode().equalsIgnoreCase(bizType)
                         || e.getDesc().equals(bizType))

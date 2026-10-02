@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.litisle.litislereview.enums.BizTypeEnum;
+import com.litisle.litislereview.enums.ModerationBizTypeEnum;
 import com.litisle.litislereview.enums.ModTypeEnum;
 import com.litisle.litislereview.enums.ModerationCategoryEnum;
 import com.litisle.litislereview.enums.ModerationProviderEnum;
@@ -48,7 +48,7 @@ public class ModerationRecord implements Serializable {
      * 业务类型（同 review_task.biz_type）：1-文章 2-评论 3-用户名 4-作家申请 5-私信 6-文件/图片
      */
     @TableField("biz_type")
-    private BizTypeEnum bizType;
+    private ModerationBizTypeEnum bizType;
 
     /**
      * 业务ID

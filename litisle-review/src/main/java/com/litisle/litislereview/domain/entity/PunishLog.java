@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.litisle.litislereview.enums.BizTypeEnum;
+import com.litisle.litislereview.enums.ModerationBizTypeEnum;
 import com.litisle.litislereview.enums.PunishActionEnum;
 import com.litisle.litislereview.enums.PunishStatusEnum;
 import jakarta.validation.constraints.Size;
@@ -64,7 +64,7 @@ public class PunishLog implements Serializable {
      * 关联违规业务类型（同 review_task.biz_type）
      */
     @TableField("biz_type")
-    private BizTypeEnum bizType;
+    private ModerationBizTypeEnum bizType;
 
     /**
      * 关联违规业务ID

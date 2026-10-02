@@ -13,7 +13,7 @@ import lombok.Getter;
  * <p>code 为 int 型，不接入 DictEnum（见 DictEnum 契约说明）</p>
  */
 @Getter
-public enum BizTypeEnum {
+public enum ModerationBizTypeEnum {
 
     /** 文章 */
     ARTICLE(1, "文章"),
@@ -41,7 +41,7 @@ public enum BizTypeEnum {
     @JsonValue
     private final String desc;
 
-    BizTypeEnum(int code, String desc) {
+    ModerationBizTypeEnum(int code, String desc) {
         this.code = code;
         this.desc = desc;
     }

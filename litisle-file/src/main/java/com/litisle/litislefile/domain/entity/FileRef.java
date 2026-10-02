@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.litisle.litislefile.enums.BizTypeEnum;
+import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
@@ -47,7 +47,7 @@ public class FileRef implements Serializable {
      * <p>AVATAR（sys_user.avatar_file_id）/ COVER / ARTICLE_IMG（article_image）/ LICENSE</p>
      */
     @TableField("biz_type")
-    private BizTypeEnum bizType;
+    private StorageBizTypeEnum bizType;
 
     /**
      * 引用方业务主键

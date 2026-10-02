@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.litisle.litislefile.enums.AccessLevelEnum;
 import com.litisle.litislefile.enums.AlignEnum;
-import com.litisle.litislefile.enums.BizTypeEnum;
+import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.litislefile.enums.SafeFlagEnum;
 import com.litisle.litislefile.enums.UploadStatusEnum;
@@ -58,7 +58,7 @@ public class FileMeta implements Serializable {
      * <p>AVATAR / COVER / ARTICLE_IMG / LICENSE</p>
      */
     @TableField("biz_type")
-    private BizTypeEnum bizType;
+    private StorageBizTypeEnum bizType;
 
     /**
      * SeaweedFS collection（bucket）

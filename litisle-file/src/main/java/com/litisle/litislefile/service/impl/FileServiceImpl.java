@@ -17,7 +17,7 @@ import com.litisle.litislefile.domain.vo.FileUploadVO;
 import com.litisle.litislefile.domain.vo.PresignVO;
 import com.litisle.litislefile.domain.vo.ThumbnailVO;
 import com.litisle.litislefile.enums.AccessLevelEnum;
-import com.litisle.litislefile.enums.BizTypeEnum;
+import com.litisle.litislefile.enums.StorageBizTypeEnum;
 import com.litisle.litislefile.enums.UploadStatusEnum;
 import com.litisle.litislefile.mapper.FileMetaMapper;
 import com.litisle.litislefile.mapper.FileRefMapper;
@@ -154,7 +154,7 @@ public class FileServiceImpl implements FileService {
      * （见 FileAsyncConfig），避免占用 Tomcat 工作线程。</p>
      */
     @Override
-    public FileUploadVO upload(MultipartFile file, BizTypeEnum bizType, Long ownerId) {
+    public FileUploadVO upload(MultipartFile file, StorageBizTypeEnum bizType, Long ownerId) {
         // 步骤1：校验 size ≤ maxImageSize + MIME 白名单（按 bizType 区分，LICENSE 放开授权文件类型）
         validateUpload(file, bizType);
 
@@ -274,7 +274,7 @@ public class FileServiceImpl implements FileService {
      * 批量上传：校验非空 + 上限 9 张后，逐个复用单文件链路（含秒传）；中途失败已成功的不回滚
      */
     @Override
-    public List<FileUploadVO> uploadBatch(List<MultipartFile> files, BizTypeEnum bizType, Long ownerId) {
+    public List<FileUploadVO> uploadBatch(List<MultipartFile> files, StorageBizTypeEnum bizType, Long ownerId) {
         // 入参校验：空列表直接拒绝
         if (files == null || files.isEmpty()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "批量上传文件列表不能为空");
@@ -656,7 +656,7 @@ public class FileServiceImpl implements FileService {
      * 上传校验：size ≤ maxImageSize + MIME 白名单（按 bizType 区分，LICENSE 放开授权文件类型）
      * + 文件头魔数校验（真实魔数须与声明 MIME 一致）
      */
-    private void validateUpload(MultipartFile file, BizTypeEnum bizType) {
+    private void validateUpload(MultipartFile file, StorageBizTypeEnum bizType) {
         // 空文件校验
         if (file == null || file.isEmpty()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "上传文件不能为空");
@@ -678,8 +678,8 @@ public class FileServiceImpl implements FileService {
     }
 
     /** MIME 白名单：LICENSE = 图片类 + 授权文件额外放开类型，其余仅图片类 */
-    private List<String> resolveMimeWhitelist(BizTypeEnum bizType) {
-        if (bizType == BizTypeEnum.LICENSE) {
+    private List<String> resolveMimeWhitelist(StorageBizTypeEnum bizType) {
+        if (bizType == StorageBizTypeEnum.LICENSE) {
             List<String> merged = new ArrayList<>(IMAGE_MIME_WHITELIST);
             merged.addAll(LICENSE_EXTRA_MIME_WHITELIST);
             return merged;
@@ -747,7 +747,7 @@ public class FileServiceImpl implements FileService {
      * 秒传判重查询（走 idx_dedup）：sha256+size+biz_type+del_flag=0；
      * PRIVATE（LICENSE）追加 owner_id 按 owner 隔离，防跨用户秒传探测泄露隐私
      */
-    private FileMeta selectByDedupKey(String sha256, long size, BizTypeEnum bizType, Long ownerId) {
+    private FileMeta selectByDedupKey(String sha256, long size, StorageBizTypeEnum bizType, Long ownerId) {
         LambdaQueryWrapper<FileMeta> lqw = new LambdaQueryWrapper<FileMeta>()
                 .eq(FileMeta::getSha256, sha256)
                 .eq(FileMeta::getSize, size)
@@ -761,7 +761,7 @@ public class FileServiceImpl implements FileService {
     }
 
     /** bizType → bucket 映射（FileProperties.collections，code 与 yml 键一致） */
-    private String resolveBucket(BizTypeEnum bizType) {
+    private String resolveBucket(StorageBizTypeEnum bizType) {
         String bucket = fileProperties.getSeaweedfs().getCollections().get(bizType.getCode());
         if (bucket == null || bucket.isBlank()) {
             throw new BizException(ErrorCode.SYSTEM_ERROR, "bizType 未配置 bucket 映射：" + bizType.getCode());
@@ -784,8 +784,8 @@ public class FileServiceImpl implements FileService {
     }
 
     /** access 由 bizType 决定：LICENSE 强制 PRIVATE（服务层覆盖，default 仅兜底） */
-    private AccessLevelEnum resolveAccess(BizTypeEnum bizType) {
-        return bizType == BizTypeEnum.LICENSE ? AccessLevelEnum.PRIVATE : AccessLevelEnum.PUBLIC;
+    private AccessLevelEnum resolveAccess(StorageBizTypeEnum bizType) {
+        return bizType == StorageBizTypeEnum.LICENSE ? AccessLevelEnum.PRIVATE : AccessLevelEnum.PUBLIC;
     }
 
     /** 解析图片宽高（ImageIO；非图片/webp 解析失败返回 null，用于前端布局预留） */
@@ -830,7 +830,7 @@ public class FileServiceImpl implements FileService {
      * 引用登记（方案C）：幂等插入 file_ref（同四元组已存在则跳过）；与业务表同事务由调用方保证
      */
     @Override
-    public void bindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId) {
+    public void bindRef(String fileId, StorageBizTypeEnum bizType, Long bizId, Long ownerId) {
         // 前置校验：文件必须存在且未删除
         getMetaOrThrow(fileId);
         // 幂等：同一引用（fileId+bizType+bizId+ownerId）已登记则跳过，业务方重试安全
@@ -863,7 +863,7 @@ public class FileServiceImpl implements FileService {
      * 解除引用登记（方案C）：按四元组精确定位仅删当前调用方引用行，不动文件本体；行不存在静默结束（幂等）
      */
     @Override
-    public void unbindRef(String fileId, BizTypeEnum bizType, Long bizId, Long ownerId) {
+    public void unbindRef(String fileId, StorageBizTypeEnum bizType, Long bizId, Long ownerId) {
         // 前置校验：文件必须存在且未删除
         getMetaOrThrow(fileId);
         // 仅删当前调用方的引用行（四条件精确定位），不动文件本体；幂等：行不存在静默结束

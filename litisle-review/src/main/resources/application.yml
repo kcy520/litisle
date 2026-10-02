@@ -1,1 +1,169 @@
-spring.application.name=litisle-review
+server:
+  port: 8084
+
+spring:
+  application:
+    name: litisle-review
+
+  profiles:
+    active: local
+
+  main:
+    allow-circular-references: true
+    allow-bean-definition-overriding: true
+
+  # Nacos 配置中心 + 服务注册发现
+  config:
+    import:
+      - optional:nacos:${spring.application.name}.yaml
+      - optional:nacos:litisle-shared.yaml
+  cloud:
+    nacos:
+      server-addr: ${litisle.nacos.server-addr:localhost:8848}
+      username: ${litisle.nacos.username:nacos}
+      password: ${litisle.nacos.password:nacos}
+      discovery:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+      config:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+        file-extension: yaml
+
+  # MySQL（litisle_review 库：review_task/report/appeal/punish_log/moderation_record 等）
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: "jdbc:mysql://${litisle.db.host:localhost}:${litisle.db.port:3306}/${litisle.db.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+    username: ${litisle.db.username:root}
+    password: ${litisle.db.password:123}
+
+  # Redis（审核结果缓存 / 拒传黑名单 / 免审键 / 在途去重锁）
+  data:
+    redis:
+      host: ${litisle.redis.host:localhost}
+      port: ${litisle.redis.port:6380}
+      password: ${litisle.redis.password:123}
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-wait: -1ms
+          max-idle: 10
+          min-idle: 0
+
+  # RabbitMQ（moderation.exchange；服务端需延迟消息插件 x-delayed-message）
+  rabbitmq:
+    host: ${litisle.rabbitmq.host:localhost}
+    port: ${litisle.rabbitmq.port:5672}
+    username: ${litisle.rabbitmq.username:litisle}
+    password: ${litisle.rabbitmq.password:litisle_pass}
+    virtual-host: ${litisle.rabbitmq.vhost:/litisle}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        # 失败不 ACK 重投（延迟退避），故手动应答
+        acknowledge-mode: manual
+        # 预取上限外置（防一次拉取过多消息驻留内存 OOM，§4.7）
+        prefetch: ${litisle.moderation.consumer.prefetch:10}
+
+mybatis-plus:
+  configuration:
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    db-config:
+      update-strategy: not_null
+      id-type: auto
+
+logging:
+  level:
+    com.litisle.litislereview: debug
+    com.litisle.litisleapi.feign: DEBUG
+  pattern:
+    dateformat: HH:mm:ss:SSS
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
+  file:
+    path: "logs/${spring.application.name}"
+
+# Actuator 监控端点（审核观测指标暴露给 Prometheus，§4.8）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# litisle-review 业务配置（外置清单见 Review-Plan §4.7；运营可调）
+litisle:
+  moderation:
+    # 适配器激活（生产切 aliyun 零代码）
+    text-provider: llm
+    image-provider: onnx
+    retry:
+      max-count: 5
+      base-delay-ms: 30000
+    cache:
+      ttl-hours: 72
+      ttl-jitter-ratio: 0.1
+    # last-hash.ttl-hours 归属 litisle-shared.yaml（content 写、review 声明），不放单服务 yml（§4.7）
+    reject-blacklist:
+      ttl-days: 30
+    qps:
+      # 语义层全站 QPS 护栏（Redis 降级直调模型时仍生效）
+      max-count: 200
+    consumer:
+      prefetch: 10
+    wordlib:
+      gray-misreport-rate: 0.01
+    appeal:
+      window-days: 7
+      timeout-days: 7
+    report:
+      abuse-threshold: 3
+    claim:
+      timeout-minutes: 30
+      max-active-per-reviewer: 20
+    quarantine:
+      retention-days: 10
+    record:
+      retention-months: 6
+    sweeper:
+      interval-seconds: 60
+      stuck-resubmit-minutes: 30
+    llm:
+      temperature: 0
+      few-shot-version: v1
+      timeout-ms: 15000
+      max-text-chars: 6000
+    onnx:
+      timeout-ms: 10000
+      # 本地推理并发上限（信号量，默认 CPU 核数）
+      max-concurrency: 4
+    api:
+      timeout-ms: 8000
+    image:
+      model-version: v1
+    dedup:
+      lock-seconds: 60
+    alert:
+      suspicious-backlog-threshold: 50
+      dlq-backlog-threshold: 100
+      moderation-fail-rate: 0.2
+      pass-rate-drop-ratio: 0.3
+      cache-hit-drop-ratio: 0.5
+
+knife4j:
+  enable: true
+  openapi:
+    title: litisle-review 接口文档
+    description: "Litisle-review：内容审核 / 举报 / 申诉 / 处罚 / 词库运营"
+    version: v1.0.0
+    group:
+      default:
+        group-name: default
+        api-rule: package
+        api-rule-resources:
+          - com.litisle.litislereview.controller
