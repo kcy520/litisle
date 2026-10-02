@@ -20,6 +20,46 @@
 
 #### 代码修改类
 
+##### common 模块 · MQ 公共能力抽取（common-mq，A2 方案已定稿，2026-10-02）
+
+> 背景：MQ 代码已自然分三层——契约层（litisle-api 的 MqConstant/事件 DTO，已抽对不动）、拓扑层
+> （各服务 Queue/Binding/DLX 声明，服务私有**不抽**）、机制层（Converter/发送/消费模板，跨服务重复）。
+> review 模块开发在即，机制层将出现第二份重复（Jackson2JsonMessageConverter、发送/ACK 模板逐字复制必漂移）；
+> 且 MQ 链路 traceId 目前断链（发事件未注入 Header、消费未恢复 MDC），违背 commom-des.md §10
+> 全链路追踪既定规范。
+
+**方案边界（防过度设计）**：
+- 只抽机制不抽拓扑：Exchange/Queue/Binding/DLX 声明、yml 连接配置、prefetch 留在各服务
+- ACK 模板做轻量静态工具，不做注解/切面/基类继承
+- common-mq 不依赖 litisle-api（业务契约由业务服务自引），依赖方向仅 common-mq → common-core
+- 拒绝塞进 common-core（会强制 gateway 等无 MQ 需求模块传递 amqp 依赖，违背模块隔离原则）
+
+- [ ] **common-mq 模块骨架**（2026-10-02 pom 已完成）：litisle-common 聚合注册 + parent 改指
+  litisle-common（修复 IDE 生成的 spring-boot-starter-parent 4.1.1 误指向）+ 依赖
+  common-core（compile，用 HeaderConstant.X_TRACE_ID 与 Feign/HTTP 同口径）/
+  spring-boot-starter-amqp（Boot 父 POM 托管版本）/ jackson-databind（compile，
+  common-core 该依赖为 provided 不传递，必须显式引入，版本由根 POM jackson-bom 锁定 2.21.4）；
+  删除库模块不需要的 spring-boot-maven-plugin
+- [ ] **CommonMqAutoConfiguration**：注册 Jackson2JsonMessageConverter（事件体 JSON 统一口径，
+  禁 Java 原生反序列化）+ RabbitTemplate 定制；经 META-INF/spring/...AutoConfiguration.imports
+  注册（引依赖即生效，仿 common-redis/common-security 模式）
+- [ ] **MqSendUtil（发送封装）**：convertAndSend 统一收口——MDC traceId 注入消息 Header
+  + 发送失败仅记 error 不抛（对齐 file 侧「发布失败不回滚上传、safe_flag 停留占位」纪律）
+- [ ] **MqTraceSupport（消费侧 traceId 恢复）**：消费前从消息 Header 读 traceId 写 MDC，
+  finally 清理防线程池复用污染，补齐 §10.2 链路图的 MQ 缺口
+- [ ] **MqAckHelper（手动 ACK 模板）**：固化 file 侧已定稿 ACK 纪律为 SSOT——成功 ack；
+  业务性失败 warn 后 ack 丢弃（防毒丸无限重投）；非预期异常 nack(requeue=false) 入 DLQ。
+  review 消费者直接复用，防复制漂移
+- [ ] **file 模块迁移**：ModerationMqConfig 删 jacksonMessageConverter() Bean 改用公共
+  Converter；FileServiceImpl 的 rabbitTemplate.convertAndSend 换 MqSendUtil；
+  ModerationResultListener 的 ack/nack 换 MqAckHelper（顺带建议：包名 interceptor→listener，
+  MQ 消费者非 HTTP 拦截器）
+- [ ] **review 模块接入约束**：review 开发时发布 moderation.result 等事件一律走 MqSendUtil、
+  消费 image.submit 走 MqAckHelper + MqTraceSupport，禁止再自建 Converter
+
+**验收口径**：file 迁移后全链路日志（发事件→消费）traceId 贯通；DLQ 行为与迁移前一致；
+本地 RabbitMQ 队列参数零变化（拓扑未动，不触发 PRECONDITION_FAILED）。
+
 ##### file 模块 · 审核隔离条件接入（对齐 Review-Plan §4.2.2 / §907 定稿口径）
 
 - [x] **【最高优先级】FileReconcileTask Step2 跳过 `quarantine/` 前缀**（2026-10-02 完成）：物理清理扫 del_flag=1 且超 7 天时，

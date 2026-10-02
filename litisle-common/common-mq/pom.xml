@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.litisle</groupId>
+        <artifactId>litisle-common</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>common-mq</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>common-mq</name>
+    <description>common-mq</description>
+    <properties>
+        <java.version>25</java.version>
+    </properties>
+
+
+    <dependencies>
+        <!-- common-core：HeaderConstant（MQ 链路 traceId Header 名与 Feign/HTTP 同一口径）、JsonUtil -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-core</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
+        <!-- spring-boot-starter-amqp：RabbitTemplate / @RabbitListener / 拓扑声明（Exchange/Queue/Binding） -->
+        <!-- 版本由 Spring Boot 3.5.x 父 POM 管理，无需指定版本 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
+        <!-- jackson-databind：Jackson2JsonMessageConverter 事件体 JSON 序列化（项目纪律：禁 Java 原生反序列化） -->
+        <!-- 【重要】compile：common-mq 代码直接引用 Jackson 类，且 common-core 的 jackson-databind 为 provided（不传递），
+             必须在此显式引入；版本由根 POM jackson-bom 统一锁定 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>
