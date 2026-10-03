@@ -2,6 +2,8 @@ package com.litisle.litislefile.interceptor;
 
 
 
+import com.litisle.commonmq.consume.MqAckHelper;
+import com.litisle.commonmq.consume.MqTraceSupport;
 import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.event.moderation.ModerationAppealResultEvent;
 import com.litisle.litisleapi.event.moderation.ModerationResultEvent;
@@ -48,43 +50,33 @@ public class ModerationResultListener {
 
     /**
      * 消费审核结果：回写 safe_flag / 隔离违规图
+     * （ACK 纪律与 traceId 恢复收口 common-mq：MqAckHelper + MqTraceSupport）
      */
     @RabbitListener(queues = MqConstant.QUEUE_FILE_MODERATION_RESULT)
     public void onModerationResult(ModerationResultEvent event, Message message, Channel channel)
             throws IOException {
-        long tag = message.getMessageProperties().getDeliveryTag();
+        MqTraceSupport.restore(message);
         try {
-            handleModerationResult(event);
-            channel.basicAck(tag, false);
-        } catch (Exception e) {
-            log.error("审核结果事件消费失败，进 DLQ，eventId={}，bizType={}，bizId={}",
-                    event == null ? null : event.getEventId(),
-                    event == null ? null : event.getBizType(),
-                    event == null ? null : event.getBizId(), e);
-            channel.basicNack(tag, false, false);
+            MqAckHelper.executeWithAck(MqConstant.QUEUE_FILE_MODERATION_RESULT, message, channel,
+                    () -> handleModerationResult(event));
+        } finally {
+            MqTraceSupport.clear();
         }
     }
 
     /**
      * 消费申诉裁决结果：改判 PASS 时恢复隔离
+     * （ACK 纪律与 traceId 恢复收口 common-mq：MqAckHelper + MqTraceSupport）
      */
     @RabbitListener(queues = MqConstant.QUEUE_FILE_MODERATION_APPEAL_RESULT)
     public void onAppealResult(ModerationAppealResultEvent event, Message message, Channel channel)
             throws IOException {
-        long tag = message.getMessageProperties().getDeliveryTag();
+        MqTraceSupport.restore(message);
         try {
-            handleAppealResult(event);
-            channel.basicAck(tag, false);
-        } catch (Exception e) {
-            log.error("申诉裁决事件消费失败，进 DLQ，eventId={}，bizId={}",
-                    event == null ? null : event.getEventId(),
-                    event == null ? null : event.getBizId(), e);
-            //RabbitMQ 的手动 NACK（否定确认），用在消费消息失败时的兜底处理。
-            channel.basicNack(tag, false, false);
-//            参数	    值	        含义
-//            tag	    deliveryTag	当前消息的唯一投递标识，用来告诉 broker“我说的是哪条消息”
-//            multiple	false	    只否定当前这一条消息，不批量处理
-//            requeue	false	    不重新入队，直接丢弃或进入 DLQ（死信队列）
+            MqAckHelper.executeWithAck(MqConstant.QUEUE_FILE_MODERATION_APPEAL_RESULT, message, channel,
+                    () -> handleAppealResult(event));
+        } finally {
+            MqTraceSupport.clear();
         }
     }
 

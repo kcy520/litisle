@@ -8,8 +8,6 @@ import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
-import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
-import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -24,8 +22,8 @@ import org.springframework.context.annotation.Configuration;
  *   Direct 精确匹配无通配语义，杜绝业务侧通配绑定（如 moderation.#）误吸死信，
  *   且死信链路可独立监控/治理，不随业务交换机变更受影响
  *
- * 【消息转换】Jackson2JsonMessageConverter：事件体一律 JSON（项目安全纪律：禁 Java 原生反序列化），
- * 发布方与消费方共用同一转换器口径
+ * 【消息转换】Jackson2JsonMessageConverter 已下沉 common-mq 公共模块
+ * （CommonMqAutoConfiguration 统一注册，禁 Java 原生反序列化），此处不再重复声明
  */
 @Configuration
 public class ModerationMqConfig {
@@ -99,9 +97,6 @@ public class ModerationMqConfig {
                 .with(MqConstant.ROUTING_MODERATION_APPEAL_RESULT_DLQ);
     }
 
-    /** 事件体 JSON 序列化（发布方与消费方统一口径；禁 Java 原生反序列化） */
-    @Bean
-    public MessageConverter jacksonMessageConverter() {
-        return new Jackson2JsonMessageConverter();
-    }
+    // 事件体 JSON 序列化（Jackson2JsonMessageConverter）已由 common-mq 统一注册，
+    // 避免与 CommonMqAutoConfiguration 的 @ConditionalOnMissingBean(MessageConverter) 重复声明
 }

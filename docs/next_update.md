@@ -34,31 +34,62 @@
 - common-mq 不依赖 litisle-api（业务契约由业务服务自引），依赖方向仅 common-mq → common-core
 - 拒绝塞进 common-core（会强制 gateway 等无 MQ 需求模块传递 amqp 依赖，违背模块隔离原则）
 
-- [ ] **common-mq 模块骨架**（2026-10-02 pom 已完成）：litisle-common 聚合注册 + parent 改指
+- [x] **common-mq 模块骨架**（2026-10-02 完成）：litisle-common 聚合注册 + parent 改指
   litisle-common（修复 IDE 生成的 spring-boot-starter-parent 4.1.1 误指向）+ 依赖
   common-core（compile，用 HeaderConstant.X_TRACE_ID 与 Feign/HTTP 同口径）/
   spring-boot-starter-amqp（Boot 父 POM 托管版本）/ jackson-databind（compile，
   common-core 该依赖为 provided 不传递，必须显式引入，版本由根 POM jackson-bom 锁定 2.21.4）；
   删除库模块不需要的 spring-boot-maven-plugin
-- [ ] **CommonMqAutoConfiguration**：注册 Jackson2JsonMessageConverter（事件体 JSON 统一口径，
+- [x] **CommonMqAutoConfiguration**（2026-10-02 完成）：注册 Jackson2JsonMessageConverter（事件体 JSON 统一口径，
   禁 Java 原生反序列化）+ RabbitTemplate 定制；经 META-INF/spring/...AutoConfiguration.imports
   注册（引依赖即生效，仿 common-redis/common-security 模式）
-- [ ] **MqSendUtil（发送封装）**：convertAndSend 统一收口——MDC traceId 注入消息 Header
-  + 发送失败仅记 error 不抛（对齐 file 侧「发布失败不回滚上传、safe_flag 停留占位」纪律）
-- [ ] **MqTraceSupport（消费侧 traceId 恢复）**：消费前从消息 Header 读 traceId 写 MDC，
+- [x] **MqSendUtil（发送封装，两档语义）**（2026-10-02 完成）：convertAndSend 统一收口——
+  ① send：尽力而为，MDC traceId 注入消息 Header + 失败仅记 error 不抛
+  （对齐 file 侧「发布失败不回滚上传、safe_flag 停留占位」纪律）；
+  ② sendCritical：必达语义，静默重试 1 次后仍失败抛 BizException(MQ_SEND_FAILED/10015)，
+  强制调用方回滚/补偿；首个调用方为 content.unpublished（向量库 chunk 必须移除，禁静默丢失）
+- [x] **MqTraceSupport（消费侧 traceId 恢复）**（2026-10-02 完成）：消费前从消息 Header 读 traceId 写 MDC，
   finally 清理防线程池复用污染，补齐 §10.2 链路图的 MQ 缺口
-- [ ] **MqAckHelper（手动 ACK 模板）**：固化 file 侧已定稿 ACK 纪律为 SSOT——成功 ack；
+- [x] **MqAckHelper（手动 ACK 模板）**（2026-10-02 完成）：固化 file 侧已定稿 ACK 纪律为 SSOT——成功 ack；
   业务性失败 warn 后 ack 丢弃（防毒丸无限重投）；非预期异常 nack(requeue=false) 入 DLQ。
   review 消费者直接复用，防复制漂移
-- [ ] **file 模块迁移**：ModerationMqConfig 删 jacksonMessageConverter() Bean 改用公共
+- [x] **file 模块迁移**（2026-10-02 完成）：ModerationMqConfig 删 jacksonMessageConverter() Bean 改用公共
   Converter；FileServiceImpl 的 rabbitTemplate.convertAndSend 换 MqSendUtil；
-  ModerationResultListener 的 ack/nack 换 MqAckHelper（顺带建议：包名 interceptor→listener，
-  MQ 消费者非 HTTP 拦截器）
+  ModerationResultListener 的 ack/nack 换 MqAckHelper。
+  ⚠️ 遗留：包名 interceptor→listener 未做（涉及文件移动，待确认后手动/IDE 拖动）
+- [x] **【现在就做】MqAckHelper Javadoc 补毒丸防护说明**（2026-10-03 完成）：类头新增
+  【毒丸防护·隐式依赖路径】章节，列出三项禁止改动（catch 改宽 ack 丢数据 / requeue=true
+  毒丸重投 / lambda 内吞异常绕过 DLQ）
+- [ ] **【现在就做】common-mq 单元测试**（代码已写好，⚠️ 遗留：3 个测试类误放
+  src/main/java/com/litisle/commonmq/test/，须移至 src/test/java/com/litisle/commonmq/ 并改回原包名，
+  否则 main 编译因 test 依赖不可见而失败；另 CommonMqApplicationTests 删留待定）：
+  MqAckHelper（mock Channel 三分支：成功 ack /
+  BizException ack 丢弃 / 其他异常 nack requeue=false）；MqTraceSupport（Header 恢复 MDC /
+  缺失静默跳过 / clear 清理）；MqSendUtil（mock RabbitTemplate：send 失败吞掉不抛 /
+  sendCritical 重试 1 次后抛 MQ_SEND_FAILED / traceId Header 注入断言）
+- [x] **【工具类预先就位，按需使用】MqIdempotentHelper（幂等消费辅助）**（2026-10-03 完成）：
+  SETNX 去重键 key=`litisle:mq:idempotent:{queue}:{eventId}`（服务端派生，禁拼用户原串），
+  TTL 外置 `litisle.mq.idempotent.dedup-ttl-seconds` 默认 86400；pom 补 redis starter（provided），
+  自动配置 @ConditionalOnClass 守卫 + ObjectProvider optional 注入；降级两档由调用方选——
+  tryAcquire 降级放行（业务幂等兜底）/ tryAcquireStrict 降级拦截（宁漏勿重，留 error 人工补偿）；
+  触发条件：review 侧非幂等副作用消费者；file 侧天然幂等暂无调用方
+- [x] **【工具类预先就位，按需使用】MqMetrics（收发指标埋点）**（2026-10-03 完成）：新增
+  metrics/MqMetrics——mq_send_total{exchange,result} / mq_consume_total{queue,result} Counter，
+  消费结果枚举与 MqAckHelper 三分支对齐（success/biz_drop/unexpected）；照搬 RedisGuard 模式
+  （pom 补 micrometer-core provided + @ConditionalOnClass 守卫 + ObjectProvider optional 注入，
+  MeterRegistry 缺失时静默空转）；tag 基数纪律：exchange/queue 禁动态串；
+  调用点接入触发条件：review 开发时接告警面板（file 侧暂不埋）
+- [ ] **【暂不做（防过度设计，附触发条件）】**：Publisher Confirm（触发：broker 丢消息造成
+  真实业务事故）；本地消息表/事务性发件箱（支付级强一致已由 Seata AT 覆盖）；
+  批量消费（触发：高吞吐日志/埋点类消费者）；MQ 常量/枚举抽取进 common-mq
+  （已定论：契约常量 SSOT 在 litisle-api，机制常量已在位，强抽会制造第二契约源）
 - [ ] **review 模块接入约束**：review 开发时发布 moderation.result 等事件一律走 MqSendUtil、
   消费 image.submit 走 MqAckHelper + MqTraceSupport，禁止再自建 Converter
 
 **验收口径**：file 迁移后全链路日志（发事件→消费）traceId 贯通；DLQ 行为与迁移前一致；
-本地 RabbitMQ 队列参数零变化（拓扑未动，不触发 PRECONDITION_FAILED）。
+本地 RabbitMQ 队列参数零变化（拓扑未动，不触发 PRECONDITION_FAILED）；
+common-mq 单测全绿；MqIdempotentHelper/MqMetrics 编译期零强制依赖（optional/provided），
+未接 Redis/Micrometer 的消费方引 common-mq 不受影响。
 
 ##### file 模块 · 审核隔离条件接入（对齐 Review-Plan §4.2.2 / §907 定稿口径）
 

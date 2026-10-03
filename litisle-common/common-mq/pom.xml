@@ -41,6 +41,24 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- spring-boot-starter-data-redis：MqIdempotentHelper 幂等去重（SETNX）依赖的 StringRedisTemplate -->
+        <!-- 【重要】provided：仅编译期可用、不传递——未接 Redis 的消费方引 common-mq 不受影响
+             （对齐 micrometer-core provided 模式）；业务服务自行引入 redis starter 后自动生效 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- micrometer-core：MqMetrics 收发指标埋点（mq_send_total / mq_consume_total） -->
+        <!-- 【重要】provided：仅编译期可用、不传递——未接 Micrometer 的消费方引 common-mq 不受影响
+             （照搬 RedisGuard 模式）；业务服务自行引入 actuator/prometheus 后自动生效 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

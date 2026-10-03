@@ -30,6 +30,11 @@ import java.util.UUID;
  */
 public class TraceIdFilter extends OncePerRequestFilter {
 
+
+//    TraceIdFilter 的作用域仅限于 HTTP 请求线程
+//    MQ 是一条「异步边界」，MDC 不会自动跨线程、跨进程、跨 broker。
+//    HTTP Filter 只能保证「请求内」链路；MQ 是异步边界，traceId 必须显式跨线程、跨进程传递。
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {

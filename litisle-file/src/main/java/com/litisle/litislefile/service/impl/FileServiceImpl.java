@@ -34,7 +34,7 @@ import com.litisle.litislefile.util.FileMagicValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import com.litisle.commonmq.send.MqSendUtil;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -151,7 +151,7 @@ public class FileServiceImpl implements FileService {
     private final DistributedLock distributedLock;
     private final ThumbnailGenerator thumbnailGenerator;
     private final RedisUtil redisUtil;
-    private final RabbitTemplate rabbitTemplate;
+    private final MqSendUtil mqSendUtil;
 
     /**
      * 单文件上传（含秒传）：校验 → 流式算 SHA256 → 无锁快查判重 → 锁内双检+占位写库（status=0）
@@ -915,7 +915,8 @@ public class FileServiceImpl implements FileService {
             event.setScene(ModerationConstant.SCENE_IMAGE);
             event.setContentHash(sha256);
             event.setRetryCount(0);
-            rabbitTemplate.convertAndSend(MqConstant.EXCHANGE_MODERATION,
+            // 事件发布统一收口 common-mq MqSendUtil（traceId 注入 Header + 失败日志口径统一）
+            mqSendUtil.send(MqConstant.EXCHANGE_MODERATION,
                     MqConstant.ROUTING_MODERATION_IMAGE_SUBMIT, event);
             log.info("image.submit 事件已发布，fileId={}，sha256={}", meta.getFileId(), sha256);
         } catch (Exception e) {
