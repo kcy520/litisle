@@ -60,13 +60,18 @@
 - [x] **【现在就做】MqAckHelper Javadoc 补毒丸防护说明**（2026-10-03 完成）：类头新增
   【毒丸防护·隐式依赖路径】章节，列出三项禁止改动（catch 改宽 ack 丢数据 / requeue=true
   毒丸重投 / lambda 内吞异常绕过 DLQ）
-- [ ] **【现在就做】common-mq 单元测试**（代码已写好，⚠️ 遗留：3 个测试类误放
-  src/main/java/com/litisle/commonmq/test/，须移至 src/test/java/com/litisle/commonmq/ 并改回原包名，
-  否则 main 编译因 test 依赖不可见而失败；另 CommonMqApplicationTests 删留待定）：
-  MqAckHelper（mock Channel 三分支：成功 ack /
-  BizException ack 丢弃 / 其他异常 nack requeue=false）；MqTraceSupport（Header 恢复 MDC /
-  缺失静默跳过 / clear 清理）；MqSendUtil（mock RabbitTemplate：send 失败吞掉不抛 /
-  sendCritical 重试 1 次后抛 MQ_SEND_FAILED / traceId Header 注入断言）
+- [x] **【现在就做】common-mq 单元测试**（2026-10-03 完成，18 用例全绿）：
+  MqAckHelper 7 用例（三分支 + 毒丸路径 + ack IO 兑底转 nack / ack+nack 双 IO 失败才传播
+  ——真实行为与旧注释不一致处已修注释对齐）；MqTraceSupport 6 用例（Header 恢复/缺失跳过/
+  空白跳过/null 防御/clear 清理/全生命周期）；MqSendUtil 5 用例（send 吞异常/traceId 注入/
+  无 MDC 不写脏 Header/sendCritical 重试成功/重试耗尽抛 MQ_SEND_FAILED）。
+  附带治理：① JDK 21+ Mockito 动态 agent 废弃警告——pom 加 dependency:properties +
+  surefire argLine 静态挂载 mockito-core agent（官方方案，版本由 Boot 父 POM 托管）；
+  ② 库模块脚手架测试 CommonCoreApplicationTests/CommonRedisApplicationTests/
+  CommonSecurityApplicationTests/LitisleApiApplicationTests 摘除 @SpringBootTest
+  （库模块无主类，容器测试必然 ERROR 阻断 -am 构建链，改无害占位类零删除）；
+  ③ 测试类曾误放 src/main 已迁至 src/test（包名同步修正）
+
 - [x] **【工具类预先就位，按需使用】MqIdempotentHelper（幂等消费辅助）**（2026-10-03 完成）：
   SETNX 去重键 key=`litisle:mq:idempotent:{queue}:{eventId}`（服务端派生，禁拼用户原串），
   TTL 外置 `litisle.mq.idempotent.dedup-ttl-seconds` 默认 86400；pom 补 redis starter（provided），

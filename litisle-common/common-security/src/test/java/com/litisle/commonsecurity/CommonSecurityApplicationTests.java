@@ -3,10 +3,6 @@ package com.litisle.commonsecurity;
 import com.litisle.commonsecurity.crypto.Aes256GcmCrypto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-
-@Slf4j
-@SpringBootTest
 class CommonSecurityApplicationTests {
 
     @Test
@@ -20,9 +16,10 @@ class CommonSecurityApplicationTests {
     @Test
     void generateAesKey() {
         String key = Aes256GcmCrypto.generateKey();
-        log.info("========================================");
-        log.info("AES-256 Key (Base64, " + key.length() + " chars):{}", key);
-        log.info("========================================");
+//        log.info("========================================");
+//        log.info("AES-256 Key (Base64, " + key.length() + " chars):{}", key);
+//        log.info("========================================");
+
     }
 
 }

@@ -66,4 +66,33 @@
         </dependency>
     </dependencies>
 
+    <!-- JDK 21+ 动态 agent 加载废弃警告治理（Mockito 官方文档标准方案）：
+         ① maven-dependency-plugin 的 properties goal 在 initialize 阶段把所有依赖（含传递依赖）的
+         ${groupId:artifactId:type} 坐标属性注册进 Maven 属性表——仅靠直接依赖声明的内置属性
+         在部分 Maven 版本上不生效（已踩坑：占位符原样传给 JVM 致 forked VM 崩溃）；
+         ② surefire argLine 用该属性静态挂载 mockito-core agent，Mockito 检测到 agent 已就位
+         即不再运行时自挂载，废弃警告消失；版本仍由 Spring Boot 父 POM 托管，无硬编码 -->
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>
