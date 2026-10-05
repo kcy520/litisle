@@ -418,6 +418,24 @@ USERNAME 机审仅同步 DFA 单层，同音/跳词变体漏网属已知盲区�
 2/3 可绑定（展示闸口兑底占位）——REJECT 不再置 del_flag=1（保持 0，不破坏 file_ref 不变式），
 故 2/3 绑定无悬空引用风险；申诉恢复后头像自动回来，无需用户重传。
 
+quarantine 清理任务（moderation 专属，quarantine/ 前缀唯一删除责任方）：机审/人审 REJECT 且申诉
+维持驳回（或窗口内无人申诉）的违规图到期后由 review 侧 sweeper 物理清理——file 侧 FileReconcileTask
+已对 quarantine/ 前缀跳过其 7 天 delete_time 清理（防两套保留期打架，file 侧已落地）。实现口径：
+① 扫描源：moderation_record（biz_type=6）verdict=REJECT 且落库时间超 quarantine.retention-days
+的 fileId 集合（review_task 会被复审/申诉改写状态机，record 留痕表口径更稳；机审驳回即刻落库、
+人审驳回晚于终审，以 record 落库时间为基准只会顺延删除、宁晚勿早）；
+② 申诉顺延：删除前按图反查 appeal（沿用上文 ③ 口径），存在 appeal.status=0 待裁决则本轮跳过顺延
+（保留期 10 天 > 申诉窗口 7 天仅是缓冲，兜不住「窗口末期申诉、缓冲期满仍未裁决」，须按申诉态动态豁免）；
+③ 执行路径：review 无存储写凭证（s3.json 三身份拆分，review 侧无 SeaweedFS 身份），物理删除必须经
+FileClient 新增内部契约端点 deleteQuarantined(fileId) 由 file 侧执行——file 侧先校验 path 确在
+quarantine/ 前缀内（防误删正常文件）→ 删本体 + _thumb_* 缩略图 → del_flag=1 → SeaweedFS 回收站
+再兑底 7 天（业务软删 + 回收站三层缓冲）；
+④ 纪律：删除属写操作，Feign fallbackFactory fail-fast（单条失败留 error 日志由下轮扫描兑住，
+文件已删则前缀校验/不存在跳过，天然幂等）；批量限速防打满 file 侧；
+⑤ 落位：不单独建任务，与 sweeper 既有职责（认领超时回池/申诉超时维持/积压 Gauge）合并调度，
+但保留期扫描按天级频率足够（retention-days=10，60s 粒度无意义），任务内部分频执行；
+⑥ 观测：quarantine 积压 Gauge（biz_type 标签）+ 清理 Counter，告警阈值外置 yml/Nacos（§4.8 对齐）。
+
 统一建任务规则（机审判定生产者与人审消费者的衔接载体）：凡走异步机审的内容（文本/图片/私信）
 一律建 review_task——否则 SUSPICIOUS 进不了人审队列（队列读的就是 review_task）、申诉也
 无 appeal.review_task_id 可挂；图片 biz_type=6（biz_id=file_meta.id、scene=IMAGE、
@@ -904,7 +922,7 @@ result 事件 at-least-once 投递（消费失败不 ACK 延迟重试），各�
 | litisle.moderation.report.abuse-threshold | 3 | 举报人诬告计数阈值：窗口内累计 N 次「明确无依据」举报 → 反向落 punish_log(action=4-警告)+降信誉（防恶意举报轰炸，§4.5.3） |
 | litisle.moderation.claim.timeout-minutes | 30 | 认领超时自动回池（按 review_task.claim_time 判定） |
 | litisle.moderation.claim.max-active-per-reviewer | 20 | 单审核员同时在手认领上限（防一人占满队列致他人无任务可领；超限拒绝认领） |
-| litisle.moderation.quarantine.retention-days | 10 | 违规图隔离保留天数（**由 moderation 专属清理任务按此值处理，file 侧对 quarantine/ 前缀跳过其 7 天 delete_time 清理**，防两套保留期打架；取申诉窗口 7 天 + 3 天缓冲，防申诉未裁决对象已被物理清理的竞态） |
+| litisle.moderation.quarantine.retention-days | 10 | 违规图隔离保留天数（**由 moderation 专属清理任务按此值处理，file 侧对 quarantine/ 前缀跳过其 7 天 delete_time 清理**，防两套保留期打架；取申诉窗口 7 天 + 3 天缓冲，防申诉未裁决对象已被物理清理的竞态；实现口径见 §4.2.2「quarantine 清理任务」段） |
 | litisle.moderation.record.retention-months | 6 | moderation_record 留存期（《网络安全法》≥6 个月合规下限；到期归档任务迁移历史存储，二期落地配置先占位，§4.4.1） |
 | litisle.moderation.sweeper.interval-seconds | 60 | 认领超时回池 + 申诉超时维持 + 积压 Gauge 刷新周期 |
 | litisle.moderation.sweeper.stuck-resubmit-minutes | 30 | status=0 待审超时补偿重发阈值（防 MQ 消息彻底丢失卡死） |

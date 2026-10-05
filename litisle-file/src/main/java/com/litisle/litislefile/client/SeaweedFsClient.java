@@ -129,11 +129,14 @@ public class SeaweedFsClient {
     // 把 SeaweedFS 上传方法声明为一个 Sentinel 受保护资源，
     @SentinelResource("seaweedfs-put")//对方法调用进行流量控制 / 熔断降级 / 系统保护
     public void put(String bucket, String key, byte[] bytes, String contentType, String checksumSha256Base64) {
+        ///checksumSha256Base64 = 文件内容的 SHA-256 摘要，经过 Base64 编码后的字符串，用于上传时交给 S3 / SeaweedFS 做服务端内容校验。
         // 构建 PutObjectRequest：指定目标桶、对象 key 和 Content-Type（便于浏览器/下载时正确识别类型）
         PutObjectRequest.Builder builder = PutObjectRequest.builder()
                 .bucket(bucket)
                 .key(key)
                 .contentType(contentType);
+
+        //这段if-else代码决定了：文件上传时，SHA-256 校验和到底是你（业务层）算，还是 AWS SDK 帮你算。
         if (checksumSha256Base64 != null && !checksumSha256Base64.isBlank()) {
             // 显式下发调用方摘要（SDK 不再自算，避免 Service 与 SDK 重复计算、摘要来源不唯一）
             builder.checksumSHA256(checksumSha256Base64);

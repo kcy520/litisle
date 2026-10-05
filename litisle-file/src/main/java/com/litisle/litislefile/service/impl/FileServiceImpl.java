@@ -415,7 +415,7 @@ public class FileServiceImpl implements FileService {
             checkPrivateReadAccess(meta, operatorId);
         }
 
-        /**
+         /**
          * 举例：file_meta.size = 5000（对象共 5000 字节），请求头 Range = "bytes=1000-1999"
          *
          * // 第1步：取总大小（上传时已落库，无需 HEAD 往返）
