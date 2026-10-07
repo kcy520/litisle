@@ -40,3 +40,17 @@ litisle:
     username: litisle
     password: litisle_pass
     vhost: /litisle
+
+  # ================================
+  # 机审提供方（启动自检：ModerationProviderStartupChecker）
+  # image-provider=none：NSFW 模型文件落位前显式禁用（启动有 WARN 告警属预期）；
+  # 模型落位后改为 onnx 即启用。生产环境切 aliyun 走 Nacos 覆盖，零代码改动
+  # ================================
+  moderation:
+    text-provider: llm
+    image-provider: none
+    onnx:
+      model-path: ./models/nsfw-mobilenetv2.onnx
+      timeout-ms: 10000
+      reject-threshold: 0.80
+      suspicious-threshold: 0.60

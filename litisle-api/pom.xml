@@ -63,6 +63,14 @@
             <artifactId>spring-web</artifactId>
         </dependency>
 
+        <!-- ✅ houbb sensitive-word（DFA 同步闸门引擎，零传递依赖可嵌入；provided 不强制传递，
+             使用 DFA 的服务自行声明依赖，如 review/content/message；网关等不需要的服务不被污染） -->
+        <dependency>
+            <groupId>com.github.houbb</groupId>
+            <artifactId>sensitive-word</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- common 模块 -->
         <!-- ✅ Jackson（JSON 序列化） com.fasterxml.jackson.core-->
         <dependency>
