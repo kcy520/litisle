@@ -37,12 +37,15 @@ public final class DfaScenes {
      * 但它们共用同一份词库，DFA 引擎只按 ARTICLE / COMMENT / USERNAME / MESSAGE 这四个 key 存引擎。
      */
     public static String normalize(String scene) {
+        // Step1 空入参直接判非文本场景（调用方跳过 DFA）
         if (scene == null || scene.isBlank()) {
             return null;
         }
+        // Step2 去 _RE_REVIEW 复审后缀（复审与首审共用同一份词库）
         String s = scene.endsWith(RE_REVIEW_SUFFIX)
                 ? scene.substring(0, scene.length() - RE_REVIEW_SUFFIX.length())
                 : scene;
+        // Step3 场景归一：文章族三态收敛 ARTICLE；其余按映射表直映；未命中返回 null（图片场景不走 DFA）
         return switch (s) {
             case "ARTICLE", "ARTICLE_FEATURED", "ARTICLE_COMMUNITY" -> ARTICLE;
             case "COMMENT" -> COMMENT;
@@ -55,6 +58,7 @@ public final class DfaScenes {
      * 全部文本词库场景（WordLibraryLoader 逐场景加载 / DfaFacade.initAll 遍历用）
      */
     public static List<String> textScenes() {
+        // 固定四场景全集（加载侧逐场景遍历构建引擎的依据）
         return List.of(ARTICLE, COMMENT, USERNAME, MESSAGE);
     }
 }

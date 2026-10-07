@@ -48,12 +48,39 @@
 
 ### 板块二：DFA 同步闸门共享化 + 词库运营（§4.1 / §4.4.4 / §2.5 / §2.12）
 
-- [ ] DfaFacade + WordLibraryLoader 下沉 litisle-api；scene 归一映射（去 \_RE\_REVIEW 后缀，图片场景跳过不加载）；70001 仅 HIGH 同步拦截、MID 只标记 layer1\_hit=2
-- [ ] 词库版本单一来源 sensitive\_word\_version（scene 级）：任何变更同事务 +1 + Redis Pub 广播各实例重建 DFA（§2.5）
-- [ ] 启动加载兜底：表加载失败/为空时加载本地持久化快照 + 告警，绝不空词库 default-allow（§4.4.4）
-- [ ] 灰度：新词默认落 MID 观察 + 独立误报上报入口 + 运营降级（HIGH→MID）/加白 + wordlib\_misreport\_total{scene} 埋点（§2.5）
-- [ ] 导入导出安全：词长度上限 + 字符校验（DFA 构建前拦截）、CSV/Excel 导出对 =/+/-/@ 开头单元格前置 '、解析不启外部实体（防 XXE）；LIKE 对 %/\_/\ 转义（§2.12）
-- [ ] 词库页权限收口仅 ADMIN（§4.6.4）
+- [x] DfaFacade + WordLibraryLoader 下沉 litisle-api（2026-10-06，契约层 5 文件落 com.litisle.litisleapi.dfa，
+  houbb sensitive-word 0.27.1 provided 引入，版本经父 POM dependencyManagement 锁定）：
+  ① DfaScenes scene 归一映射（去 \_RE\_REVIEW 后缀；ARTICLE\_FEATURED/COMMUNITY→ARTICLE；
+  图片场景归一为 null 跳过不加载）；② WordEntry（word/level/blacklist，level 用 int code 对齐
+  WordLevelEnum SSOT）；③ WordLibraryLoader 装载 SPI（review 查表 / content·message 读 Redis 快照
+  两实现，兜底纪律宁严勿松写入 Javadoc）；④ DfaHitResult（hit/maxLevel/hitWords/wordlibVer，
+  70001 仅 HIGH、MID 只标记 layer1\_hit=2 消费纪律入 Javadoc）；⑤ DfaFacade（每场景独立
+  SensitiveWordBs 引擎；热更=构建新实例→version 乐观比对防乱序→原子换引用，不用 houbb reInit；
+  级别判定=单 deny 库命中后反查 wordLevels 映射取最小 code；未初始化 check 抛异常绝 default-allow）
+- [x] review 侧 TableWordLibraryLoader（查 sensitive\_word\_library 表 + 本地持久化快照兜底，2026-10-07）
+  + DfaFacade Bean 装配（SmartInitializingSingleton initAll）；快照目录外置
+  litisle.moderation.wordlib.snapshot-dir，JSON 序列化 + 临时文件原子 move，查表失败/为空回退快照仍无数据则中断启动
+- [x] 词库版本单一来源 sensitive\_word\_version（scene 级，2026-10-07）：任何变更同事务 +1
+  （WordlibVersionService 原子 update 无行首插，无行冲突重试）+ afterCommit 写 Redis 快照
+  （review:wordlib-snapshot:{scene}，WordlibSnapshot JSON）+ Redis Pub 广播
+  （review:wordlib:change，WordlibChangedMessage）各实例订阅重建 DFA（version 乐观比对防乱序）；
+  addWord/updateWord/deleteWord/importWords 最小 CRUD 已落地（词校验/查重/物理删），导出/列表仍留白
+- [x] 灰度（2026-10-07）：新增词 level 不传默认落 MID 观察（addWord service 层 null→MID）
+  + 独立误报上报入口（POST /api/review/word/misreport，登录用户 + @RateLimiter(USER)
+  5次/分钟防刷；校验词存在 → wordlib_misreport_total{scene} 埋点 + warn 日志词级明细，不落库）
+  + 运营降级（HIGH→MID）/加白复用 updateWord；Counter 为灰度转正唯一数据源（仅 scene 标签防基数爆炸）
+- [x] 导入导出安全（2026-10-07，§2.12）：导入限类型（.csv/.txt 白名单）与大小（≤2MB）+
+  纯文本按行解析不用 XML/Excel 解析器（无外部实体攻击面，设计性防 XXE）+ 逐词校验
+  （长度≤64 + 禁空白/控制字符，DFA 构建前拦截）+ BOM/包裹引号剥离（与导出转义约定互逆）+
+  文件内去重 + DB 冲突 .in 批量比对跳过（防 N+1），净新增才 version+1 一次同事务广播；
+  导出服务端生成 CSV（escapeCsvCell 双重转义：=/+/-/@ 开头单元格前置 ' 防公式注入 +
+  含逗号/引号/换行标准双引号包裹），Controller 加 UTF-8 BOM + text/csv 附件头下载；
+  列表 keyword 模糊查询对 %/\_/\\ 转义（ESCAPE 声明 + #{} 预编译绑定，防通配放大全表扫）+ LIMIT 1000 安全上限
+- [x] 词库页权限收口仅 ADMIN（2026-10-07，§4.6.4）：词库 6 端点
+  （POST/PUT /word、DELETE /word/{id}、import、export、list）由 @SaCheckLogin 收口为
+  @SaCheckRole(RoleCode.ADMIN)（对齐 UserAdminController 先例，注解用常量禁硬编码）；
+  误报上报 /word/misreport 保持登录用户 + USER 限频；补齐缺失的 PUT /word 修改端点
+  （service 层 updateWord 已有实现，此前灰度降级 HIGH→MID 闭环缺入口）
 
 ### 板块三：MQ 异步机审链路（§4.2.1/§4.2.2/§4.5.2/§4.2.4）
 

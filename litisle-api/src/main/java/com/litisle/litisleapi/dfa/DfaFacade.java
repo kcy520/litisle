@@ -50,6 +50,7 @@ public class DfaFacade {
     }
 
     public DfaFacade(WordLibraryLoader loader) {
+        // 引擎数据源唯一入口：词表/版本全部经 WordLibraryLoader SPI 装载（宿主各自实现）
         this.loader = loader;
     }
 
@@ -57,6 +58,7 @@ public class DfaFacade {
      * 启动初始化：逐文本场景构建引擎；任何场景加载失败直接抛异常中断启动（fail-fast）
      */
     public void initAll() {
+        // 逐文本场景串行构建；rebuild 内部 fail-fast，任一场景词库装载失败即中断启动（宁严勿松）
         for (String scene : DfaScenes.textScenes()) {
             rebuild(scene);
         }
@@ -142,6 +144,7 @@ public class DfaFacade {
      * 当前生效版本（观测/留痕兜底；场景未初始化返回 -1）
      */
     public long currentVersion(String scene) {
+        // 场景未构建（未 initAll/被跳过）返回 -1 占位，调用方按未知态保守处理
         Engine engine = engines.get(scene);
         return engine == null ? -1L : engine.version();
     }

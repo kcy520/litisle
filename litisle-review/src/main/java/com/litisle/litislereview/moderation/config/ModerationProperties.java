@@ -32,6 +32,9 @@ public class ModerationProperties {
     /** ONNX 本地推理参数 */
     private Onnx onnx = new Onnx();
 
+    /** 词库/DFA 闸门参数（板块二） */
+    private Wordlib wordlib = new Wordlib();
+
     @Data
     public static class Image {
 
@@ -56,6 +59,13 @@ public class ModerationProperties {
 
         /** SUSPICIOUS 阈值：≥ 此值且低于 REJECT 阈值转人工（宁疑不放） */
         private double suspiciousThreshold = 0.60;
+    }
+
+    @Data
+    public static class Wordlib {
+
+        /** DFA 词库本地持久化快照目录：表加载失败/为空时回退上次成功词库（§4.4.4 宁严勿松兜底） */
+        private String snapshotDir = System.getProperty("user.home") + "/.litisle/review/dfa-snapshot";
     }
 
     @Data

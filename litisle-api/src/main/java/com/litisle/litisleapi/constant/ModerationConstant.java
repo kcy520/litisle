@@ -50,4 +50,20 @@ public class ModerationConstant {
      * %s 依次为 provider、modelVersion、sha256——版本化防「词库热更/模型切换后旧结论继续放行」（§2.11）
      */
     public static final String IMG_RESULT_KEY = "review:img-result:%s:%s:%s";
+
+    // ==================== Redis Pub/快照契约（词库共享化，§2.5） ====================
+
+    /**
+     * 词库变更广播频道（Redis Pub，fire-and-forget）：review 侧词表变更事务提交后发布；
+     * 宿主 DFA 的服务（review/content/message）订阅后调 DfaFacade.rebuild(scene)，
+     * 内部按 version 乐观比对防乱序旧覆盖新（§2.5）
+     */
+    public static final String WORDLIB_CHANGE_CHANNEL = "review:wordlib:change";
+
+    /**
+     * 词库快照 key（scene 级）：review 变更提交后写入（先于广播发布），
+     * content/message 的 WordLibraryLoader 读 Redis 快照实现的数据源；
+     * %s 为 scene（ARTICLE/COMMENT/USERNAME/MESSAGE）；value 为 WordlibSnapshot JSON（无 TTL，随版本覆盖）
+     */
+    public static final String WORDLIB_SNAPSHOT_KEY = "review:wordlib-snapshot:%s";
 }

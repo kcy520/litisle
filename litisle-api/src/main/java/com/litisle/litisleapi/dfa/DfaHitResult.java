@@ -21,7 +21,7 @@ import java.util.List;
 public record DfaHitResult(boolean hit, Integer maxLevel, List<String> hitWords, long wordlibVer) {
 
     public static DfaHitResult noHit(long wordlibVer) {
-
+        // 未命中：maxLevel=null、hitWords=空列表；版本快照仍必带（调用方留痕/缓存比对用）
         return new DfaHitResult(false, null, List.of(), wordlibVer);
     }
 }

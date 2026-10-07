@@ -118,6 +118,8 @@ litisle:
       prefetch: 10
     wordlib:
       gray-misreport-rate: 0.01
+      # DFA 词库本地持久化快照目录（表加载失败/为空时回退上次成功词库，§4.4.4 宁严勿松）
+      snapshot-dir: ${user.home}/.litisle/review/dfa-snapshot
     appeal:
       window-days: 7
       timeout-days: 7

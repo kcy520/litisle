@@ -31,8 +31,9 @@ import java.util.List;
  * void judgeAppeal(Long appealId, AppealDecideDTO dto, Long judgeId) // ADMIN 裁决（回避+confirm 双签留痕）
  * List<PunishLogVO> listMyPunish(Long userId)                        // 我的处罚流水
  * void addWord / updateWord / deleteWord(...)                        // 词库管理（ADMIN；变更与 version+1 同事务）
- * void importWords / List<SensitiveWordLibrary> exportWords(...)     // 词库导入导出（防注入/XXE 约束见方法注释）
- * List<SensitiveWordLibrary> listWords(WordSceneEnum scene, ...)     // 词库列表（ADMIN）
+ * void importWords(MultipartFile, ...)                               // 词库导入（防注入/XXE 约束见方法注释）
+ * String exportWords(WordSceneEnum scene, ...)                       // 词库导出 CSV 文本（防公式注入，§2.12）
+ * List<SensitiveWordLibrary> listWords(scene, keyword, ...)          // 词库列表（ADMIN，keyword LIKE 转义）
  *
  * 【不进本接口的链路】机审执行（DFA/LLM/图片模型）与 MQ 消费（moderation.result、
  * image.submit、content.unpublished 等事件）放 listener + 独立 ModerationService，
@@ -101,6 +102,12 @@ public interface ReviewService {
                  WordListTypeEnum isBlacklist, Long operatorId);
 
     /**
+     * 词库误报上报（§2.5）：HIGH 同步拒发的内容未发布无法走 appeal，独立入口回流；
+     * 仅校验词存在 + Counter 埋点（wordlib_misreport_total{scene}）+ warn 日志，不落库
+     */
+    void reportMisreport(String word, WordSceneEnum scene, String reason, Long reporterId);
+
+    /**
      * 修改敏感词（含启停/黑白切换）：ADMIN；同上事务 + Pub 约束
      */
     void updateWord(SensitiveWordLibrary word, Long operatorId);
@@ -118,14 +125,17 @@ public interface ReviewService {
                      WordListTypeEnum isBlacklist, Long operatorId);
 
     /**
-     * 词库导出：ADMIN；CSV 对 =/+/-/@ 开头单元格前置 '（防公式注入）
+     * 词库导出：ADMIN；返回 CSV 文本（表头 6 列：word,scene,level,is_blacklist,status,create_time）；
+     * 对 =/+/-/@ 开头的单元格前置 '（防公式注入，审核员本地打开即执行，§2.12）；
+     * 含逗号/引号/换行的单元格按 CSV 标准双引号包裹转义；UTF-8 BOM 与下载头由 Controller 负责
      */
-    List<SensitiveWordLibrary> exportWords(WordSceneEnum scene, Long operatorId);
+    String exportWords(WordSceneEnum scene, Long operatorId);
 
     /**
-     * 词库列表：ADMIN；支持 scene/级别/黑白/状态筛选，LIKE 对 %/_ 转义防通配放大全表扫
+     * 词库列表：ADMIN；支持 scene/keyword/级别/黑白筛选，keyword 模糊查询对 %/_/\ 转义
+     * （ESCAPE '\\' 声明转义符），防通配符放大全表扫（§2.12）
      */
-    List<SensitiveWordLibrary> listWords(WordSceneEnum scene, WordLevelEnum level,
+    List<SensitiveWordLibrary> listWords(WordSceneEnum scene, String keyword, WordLevelEnum level,
                                          WordListTypeEnum isBlacklist, Long operatorId);
 
     /**

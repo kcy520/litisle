@@ -2,8 +2,10 @@ package com.litisle.litislereview.controller;
 
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.result.Result;
+import com.litisle.commonsecurity.constant.RoleCode;
 import com.litisle.litislereview.domain.dto.AppealDecideDTO;
 import com.litisle.litislereview.domain.dto.AppealSubmitDTO;
 import com.litisle.litislereview.domain.dto.ReportSubmitDTO;
@@ -14,14 +16,23 @@ import com.litisle.litislereview.domain.vo.ReviewTaskVO;
 import com.litisle.litislereview.enums.WordLevelEnum;
 import com.litisle.litislereview.enums.WordListTypeEnum;
 import com.litisle.litislereview.enums.WordSceneEnum;
+import com.litisle.commonredis.ratelimit.RateLimiter;
+
+import java.util.concurrent.TimeUnit;
 import com.litisle.litislereview.service.ReviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -131,20 +142,39 @@ public class ReviewController {
         return Result.success(reviewService.listMyPunish(StpUtil.getLoginIdAsLong()));
     }
 
-    @Operation(summary = "新增敏感词", description = "ADMIN；词长度上限+字符校验；变更与词库版本+1同事务并Pub广播")
+    @Operation(summary = "新增敏感词", description = "ADMIN；词长度上限+字符校验；变更与词库版本+1同事务并Pub广播；level 不传默认 MID（灰度观察，§2.5）")
     @PostMapping("/word")
-    @SaCheckLogin
+    @SaCheckRole(RoleCode.ADMIN)
     public Result<Void> addWord(@RequestParam("word") String word,
                                 @RequestParam("scene") WordSceneEnum scene,
-                                @RequestParam("level") WordLevelEnum level,
+                                @RequestParam(value = "level", required = false) WordLevelEnum level,
                                 @RequestParam("isBlacklist") WordListTypeEnum isBlacklist) {
         reviewService.addWord(word, scene, level, isBlacklist, StpUtil.getLoginIdAsLong());
         return Result.success();
     }
 
+    @Operation(summary = "修改敏感词", description = "ADMIN；改级别/黑白名单/启停；变更与词库版本+1同事务并Pub广播；灰度降级 HIGH→MID / 加白走此端点（§2.5）")
+    @PutMapping("/word")
+    @SaCheckRole(RoleCode.ADMIN)
+    public Result<Void> updateWord(@RequestBody com.litisle.litislereview.domain.entity.SensitiveWordLibrary word) {
+        reviewService.updateWord(word, StpUtil.getLoginIdAsLong());
+        return Result.success();
+    }
+
+    @Operation(summary = "词库误报上报", description = "登录用户；HIGH 同步拒发(70001)的内容未发布无法走 appeal，独立入口回流；Counter 为灰度转正唯一数据源（仅 scene 标签）")
+    @PostMapping("/word/misreport")
+    @SaCheckLogin
+    @RateLimiter(time = 1, timeUnit = TimeUnit.MINUTES, count = 5, keyType = RateLimiter.KeyType.USER)
+    public Result<Void> reportMisreport(@RequestParam("word") String word,
+                                        @RequestParam("scene") WordSceneEnum scene,
+                                        @RequestParam(value = "reason", required = false) String reason) {
+        reviewService.reportMisreport(word, scene, reason, StpUtil.getLoginIdAsLong());
+        return Result.success();
+    }
+
     @Operation(summary = "删除敏感词", description = "ADMIN；物理删除（配置类小表），留 updated_by 审计痕")
     @DeleteMapping("/word/{wordId}")
-    @SaCheckLogin
+    @SaCheckRole(RoleCode.ADMIN)
     public Result<Void> deleteWord(@PathVariable("wordId") Long wordId) {
         reviewService.deleteWord(wordId, StpUtil.getLoginIdAsLong());
         return Result.success();
@@ -152,7 +182,7 @@ public class ReviewController {
 
     @Operation(summary = "词库导入", description = "ADMIN；限类型大小、解析不启外部实体（防XXE）、逐词校验")
     @PostMapping("/word/import")
-    @SaCheckLogin
+    @SaCheckRole(RoleCode.ADMIN)
     public Result<Void> importWords(@RequestParam("file") MultipartFile file,
                                     @RequestParam("scene") WordSceneEnum scene,
                                     @RequestParam("level") WordLevelEnum level,
@@ -161,21 +191,34 @@ public class ReviewController {
         return Result.success();
     }
 
-    @Operation(summary = "词库导出", description = "ADMIN；CSV 公式注入防护（=/+/-/@ 开头单元格前置 '）")
+    /**
+     * 词库导出：Service 生成 CSV 文本（公式注入防护在 escapeCsvCell 落地），
+     * 本层负责加 UTF-8 BOM（Excel 本地打开中文不乱码）并以 text/csv 附件头下发
+     */
+    @Operation(summary = "词库导出", description = "ADMIN；CSV 下载；公式注入防护（=/+/-/@ 开头单元格前置 '）+ 标准转义")
     @GetMapping("/word/export")
-    @SaCheckLogin
-    public Result<List<com.litisle.litislereview.domain.entity.SensitiveWordLibrary>> exportWords(
-            @RequestParam("scene") WordSceneEnum scene) {
-        return Result.success(reviewService.exportWords(scene, StpUtil.getLoginIdAsLong()));
+    @SaCheckRole(RoleCode.ADMIN)
+    public ResponseEntity<byte[]> exportWords(@RequestParam("scene") WordSceneEnum scene) {
+        String csv = reviewService.exportWords(scene, StpUtil.getLoginIdAsLong());
+        // UTF-8 BOM 前置：保证 Excel 直接打开不乱码
+        byte[] body = ("\uFEFF" + csv).getBytes(StandardCharsets.UTF_8);
+        String filename = "wordlib_" + scene.name().toLowerCase() + "_"
+                + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) + ".csv";
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType("text/csv;charset=UTF-8"))
+                .body(body);
     }
 
-    @Operation(summary = "词库列表", description = "ADMIN；多条件筛选，LIKE 通配符转义")
+    @Operation(summary = "词库列表", description = "ADMIN；多条件筛选 + keyword 模糊查询（LIKE 通配符转义防全表扫）")
     @GetMapping("/word/list")
-    @SaCheckLogin
+    @SaCheckRole(RoleCode.ADMIN)
     public Result<List<com.litisle.litislereview.domain.entity.SensitiveWordLibrary>> listWords(
             @RequestParam(value = "scene", required = false) WordSceneEnum scene,
+            @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "level", required = false) WordLevelEnum level,
             @RequestParam(value = "isBlacklist", required = false) WordListTypeEnum isBlacklist) {
-        return Result.success(reviewService.listWords(scene, level, isBlacklist, StpUtil.getLoginIdAsLong()));
+        return Result.success(
+                reviewService.listWords(scene, keyword, level, isBlacklist, StpUtil.getLoginIdAsLong()));
     }
 }
