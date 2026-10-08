@@ -24,6 +24,7 @@ import java.util.List;
 
 /**
  * 词库版本推进 + 变更广播服务（板块二：sensitive_word_version 版本单一来源，§2.5）
+ *WordlibVersionService = 词库变更的"收口服务"：任何地方改了敏感词表，都必须调它来推进版本号 + 通知所有实例"词库变了，该重建了"。
  *
  * <p>【推进语义】任何词表变更（增删改/启停/黑白切换/导入）收口调用
  * {@link #bumpAndBroadcast}：原子 update version=version+1（与调用方词表变更同事务，
@@ -49,6 +50,8 @@ public class WordlibVersionService {
     /**
      * 版本 +1（同事务）+ 注册 afterCommit 回调（写快照 + Pub 广播）；
      * 必须在词表变更的事务内调用（本方法 REQUIRED 加入宿主事务）
+     *
+     * 词表变更后调用，一步搞定两件事：版本号 +1 + 注册"事务提交后广播"钩子。
      */
     @Transactional(rollbackFor = Exception.class)
     public void bumpAndBroadcast(WordSceneEnum scene, Long operatorId) {
@@ -65,6 +68,7 @@ public class WordlibVersionService {
 
     /**
      * 原子推进：update version=version+1 → affected=0 首插 version=1 → 首插并发冲突重试 update
+     * 把 sensitive_word_version 表里该 scene 的版本号原子 +1；没有行就插入第一行。
      */
     private long bumpInTx(WordSceneEnum scene, Long operatorId) {
         // Step1 原子自增：version = version + 1 在 DB 侧执行，规避「读-改-写」并发丢更新
@@ -97,8 +101,11 @@ public class WordlibVersionService {
         }
     }
 
+
     /**
      * 提交后动作：刷新 Redis 词库快照（先）→ Pub 广播（后）；失败仅记日志
+     *
+     * 事务提交成功后执行：重新装载词库 → 写 Redis 快照 → Pub 广播。三步顺序不可颠倒。
      */
     private void publishSnapshotAndNotify(WordSceneEnum scene, long newVersion, Long operatorId) {
         try {
@@ -122,6 +129,8 @@ public class WordlibVersionService {
 
     /**
      * 读当前版本（推进后取值用；无行返回 0）
+     *
+     * 推进版本后读一下返回最新值。纯查询，无副作用。
      */
     private long selectVersion(WordSceneEnum scene) {
         // 查 scene 主键行；无行/版本为 null 返回 0（仅在推进成功后取值，理论上不会走到 0）

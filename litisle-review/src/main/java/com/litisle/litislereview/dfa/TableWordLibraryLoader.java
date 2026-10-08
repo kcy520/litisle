@@ -13,6 +13,7 @@ import com.litisle.litislereview.enums.WordStatusEnum;
 import com.litisle.litislereview.mapper.SensitiveWordLibraryMapper;
 import com.litisle.litislereview.mapper.SensitiveWordVersionMapper;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -24,6 +25,12 @@ import java.util.List;
 
 /**
  * review 侧词库装载器（WordLibraryLoader 的查表实现，§4.4.4）
+ *
+ *
+ * TableWordLibraryLoader 是 DFA 敏感词引擎的「词库数据供应器」——负责从数据库加载启用中的敏感词词条和版本号，
+ * 并在内存/DB 不可用时，用本地 JSON 快照兜底，确保 DFA 闸门绝不空词库 default-allow。
+ *它是 DFA 引擎和持久化存储之间的适配器（Loader），DFA 框架不关心数据从哪来，只认 WordLibraryLoader 接口；
+ * 你这个类负责把"数据库里的词"变成"DFA 能吃的 WordEntry 列表"。
  *
  * <p>【选型速查】宿主=litisle-review：查 sensitive_word_library 表（scene + status=1，
  * 黑+白名单一并装载，DfaFacade 按 blacklist 分流入 houbb 词库）；版本取 sensitive_word_version
@@ -43,6 +50,9 @@ import java.util.List;
 @Slf4j
 @Component
 public class TableWordLibraryLoader implements WordLibraryLoader {
+
+
+
 
     /** 无版本记录/版本未知占位（与契约口径一致） */
     private static final long NO_VERSION = -1L;
@@ -138,6 +148,7 @@ public class TableWordLibraryLoader implements WordLibraryLoader {
                 .toList();
     }
 
+
     /**
      * 读版本（scene 主键行；无行/无版本值返回 -1）
      */
@@ -154,7 +165,10 @@ public class TableWordLibraryLoader implements WordLibraryLoader {
      * 快照语义是「上次成功装载的非空词库」，空表不覆盖旧快照（宁严勿松）
      */
     private void persistSnapshot(String scene, List<WordEntry> entries) {
+        // 解析当前场景的正式快照文件路径
         Path file = snapshotFile(scene);
+        // 临时文件引用提到 try 外：进程内异常时 catch 可 best-effort 删除，防 .tmp 残留累积
+        Path tmp = null;
         try {
             // Step1 附带版本号（读取失败不阻断快照落盘，按 -1 占位仅损失排障信息）
             long version;
@@ -165,25 +179,80 @@ public class TableWordLibraryLoader implements WordLibraryLoader {
                 log.warn("快照版本号读取失败，快照按 version=-1 落盘（词表本体不受影响）：scene={}", scene);
             }
             // Step2 先写同目录临时文件（保证原子 move 可行），JSON 序列化
+                    //实际路径来自配置项：{litisle.moderation.wordlib.snapshot-dir}/snapshot-{scene}.json
+                    //正常情况：不会被显式删除，而是通过“原子 move”变成正式文件
+                                //            从操作系统角度看：临时文件“改名”了，不是被删除
+                                //            原子地重命名为：  snapshot-{scene}.json
+                                //            异常情况：临时文件会残留，但不会被自动清理
+                                //          **临时文件存储在快照目录中，内容是当前场景的词库 JSON 快照；
+                                //            正常情况通过原子重命名“变成”正式快照文件，不会被删除；
+            // 临时文件与正式快照同目录，成功时通过 ATOMIC_MOVE 原子重命名为 snapshot-{scene}.json；
+            // 进程内异常时 catch 块 best-effort 删除半成品 .tmp；
+            // kill -9 / 断电等崩溃残留由 @PostConstruct cleanupStaleTempSnapshots() 启动期全量清扫。
+
+            // 确保快照目录存在（首次部署时目录可能尚未创建）
             Path dir = file.getParent();
             Files.createDirectories(dir);
-            Path tmp = Files.createTempFile(dir, file.getFileName().toString(), ".tmp");
+            // 在快照同目录创建临时文件，保证后续原子 move 可行（同文件系统 rename）
+            tmp = Files.createTempFile(dir, file.getFileName().toString(), ".tmp");
+            // 将词库快照序列化为 JSON 写入临时文件（覆盖已有内容，避免追加脏数据）
             Files.write(tmp, snapshotMapper.writeValueAsBytes(new WordlibSnapshot(version, entries)),
                     StandardOpenOption.TRUNCATE_EXISTING);
             // Step3 原子替换旧快照（半途崩溃最多留临时文件，绝不留截断快照）；FS 不支持时降级普通 move
             try {
+                // 原子地将临时文件重命名为正式快照文件：要么完整替换成功，要么旧快照纹丝不动；
+                // 要求 tmp 与 file 同目录（同一文件系统），保证 ATOMIC_MOVE 不降级为 copy+delete
+                //把临时文件移动/重命名为正式快照文件，如果正式文件已存在就覆盖它。
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                ///捕获"当前文件系统不支持 ATOMIC_MOVE"这个特定异常，走降级逻辑。
+                // 降级普通 move：FS 不支持原子操作时兜底，非原子但保证最终一致
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
             }
             log.info("词库快照已持久化：scene={}, 词数={}, version={}", scene, entries.size(), version);
         } catch (Exception e) {
-            log.error("词库快照持久化失败（不影响本次装载，但削弱下次故障兜底）：scene={}, file={}", scene, file, e);
+            // 进程内异常兜底：即时删除半成品临时文件（best-effort，删除失败仅告警不抛出，
+            // 交由启动期清扫二次兑底），不阻断本次装载
+            if (tmp != null) {
+                try {
+                    Files.deleteIfExists(tmp);
+                } catch (Exception cleanupEx) {
+                    log.warn("临时快照文件清理失败（等待启动期清扫兑底）：{}", tmp, cleanupEx);
+                }
+            }
+            log.error("词库快照持久化失败（不影响本次装载，但削弱下次故障兑底）：scene={}, file={}", scene, file, e);
         }
     }
 
     /**
-     * 读快照：文件缺失/损坏一律返回 null（坏快照视同无快照，不放大故障），由调用方走无兜底分支
+     * 启动期清扫残留临时快照（进程崩溃兑底）：进程内异常已由 persistSnapshot catch 即时清理，
+     * 但 kill -9/断电等崩溃残留的 .tmp 无 catch 可走，此处启动时统一清扫；
+     * 快照目录为实例本地磁盘（snapshot-dir 单机私有），启动瞬间无并发写，直接删除全部 *.tmp 安全
+     */
+    @PostConstruct
+    public void cleanupStaleTempSnapshots() {
+        // 目录不存在说明从未落过快照，直接跳过
+        Path dir = Path.of(properties.getWordlib().getSnapshotDir());
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        // 扫描并删除全部 *.tmp 残留（单文件删除失败仅告警，不阻断启动，下次启动重试）
+        try (var stream = Files.list(dir)) {
+            stream.filter(p -> p.getFileName().toString().endsWith(".tmp")).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                    log.info("已清理残留临时快照文件：{}", p);
+                } catch (Exception e) {
+                    log.warn("残留临时快照文件清理失败（不影响启动）：{}", p, e);
+                }
+            });
+        } catch (Exception e) {
+            log.warn("快照目录扫描失败（不影响启动）：{}", dir, e);
+        }
+    }
+
+    /**
+     * 读快照：文件缺失/损坏一律返回 null（坏快照视同无快照，不放大故障），由调用方走无兑底分支
      */
     private WordlibSnapshot readSnapshot(String scene) {
         // 文件不存在直接视同无快照
@@ -205,4 +274,43 @@ public class TableWordLibraryLoader implements WordLibraryLoader {
         // 快照文件路径：{snapshot-dir}/snapshot-{scene}.json（目录外置 litisle.moderation.wordlib.snapshot-dir）
         return Path.of(properties.getWordlib().getSnapshotDir(), "snapshot-" + scene + ".json");
     }
+
+//┌──────────────────────────────────────────────────────────────┐
+//        │  ① 数据库 (sensitive_word_library 表)                        │
+//            │     word = "敏感词A", level = 2, is_blacklist = true          │
+//            └──────────────────────────┬───────────────────────────────────┘
+//            │ 读取
+//                           ▼
+//                                   ┌──────────────────────────────────────────────────────────────┐
+//                                   │  ② TableWordLibraryLoader（你这个类）                         │
+//            │     把 DB 行 → List<WordEntry>(word, level, blacklist)       │
+//            │     + 顺手写一份 JSON 快照到磁盘                              │
+//            │     ⚠️ 这里只是"搬运数据"，不构建 DFA，不做匹配               │
+//            └──────────────────────────┬───────────────────────────────────┘
+//            │ 返回 List<WordEntry>
+//                           ▼
+//                                   ┌──────────────────────────────────────────────────────────────┐
+//                                   │  ③ DfaFacade（DFA 门面）                                     │
+//            │     - 拿到 WordEntry 列表                                    │
+//            │     - 按 isBlacklist 分流：黑名单 → houbb DFA 词库            │
+//            │     - 调用 DFA 框架的 build/rebuild 方法                      │
+//            │     ⚠️ 这里才真正构建 DFA 状态机（Trie 树）                   │
+//            └──────────────────────────┬───────────────────────────────────┘
+//            │ 构建完成
+//                           ▼
+//                                   ┌──────────────────────────────────────────────────────────────┐
+//                                   │  ④ houbb DFA 引擎（第三方库 / 自研）                          │
+//            │     - 把每个词拆成字符，建 AC 自动机 / Trie                    │
+//            │     - 提供 match(text) → 返回命中的敏感词列表                  │
+//            └──────────────────────────┬───────────────────────────────────┘
+//            │ 调用
+//                           ▼
+//                                   ┌──────────────────────────────────────────────────────────────┐
+//                                   │  ⑤ 审核业务代码                                              │
+//            │     dfaFacade.match("用户输入的文本")                          │
+//            │     → 返回命中了哪些敏感词 → 拦截/替换/告警                    │
+//            └──────────────────────────────────────────────────────────────┘
+
 }
+
+

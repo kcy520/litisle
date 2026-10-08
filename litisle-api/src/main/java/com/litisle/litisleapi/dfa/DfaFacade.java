@@ -85,6 +85,11 @@ public class DfaFacade {
                 .wordDeny(() -> denyWords)
                 .wordAllow(() -> allowWords)
                 .init();
+/**
+ * 1）取消默认词库 = 一行注入 houbb 的规则是： 不设`wordDeny` 才用内置默认库；一旦你传了自己的词表，默认库就完全不参与 。所以"只读 MySQL、不用 houbb 内置词"这件事， 就是上面两行 ，没有别的代码。这正是防止与你"从 MySQL 读词库"思路打架的地方。
+ */
+
+
         // 获取当前已存在的引擎
             //  如果是第一次构建（initAll 阶段），current 是 null
             //  如果是热更阶段，current 指向旧引擎

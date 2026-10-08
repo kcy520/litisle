@@ -1,12 +1,10 @@
----------建议删除此段（AI 会话残留，至"你可以直接整体替换原文档。"止）---------
-
 # litisle-file 文件模块架构文档
 
-> 版本：v1.1（2026-09-28 按当前实现对齐）
+> 版本：v1.2（2026-10-08 按当前实现对齐）
 >
 > 关联文档：[Design-Document.md](https://tencent.yuanbao/Design-Document.md) §2.1.3 / §2.7 · [Function-Document.md](https://tencent.yuanbao/Function-Document.md) §3 · [Sql-Document.md](https://tencent.yuanbao/Sql-Document.md) §八
 >
-> 定位：**共享层文件接入库**（非独立微服务），封装 SeaweedFS S3 兼容接口，为业务服务提供统一文件能力
+> 定位：**独立微服务**（端口 8083），封装 SeaweedFS S3 兼容接口，为业务服务提供统一文件能力
 
 ------
 
@@ -14,7 +12,7 @@
 
 | 项目     | 说明                                                         |
 | -------- | ------------------------------------------------------------ |
-| 定位     | **独立微服务**（端口 8082），封装 SeaweedFS（S3 兼容 API），对外暴露上传 / 直链 / 预签名 / 流式下载 / 删除能力 |
+| 定位     | **独立微服务**（端口 8083），封装 SeaweedFS（S3 兼容 API），对外暴露上传 / 直链 / 预签名 / 流式下载 / 删除能力 |
 | 依赖方   | litisle-user（头像，Feign）、后续 content（封面/正文图片）等；跨服务契约在 litisle-api（FileClient + FallbackFactory） |
 | 职责边界 | 只管**文件本体 + 元数据**；图片位置/对齐的业务归属由 content 的 `article_image` 表管理 |
 | 不负责   | 内容审核（DFA）、业务权限判定（由调用方服务决定）            |
@@ -33,12 +31,18 @@ Master×3 (Raft HA) ← Volume Server×3 ← Filer×1 (S3 API :8333) ← litisle
 
 ```
 litisle-file
-├── client/           # SeaweedFsClient（S3 兼容 SDK，对接 Filer）
-├── controller/       # FileController（REST 接口）
-├── service/          # FileService（上传/直链/预签名/删除）
-├── thumbnail/        # ThumbnailGenerator（按需缩略图）
-├── config/           # FileProperties（litisle.file.* 配置绑定）
-└── enums/            # BizTypeEnum / AlignEnum / AccessLevelEnum
+├── client/           # SeaweedFsClient（唯一接触 AWS SDK v2：put/get/getStream/delete/presign/listKeys/exists/copy）
+├── config/           # FileProperties / SeaweedFsConfig / FileAsyncConfig / ModerationMqConfig
+├── constant/         # FileLimitConstant（限流阈值常量）
+├── controller/       # FileController（/api/file REST）+ feign/FileFeignProviderController（implements FileClient）
+├── domain/           # entity(FileMeta/FileRef) / vo(FileUploadVO/FileMetaVO/PresignVO/ThumbnailVO) / dto(FileDownloadResource/FileQuotaUsage)
+├── enums/            # StorageBizTypeEnum / AccessLevelEnum / SafeFlagEnum / UploadStatusEnum / AlignEnum
+├── interceptor/      # FileGlobalQpsInterceptor（全站 QPS）+ ModerationResultListener（审核结果消费）
+├── mapper/           # FileMetaMapper / FileRefMapper
+├── service/          # FileService + impl/FileServiceImpl
+├── task/             # FileReconcileTask（每日 02:00 对账）
+├── thumbnail/        # ThumbnailGenerator（按需缩略图，不落库）
+└── util/             # FileMagicValidator（文件头魔数校验）
 ```
 
 ------
@@ -65,9 +69,11 @@ litisle-file
 ### 2.2 枚举定义
 
 ```
-BizTypeEnum     // AVATAR / COVER / ARTICLE_IMG / LICENSE → 决定 collection 归属
-AccessLevelEnum // PRIVATE(0) 私有→预签名 / PUBLIC(1) 公开→直链
-AlignEnum       // LEFT(1) / LEFT_CENTER(2) / CENTER(3) / RIGHT_CENTER(4) / RIGHT(5)
+StorageBizTypeEnum // AVATAR("avatar")/COVER("cover")/ARTICLE_IMG("article")/LICENSE("license") → 决定 bucket；LICENSE 强制 PRIVATE
+AccessLevelEnum    // PRIVATE(0) 私有→预签名 / PUBLIC(1) 公开→直链
+SafeFlagEnum       // VIOLATIVE(0) 违规 / NORMAL(1) 正常 / PENDING(2) 待检测 / SUSPICIOUS(3) 可疑（default-deny）
+UploadStatusEnum   // UPLOADING(0) 锁内占位 / COMPLETED(1) put 成功
+AlignEnum          // LEFT(1) / LEFT_CENTER(2) / CENTER(3) / RIGHT_CENTER(4) / RIGHT(5)
 ```
 
 ### 2.3 核心流程
@@ -130,9 +136,9 @@ FileMetaVO   { fileId, ownerId, bizType, access, mime, size, width, height, alig
   - **（可选）定时审计**：扫 `access=1 AND biz_type='LICENSE'` 脏数据并告警
 - 删除校验 owner 或 ADMIN 角色，否则抛 `BizException(NO_PERMISSION)`
 
-### 3.2 内部 Service（供其他服务依赖注入）
+### 3.2 内部 Service（Feign 契约，Provider 端实现）
 
-业务服务引入 `litisle-file` 依赖后直接调用（编译期依赖，非 Feign）：
+跨服务契约在 litisle-api（`FileClient`），file 侧由 `FileFeignProviderController` 实现（`/api/feign/file`，网关不路由、仅服务间可达、不加 @SaCheckLogin）：
 
 ```
 public interface FileService {
@@ -216,7 +222,11 @@ public interface FileService {
 | `litisle.file.limit.global-qps-max-count`         | 200                     | /api/file/** 全站 QPS 上限   |
 | `litisle.rate-limit.fallback.*`                   | enabled:true / cooldown:5 / instance-count:1 | Redis 故障降级本地兑底（common-redis RedisGuard） |
 | `litisle.file.thumbnail.enabled / width / height` | true / 300 / 300        | 缩略图开关与默认尺寸         |
-| `litisle.seaweed.host / s3-port`                  | localhost / 8333        | 环境特定值（local/dev.yaml） |
+| `litisle.file.moderation.image-provider / image-model-version` | onnx / v1 | 审核缓存 key 版本段，须与 review 侧一致 |
+| `litisle.file.moderation.pending-placeholder-url` | /img/file-pending.svg | PUBLIC 待审/存疑占位图 |
+| `litisle.file.reconcile-task.cron / compensate-threshold-minutes / physical-clean-delay-days` | 0 0 2 * * ? / 30 / 7 | 对账任务（cron 由 @Scheduled 占位符读取） |
+| `litisle.file.reconcile-task.quarantine-prefix / skip-quarantine-cleanup` | quarantine/ / true | 隔离前缀跳过物理清理（保留期归 moderation 侧） |
+| `litisle.seaweed.host / s3-port / filer-port`     | localhost / 8333 / 8888 | 环境特定值（local/dev.yaml） |
 
 ------
 
@@ -232,7 +242,10 @@ public interface FileService {
 | SeaweedFS 不可用 | FILE_STORAGE_UNAVAILABLE | S3 调用异常，fail-fast；熔断打开时同样报此码 |
 | 内容校验不符     | FILE_CHECKSUM_MISMATCH(90006) | 存储侧 SHA256 比对失败 |
 | 配额超限         | FILE_QUOTA_EXCEEDED(90007) | 总容量/文件数超限 |
-| 请求过频         | TOO_MANY_REQUESTS        | @RateLimiter / 全站 QPS / Sentinel 触发 |
+| 文件违规         | FILE_VIOLATIVE(90008)    | safe_flag=0，禁止访问（闸口收口处抛） |
+| 上传被拒         | FILE_UPLOAD_REJECTED(90009) | 命中审核黑名单 / 缓存 REJECT，拒传 |
+| 文件未就绪       | FILE_NOT_READY(90010)    | PUBLIC 面 2/3 待审态 download 阻断 |
+| 请求过频         | TOO_MANY_REQUESTS(10005) | @RateLimiter / 全站 QPS / Sentinel 触发 |
 
 ------
 
@@ -248,38 +261,4 @@ public interface FileService {
 8. **线程隔离**：下载走 fileIoExecutor（CallerRunsPolicy 回压）+ configureAsyncSupport；上传保持同步（multipart/事务语义，见 FileServiceImpl 注释）
 9. **上传完整性**：SDK ChecksumAlgorithm.SHA256 或显式下发摘要，SeaweedFS 网关侧校验（BadDigest 拒写）
 10. **副本策略**：Volume `replication=001`（单副本），重要 collection 可按需调高副本数
-11. **审核（预留）**：safe_flag 三态 default-deny 已建列，闸口埋点 4 处未生效，异步方案已定稿（见 seaweedfs笔记 §3.6.3）
-
-------
-
----------建议删除以下至文末的全部内容（AI 会话残留："## 说明"起含 ✅修正重点表格与后续话术）---------
-
-------
-
-## 说明
-
-1. 文档结构沿用了你现有 docs 的风格：定位与边界 → 功能设计 → 接口设计 → 数据模型 → 配置 → 异常 → 安全，突出你要求的 **功能设计与接口** 两部分
-2. **接口设计**基于文档中已有的能力（上传/直链/预签名/删除/缩略图/去重）+ 我们刚配置的 yml（`max-image-size=10MB`、`presign-expire-minutes=30`、300×300 缩略图）推导而来，属于 **设计稿** ——具体 REST 路径、VO 字段可按你后续编码时调整
-3. `litisle.file` 是共享库，REST 接口设计为可选：如果最终只作为依赖库被业务服务注入 `FileService`，可删掉 §3.1 的 REST 部分；如果作为独立服务部署（8082 端口），则保留。建议你确认一下这个定位，我可以据此修订
-4. 文档中引用了相对路径链接（`Design-Document.md` 等），保存到 `docs/` 目录后可直接点击跳转
-
-------
-
-### ✅ 本次修正重点（你可以对照检查）
-
-| 问题点                             | 修正方式                    |
-| ---------------------------------- | --------------------------- |
-| VO 定义被拆到代码块外              | 统一收回 ````java` 代码块内 |
-| 权限规则被误放进代码块             | 移出代码块，作为普通列表    |
-| ````java` 开始/结束不配对          | 每个代码块严格成对          |
-| 拓扑、目录结构等本该是代码块的内容 | 统一使用 `text` 代码块包裹  |
-| 说明段落混入代码块                 | 全部还原为正文              |
-
-如果你愿意，我可以下一步帮你：
-
-- ✅ 把 §3.1 REST 接口 **删掉或保留**（按你最终定位）
-- ✅ 把文档拆成 `file-design.md` + `file-api.md`
-- ✅ 按 OpenAPI 3.0 生成 `file-openapi.yaml`
-- ✅ 对齐 `Design-Document.md` 的章节编号
-
-直接告诉我你下一步想怎么用这份文档即可。
+11. **审核联动（已落地）**：safe_flag 四态 default-deny（0 违规/1 正常/2 待检/3 可疑）；上传前置闸门（黑名单 `review:img-blacklist:{sha256}`、结果缓存 `review:img-result:{provider}:{modelVersion}:{sha256}`）→ 未命中置 2 并生产 `moderation.image.submit`；`ModerationResultListener` 消费结果回写（REJECT→quarantine/0、PASS→1、SUSPICIOUS→3）；读类闸口按 access 分层（详见 file-index.md §十一）

@@ -73,4 +73,16 @@ public class MqConstant {
 
     /** 图片送审路由键（file 上传预审发布，review 侧消费，文本/图片分队列可独立扩容） */
     public static final String ROUTING_MODERATION_IMAGE_SUBMIT = "moderation.image.submit";
+
+    /** 文本送审路由键（content/message 发布侧同步 DFA 放行后异步送审，review 侧消费） */
+    public static final String ROUTING_MODERATION_TEXT_SUBMIT = "moderation.text.submit";
+
+    /** 文本送审死信路由键 */
+    public static final String ROUTING_MODERATION_TEXT_SUBMIT_DLQ = "moderation.text.submit.dlq";
+
+    /** 文本送审队列（review 侧消费，配 DLX 兜底防毒丸消息阻塞主队列） */
+    public static final String QUEUE_MODERATION_TEXT_SUBMIT = "litisle.moderation.text.submit.queue";
+
+    /** 文本送审死信队列（消费失败 nack requeue=false 后经 DLX 路由入此，防毒消息无限重投） */
+    public static final String QUEUE_MODERATION_TEXT_SUBMIT_DLQ = "litisle.moderation.text.submit.dlq.queue";
 }

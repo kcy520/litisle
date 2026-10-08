@@ -51,6 +51,13 @@ public class ModerationConstant {
      */
     public static final String IMG_RESULT_KEY = "review:img-result:%s:%s:%s";
 
+    /**
+     * 文本审核结果缓存 key（仅缓存终局结论 1-PASS/2-REJECT，TTL 72h±10% 抖动）；
+     * %s 依次为 wordlibVer、fewShotVer、scene、contentHash——四段全部服务端派生，
+     * 任一版本变更（词库热更 / few-shot 调整）即整体换 key，防旧结论继续放行（§2.11）
+     */
+    public static final String TEXT_RESULT_KEY = "review:text-result:%s:%s:%s:%s";
+
     // ==================== Redis Pub/快照契约（词库共享化，§2.5） ====================
 
     /**

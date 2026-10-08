@@ -11,6 +11,7 @@ import com.litisle.litislereview.domain.entity.Report;
 import com.litisle.litislereview.domain.entity.SensitiveWordLibrary;
 import com.litisle.litislereview.dfa.WordlibMetrics;
 import com.litisle.litislereview.dfa.WordlibVersionService;
+import com.litisle.litislereview.domain.entity.SensitiveWordVersion;
 import com.litisle.litislereview.domain.vo.PunishLogVO;
 import com.litisle.litislereview.domain.vo.ReportVO;
 import com.litisle.litislereview.domain.vo.ReviewTaskVO;
