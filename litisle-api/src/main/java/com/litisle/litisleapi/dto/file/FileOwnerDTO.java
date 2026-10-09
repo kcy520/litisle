@@ -27,4 +27,13 @@ public class FileOwnerDTO implements Serializable {
 
     /** 业务类型（DictEnum name，如 AVATAR） */
     private String bizType;
+
+    /**
+     * file_meta.id（数据库自增主键；file 侧提供方回填）
+     * <p>review 侧图片审核落 moderation_record.biz_id / review_task.biz_id 用——biz_type=6 时
+     * biz_id=file_meta.id（两套引用口径：biz_id 引用 file_meta.id，fileId 引用 file_meta.file_id 业务主键，
+     * 见 ReviewSceneEnum.IMAGE / ModerationBizTypeEnum.FILE 注释）。提供方 TODO litisle-file：
+     * GET /api/feign/file/{fileId}/info 需回填本字段</p>
+     */
+    private Long fileMetaId;
 }

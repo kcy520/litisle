@@ -85,4 +85,17 @@ public class MqConstant {
 
     /** 文本送审死信队列（消费失败 nack requeue=false 后经 DLX 路由入此，防毒消息无限重投） */
     public static final String QUEUE_MODERATION_TEXT_SUBMIT_DLQ = "litisle.moderation.text.submit.dlq.queue";
+
+    /**
+     * 图片送审队列（review 侧消费；file 上传预审发布）。
+     * <p>与文本送审分队列，可独立扩容；消息体 ImageSubmitEvent（bizType=6 / bizId=fileId / scene / contentHash），
+     * 事件体不含图片地址——消费端一律走 FileClient.getContent(fileId) 内部字节流回查（SSRF 防线，§2.1）</p>
+     */
+    public static final String QUEUE_MODERATION_IMAGE_SUBMIT = "litisle.moderation.image.submit.queue";
+
+    /** 图片送审死信队列（消费失败 nack requeue=false 后经 DLX 路由入此，防毒消息无限重投） */
+    public static final String QUEUE_MODERATION_IMAGE_SUBMIT_DLQ = "litisle.moderation.image.submit.dlq.queue";
+
+    /** 图片送审死信路由键（主队列 deadLetterRoutingKey，决定死信进图片 DLQ） */
+    public static final String ROUTING_MODERATION_IMAGE_SUBMIT_DLQ = "moderation.image.submit.dlq";
 }

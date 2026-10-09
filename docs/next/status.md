@@ -36,12 +36,13 @@ file 侧 safe_flag 四态闸口 / 拒传黑名单 / quarantine 契约 / result·
   - [x] 3-1.11 三分态落库同一事务：CAS 流转 review_task（1/4/2）+ 回填证据列 + 追加 moderation_record
   - [x] 3-1.12 事务提交后发 result 事件，publisher confirm 成功才 basicAck
   
-- [ ] 3-2 ModerationImageConsumer
-  - [ ] 3-2.1 监听 image.submit + 场景分流：IMAGE 单图 / ARTICLE_IMG_RE_REVIEW 反查配图列表
-  - [ ] 3-2.2 取图统一 FileClient.getContent 字节流（禁按用户 URL 抓取，SSRF 防线）
-  - [ ] 3-2.3 单图缓存查重（provider+modelVersion 版本化 key）+ ONNX 送审异常延迟重试
-  - [ ] 3-2.4 单图结论落 moderation_record（REJECT 的 safe_flag/隔离由 file 侧 result 消费处理）
-  - [ ] 3-2.5 配图复审聚合判定 + CAS 流转复审任务
+- [x] 3-2 ModerationImageConsumer
+  - [x] 3-2.1 监听 image.submit + 场景分流：IMAGE 单图 / ARTICLE_IMG_RE_REVIEW 反查配图列表
+  - [x] 3-2.2 取图统一 FileClient.getContent 字节流（禁按用户 URL 抓取，SSRF 防线）
+  - [x] 3-2.3 单图缓存查重（provider+modelVersion 版本化 key）+ ONNX 送审异常延迟重试
+  - [x] 3-2.4 单图结论落 moderation_record（REJECT 的 safe_flag/隔离由 file 侧 result 消费处理）
+  - [x] 3-2.5 配图复审聚合判定 + CAS 流转复审任务
+  
 - [ ] 3-3 统一建任务 upsert（ReviewTaskUpsertService）
   - [ ] 3-3.1 uk_biz_scene upsert：无行 insert（初始 status / content_hash / retry_count=0）
   - [ ] 3-3.2 命中行分流：hash 变化或已终态→重置（清 assignee/decided_by/证据列/retry 归零）；非终态→复用

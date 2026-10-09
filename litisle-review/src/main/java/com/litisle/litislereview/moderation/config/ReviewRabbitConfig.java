@@ -167,4 +167,68 @@ public class ReviewRabbitConfig {
                 .to(moderationDlx)                      // 到死信 Direct 交换机
                 .with(MqConstant.ROUTING_MODERATION_TEXT_SUBMIT_DLQ); // 死信路由键
     }
+
+    /**
+     * 图片送审主队列（业务队列，板块三 3-2 / §4.2.2）。
+     *
+     * 【作用】接收 file 上传预审发布的 moderation.image.submit 消息（bizType=6，bizId=fileId），
+     * 由 {@code ModerationImageConsumer} 消费后委托 {@code ModerationImageService} 走
+     * FileClient.getContent 字节流取图机审（严禁按用户 URL 抓取）。
+     *
+     * 【参数对齐】durable / deadLetterExchange / deadLetterRoutingKey 须与 file 侧 ModerationMqConfig
+     * 完全一致，否则声明冲突报 PRECONDITION_FAILED（file 侧先声明，review 侧声明幂等）。
+     *
+     * 【消费失败】Listener 异常 → nack(requeue=false) → moderationDlx → 图片 DLQ，主队列不被毒丸阻塞。
+     */
+    @Bean
+    public Queue moderationImageSubmitQueue() {
+        return QueueBuilder
+                .durable(MqConstant.QUEUE_MODERATION_IMAGE_SUBMIT) // 持久化业务队列
+                .deadLetterExchange(MqConstant.EXCHANGE_MODERATION_DLX) // 绑定死信交换机
+                .deadLetterRoutingKey(MqConstant.ROUTING_MODERATION_IMAGE_SUBMIT_DLQ) // 死信路由键
+                .build();
+    }
+
+    /**
+     * 图片送审死信队列（DLQ）。
+     *
+     * 【作用】存放消费失败的图片送审消息（取图失败/DB 超时/发布失败等非预期异常），可追溯、可告警、可重投。
+     * 【配置】durable 持久化；无 TTL；无 DLX（避免死信再死信形成环路）。
+     */
+    @Bean
+    public Queue moderationImageSubmitDlq() {
+        return QueueBuilder
+                .durable(MqConstant.QUEUE_MODERATION_IMAGE_SUBMIT_DLQ) // 持久化死信队列
+                .build();
+    }
+
+    /**
+     * 图片送审队列 ↔ 业务交换机绑定。
+     *
+     * 【作用】RoutingKey=moderation.image.submit 精确订阅图片送审消息，与文本送审队列物理隔离。
+     */
+    @Bean
+    public Binding moderationImageSubmitBinding(
+            TopicExchange moderationExchange,
+            Queue moderationImageSubmitQueue) {
+        return BindingBuilder
+                .bind(moderationImageSubmitQueue) // 绑定图片送审主队列
+                .to(moderationExchange) // 到业务 Topic 交换机
+                .with(MqConstant.ROUTING_MODERATION_IMAGE_SUBMIT); // 精确路由键
+    }
+
+    /**
+     * 图片送审死信队列 ↔ 死信交换机绑定。
+     *
+     * 【作用】Direct + 精确死信 RoutingKey 完成一对一投递，防业务通配规则误吸死信。
+     */
+    @Bean
+    public Binding moderationImageSubmitDlqBinding(
+            DirectExchange moderationDlx,
+            Queue moderationImageSubmitDlq) {
+        return BindingBuilder
+                .bind(moderationImageSubmitDlq) // 绑定死信队列
+                .to(moderationDlx) // 到死信 Direct 交换机
+                .with(MqConstant.ROUTING_MODERATION_IMAGE_SUBMIT_DLQ); // 死信路由键
+    }
 }

@@ -77,6 +77,16 @@ Spring Cloud版本：2025.0.0.0
 | \Auth-Module-Development-Plan.md | 当前auth模块开发规划 |
 | Api-Gateway-Development-Plan.md | api与gateway模块文档 |
 | File-Architecture.md | 文件存储模块架构 |
+| Review-Architecture-Development.md | 审核模块架构（漏斗 / 状态机 / 机审·人审，简化版） |
+| System-architecture-design.md | common 子模块拆分 + 各模块架构设计 |
+| seaweedfs笔记.md | SeaweedFS 存储细节（直链 vs 预签名 URL） |
+| nacos-yaml.md | Nacos 共享模板（litisle-shared.yaml / Sentinel 规则） |
+| index/api-index.md | litisle-api 契约速查表（常量 / 事件 / Feign 签名） |
+| index/common-index.md | litisle-common 公共库速查表（坐标 / 组件签名） |
+| index/file-index.md | litisle-file 文件模块速查表（坐标 / 包结构 / 枚举） |
+| next/status.md | 审核模块进度看板（勾选状态） |
+| next/next_update.md | 审核模块开发清单细案（只读，勿改） |
+| archive/20260929-implementation-records.md | 实现记录归档（限流降级等决策回溯） |
 
 
 
@@ -99,3 +109,4 @@ mvn -pl litisle-common -am clean compile
 4. 涉及库表结构 → 查 `Sql-Document.md`
 5. 涉及功能边界 → 查 `Function-Document.md`
 6. 总体或某模块完整架构 → 按需查 `Design-Document.md`（量大，避免全量读取）
+7. 写码 / 联调前先查 `index/` 速查表（api / common / file），免逐个 Read；审核进度看 `next/status.md`
