@@ -9,7 +9,7 @@
 
 ## 当前执行锚点
 
-- **进行中**：板块三 **3-1 ModerationTextConsumer**（细案见 `spec-3-1.md`）
+- **进行中**：板块三 **3-1 ModerationTextConsumer**（细案见 `spec-3-1.md`；已拆分为 3-1.1~3-1.12 子步骤，子项编号对应 `next_update.md` 细案步骤）
 
 - **前置阻塞**：litisle-ai chat 端点（`POST /api/feign/ai/chat`）未实现——3-1 联调前必须落地
 
@@ -19,101 +19,137 @@
 
 file 侧 safe_flag 四态闸口 / 拒传黑名单 / quarantine 契约 / result·appeal.result 消费回写 / getContent / 占位图 / 对账跳隔离前缀；litisle-api 契约层（MqConstant / ModerationConstant / 事件体 / FileClient）；review 侧人审域（claim·decide CAS、申诉防重三层、双人复核、举报撤回·诬告反制、词库表）。
 
-## 板块一：机审 SPI 域（§4.3 / §4.5.1）
-
-- [x] ContentModerationService 门面 + ModerationResult
-
-- [x] LlmTextModerationAdapter（2026-10-06，编译态完成；联调前置 = AI chat 端点）
-
-- [x] OnnxImageModerationAdapter（2026-10-06）
-
-- [x] provider 启动自检 fail-fast（ModerationProviderStartupChecker）
-
-- [x] 配置外置首批（ModerationProperties）
-
-- [ ] （二期）AliyunImageModerationAdapter
-
-## 板块二：DFA 同步闸门共享化 + 词库运营
-
-- [x] DfaFacade + WordLibraryLoader 下沉 litisle-api（2026-10-06）
-
-- [x] review 侧 TableWordLibraryLoader + DfaFacade Bean 装配（2026-10-07）
-
-- [x] 词库版本单一来源 sensitive_word_version（2026-10-07）
-
-- [x] 灰度：新增词默认 MID + 误报上报入口 + HIGH→MID 降级（2026-10-07）
-
-- [x] 导入导出安全（2026-10-07）
-
-- [x] 词库页权限收口仅 ADMIN（2026-10-07）
-
-- [ ] 禁用默认词库，并从默认词库导入部分敏感词
 
 ## 板块三：MQ 异步机审链路（§4.2.1/§4.2.2/§4.5.2/§4.2.4）
 
-- [ ] 3-1 ModerationTextConsumer
-
+- [x] 3-1 ModerationTextConsumer（细案 `spec-3-1.md`）
+  - [x] 3-1.1 契约补齐：TextSubmitEvent / ContentClient / MessageClient + fallback 工厂注册 / MqConstant 补路由键
+  - [x] 3-1.2 ReviewRabbitConfig：moderation 交换机/队列/绑定/DLX + x-delay 拓扑声明（与 file 侧参数对齐）
+  - [x] 3-1.3 消费者骨架：监听 text.submit 队列 + prefetch + 手动 ACK + traceId 恢复
+  - [x] 3-1.4 任务定位与脏消息分流：三元组定位；缺 scene / 任务缺失 / hash 错配 ACK 丢弃 + error 日志
+  - [x] 3-1.5 正文回查：bizType∈{1,2}→ContentClient、5→MessageClient，fail-fast 不 ACK 延迟重试
+  - [x] 3-1.6 幂等分流：status≠0 重投（hash 一致补发 result / 不一致丢弃）；status=0 CAS 认领
+  - [x] 3-1.7 缓存查重 ModerationResultCache：Redis→record 兜底，verdict/provider/wordlib_ver/TTL 四条件校验
+  - [x] 3-1.8 命中缓存仍追加留痕行（reason=命中缓存原记录ID，provider/wordlib_ver 取当前值）
+  - [x] 3-1.9 在途短锁：SETNX dedup:{provider}:{contentHash}（60s），抢不到延迟重试
+  - [x] 3-1.10 SPI 送审 + 超长分片聚合（LLM 留占位；REJECT>SUSPICIOUS>PASS，禁静默截断）
+  - [x] 3-1.11 三分态落库同一事务：CAS 流转 review_task（1/4/2）+ 回填证据列 + 追加 moderation_record
+  - [x] 3-1.12 事务提交后发 result 事件，publisher confirm 成功才 basicAck
+  
 - [ ] 3-2 ModerationImageConsumer
-
+  - [ ] 3-2.1 监听 image.submit + 场景分流：IMAGE 单图 / ARTICLE_IMG_RE_REVIEW 反查配图列表
+  - [ ] 3-2.2 取图统一 FileClient.getContent 字节流（禁按用户 URL 抓取，SSRF 防线）
+  - [ ] 3-2.3 单图缓存查重（provider+modelVersion 版本化 key）+ ONNX 送审异常延迟重试
+  - [ ] 3-2.4 单图结论落 moderation_record（REJECT 的 safe_flag/隔离由 file 侧 result 消费处理）
+  - [ ] 3-2.5 配图复审聚合判定 + CAS 流转复审任务
 - [ ] 3-3 统一建任务 upsert（ReviewTaskUpsertService）
-
+  - [ ] 3-3.1 uk_biz_scene upsert：无行 insert（初始 status / content_hash / retry_count=0）
+  - [ ] 3-3.2 命中行分流：hash 变化或已终态→重置（清 assignee/decided_by/证据列/retry 归零）；非终态→复用
+  - [ ] 3-3.3 重置目标态按 scene 分列：机审场景→0；人审复审 _RE_REVIEW→2；IMG_RE_REVIEW 属机审→0
 - [ ] 3-4 result 事件发布
-
+  - [ ] 3-4.1 路由分发：message / text / image 三 result 队列
+  - [ ] 3-4.2 口径锁定：contentHash=本次送审指纹、wordlibVer=判定时快照（错填则免审失效）
+  - [ ] 3-4.3 事务顺序铁律：本地提交→confirm 发 result→basicAck
+  - [ ] 3-4.4 举报关联任务同事务回写 report（status<3，handler=0-系统）
+  - [ ] 3-4.5 bizType↔target_type 映射表（禁恒等：5↔4、6↔5）
 - [ ] 3-5 业务方回写矩阵消费端（content / message）
-
+  - [ ] 3-5.1 content 侧消费 text/image result + bizType 分发 CAS（article/comment）
+  - [ ] 3-5.2 文章双链路联合聚合：文本 PASS 且图片复审 PASS 才放行 1→2
+  - [ ] 3-5.3 REJECT 分流：首发 1→3 / 复审下架 2→4；评论 CAS 0→1/0→2 禁 2→1
+  - [ ] 3-5.4 空/纯图边界：纯图文本链路 trivially PASS；正文配图全空拒
+  - [ ] 3-5.5 message 侧消费：REJECT/SUSPICIOUS→1→2 拦截；人审 PASS→1 恢复
 - [ ] 3-6 ModerationDlqConsumer
-
+  - [ ] 3-6.1 监听 DLX 死信队列 + 按 (biz_type,biz_id,scene) 定位 review_task
+  - [ ] 3-6.2 转人审三件套：status=2 + mod_verdict=3 + retry_count 回写；图片类置 safe_flag=3
 - [ ] 3-7 成本护栏
-
+  - [ ] 3-7.1 全站 QPS 拦截器 ModerationGlobalQpsInterceptor（阈值外置 + Redis 降级本地兜底）
+  - [ ] 3-7.2 发布/上传入口 @RateLimiter(USER)
+  - [ ] 3-7.3 单内容在途 SETNX 短锁（复用 3-1.9 key 口径）
 - [ ] 3-8 故障降级
+  - [ ] 3-8.1 消费失败 x-delay 指数退避重投（retryCount 与 review_task.retry_count 对账）
+  - [ ] 3-8.2 重试耗尽路由 DLX → 3-6 转人审
+  - [ ] 3-8.3 Redis 不可用降级：跳缓存直调模型，仍受 QPS 护栏约束，超限延迟重试绝不放行
 
 ## 板块四：发布侧文本链路接入（§4.2.1 / §4.5.3）
 
 - [ ] 4-1 发布前置校验
-
+  - [ ] 4-1.1 空内容/标题校验：标题 trim 非空 + 正文去标签可见文本非空 + 标题≤100 字符
+  - [ ] 4-1.2 送审文本=标题+正文拼接（hash 与模型同口径，防违规藏标题）
 - [ ] 4-2 同步 DFA 闸门嵌入
-
+  - [ ] 4-2.1 文章/评论/私信/用户名四链路注入 DfaFacade：HIGH 拒 70001 / MID 标记放行
+  - [ ] 4-2.2 私信 HIGH 同步拒发且不投递 MQ（仅 MID/LLM 先发后审）
+  - [ ] 4-2.3 USERNAME 注册同步拒绝即终态（联动 4-7）
 - [ ] 4-3 免审 last-hash
-
+  - [ ] 4-3.1 content 消费 result 写 last-hash（TTL 与 cache.ttl 对齐 + ±10% 抖动）
+  - [ ] 4-3.2 发布三分支判定：PASS 免审直落并置 review_task 终态 / REJECT 前置提示 / 键缺失照常发 MQ
+  - [ ] 4-3.3 免审状态排除按 bizType 分列（文章排除 3/4、评论排除 2，补 del_flag=0）
+  - [ ] 4-3.4 含配图文章连带校验：IMG_RE_REVIEW last-hash 存在 + 聚合 hash 一致 + PASS 三者齐备
 - [ ] 4-4 content.unpublished 同步失效
-
+  - [ ] 4-4.1 删除/下架/转私密三路径发 unpublished 事件并删 last-hash + text/img-result 缓存键
+  - [ ] 4-4.2 免审直落排除条件补 del_flag=0
 - [ ] 4-5 POST /api/content/preview-check
-
+  - [ ] 4-5.1 端点实现：复用 DfaFacade 同 scene 同词库版本
+  - [ ] 4-5.2 返回仅 {hit,risk} 禁回吐命中词 + 本人草稿鉴权 + @RateLimiter(USER)
 - [ ] 4-6 私信撤回 CAS + 陌生人配额
-
+  - [ ] 4-6.1 撤回 CAS：仅本人仅正常态 status=1→0，不物理删正文
+  - [ ] 4-6.2 陌生人配额：Redis INCR 为主，失败降级 DB 原子条件更新 a_quota_used<3
 - [ ] 4-7 USERNAME 同步拒绝
+  - [ ] 4-7.1 DFA HIGH 同步拒绝不建任务，只落 moderation_record(biz_id=0) 取证
+  - [ ] 4-7.2 明示不可申诉设计（换名重试，无改名路径防绕过）
 
 ## 板块五：申诉与处罚联动闭环（§4.2.3 / §4.5.2）
 
 - [ ] 5-1 机审 REJECT 联动处罚
-
+  - [ ] 5-1.1 REJECT 同一事务落 punish_log(action=3，operator_id=0) + violation_score 累计
+  - [ ] 5-1.2 禁言/封禁阈值判定只重放 action∈{1,2}（action=3 仅落流水不计入）
 - [ ] 5-2 moderation.punish.result 事件 + user/auth 消费
-
+  - [ ] 5-2.1 处罚落库同事务发 punish.result 事件（体含 userId/action/op/punishLogId/frozenUntil/traceId）
+  - [ ] 5-2.2 user 消费：经 Feign 拉权威态覆盖本地（punishLogId 禁作版本门控，防吞 op=2 撤销）
+  - [ ] 5-2.3 封禁 action=2 联动 Sa-Token kickout 强制下线全会话
+  - [ ] 5-2.4 发布链路禁言态拦截 + 网关不配 /api/review/punish/status 路由
 - [ ] 5-3 punish.result 串行消费 + 双向对账 sweeper
-
+  - [ ] 5-3.1 队列固定单消费者串行（扩容按 userId 一致性哈希）
+  - [ ] 5-3.2 双向对账 sweeper：正向补漏 kickout / 反向补漏解封（挂 6-1 调度基建）
 - [ ] 5-4 申诉改判 PASS
-
+  - [ ] 5-4.1 改判 CAS：appeal status=0→2（affected=0→70004）
+  - [ ] 5-4.2 同事务处罚撤销 + violation_score 重算（仅重放生效行）+ mod_type=6 双签留痕
+  - [ ] 5-4.3 事务后发 appeal.result（必带 reviewTaskId 作 notification 幂等键）
+  - [ ] 5-4.4 content/file/message allow-list CAS 恢复（article 3→2/4→2、comment 2→1、message 2→1、safe_flag 0→1）
+  - [ ] 5-4.5 缓存层同步失效：删 text-result/img-result/last-hash key + 黑名单移除 sha256
+  - [ ] 5-4.6 按内容身份回写同内容全部活跃举报（biz→target 映射禁恒等，status<3）
 - [ ] 5-5 图片申诉对称恢复
+  - [ ] 5-5.1 appeal.result(bizType=6)：safe_flag 0→1 + FileClient.unquarantine 移回原前缀
+  - [ ] 5-5.2 同步删 img-result 缓存 key + 黑名单移除该 sha256
 
 ## 板块六：Sweeper 基建 + quarantine 清理（§4.3 / §4.2.2）
 
 - [ ] 6-1 ReviewTaskSweeper
-
+  - [ ] 6-1.1 认领超时回池：status=2 超 claim.timeout-minutes→CAS 置回 0 清 assignee
+  - [ ] 6-1.2 申诉超时自动维持：7 天未裁决置 1 + record(mod_type=6) + 通知作者
+  - [ ] 6-1.3 积压 Gauge 三态全量刷新（pending/claimed/suspicious）+ DLQ 深度
 - [ ] 6-2 status=0 待审超时补偿重发
-
+  - [ ] 6-2.1 扫 status=0 超时任务（阈值必须 > MQ 退避总时长防系统性双投）
+  - [ ] 6-2.2 重投前抢 dedup SETNX 短锁 + retryCount 保持原值不归零
 - [ ] 6-3 quarantine sweeper
-
+  - [ ] 6-3.1 扫描源=moderation_record（biz_type=6 且 REJECT 超 retention-days）+ 待裁决申诉豁免顺延
+  - [ ] 6-3.2 FileClient.deleteQuarantined：path 前缀校验→删本体+缩略图→del_flag=1（回收站兜底 7 天）
+  - [ ] 6-3.3 限速/天级分频/单条失败下轮兜住 + quarantine 积压 Gauge；落地后勾「暂不实现」节条目
 - [ ] 6-4 moderation_record 归档占位
+  - [ ] 6-4.1 落配置 retention-months=6 + 归档任务占位（二期：按 id 区间幂等迁移，删前跳过被申诉/处罚引用记录）
 
 ## 板块七：观测与告警收尾（§4.8 / §4.7）
 
-- [ ] 7-1 指标埋点
-
+- [ ] 7-1 指标埋点（均 ObjectProvider optional 模式）
+  - [ ] 7-1.1 moderation_total{verdict} Counter（判定落库处）+ moderation_cost Timer（SPI 包裹）
+  - [ ] 7-1.2 moderation_backlog{status} / moderation_dlq_backlog Gauge（6-1 任务内定时刷新）
+  - [ ] 7-1.3 moderation_punish_total{action} / moderation_cache_hit{layer} Counter
 - [ ] 7-2 traceId 全链路贯穿
-
+  - [ ] 7-2.1 网关→发布→submit 事件→MQ 头→消费→record 落库贯穿；与 provider_trace_id 分列；落日志前剥离 \r\n
 - [ ] 7-3 Alertmanager 六规则
-
+  - [ ] 7-3.1 六规则阈值外置落 Nacos（存疑积压/在办超时/DLQ 堆积/机审失败率/通过率跌幅/缓存命中跌落）
 - [ ] 7-4 §4.7 剩余配置项收尾
+  - [ ] 7-4.1 litisle-shared.yaml 共享项：last-hash.ttl-hours / cache.ttl-hours / ttl-jitter-ratio / reject-blacklist.ttl-days
+  - [ ] 7-4.2 review 服务项：retry / qps / consumer.prefetch / appeal / report / claim / sweeper / dedup / llm / model-version / alert.*（既有不生效配置保留加注释）
 
 ## 暂不实现（预留项）
 

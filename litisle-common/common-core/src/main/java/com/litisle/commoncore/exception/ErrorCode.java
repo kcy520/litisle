@@ -264,6 +264,10 @@ public enum ErrorCode {
     WORD_DUPLICATED(70003, "敏感词已存在"),
 
     // 70004 预留：审核任务已被他人认领（claimTask CAS 实现时启用）
+    /**
+     * 审核任务已被他人认领（claimTask CAS affected=0 时抛出）
+     */
+    TASK_ALREADY_CLAIMED(70004, "该审核任务已被他人认领"),
 
     /**
      * 敏感词不合法（长度≤64 且不得含空白/控制字符，DFA 构建前拦截）
@@ -274,6 +278,25 @@ public enum ErrorCode {
      * 敏感词不存在
      */
     WORD_NOT_FOUND(70006, "敏感词不存在"),
+
+
+
+    /**
+     * 敏感词导入失败（文件读取异常或解析失败）
+     */
+    WORD_IMPORT_FAILED(70007, "敏感词导入失败"),
+
+    /**
+     * 审核任务不存在（文本机审按 biz_type+biz_id+scene 三元组定位 review_task 落空；
+     * 消费端捕获后按业务性失败 ack 丢弃，防毒丸重投）
+     */
+    MODERATION_TASK_NOT_FOUND(70008, "审核任务不存在"),
+
+    /**
+     * 内容指纹不一致（送审事件 contentHash 与任务/正文错配，疑似旧消息打新任务；
+     * 消费端捕获后按业务性失败 ack 丢弃）
+     */
+    MODERATION_HASH_MISMATCH(70009, "内容指纹不一致，疑似旧消息错配"),
 
     // ==================== 文件模块 90000-99999 ====================
     /**

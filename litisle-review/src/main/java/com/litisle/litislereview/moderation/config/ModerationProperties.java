@@ -35,6 +35,12 @@ public class ModerationProperties {
     /** 词库/DFA 闸门参数（板块二） */
     private Wordlib wordlib = new Wordlib();
 
+    /** 审核结果缓存参数（§2.11 版本化缓存，仅缓存终局结论） */
+    private Cache cache = new Cache();
+
+    /** 在途去重短锁参数（成本护栏 §2.7，防同内容并发送审烧 N 倍模型费） */
+    private Dedup dedup = new Dedup();
+
     @Data
     public static class Image {
 
@@ -76,5 +82,31 @@ public class ModerationProperties {
 
         /** few-shot 提示词版本：变更示例时 +1，消费者侧纳入 model_version 留痕 */
         private String fewShotVersion = "v1";
+
+        /** 单片送审字符上限：超限先按空行段落分片（§4.2.1 分片禁静默截断） */
+        private int maxTextChars = 6000;
+
+        /** 段落分片后单片仍超限时字符窗口硬切窗口长度 */
+        private int chunkStepChars = 5500;
+
+        /** 字符窗口硬切重叠字符数（防违规词跨切点被拆开漏检） */
+        private int chunkOverlapChars = 500;
+    }
+
+    @Data
+    public static class Cache {
+
+        /** 审核结果缓存 TTL（小时，§2.11：仅缓存终局结论 PASS/REJECT） */
+        private long ttlHours = 72;
+
+        /** TTL 抖动比例（±10%，防同批内容集体过期雪崩） */
+        private double ttlJitterRatio = 0.1;
+    }
+
+    @Data
+    public static class Dedup {
+
+        /** 在途去重短锁 TTL（秒）：抢锁失败=原请求在途，后到者延迟重试 */
+        private long lockSeconds = 60;
     }
 }
