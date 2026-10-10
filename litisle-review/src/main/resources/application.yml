@@ -144,6 +144,9 @@ litisle:
       timeout-ms: 10000
       # 本地推理并发上限（信号量，默认 CPU 核数）
       max-concurrency: 4
+      # 本地模型文件路径（ONNX 适配器构造期加载，缺失/损坏直接启动失败 fail-fast）
+      # ⚠️ 请改成你本地实际存放 nsfw 模型文件的绝对/相对路径，否则 image-provider=onnx 时启动失败
+      model-path: models/nsfw-mobilenetv2.onnx
     api:
       timeout-ms: 8000
     image:

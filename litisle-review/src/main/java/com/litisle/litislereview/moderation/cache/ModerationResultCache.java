@@ -58,11 +58,12 @@ public class ModerationResultCache {
 
     /**
      * 缓存查重：Redis 命中→解析 JSON 返回；miss→moderation_record 兜底查询（四条件过滤）
+     * 根据「场景 + 内容指纹 + 当前版本参数」，先查 Redis，再兜底查 DB，判断是否存在可复用的终局审核结论（PASS / REJECT）。
      *
      * @param scene       审核场景（review_task.scene code）
      * @param contentHash 内容指纹（正文 SHA256）
      * @param wordlibVer  当前词库版本（缓存 key + 兜底过滤）
-     * @param fewShotVer  当前 few-shot 版本（缓存 key + 兜底过滤，即文本 model_version）
+     * @param fewShotVer  当前 few-shot 版本（缓存 key + 兜底过滤，即文本 model_version）     few-shot 提示词版本：变更示例时 +1，消费者侧纳入 model_version 留痕
      * @param provider    当前文本 provider（兜底过滤，防 provider 切换复用）
      * @return 可复用结论；未命中返回 Optional.empty()
      */

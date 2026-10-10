@@ -15,6 +15,13 @@ CREATE DATABASE IF NOT EXISTS litisle_content
   DEFAULT CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
+-- 审核域数据库（表结构由 review-schema.sql 创建：
+--   审核任务/审核留痕/举报/申诉/违规分/敏感词库；
+--   00 脚本必须先授权，否则 review 服务启动报 Access denied）
+CREATE DATABASE IF NOT EXISTS litisle_review
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
 -- Nacos 配置中心数据库（表结构由挂载的官方 mysql-schema.sql 创建：
 --   ./docker/init/nacos/mysql-schema.sql → 容器内 10-nacos-schema.sql，
 --   该脚本只有 CREATE TABLE，库必须在这里提前建好，否则首次初始化报 No database selected）
@@ -38,9 +45,11 @@ CREATE DATABASE IF NOT EXISTS seata_server
 
 -- 给 test_k.1 授予所有业务数据库的全部权限
 -- 生产环境应限制为具体 IP 或容器名，这里用 % 适配开发/Docker 环境
+-- ⚠️ 新增业务库时必须同步补一行 GRANT，否则对应服务启动报 Access denied（存量环境另需手动执行，见下）
 GRANT ALL PRIVILEGES ON litisle_user.*   TO 'test_k.1'@'%';
 GRANT ALL PRIVILEGES ON litisle_content.* TO 'test_k.1'@'%';
 GRANT ALL PRIVILEGES ON litisle_file.*    TO 'test_k.1'@'%';
+GRANT ALL PRIVILEGES ON litisle_review.*  TO 'test_k.1'@'%';
 
 -- Seata 专用账号（最小权限：仅 seata_server 库，含 DDL——首启建表需要）
 -- 注意：密码硬编码在此处，必须与 .env 中 SEATA_DB_PASSWORD 保持一致

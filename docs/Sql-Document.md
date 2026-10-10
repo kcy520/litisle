@@ -902,6 +902,439 @@ index `idx_status` (`status`)
 default charset = utf8mb4 comment = '作家申请表';
 ```
 
+
+# ============================================================
+# 模块：litisle-user
+# 数据库：litisle_user
+# 说明：用户 / 角色 / 用户资料扩展 / OAuth 绑定 / 短信验证码
+# ============================================================
+
+
+-- ============================================================================
+-- file-schema.sql
+-- 模块：litisle-file
+-- 数据库：litisle_file
+-- 说明：SeaweedFS 文件元数据 + 引用登记（方案C 秒传共享），含 Seata AT 模式 undo_log
+-- 位置：/docker-entrypoint-initdb.d/file-schema.sql（MySQL 首次启动按字母序自动执行）
+-- 参考：user-schema.sql（风格保持一致）
+-- 设计来源：docs/Sql-Document.md 第八节「litisle-file 模块」
+-- ============================================================================
+
+create database if not exists litisle_file
+character set utf8mb4
+collate utf8mb4_unicode_ci;
+
+use litisle_file;
+
+/* seata 的 undolog表（AT 模式硬性要求：file_ref 登记/解绑需与 user/content 等业务表
+同一全局事务（跨服务 AT 分支），每个参与全局事务的库都要有 undo_log） */
+CREATE TABLE IF NOT EXISTS `undo_log`
+(
+`branch_id`     BIGINT       NOT NULL COMMENT 'branch transaction id',
+`xid`           VARCHAR(128) NOT NULL COMMENT 'global transaction id',
+`context`       VARCHAR(128) NOT NULL COMMENT 'undo_log context,such as serialization',
+`rollback_info` LONGBLOB     NOT NULL COMMENT 'rollback info',
+`log_status`    INT          NOT NULL COMMENT '0:normal status,1:defense status',
+`log_created`   DATETIME(6)  NOT NULL COMMENT 'create datetime',
+`log_modified`  DATETIME(6)  NOT NULL COMMENT 'modify datetime',
+UNIQUE KEY `ux_undo_log` (`xid`, `branch_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT ='AT transaction mode undo table';
+
+/* ================= 1. 文件元数据表 ================= */
+create table if not exists `file_meta`
+(
+`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
+`file_id`     varchar(64)     not null unique comment 'SeaweedFS 文件ID（业务主键）',
+`owner_id`    bigint unsigned not null comment '上传者ID',
+`biz_type`    varchar(20)     not null comment '业务类型：AVATAR/COVER/ARTICLE_IMG/LICENSE',
+`bucket`      varchar(32)     not null comment 'SeaweedFS collection',
+`path`        varchar(255)    not null comment 'Filer 路径',
+`mime`        varchar(64)     not null comment 'MIME 类型',
+`size`        bigint unsigned not null comment '文件大小（字节）',
+`width`       int             null comment '图片宽度',
+`height`      int             null comment '图片高度',
+`align`       tinyint         null comment '对齐：1-左 2-左偏中 3-中 4-中偏右 5-右（图片专用）',
+`access`      tinyint         not null default 0 comment '访问级别：0-私有 1-公开',
+`status`      tinyint         not null default 0 comment '上传状态：0-上传中（锁内占位写库）1-上传完成（锁外 put 成功后更新）；put 失败保留 0，由对账任务清理（见 seaweedfs笔记.md §3.4）',
+`safe_flag`   tinyint         not null default 2 comment '【预留｜已定接入，暂未开发】违规审核（三态 default-deny）：0-违规（禁止访问）1-正常 2-待检测（默认；放行以检测完成为前提，而非未检出违规，避免异步检测窗口内未检图被放行）；启用链路：status=1 后异步消息 → 病毒/违规检测 → 写本列；getUrl/batchGetUrls 返回前校验（访问闸口，见 seaweedfs笔记.md §3.6/§3.6.3）',
+`sha256`      varchar(64)     not null comment 'SHA256 摘要（联合判重键：sha256+size+biz_type，PRIVATE 追加 owner_id 隔离）',
+`del_flag`    tinyint         not null default 0 comment '删除标志：仅当 file_ref 无活跃引用才可置 1（方案C，防秒传共享悬空他人引用）；置 1 后不再参与秒传判重',
+`create_time` datetime        not null default current_timestamp comment '上传时间',
+`update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+`delete_time` datetime        null comment '软删除时间（del_flag 置 1 时写入，物理清理按此判超 7 天）',
+index `idx_owner_biz` (`owner_id`, `biz_type`),
+index `idx_dedup` (`sha256`, `size`, `biz_type`, `del_flag`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '文件元数据表';
+
+/* ================= 2. 文件引用登记表（方案C：秒传使 file_meta 成为多方共享资产，删除=解绑引用，
+物理清理前置校验本表，杜绝悬空引用；详见 seaweedfs笔记.md §3.4） ================= */
+/* ================= 2. 文件引用登记表（方案C：秒传使 file_meta 成为多方共享资产，删除=解绑引用，
+物理清理前置校验本表，杜绝悬空引用；详见 seaweedfs笔记.md §3.4） ================= */
+create table if not exists `file_ref`
+(
+`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
+`file_id`     varchar(64)     not null comment '引用的文件ID（file_meta.file_id）',
+`biz_type`    varchar(20)     not null comment '引用方业务类型：AVATAR/COVER/ARTICLE_IMG/LICENSE',
+`biz_id`      bigint unsigned not null comment '引用方业务主键：如 article_image.id / 换头像场景为 sys_user.id',
+`owner_id`    bigint unsigned not null comment '引用归属用户ID（审计与授权依据）',
+`create_time` datetime        not null default current_timestamp comment '引用建立时间',
+unique key `uk_ref` (`file_id`, `biz_type`, `biz_id`, `owner_id`),
+index `idx_biz` (`biz_type`, `biz_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '文件引用登记表：业务方绑定/解绑引用时与业务表同事务登记';
+
+
+-- **设计原因**：
+--
+-- - `file_id` 业务主键 + 唯一索引：业务层只持有 fileId，与 SeaweedFS 解耦。
+-- - `idx_dedup` 联合判重索引：上传前按 (sha256+size+biz_type) 查重，命中直接复用 fileId 实现秒传；
+--   判重限定 biz_type → 命中记录 bucket 必等于本次请求 bucket，URL 永不跨桶坏链（seaweedfs笔记.md §3.4.5）；
+--   PRIVATE/LICENSE 去重追加 owner_id（最左前缀匹配 + 回表过滤，后期量大再扩 owner_id 进索引）。
+-- - `access` 区分公开/私有：公开文件走 CDN 直链，私有文件走预签名短时效 URL。
+-- - `safe_flag` 预留列：违规信息审核（已定接入、暂未开发）。建表一次到位避免将来改表，三态化
+--   default-deny（default 2）：公开资源放行以"检测完成"为前提，而非"未检出违规"；启用仅需
+--   MQ 异步消费写本列，主链路零改动（设计见 seaweedfs笔记.md §3.6）。
+-- - 闸口按曝光面分层放行：高曝光（ARTICLE_IMG/COVER，公开可见）仅 safe_flag=1 放行、2 展示占位图；
+--   低曝光（AVATAR / LICENSE，私有仅本人/管理员可见）2 放行、检出违规置 0 并强制刷新。
+-- - `align` 放此表为冗余可选：实际对齐信息以 article_image 为准，此处冗余便于文件维度查询。
+-- - `file_ref` 引用登记表（方案C）：秒传使一条 file_meta 成为多方共享资产（B 秒传命中 A 的
+--   记录并把 fileId 写进业务表），而原有"owner 删除 → 7 天后物理清理"会悬空 B 的所有引用
+--   ——7 天缓冲只防"误删恢复"，不防"共享悬空"。规则：
+--   ① 业务方绑定/解绑引用时同步写/删 file_ref（与业务表同事务，跨服务场景走 Seata AT）；
+--   ② delete 接口仅解绑当前调用方引用；仅当 file_ref 无活跃引用才置 del_flag=1；
+--   ③ 对账任务物理清理前置校验 file_ref 无记录（仍有引用则跳过并告警），杜绝悬空引用；
+--   ④ 引用可审计：随时可查"谁在引用该文件"，漏登记可定位。
+
+
+
+create database if not exists litisle_user
+character set utf8mb4
+collate utf8mb4_unicode_ci;
+
+use litisle_user;
+
+
+/*seata 的 undolog表 */
+CREATE TABLE IF NOT EXISTS `undo_log`
+(
+`branch_id`     BIGINT       NOT NULL COMMENT 'branch transaction id',
+`xid`           VARCHAR(128) NOT NULL COMMENT 'global transaction id',
+`context`       VARCHAR(128) NOT NULL COMMENT 'undo_log context,such as serialization',
+`rollback_info` LONGBLOB     NOT NULL COMMENT 'rollback info',
+`log_status`    INT          NOT NULL COMMENT '0:normal status,1:defense status',
+`log_created`   DATETIME(6)  NOT NULL COMMENT 'create datetime',
+`log_modified`  DATETIME(6)  NOT NULL COMMENT 'modify datetime',
+UNIQUE KEY `ux_undo_log` (`xid`, `branch_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT ='AT transaction mode undo table';
+
+
+/* ================= 1. 用户表 ================= */
+create table if not exists `sys_user`
+(
+`id`              bigint unsigned not null auto_increment primary key comment '用户ID',
+`username`        varchar(32)     not null comment '用户名',
+`uid`             varchar(16)     not null comment '对外UID（用户间搜索唯一标识，随机生成，永久不变；注册时 UidGenerator 生成，唯一键冲突则重生成）',
+`password`        varchar(128)    not null comment '密码（BCrypt）',
+`email`           varchar(255)    null comment '邮箱（AES 加密存储，展示脱敏，安全通道解密）',
+`phone`           varchar(255)     not null comment '手机号（AES 加密存储，展示脱敏，安全通道解密）',
+`phone_hash`      varchar(64)     not null comment '手机号 HMAC-SHA256 摘要（密钥优先独立 hashKey，未配置时由 CryptoAutoConfiguration 从 AES 主密钥确定性派生子密钥）；唯一约束与查重走本列，phone 密文列只管存储（AES 随机 IV 密文不重复，唯一索引必须建在确定性 hash 上）',
+`email_hash`      varchar(64)     null comment '邮箱 HMAC-SHA256 摘要（独立密钥）；同 phone_hash',
+`avatar_file_id`  varchar(64)     null comment '头像文件ID（SeaweedFS fileId，URL 运行时通过 FileService 批量反查拼接；默认头像走代码常量兜底，不落库）',
+`avatar_color`    tinyint         not null default 0 comment '头像标识：0-无 1-金 2-白', -- 【修改】
+`bio`             varchar(200)    null comment '个人简介',
+`vip_expire_time` datetime        null comment 'VIP 到期时间',
+`frozen_until`    datetime        null comment '封禁截止时间',
+`cancel_time`     datetime        null comment '注销时间',
+`status`          tinyint         not null default 1 comment '0-禁用 1-正常 2-注销',
+`del_flag`        tinyint         not null default 0 comment '删除标志',
+`version`         int             not null default 0 comment '乐观锁',
+`create_time`     datetime        not null default current_timestamp,
+`update_time`     datetime        not null default current_timestamp on update current_timestamp,
+unique key `uk_phone_hash_del` (`phone_hash`, `del_flag`),
+unique key `uk_email_hash_del` (`email_hash`, `del_flag`),
+unique key `uk_uid` (`uid`),
+index `idx_username` (`username`),
+index `idx_create_time` (`create_time`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '用户表';
+
+# 2. 角色表
+create table if not exists `sys_role`
+(
+`id`          bigint unsigned not null auto_increment primary key comment '角色ID',
+`role_code`   varchar(32)     not null comment '角色编码',
+`role_name`   varchar(32)     not null comment '角色名称',
+`role_type`   tinyint         not null default 2 comment '角色类型：1-系统内置 2-业务角色',
+`create_time` datetime        not null default current_timestamp comment '创建时间',
+unique key `uk_role_code` (`role_code`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '角色表';
+
+# 3. 用户-角色关联表
+create table if not exists `sys_user_role`
+(
+`id`      bigint unsigned not null auto_increment primary key comment '主键ID',
+`user_id` bigint unsigned not null comment '用户ID',
+`role_id` bigint unsigned not null comment '角色ID',
+unique key `uk_user_role` (`user_id`, `role_id`),
+index `idx_role_id` (`role_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '用户-角色关联表';
+
+# 4. 角色初始化数据
+insert ignore into `sys_role` (`role_code`, `role_name`, `role_type`) values
+('SUPER_ADMIN',   '超级管理员', 1),
+('ADMIN',         '管理员',     1),
+('READER',        '读者',       2),
+('AUTHOR',        '作家',       2),
+('LEGACY_AUTHOR', '纪念作家',   2),
+('REVIEWER',      '审核员',     2);
+
+# 5. 权限表（菜单 + 按钮/API 统一管理，parent_id 自关联树形结构）
+create table if not exists `sys_permission`
+(
+`id`          bigint unsigned not null auto_increment primary key comment '权限ID',
+`parent_id`   bigint unsigned not null default 0 comment '父权限ID（0=根节点）',
+`perm_code`   varchar(64)     not null comment '权限编码（如 user:read / article:write）',
+`perm_name`   varchar(32)     not null comment '权限名称',
+`perm_type`   tinyint         not null comment '类型：1-菜单 2-按钮/API',
+`path`        varchar(128)    null comment '前端路由路径（菜单类型用）',
+`component`   varchar(128)    null comment '前端组件路径（菜单类型用）',
+`icon`        varchar(64)     null comment '图标',
+`sort`        int             not null default 0 comment '排序（同级内升序）',
+`status`      tinyint         not null default 1 comment '状态：0-禁用 1-正常',
+`create_time` datetime        not null default current_timestamp comment '创建时间',
+`update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+unique key `uk_perm_code` (`perm_code`),
+index `idx_parent_id` (`parent_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '权限表（菜单与按钮/API 统一管理，parent_id 自关联形成树形结构）';
+
+# 6. 角色-权限关联表
+create table if not exists `sys_role_permission`
+(
+`id`            bigint unsigned not null auto_increment primary key comment '主键ID',
+`role_id`       bigint unsigned not null comment '角色ID',
+`permission_id` bigint unsigned not null comment '权限ID',
+unique key `uk_role_permission` (`role_id`, `permission_id`),
+index `idx_permission_id` (`permission_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '角色-权限关联表';
+create table if not exists `sys_user_profile`
+(
+`id`           bigint unsigned not null auto_increment primary key,
+`user_id`      bigint unsigned not null unique comment '关联用户',
+`pen_name`     varchar(32)     null comment '【调整】笔名（作家专用）',
+`creation_dir` varchar(100)    null comment '创作方向',
+`masterpiece`  varchar(500)    null comment '代表作简介',
+`version`      int             not null default 0,
+`create_time`  datetime        not null default current_timestamp,
+`update_time`  datetime        not null default current_timestamp on update current_timestamp,
+unique key `uk_pen_name` (`pen_name`), -- 【新增】唯一
+index `idx_user_id` (`user_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '用户资料扩展表（仅作家资料）';
+
+# 8. 第三方 OAuth 绑定表（物理删除 + @AuditLog 审计 + app_id 预留）
+create table if not exists `sys_oauth_binding`
+(
+`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
+`user_id`     bigint unsigned not null comment '用户ID',
+`provider`    varchar(16)     not null comment 'OAuth 提供方：WECHAT / QQ',
+`app_id`      varchar(32)     not null default 'default' comment '应用ID（预留多应用扩展，同一 provider 下区分不同 app）',
+`open_id`     varchar(64)     not null comment '第三方 openId',
+`union_id`    varchar(64)     null comment '第三方 unionId（可选）',
+`create_time` datetime        not null default current_timestamp comment '绑定时间',
+`update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+unique key `uk_provider_app_open` (`provider`, `app_id`, `open_id`),
+index `idx_user_id` (`user_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '第三方账号绑定表（物理删除，解绑时直接 DELETE，由 @AuditLog 切面记录审计日志；唯一索引预留 app_id 支持多应用扩展）';
+
+
+# 封号/解封审计日志表
+create table if not exists `sys_user_ban_log`
+(
+`id`            bigint unsigned not null auto_increment primary key comment '主键ID',
+`user_id`       bigint unsigned not null comment '被操作用户ID',
+`username`      varchar(32)     not null comment '被操作用户名（操作时快照）',
+`role_code`     varchar(255)    null comment '被操作用户角色快照（逗号分隔）',
+`action`        varchar(16)     not null comment '操作类型：BAN-封号 UNBAN-解封',
+`reason`        varchar(255)    null comment '封号原因（封号时必填；解封可为空）',
+`frozen_until`  datetime        null comment '解封时间（封号时记录；解封时为空）',
+`operator_id`   bigint unsigned not null comment '操作者ID（自动解封为0表示系统）',
+`operator_name` varchar(32)     null comment '操作者用户名（快照）',
+`create_time`   datetime        not null default current_timestamp comment '操作时间',
+index `idx_user_id` (`user_id`),
+index `idx_create_time` (`create_time`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '用户封号/解封审计日志表';
+
+#注销账号日志表
+create table if not exists `sys_user_cancel_log`
+(
+`id`            bigint unsigned not null auto_increment primary key comment '主键ID',
+`user_id`       bigint unsigned not null comment '被注销用户ID',
+`username`      varchar(32)     not null comment '被注销用户名（操作时快照）',
+`role_code`     varchar(255)    null comment '被注销用户角色快照（逗号分隔）',
+`source`        varchar(16)     not null comment '注销来源：SELF-用户自助注销 ADMIN-管理员强制注销',
+`reason`        varchar(255)    null comment '注销原因（管理员强制注销时必填；自助注销可为空）',
+`operator_id`   bigint unsigned not null comment '操作者ID（自助注销为本人；管理员注销为操作管理员ID）',
+`operator_name` varchar(32)     null comment '操作者用户名（快照）',
+`create_time`   datetime        not null default current_timestamp comment '注销操作时间',
+index `idx_user_id` (`user_id`),
+index `idx_create_time` (`create_time`)
+) engine = InnoDB default charset = utf8mb4 comment = '用户注销审计日志表';
+
+-- **设计原因**：
+--
+-- - `sys_user_profile` 与 `sys_user` 拆分：主表保留高频鉴权字段，扩展资料单独表，避免列过多影响查询效率。
+-- - `avatar_color` 用枚举而非字符串：0/1/2 三态对应无标识/金色/白色，与设计文档视觉区分一致，查询性能好。
+-- - OAuth 绑定表对 `(provider, open_id)` 建唯一索引：保证一个第三方账号只能绑定一个文屿账号。
+-- - `phone` 加密存储：符合设计文档"隐私脱敏"规范，明文查看需临时解密 + 审计。
+-- - **手机号联合唯一索引 `uk_phone_hash_del(phone_hash, del_flag)` 设计说明**：
+--
+-- - **问题**：若 phone 建单列唯一索引，用户注销后（`del_flag=1`）手机号仍占位，导致同一手机号无法重新注册。
+-- - **方案**：联合唯一索引建在 `(phone_hash, del_flag)` 上，活跃用户与已注销用户是不同的组合键，互不冲突。
+-- - **为什么唯一索引建在 hash 列而非密文列**：AES 加密采用随机 IV，同一手机号每次加密密文都不同，
+--   对密文建唯一索引永远撞不上 → 查重/防重复注册失效；HMAC-SHA256 是确定性摘要（同输入同输出），
+--   查重等值匹配走 hash 列，密文列保留加密收益，二者职责分离（密态存储标准做法）。
+-- - **非空语义**：phone 为 not null（注册必填），phone_hash 随注册/换绑由 CryptoService 同步写入；email 可为空，email_hash 为 NULL 时不参与唯一判断（MySQL 中 NULL 不冲突），允许多个无邮箱用户共存。
+-- - **冷却期**：通过 `cancel_time` 字段实现。注销时写入当前时间，重新注册时业务层判断 `cancel_time + 冷却期（如30天） < now()` 是否满足。
+-- - **重复注销处理**：若同一手机号多次注销，业务层在重新注册前先清理旧的 `(phone, 1)` 记录再插入新行，保证唯一性。
+-- - **注册校验流程**：
+--   1. 查 `(phone, 0)` 存在 → 拒绝（手机号已被活跃用户使用）
+--   2. 查 `(phone, 1)` 存在且 `cancel_time + 冷却期 > now()` → 拒绝（冷却期内）
+--   3. 查 `(phone, 1)` 存在且冷却期已过 → 删除旧注销记录 → 允许注册
+--   4. 无记录 → 直接允许注册
+--
+-- **删除状态统一说明（避免双写不一致）**：
+--
+-- - `sys_user` 的 `del_flag` 是用户删除状态的**唯一真相源**。
+-- - `sys_user_profile` 不设 `del_flag`，查询时 JOIN 主表判断删除状态，避免双写导致的不一致。
+-- - 注销时业务层在同一事务内：主表 `del_flag=1` + 扩展表保留（不删除，便于审计追溯）。
+--
+-- **OAuth 表设计说明**：
+--
+-- - **物理删除**：解绑操作直接 `DELETE FROM`，不留软删除痕迹，避免 openId 被"占位"导致无法重新绑定。
+-- - **审计**：所有删除操作通过 `litisle_common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
+-- - **app_id 预留**：唯一索引 `(provider, app_id, open_id)` 预留 `app_id` 字段，默认值 `'default'`。当前单应用无影响，未来接入多个微信/QQ 应用时，同一 provider 下不同 app 的 openId 不会冲突。
+
+#初始化语句
+-- 角色用户示例数据（每个角色各一名，密码统一为 bcrypt 加密的 123）
+-- 哈希：$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2
+-- 注意：请根据实际 sys_user 表结构调整 id 值，确保与现有数据不冲突
+# ============================================================
+# 初始化示例用户数据（无邮箱；本地开发种子数据）
+# 密码统一为 bcrypt 加密的 123
+# 哈希：$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2
+#
+# 手机号加密列种子策略（本地开发简化）：
+# - 正式数据一律走应用层 CryptoService：phone 存 AES-GCM 密文、phone_hash 存 HMAC-SHA256
+#   （随机 IV 密文每次不同，无法在 SQL 中静态预生成真实值）
+# - 种子简化：phone 暂存明文，phone_hash 用 MySQL 端 SHA2(phone,256) 占位（64 位 hex，长度合规）
+# - 已知局限：种子 hash 与应用 HMAC 不一致 → 种子用户不可走手机号登录/查重路径；
+#   测手机号登录请走注册流程造数，种子账号用用户名+密码登录
+# - 本地密钥见 yml security.crypto.key（仅本地开发；生产走 LITISLE_CRYPTO_KEY 环境变量注入）
+# - uid 为 not null：应用注册时由 UidGenerator 随机生成；种子数据用固定值便于测试与互搜
+# ============================================================
+
+-- 1. READER 读者
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`,`avatar_color`)
+VALUES (1001, 'reader_test', 'U1001READER01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'd1FyZ+b0E1E/eFmhtQWhkRZ7YDGMQODobmsRB4aPte7quJGt2lV6', '92ee487f83ae8784872d86f8c0d579b781d7956a60ebf95305197edc0ba3cb35', '热爱阅读的普通用户', 1, 0, NOW(),0);
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1001, `id` FROM `sys_role` WHERE `role_code` = 'READER';
+
+INSERT INTO `sys_user_profile` (`user_id`)
+VALUES (1001);
+
+-- 2. AUTHOR 作家
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
+VALUES (1002, 'author_test', 'U1002AUTHOR01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'rtIAtr//RH0fX0HKS+2l22spZsei7h4E4PxohDvooz+0h4PhsWWb', 'f41c3968090234792656a3fd53ad3a6436286cbd531fd58692cc1fab75c38780', '专注科幻小说创作', 1, 0, NOW(),1);
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1002, `id` FROM `sys_role` WHERE `role_code` = 'AUTHOR';
+
+INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`)
+VALUES (1002, '红袖添香', '科幻 / 奇幻', '《星海归途》系列');
+
+-- 3. LEGACY_AUTHOR 纪念作家
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
+VALUES (1003, 'legacy_test', 'U1003LEGACY01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '4cPacxVojqKfv+0dP5qMjmnkvPJM63euWFyoa0qUr6pYUNFl9EYU', '61bcee3ebe69365829ad5662522be825230d23939fe5189e2a1161792f9acc80', '已故文学巨匠，作品永久珍藏', 1, 0, NOW(),2);
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1003, `id` FROM `sys_role` WHERE `role_code` = 'LEGACY_AUTHOR';
+
+INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`)
+VALUES (1003, '老舍', '现实主义文学', '《骆驼祥子》《茶馆》');
+
+-- 4. REVIEWER 审核员
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1004, 'reviewer_test', 'U1004REVIEW01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'MmhwRQz5Y2phTeQWof43m/B8woUk3AZkXRB2CRBts9bnwYJ3ekOx', '0e40f2a460b37e4c2563b649607abbd8d8289c5b5aea5dc36e99a96623c5a602', '内容安全审核专员', 1, 0, NOW());
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1004, `id` FROM `sys_role` WHERE `role_code` = 'REVIEWER';
+
+INSERT INTO `sys_user_profile` (`user_id`)
+VALUES (1004);
+
+-- 5. ADMIN 管理员
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1005, 'admin_test', 'U1005ADMIN001', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'hLqQug7IZ2ArhGrKNBBX+DuAONUUqG7gwoov2ugcWSJAUMsofOcJ', 'cd21bdf19ed271a099031dd89d2ac78f23b60c4900b18b8365bbb92a142e66e7', '负责平台日常运营管理', 1, 0, NOW());
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1005, `id` FROM `sys_role` WHERE `role_code` = 'ADMIN';
+
+INSERT INTO `sys_user_profile` (`user_id`)
+VALUES (1005);
+
+-- 6. SUPER_ADMIN 超级管理员
+INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `phone_hash`, `bio`, `status`, `del_flag`, `create_time`)
+VALUES (1006, 'super_admin_test', 'U1006SADMIN01', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', 'xKHNh2in4lCXBiZtGakTnADPBJswk8k3f351UfkkeDylQWbV/1oJ', 'd161009f4c0a655d7aedd00ab559955ee2d0bb6b343efc4e637a3aad2d76b711', '系统最高权限拥有者', 1, 0, NOW());
+
+INSERT INTO `sys_user_role` (`user_id`, `role_id`)
+SELECT 1006, `id` FROM `sys_role` WHERE `role_code` = 'SUPER_ADMIN';
+
+INSERT INTO `sys_user_profile` (`user_id`)
+VALUES (1006);
+
+/*
+**设计原因**：
+
+- `sys_user_profile` 与 `sys_user` 拆分：主表保留高频鉴权字段，扩展资料单独表，避免列过多影响查询效率。
+- `avatar_color` 用枚举而非字符串：0/1/2 三态对应无标识/金色/白色，与设计文档视觉区分一致，查询性能好。
+- OAuth 绑定表对 `(provider, open_id)` 建唯一索引：保证一个第三方账号只能绑定一个文屿账号。
+- `phone` 加密存储：符合设计文档"隐私脱敏"规范，明文查看需临时解密 + 审计。
+
+**手机号联合唯一索引 `uk_phone_hash_del(phone_hash, del_flag)` 设计说明**：
+
+- **问题**：若 phone 建单列唯一索引，用户注销后（`del_flag=1`）手机号仍占位，导致同一手机号无法重新注册。
+- **方案**：联合唯一索引建在 `(phone_hash, del_flag)` 上，活跃用户与已注销用户是不同的组合键，互不冲突。
+- **为什么唯一索引建在 hash 列而非密文列**：AES 加密采用随机 IV，同一手机号每次加密密文都不同，对密文建唯一索引永远撞不上 → 查重/防重复注册失效；HMAC-SHA256 是确定性摘要（同输入同输出），查重等值匹配走 hash 列，密文列保留加密收益。
+- **非空语义**：phone 为 not null（注册必填）；email 可为空，email_hash 为 NULL 时不参与唯一判断。
+- **冷却期**：通过 `cancel_time` 字段实现。注销时写入当前时间，重新注册时业务层判断 `cancel_time + 冷却期（如30天） < now()` 是否满足。
+- **重复注销处理**：若同一手机号多次注销，业务层在重新注册前先清理旧的 `(phone, 1)` 记录再插入新行，保证唯一性。
+- **注册校验流程**：
+    1. 查 `(phone, 0)` 存在 → 拒绝（手机号已被活跃用户使用）
+    2. 查 `(phone, 1)` 存在且 `cancel_time + 冷却期 > now()` → 拒绝（冷却期内）
+    3. 查 `(phone, 1)` 存在且冷却期已过 → 删除旧注销记录 → 允许注册
+    4. 无记录 → 直接允许注册
+
+**删除状态统一说明（避免双写不一致）**：
+
+- `sys_user` 的 `del_flag` 是用户删除状态的**唯一真相源**。
+- `sys_user_profile` 不设 `del_flag`，查询时 JOIN 主表判断删除状态，避免双写导致的不一致。
+- 注销时业务层在同一事务内：主表 `del_flag=1` + 扩展表保留（不删除，便于审计追溯）。
+
+**OAuth 表设计说明**：
+
+- **物理删除**：解绑操作直接 `DELETE FROM`，不留软删除痕迹，避免 openId 被"占位"导致无法重新绑定。
+- **审计**：所有删除操作通过 `litisle_common` 的 `@AuditLog` AOP 切面自动记录审计日志（操作人、操作类型、请求参数、执行时间），满足安全审计需求。
+- **app_id 预留**：唯一索引 `(provider, app_id, open_id)` 预留 `app_id` 字段，默认值 `'default'`。当前单应用无影响，未来接入多个微信/QQ 应用时，同一 provider 下不同 app 的 openId 不会冲突。
+  */
+
 设计原因：
 
 review_task 不加 del_flag：审核记录不可删除（设计文档审计规范），所有变更走 status 流转。
@@ -968,6 +1401,100 @@ violation_score 用 user_id 作主键：一用户一行，分数累加用 SQL �
 真实封禁（与「append-only 流水即重算依据」「机审不驱动自动处罚」口径一致）。
 
 author_apply 独立于 sys_user：申请记录需保留历史，多次申请形成流水。
+
+# ============================================================
+# 初始化种子数据（review-seed.sql，本地开发/联调用）
+# 位置：/docker-entrypoint-initdb.d/review-seed.sql（MySQL 首次启动按字母序自动执行）
+# 顺序：review-schema.sql（建表）→ review-seed.sql（本段）→ seed-words-article.sql（词库本体）
+# 依赖：样本引用 user-schema.sql 的测试用户 1001~1006（无外键约束，执行顺序不敏感）
+# 注意：/docker-entrypoint-initdb.d 仅在数据卷首次初始化时执行；存量环境请手动执行一次
+# ============================================================
+
+use litisle_review;
+
+-- 1. 词库版本基线（四文本场景，版本 0 = 空词库；词库本体由 seed-words-article.sql 灌入并 bump 版本）
+-- insert ignore：seed-words-article.sql 稍后 upsert ARTICLE 时自然 +1，不冲突
+insert ignore into `sensitive_word_version` (`scene`, `version`, `updated_by`) values
+('ARTICLE',  0, 0),
+('COMMENT',  0, 0),
+('USERNAME', 0, 0),
+('MESSAGE',  0, 0);
+
+-- 2. 作家申请示例（READER 1001 提交申请，待审——供审核员队列联调）
+INSERT INTO `author_apply` (`id`, `user_id`, `pen_name`, `creation_dir`, `masterpiece`, `status`, `create_time`)
+VALUES (1, 1001, '追风少年', '都市 / 青春', '《晚风与海》短篇集', 0, NOW());
+
+-- 3. 举报示例（两条状态：待处理 + 转人工）
+-- 3.1 READER 1001 举报用户 1003（target_type=3-用户，target_id 即用户ID）；active_key 生成列自动填 '1001-3-1003'
+INSERT INTO `report` (`id`, `reporter_id`, `target_type`, `target_id`, `reason`, `status`, `create_time`)
+VALUES (1, 1001, 3, 1003, '该用户多次发布引战言论', 0, NOW());
+-- 3.2 AUTHOR 1002 举报评论 1 转人工（status=2，回填 review_task_id=1 关联任务 4）
+-- 供联调人审 decide 回写闭环：update report set status=3 where review_task_id=1 and status<3
+INSERT INTO `report` (`id`, `reporter_id`, `target_type`, `target_id`, `reason`, `status`, `review_task_id`, `create_time`)
+VALUES (2, 1002, 2, 1, '评论内容涉嫌赌博引流', 2, 1, NOW());
+
+-- 4. 审核任务示例（评论 SUSPICIOUS 转人审——供人审队列/认领/裁决链路联调）
+-- biz_id=1 为占位评论ID（联调时以内容服务实际评论为准）；content_hash 为占位指纹（64位hex）
+INSERT INTO `review_task` (`id`, `biz_type`, `biz_id`, `scene`, `layer1_hit`, `hit_words`, `layer2_risk`,
+                           `status`, `mod_verdict`, `content_hash`, `create_time`)
+VALUES (1, 2, 1, 'COMMENT', 2, '赌博', 2,
+        2, 3, '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', NOW());
+
+-- 5. 机审留痕示例（与任务 1 对应的 DFA 审核记录，append-only）
+-- mod_type=1-关键词DFA；verdict=3-SUSPICIOUS；operator 0-系统机审；wordlib_ver=0 对应空词库基线
+INSERT INTO `moderation_record` (`id`, `mod_type`, `biz_type`, `biz_id`, `review_task_id`, `scene`,
+                                 `content_hash`, `wordlib_ver`, `verdict`, `category`, `hit_words`, `reason`,
+                                 `operator_id`, `operator_name`, `cost_ms`, `create_time`)
+VALUES (1, 1, 2, 1, 1, 'COMMENT',
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 0, 3, 'abuse', '赌博', 'DFA命中赌博类敏感词',
+        0, 'system', 3, NOW());
+
+-- 6. 处罚流水示例（ADMIN 1005 对用户 1003 落一次警告，生效中）
+-- biz_type 走 ModerationBizTypeEnum（同 review_task.biz_type）：2=评论，挂任务 1——勿用 TargetTypeEnum 的 3=用户（两套枚举错位）
+-- action=4-警告：仅落流水不改 violation_score.last_punish_action（枚举不对齐系有意设计）
+INSERT INTO `punish_log` (`id`, `user_id`, `action`, `score`, `reason`, `biz_type`, `biz_id`, `review_task_id`,
+                          `operator_id`, `operator_name`, `status`, `create_time`)
+VALUES (1, 1003, 4, 1, '评论涉嫌违规，首次违规警告', 2, 1, 1,
+        1005, 'admin_test', 1, NOW());
+
+-- 7. 违规分累积示例（用户 1003 累计 1 分；警告不影响登录态，last_punish_action 保持 0-无）
+INSERT INTO `violation_score` (`user_id`, `score`, `last_punish_action`)
+VALUES (1003, 1, 0);
+
+-- 8. 申诉示例（已裁决-维持：挂任务 1 与处罚 1，供申诉列表/详情链路联调）
+-- status=1-维持时 active_key 生成列为 NULL，不占用内容级去重键；裁决人 ADMIN 1005（原任务尚未裁决无回避冲突）
+-- biz_type 走 ModerationBizTypeEnum：2=评论，与 punish_log.biz_type 同口径
+INSERT INTO `appeal` (`id`, `report_id`, `punish_id`, `review_task_id`, `appellant_id`, `content`, `status`,
+                      `judge_by`, `judge_opinion`, `decide_time`, `biz_type`, `biz_id`, `create_time`)
+VALUES (1, NULL, 1, 1, 1003, '评论内容被误判，未涉及赌博仅为讨论剧情', 1,
+        1005, '证据不足，维持原判', NOW(), 2, 1, NOW());
+
+-- 9. 词库测试词（每文本场景 1 条，防 DFA 闸门装载失败拒启：词库表为空时 TableWordLibraryLoader
+--    报「词库装载失败且无可用本地快照」并禁止放行；正式词库由管理端维护/seed-words-article.sql 灌入）
+--    level=2-MID：命中走 LLM 复审而非同步拒绝，避免联调时误拦用户名注册/私信发送；
+--    同词跨场景复用（uk_scene_word 以 scene+word 为键，同词各场景独立生效）
+INSERT INTO `sensitive_word_library` (`word`, `scene`, `level`, `is_blacklist`, `status`, `updated_by`, `version`)
+VALUES
+('测试敏感词_文章',   'ARTICLE',  2, 1, 1, 0, 1),
+('测试敏感词_评论',   'COMMENT',  2, 1, 1, 0, 1),
+('测试敏感词_用户名', 'USERNAME', 2, 1, 1, 0, 1),
+('测试敏感词_私信',   'MESSAGE',  2, 1, 1, 0, 1);
+
+-- 测试词落库后各场景版本 bump 到 1（基线 insert ignore 已建 version=0 行，此处 upsert +1；
+-- 热更/快照语义要求版本 >0：消费端 newVersion > curVersion 才重建；
+-- ARTICLE 随后由 seed-words-article.sql 灌入正式词库继续单调 +1，不冲突）
+INSERT INTO `sensitive_word_version` (`scene`, `version`, `updated_by`)
+VALUES
+('ARTICLE',  1, 0),
+('COMMENT',  1, 0),
+('USERNAME', 1, 0),
+('MESSAGE',  1, 0)
+ON DUPLICATE KEY UPDATE `version` = `version` + 1, `updated_by` = VALUES(`updated_by`);
+
+-- 种子联调链路说明：
+-- 举报(2条/2态) → review_task(人审队列/认领/裁决) → moderation_record(机审留痕) →
+-- appeal(已维持) → punish_log(警告) → violation_score(1分)，全链开箱可测；
+-- report_evidence 不种数据：依赖 file 模块真实文件，占位无意义。
 
 ## 五、litisle-ai 模块（数据库：litisle_ai）
 

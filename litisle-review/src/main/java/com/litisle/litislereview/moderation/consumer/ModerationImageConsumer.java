@@ -16,6 +16,7 @@ import java.io.IOException;
 
 /**
  * 图片送审消费者（板块三 3-2，§4.2.2 / §2.1）——骨架，暂只留注释、未实现具体代码
+ * 图片审核事件的消费者
  *
  * 【落位】consumer 包。【职责】监听 moderation.image.submit 队列（file 上传预审发布），
  * 只做消费编排（traceId 恢复 + ACK 模板），业务全部委托 {@link ModerationImageService#process(ImageSubmitEvent)}。

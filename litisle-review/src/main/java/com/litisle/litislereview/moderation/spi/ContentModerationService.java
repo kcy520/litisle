@@ -31,6 +31,16 @@ package com.litisle.litislereview.moderation.spi;
  */
 public interface ContentModerationService {
 
+//    yml 配置 (litisle.moderation.text-provider / image-provider)
+//        ↓ 启动期决定
+//    @ConditionalOnProperty 条件装配 → 激活对应适配器 Bean（0/1/2个）
+//            ↓
+//    注入点：ModerationTextService / ModerationImageService 按 @Qualifier 精确取用
+//        ↓ 运行期
+//    Consumer 消费事件 → Service 调 contentModerationService.moderateText/moderateImage
+//        ↓
+//    兜底：ModerationProviderStartupChecker 启动自检 fail-fast
+
     /**
      * 文本审核（MQ 异步消费端调用）
      * <p>入参为单片待审文本：标题与正文拼接后一并送审（hash 含标题但送审漏标题时，

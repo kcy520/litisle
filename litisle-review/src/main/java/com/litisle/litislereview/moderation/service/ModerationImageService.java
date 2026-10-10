@@ -29,6 +29,7 @@ import com.litisle.litislereview.enums.ReviewTaskStatusEnum;
 import com.litisle.litislereview.enums.VerdictEnum;
 import com.litisle.litislereview.mapper.ModerationRecordMapper;
 import com.litisle.litislereview.mapper.ReviewTaskMapper;
+import com.litisle.litislereview.moderation.config.ImageModerationAdapterProvider;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
 import com.litisle.litislereview.moderation.spi.ContentModerationService;
 import com.litisle.litislereview.moderation.spi.ModerationResult;
@@ -36,7 +37,6 @@ import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -91,9 +91,8 @@ public class ModerationImageService {
     private final FileClient fileClient;
     /** 内容服务契约（ARTICLE_IMG_RE_REVIEW 反查文章配图引用列表） */
     private final ContentClient contentClient;
-    /** 机审 SPI 门面（onnxImageModerationAdapter 单图送审；Semaphore/超时已在适配器落地） */
-    @Qualifier("onnxImageModerationAdapter")
-    private final ContentModerationService contentModerationService;
+    /** 机审 SPI 门面解析器（解析逻辑收敛单点：ObjectProvider/类型筛选/none 延迟重试语义全在 Provider 组件内，本类只管调 resolve()） */
+    private final ImageModerationAdapterProvider imageModerationAdapterProvider;
     /** 机审可调参数（image-provider / image.model-version / cache.* 等） */
     private final ModerationProperties moderationProperties;
     /** Redis（单图结果缓存读写，key 含 provider+modelVersion 版本化隔离） */
@@ -145,8 +144,10 @@ public class ModerationImageService {
         //        （图片场景不走 DFA：DfaScenes 对图片场景归一为 null，勿误调词库）
         ReviewSceneEnum scene = parseScene(event.getScene());
         if (scene == ReviewSceneEnum.IMAGE) {
+            //单图审支线
             processSingleImage(event);
         } else {
+            //文章配图复审支线
             processArticleImgReReview(event);
         }
     }
@@ -188,7 +189,7 @@ public class ModerationImageService {
             log.info("命中图片审核缓存，跳过模型调用，fileId={}，verdict={}", fileId, cached.getVerdict());
         } else {
             // 步骤7：SPI 单图送审（Semaphore/超时已在适配器落地；异常上抛→Consumer nack 入 DLQ 延迟重试）
-            result = contentModerationService.moderateImage(imageBytes);
+            result = imageModerationAdapterProvider.resolve().moderateImage(imageBytes);
         }
         // 步骤8：单图落库 + 事务提交后写缓存/发 result 事件（隔离与 safe_flag 回写由 file 侧消费事件处理）
         persistSingleImage(fileId, sha256, provider, modelVersion, result, cacheNote, cacheKey);
@@ -246,7 +247,7 @@ public class ModerationImageService {
             }
         }
         throw new IllegalStateException("未知图片机审 provider：" + moderationProperties.getImageProvider());
-    }
+    } 
 
     /**
      * 单图结论落库（编程式事务）+ 事务提交后写缓存、发 result 事件。
@@ -277,7 +278,7 @@ public class ModerationImageService {
         Long fileMetaId = infoResp.getData().getFileMetaId();
         // 步骤2：编程式事务（process 内部自调用不走代理，@Transactional 会失效，故用 TransactionTemplate）
         transactionTemplate.execute(tx -> {
-            // 步骤3：追加 moderation_record（mod_type=3-本地图片模型；append-only 留痕，命中缓存也必追加）
+            // 步骤3：追加 moderation_record（mod_type=3-本地图片模型；append-only 留痕，命中缓存也必追加）  ModerationRecord_审核记录表
             moderationRecordMapper.insert(new ModerationRecord()
                     .setModType(ModTypeEnum.LOCAL_IMAGE_MODEL)
                     .setBizType(ModerationBizTypeEnum.FILE)
@@ -297,6 +298,7 @@ public class ModerationImageService {
                     .setCostMs((int) Math.min(result.costMs(), Integer.MAX_VALUE))
                     .setCreateTime(now));
             // 步骤4：注册事务提交后回调——写缓存 + 发 result 事件（事务成功提交后才执行，防脏缓存/脏事件）
+                //向当前线程的 Spring 事务注册一个“提交后回调”，当事前开启的事务成功提交后，才执行 afterCommit() 里的逻辑。
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
@@ -479,7 +481,7 @@ public class ModerationImageService {
                 cacheNote = "命中图片审核缓存";
             } else {
                 // 步骤2.3：SPI 单图送审（异常上抛→Consumer nack 入 DLQ 延迟重试）
-                result = contentModerationService.moderateImage(imageBytes);
+                result = imageModerationAdapterProvider.resolve().moderateImage(imageBytes);
             }
             perImageResults.add(result);
             perImageSha256.add(sha256);

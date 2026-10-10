@@ -29,12 +29,12 @@ import com.litisle.litislereview.mapper.ModerationRecordMapper;
 import com.litisle.litislereview.mapper.ReviewTaskMapper;
 import com.litisle.litislereview.moderation.cache.ModerationResultCache;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
+import com.litisle.litislereview.moderation.config.TextModerationAdapterProvider;
 import com.litisle.litislereview.moderation.spi.ContentModerationService;
 import com.litisle.litislereview.moderation.spi.ModerationResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -81,9 +81,8 @@ public class ModerationTextService {
     private final ContentClient contentClient;
     /** 私信服务回查契约（bizType=5 私信正文） */
     private final MessageClient messageClient;
-    /** 机审 SPI 门面（LLM 文本适配器；LLM 部分留占位） */
-    @Qualifier("llmTextModerationAdapter")
-    private final ContentModerationService contentModerationService;
+    /** 机审 SPI 门面解析器（解析逻辑收敛单点：ObjectProvider/类型筛选/none 延迟重试语义全在 Provider 组件内，本类只管调 resolve()；当前所有环境 text-provider=llm，本注入属与图片侧对称的预防性改造） */
+    private final TextModerationAdapterProvider textModerationAdapterProvider;
     /** 审核结果缓存查重（Redis→moderation_record 兜底） */
     private final ModerationResultCache moderationResultCache;
     /** 词库装载 SPI（取当前词库版本，供缓存 key/兜底过滤） */
@@ -262,7 +261,7 @@ public class ModerationTextService {
         // 步骤3：逐片送审（单片口径，LLM 适配器负责防注入与解析失败宁疑不放）
         List<ModerationResult> results = new ArrayList<>(chunks.size());
         for (String chunk : chunks) {
-            results.add(contentModerationService.moderateText(chunk));
+            results.add(textModerationAdapterProvider.resolve().moderateText(chunk));
         }
         if (results.size() == 1) {
             return results.get(0);
