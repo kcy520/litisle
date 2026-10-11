@@ -4,7 +4,7 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.message.MessageDTO;
-import com.litisle.litisleapi.feign.MessageClient;
+import com.litisle.litisleapi.feign.SocialClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
 
@@ -17,11 +17,11 @@ import org.springframework.cloud.openfeign.FallbackFactory;
  * @author litisle
  */
 @Slf4j
-public class MessageClientFallbackFactory implements FallbackFactory<MessageClient> {
+public class MessageClientFallbackFactory implements FallbackFactory<SocialClient> {
 
     @Override
-    public MessageClient create(Throwable cause) {
-        return new MessageClient() {
+    public SocialClient create(Throwable cause) {
+        return new SocialClient() {
 
             /**
              * 机审回查核心读依赖 fail-fast：与 ContentClientFallbackFactory 对称

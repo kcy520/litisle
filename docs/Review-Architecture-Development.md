@@ -14,7 +14,7 @@
 | -------- | ------------------------------------------------------------ |
 | 定位     | 独立微服务，内容安全统一收口方：**同步关键词闸门 + 异步机审（三分态）+ 人审工作流** |
 | 技术选型 | sensitive-word 0.27.2（DFA）· LLM 文本审核（经 litisle-ai 通道）· ONNX（开发期图片）/ 云 API（生产期）· RabbitMQ 延迟插件 · Redis 结果缓存 |
-| 依赖方   | content / file / message 经 litisle-api 契约（Feign + MQ 事件）接入；notification 消费结果事件做通知 |
+| 依赖方   | content / file / social 经 litisle-api 契约（Feign + MQ 事件）接入（私信归属 social，无独立 message 模块）；notification 消费结果事件做通知 |
 | 硬边界   | review **不跨库直写业务表**（回写一律 result 事件 + 业务方 CAS 回写）；业务方**不跨库直查** review 库（唯一特例：DFA 冷启动只读词库表兜底） |
 
 ### 1.1 三类能力
@@ -79,7 +79,7 @@ litisle-review
 | REJECT | 4-驳回 | 1→3 / 2→4（下架） | 0→2 | 2→0 |
 | SUSPICIOUS | 2-人工待审 | 保持 1 | 保持 0 | 2→3 |
 
-- 文本不写 safe_flag（一列不承载两种语义）；私信无待审态，REJECT/SUSPICIOUS 由 message 服务 CAS 置 status=2 风控拦截
+- 文本不写 safe_flag（一列不承载两种语义）；私信无待审态，REJECT/SUSPICIOUS 由 social 服务 CAS 置 status=2 风控拦截
 - 回写 CAS 禁止驳回态被 result 来源覆盖（3→2 / comment 2→1 仅申诉来源放行）；CAS 统一带 `del_flag=0`
 
 ### 2.3 图片触发时机（按 biz_type 区分）

@@ -13,8 +13,8 @@
   2026-10-06）；本端点暂不实现（用户决策：LLM 审核留注释占位，AiClient Javadoc 已标 TODO）。
   base-url/api-key/model 走 Nacos 外置，禁提交密钥；超时对齐 feign.client.config.litisle-ai.read-timeout。
   触发条件：板块三 ModerationTextConsumer 联调前，或 AI 侧 RAG 建设启动时一并落地。
-- [ ] 审核模块——板块三 3-5 业务方回写矩阵消费端（content / message）（§4.5.2）——2026-10-10 自板块三实施细案移入本节（触发条件：litisle-content / litisle-message 正式开发时随实体层落地；当前 content 为空壳、message 模块不存在）
-  **落位**：litisle-content 与 message 服务的 mq consumer 包（各自订阅对应 result 队列）。
+- [ ] 审核模块——板块三 3-5 业务方回写矩阵消费端（content / social）（§4.5.2）——2026-10-10 自板块三实施细案移入本节（触发条件：litisle-content / litisle-social 正式开发时随实体层落地；当前 content 为空壳、social 未开发；私信归属 social，无独立 message 模块）
+  **落位**：litisle-content 与 litisle-social 的 mq consumer 包（各自订阅对应 result 队列）。
 
   **步骤（content 侧）**：
   1. 消费 moderation.text.result / moderation.image.result，按 bizType 分发：1→article.status、2→comment.status；CAS 条件更新重放无副作用。
@@ -24,10 +24,15 @@
   5. **空/纯图边界**：正文去 HTML 标签后可见文本为空且含配图→文本链路 trivially PASS（仅看图片复审）；正文与配图同时为空→拒。
   6. 所有 CAS 补 del_flag=0（用户复审期间自删内容防误改）；CAS affected=0 静默丢弃 ACK 不重试（并发/已删是正常终局）。
 
-  **步骤（message 侧）**：
-  7. 消费 moderation.message.result：REJECT/SUSPICIOUS→CAS `update message set status=2 where id=? and status=1`（风控拦截不可见）；人审 PASS→1 恢复（含 appeal.result 2→1，5-4）。
+  **步骤（social 侧）**：
+  7. 消费 moderation.message.result（私信业务域路由键，消费端为 social）：REJECT/SUSPICIOUS→CAS `update message set status=2 where id=? and status=1`（风控拦截不可见）；人审 PASS→1 恢复（含 appeal.result 2→1，5-4）。
 
   **注意事项**：评论驳回态=2 非 3，禁套文章口径；文章**禁 3→2**（驳回态不得被任何机审/人审 PASS 覆盖）；文本/图片两路 result 并发到达，驳回先落则 PASS 不得覆盖（CAS 白名单天然拦截）。
+
+  **2026-10-11 message→social 口径修正说明**（本节及板块三/四/五相关条目已统一改为 social 归属）：
+  1. 已实现部分零代码改动：3-1 ModerationTextConsumer（[x]）依赖的 MessageClient 契约、3-4 result 事件发布（[x]）的 moderation.message.result 路由键与 MESSAGE 场景枚举均属私信业务域命名，保留原名，已落地代码与本清单仍一致。
+  2. 未实现部分（3-5 消费端、板块四/五私信相关条目）尚未编码，实现时直接按 social 归属落地，无返工。
+  3. 未来唯一代码触点：social 实现私信域 Provider 时，需对齐 MessageClient 的 Feign 服务名（服务名硬编码在 @FeignClient 注解中而非 FeignConstant，仅需改 MessageClient.java 一处）。
 
 ## 待实现（按优先级排序）
 
@@ -38,17 +43,6 @@
 
 注意**：**\
 **业务代码中LLM审核部分目前留下注释预留占位即可，暂不实现**
-
-### 板块三：MQ 异步机审链路（§4.2.1/§4.2.2/§4.5.2/§4.2.4）
-
-- [x] ModerationTextConsumer：幂等（bizType+bizId+scene 定位 + CAS status=0 + 按 content\_hash 分流补发/丢弃）+ 缓存查重（Redis→idx\_hash 表兜底，provider/wordlib\_ver/TTL 窗口比对；命中缓存仍补留痕行）+ 超长分片（段落分片→字符窗口 overlap 硬切，禁静默截断）（§4.2.1 ④⑤⑥）
-- [x] ModerationImageConsumer：取图一律走 FileClient 内部字节流（严禁按用户 URL 抓取）+ 图片缓存 key 含 provider+modelVersion（§4.2.2/§2.1）（2026-10-09 完成：ModerationImageConsumer 消费编排 + ModerationImageService 业务编排，含单图审/复审两支线、聚合判定、CAS 流转、缓存读脏降级送审、TTL±10% 抖动、afterCommit 写缓存发事件）
-- [x] 统一建任务 upsert：uk\_biz\_scene 复用同行 + 重置例外/目标态按场景分列 + 清机审证据列 + 多轮举报回写/反查一律 status<3 收敛（§4.2.2）（2026-10-10 完成：ReviewTaskUpsertService + Impl）
-- [x] result 事件发布：事务顺序「本地事务提交→publisher confirm→ACK」；事件体必带 scene/contentHash/wordlibVer/reviewTaskId；bizType↔target\_type 映射表禁恒等（5↔4、6↔5 错位）（§4.5.2）（2026-10-10 完成：ModerationResultPublisher 统一发布器 + MqConstant 补三路由键 + ModerationResultEvent 补五字段；遗留：既有内联发事件切换 + file 侧绑定联动改造）
-- [ ] 业务方回写矩阵消费端（content/message）：文章双链路联合聚合（含配图须图片复审 PASS；无图仅文本 PASS；纯图/空边界）+ 评论 CAS 带 del_flag=0 + 私信 1→2 CAS（§4.5.2）（⏸ 已移入「暂不实现」节含完整步骤：litisle-content 为空壳、litisle-message 模块不存在，触发条件=两模块正式开发时随实体层落地；2026-10-10 决策先转 3-6）
-- [x] ModerationDlqConsumer：重试耗尽转人审兑底（review\_task.status=2 / safe\_flag=3 / mod\_verdict=3）（§4.2.4）（2026-10-10 完成：ModerationDlqConsumer 双 DLQ 监听 + ModerationDlqService 转人审三件套；IMAGE 单图审无 review\_task 直接发 SUSPICIOUS(3) 事件由 file 置 safe\_flag=3，仅 ARTICLE\_IMG\_RE\_REVIEW 走转人审 CAS；hash 错配防线防旧死信污染）
-- [x] 成本护栏：全站 QPS 上限（2026-10-10 3-7.1 完成：ModerationGlobalQpsInterceptor（interceptor 包）+ ModerationWebConfig 注册 + ModerationProperties.Qps（litisle.moderation.qps.* 外置）；Redis 降级由 RedisRateLimiter 内置 LocalRateLimiter 兑底）+ 入口 @RateLimiter(USER)（⏸ 随 3-5/content-file 联动）+ 单内容 SETNX 在途去重短锁（消费端已随 3-1.9 落地 ModerationProperties.Dedup，入口侧预检随 3-5）（dedup.lock-seconds）（§2.6）
-- [x] 故障降级：延迟插件指数退避重试 + Redis 不可用直调模型仍受全站 QPS 护栏与本地兑底计数约束，超限保持待审（§4.2.4）（2026-10-10 完成：重试编排收口 common-mq MqAckHelper.executeWithRetry 统一模板；新建 x-delayed-message 专用延迟交换机复用原路由键零波及现有拓扑；ModerationModelQpsGuard 模型直调护栏复用 RedisRateLimiter 本地兑底、超限抛非预期异常走延迟重试绝不放行；图片缓存读补异常捕获按未命中处理对齐宁严勿松口径；retry.max-count=5 / retry.base-delay-ms=30000 外置 yml）
 
 ### 板块四：发布侧文本链路接入（§4.2.1 ①①′② / §4.5.3）
 
@@ -151,103 +145,8 @@
 > ⑤ review 不跨库直写业务表，业务态回写一律 result 事件 + 业务方 CAS；跨库回查走 litisle-api 契约，fallbackFactory fail-fast（回查失败不 ACK 进延迟重试，禁静默吞错）。
 > ⑥ 缓存/黑名单/last-hash TTL 一律 ±10% 抖动（防同批内容集体过期雪崩）。
 
-### 板块三：MQ 异步机审链路（落位：litisle-review 新建 com.litisle.review.moderation 包：consumer/ + cache/ + service/）
 
-#### 3-1 ModerationTextConsumer（§4.2.1 ④⑤⑥）
-
-**落位**：review 模块 consumer 包。依赖 litisle-api 既有：MqConstant、submit 事件体（modType/bizType/bizId/scene/contentHash/retryCount/traceId——不含正文）、ContentClient、MessageClient。
-
-**步骤**：
-1. 监听 moderation.text.submit 队列；@RabbitListener 配 prefetch=litisle.moderation.consumer.prefetch(10)，手动 ACK。
-2. 按 (biz_type, biz_id, scene) 三元组定位 review_task——scene 必带（复审任务与文本任务同 biz_type 同 biz_id 并存，缺 scene 定位歧义），缺 scene 直接 ACK 丢弃 + error 日志。
-3. 任务缺失→error 日志后 ACK（脏消息）；回查正文：bizType∈{1,2}→ContentClient、bizType=5→MessageClient；回查异常→抛异常不 ACK 进延迟重试。
-4. **幂等分流**（任务 status≠0 时）：事件 contentHash 与任务一致→视为「已处理后的重投」，补发 result 事件后 ACK（业务方回写幂等，重放无副作用）；hash 不一致→旧消息错配新任务，直接 ACK 丢弃。status=0→CAS：`update ... set status=处理中 where id=? and status=0`，affected=0→ACK（已被并发消费处理）。
-5. **缓存查重**：Redis key=`review:text-result:{wordlibVer}:{fewShotVer}:{scene}:{contentHash}`，命中→解析 JSON 取 verdict；miss→查 moderation_record 兜底（idx_hash：`where content_hash=? and scene=? order by id desc limit 1`），命中行必须同时满足：verdict∈{1-PASS,2-REJECT}（SUSPICIOUS 行不参与复用，命中则置任务 status=2 挂既有人工任务不重复建）、provider=当前值（防 onnx→aliyun 切换复用旧结论）、wordlib_ver=当前值（防词库热更后旧结论放行）、create_time 在 cache.ttl-hours(72)±10% 窗口内——任一不符视为未命中。
-6. 命中缓存→跳过模型调用，**但仍追加一行 moderation_record**（reason=「命中缓存，原记录ID=X」，provider/wordlib_ver 取当前值）→直接跳步骤 9。
-7. 未命中→抢 SETNX 在途短锁 `dedup:{provider}:{contentHash}`（TTL=dedup.lock-seconds=60s，JSON/简单值均可）；抢不到→不 ACK 延迟重试（原请求在途，防并发穿透烧 N 倍模型费）。
-8. SPI 送审（LLM 部分留注释占位）：文本超 llm.max-text-chars(6000)→按空行段落分片；单片仍超→字符窗口硬切（步长 5500、overlap 500，窗口参数可外置）；**聚合规则**：任一片 REJECT→整文 REJECT；含 SUSPICIOUS 片→整文 SUSPICIOUS；全 PASS→PASS。
-9. **三分态落库（同一本地事务）**：CAS 流转 review_task（PASS→1 / REJECT→4 / SUSPICIOUS→2）+ 回填 mod_verdict/layer2_risk + 追加 moderation_record（mod_type=2-LLM、provider、wordlib_ver、content_hash、scene、trace_id、cost_ms、category、reason 截断 500）。
-10. 事务提交后发 result 事件（见 3-4），publisher confirm 成功→basicAck；任何一步失败抛异常不 ACK。
-
-**注意事项**：
-- 命中缓存只省模型调用不省留痕行——漏留痕=该篇发布无审核凭证，监管抽查「为何发布」答不出。
-- LLM 输出 verdict/category 为不可信输出，白名单校验越界→SUSPICIOUS 宁疑不放（适配器已兜底，消费端勿重复信任其原样落库）。
-- 分片**禁静默截断**——违规段落写在末尾躲过机审是明确攻击面；overlap 防违规词跨切点被拆开漏检。
-
-#### 3-2 ModerationImageConsumer（§4.2.2 / §2.1）
-
-**落位**：consumer 包。取图唯一入口=FileClient.getContent(fileId) 内部字节流端点（已落地，不过 safe_flag 闸口——申诉复核需重取隔离图）。
-
-**步骤**：
-1. 监听 moderation.image.submit（事件体：bizType=6 / bizId=file_meta.id / scene / contentHash）。scene=IMAGE→单图审；scene=ARTICLE_IMG_RE_REVIEW→按文章 bizId 经 ContentClient 反查 article_image 配图列表逐张送审（任务 content_hash=全部配图 sha256 排序拼接后再 sha256 的聚合指纹，聚合判定在本条步骤 5）。
-2. **取图一律 FileClient.getContent 字节流**，byte[] 经 Jackson 自动 Base64 编解码——严禁按任何用户 URL 抓取（SSRF 防线，二期云 API 同样优先传字节流）。
-3. 单图缓存查重 key=`review:img-result:{provider}:{modelVersion}:{sha256}`（版本化隔离：onnx→aliyun 切换、同 provider 模型换版均不复用旧结论）；miss→送 OnnxImageModerationAdapter（抛异常→延迟重试）；缓存 value 格式异常→降级送审。
-4. 单图结论落 moderation_record（mod_type=3、content_hash=该图文件 sha256）；单图 REJECT 的 safe_flag=0+隔离由 file 侧消费 result 事件处理，review 侧只发事件。
-5. ARTICLE_IMG_RE_REVIEW 全部图审完→聚合：全 PASS→PASS / 任一 REJECT→REJECT / 含 SUSPICIOUS→SUSPICIOUS，CAS 流转复审任务（biz_type=1+scene=ARTICLE_IMG_RE_REVIEW 的 review_task）。
-
-**注意事项**：
-- 图片场景（IMAGE/ARTICLE_IMG_RE_REVIEW）不走 DFA（DfaScenes 归一为 null），勿误调词库。
-- 逐图送 SPI、不逐图另建 biz_type=6 任务（防任务爆炸）。
-- Semaphore/超时已在适配器（板块一）落地，消费端只需异常→延迟重试编排。
-
-#### 3-3 统一建任务 upsert（§4.2.2）
-
-**落位**：review 模块 service 包 ReviewTaskUpsertService（发布侧建任务/举报转人工/消费端重置共用）。
-
-**步骤**：
-1. 按 uk_biz_scene(biz_type, biz_id, scene) upsert：无行→insert（status 按场景初始值、content_hash、retry_count=0）。
-2. **命中行分流（★核心）**：
-   - a. content_hash 变化（编辑重发）或原任务已终态（status∈{1,3,4}）→重置：旧任务未终态时先追加 record 标 superseded；然后 update 置目标态 + 清 assignee/decided_by/opinion + 更新 content_hash + retry_count 归零 + **清机审证据列**（mod_verdict=0、layer1_hit=0、hit_words=null、layer2_risk=0）。
-   - b. hash 未变且非终态（status∈{0,2}，同内容重复举报/复审）→只复用不重置：保留 status/assignee，仅回填调用方关联列（如 report.review_task_id）。
-3. **重置目标态按 scene 分列**：待机审场景（ARTICLE_FEATURED / ARTICLE_COMMUNITY / COMMENT / MESSAGE / **ARTICLE_IMG_RE_REVIEW**）→status=0（重跑机审）；举报复审场景（ARTICLE_RE_REVIEW / COMMENT_RE_REVIEW / MESSAGE_RE_REVIEW）→status=2（直进人审不重跑机审）。
-
-**注意事项**：
-- 不清 assignee→被重置任务的旧认领人无需重新认领即可裁决（decide CAS 以 assignee 判权）；不清证据列→人审看到张冠李戴的旧命中词/风险分级。
-- ARTICLE_IMG_RE_REVIEW 虽带 _RE_REVIEW 后缀但属机审复审（逐图送 SPI），**不得并入「直进人审」一类**。
-- 多轮举报收敛：decide 回写/反查举报一律带 `and status<3` 活跃态过滤，禁裸用 review_task_id 全量 UPDATE（1 行任务对多轮多份 report 是 1:N，会覆盖历史轮 result/abuse_flag）。
-- USERNAME 同步拒绝**不建任务**（唯一例外），只落 moderation_record(biz_id=0)，防注册失败堆废任务。
-
-#### 3-4 result 事件发布（§4.5.2）
-
-**落位**：review 模块 mq/publisher 类；事件体类已备（litisle-api）：{bizType, bizId, scene, contentHash, wordlibVer, reviewTaskId, verdict, category, reason, traceId}——**不含正文/图片地址**（防大报文与敏感数据过 MQ）。
-
-**步骤**：
-1. 路由分发：bizType=5(MESSAGE)→moderation.message.result；文本 bizType∈{1,2}→moderation.text.result；图片 bizType=6→moderation.image.result。
-2. contentHash 必须是**本次实际送审的指纹**（非编辑后新值）；wordlibVer 取判定时的词库版本快照——二者错填则 content 侧 last-hash 免审键落位错误，免审机制失效。
-3. **事务顺序铁律**：本地事务提交→publisher confirm 发 result→basicAck；任何一步失败抛异常不 ACK 走重投（3-1 步骤 4 的「hash 一致补发 result」幂等闭环依赖此顺序，写反即断裂）。
-4. 若 review_task 被 report.review_task_id 引用（举报触发的任务）：机审终审落库**同一本地事务内**回写 `update report set status=3, handler=0, result=... where review_task_id=? and status<3`（handler=0-系统）。
-
-**注意事项**：
-- bizType↔target_type 映射**禁恒等**：1↔1、2↔2、3↔3 同值；5(私信)↔4、6(图片)↔5 错位；4-作家申请无映射。建任务（target→biz）与反查举报（biz→target）两方向都必须走映射表——恒等实现使反查举报零行→举报永久卡 status=2、uk_content_active 不释放。
-- reason 为 LLM 透传的不可信输出：落库/事件前截断 500 + 剥离 \r\n。
-
-#### 3-6 ModerationDlqConsumer（§4.2.4）
-
-**步骤**：
-1. 监听 moderation.dlx 死信队列→解析事件→按 (biz_type,biz_id,scene) 定位 review_task。
-2. **转人审三件套**（绝不自动通过）：CAS 置 review_task.status=2 + mod_verdict=3(SUSPICIOUS) + retry_count 回写；图片类 task 配套经 file 侧既有 safe_flag 消费链路置 safe_flag=3（存疑占位图）。
-
-**注意事项**：与板块六 6-2 补偿重发（只扫 status=0）天然互斥；残留竞态窗口靠消费端 CAS 收敛。
-
-#### 3-7 成本护栏（§2.6）
-
-**步骤**：
-1. 全站 QPS：仿 FileGlobalQpsInterceptor 做 ModerationGlobalQpsInterceptor，阈值 litisle.moderation.qps.max-count 外置，Redis 降级走 LocalRateLimiter 本地兜底计数（宁严勿松）。
-2. 发布/上传入口 @RateLimiter(USER)（防单用户刷审核费）。
-3. 单内容在途去重：同 provider+content_hash 送审前 SETNX 短锁（3-1 步骤 7 消费端已实现，入口侧预检可选复用同 key 口径）。
-
-**注意事项**：缓存只挡「已完成」挡不住「在途」；短锁防击穿（同 key 并发穿透），雪崩（不同 key 集体过期）靠 TTL ±10% 抖动。
-
-#### 3-8 故障降级（§4.2.4）
-
-**步骤**：
-1. 消费失败不 ACK→重投携带 x-delay 指数退避（retry.max-count=5、retry.base-delay-ms=30000；消息头 retryCount 递增并与 review_task.retry_count 对账）。
-2. 耗尽（retryCount>max）→路由 moderation.dlx 落死信→3-6 消费转人审。
-3. **Redis 不可用**：缓存查重跳过直调模型（只多花钱不漏审），但模型直调仍受全站 QPS 护栏+本地兜底计数约束（缓存全失效=调用量放大 N 倍）；超限→不 ACK 保持待审延迟重试，绝不 default-allow。
-
-**注意事项**：各适配器调用级超时（llm/onnx api.timeout-ms）板块一已落地，本条只需消费端重试编排与护栏约束。
-
-### 板块四：发布侧文本链路接入（落位：litisle-content / message 服务发布链路 / auth 注册链路）
+### 板块四：发布侧文本链路接入（落位：litisle-content / litisle-social（私信）发布链路 / auth 注册链路）
 
 #### 4-1 发布前置校验（§4.2.1 ①′）
 
@@ -332,7 +231,7 @@
 1. 处罚落库同一本地事务内发事件，体={userId, action, op(1-生效/2-撤销), punishLogId, frozenUntil, traceId}。
 2. user 消费：按 userId 经 Feign 调 review 内部端点 GET /api/review/punish/status 拉权威态（禁言/封禁快照）**覆盖本地**——事件仅作触发信号，幂等与到达顺序无关；端点短 TTL 本地缓存；**punishLogId 仅排障，严禁作版本门控**（撤销就地改同一行、id 不变不单调，按其丢弃会吞 op=2 撤销事件致误禁持续）。
 3. 封禁(action=2)：auth/user 消费后额外执行 Sa-Token kickout 强制下线全部会话（封禁即时生效）。
-4. 执行点在发布链路：content/message 发布前经 user 契约校验禁言态拦截发言，不能只落 punish_log。
+4. 执行点在发布链路：content/social（私信）发布前经 user 契约校验禁言态拦截发言，不能只落 punish_log。
 5. 网关**不配置** /api/review/punish/status 路由（内部契约端点防公网直查处罚态）。
 
 #### 5-3 punish.result 串行消费 + 双向对账 sweeper（§4.2.3）
@@ -349,7 +248,7 @@
 1. judge 端点改判分支：CAS `update appeal set status=2, judge_by=?, judge_opinion=?, decide_time=now() where id=? and status=0`，affected=0→70004（@Idempotent 防不住跨人并发裁决）。
 2. 同一本地事务：punish 撤销定位（appeal.punish_id 非空直用；否则按 review_task_id 反查 punish_log 生效行）→status=2 撤销 + violation_score 重算（重放 status=1 生效行 append-only 流水：展示/预警分含 action=3；自动处罚阈值仅 action∈{1,2}；action=1 撤销清 frozen_until、action=2 撤销发恢复事件）+ record(mod_type=6)。
 3. 事务提交后发 moderation.appeal.result，体={bizType, bizId, scene, contentHash, reviewTaskId, action=1, traceId}——**必带 reviewTaskId**（notification 幂等键=A-{reviewTaskId}-{contentHash}-{verdict}）。
-4. content/file/message 消费按 allow-list CAS（与机审 result 分列，防机审 PASS 绕过驳回）：article 3→2/4→2、comment 2→1、message 2→1、safe_flag 0→1。
+4. content/file/social 消费按 allow-list CAS（与机审 result 分列，防机审 PASS 绕过驳回）：article 3→2/4→2、comment 2→1、message（私信表）2→1、safe_flag 0→1。
 5. **缓存层同步失效**：删 review:text-result / review:img-result 对应 key + 删 last-hash key + 从 review:img-blacklist 移除该 sha256——否则平反内容 TTL 窗口内仍判 REJECT，作者无法重发，申诉闭环断裂。
 6. **按内容身份回写举报**：按 biz_type→target_type 映射（禁恒等，5↔4、6↔5）`update report set status=3, result='申诉改判PASS' where target_type=? and target_id=? and status<3`——收敛同内容全部活跃举报，非仅 appeal.report_id 那一份（防同一内容多路径举报交叉申诉绕过防重）。
 

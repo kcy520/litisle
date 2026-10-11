@@ -14,7 +14,7 @@ import com.litisle.litisleapi.dto.message.MessageDTO;
 import com.litisle.litisleapi.event.moderation.ModerationResultEvent;
 import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
 import com.litisle.litisleapi.feign.ContentClient;
-import com.litisle.litisleapi.feign.MessageClient;
+import com.litisle.litisleapi.feign.SocialClient;
 import com.litisle.litislereview.domain.entity.ModerationRecord;
 import com.litisle.litislereview.domain.entity.ReviewTask;
 import com.litisle.litislereview.enums.Layer2RiskEnum;
@@ -81,7 +81,7 @@ public class ModerationTextService {
     /** 内容服务回查契约（bizType∈{1,2} 文章/评论正文） */
     private final ContentClient contentClient;
     /** 私信服务回查契约（bizType=5 私信正文） */
-    private final MessageClient messageClient;
+    private final SocialClient socialClient;
     /** 机审 SPI 门面解析器（解析逻辑收敛单点：ObjectProvider/类型筛选/none 延迟重试语义全在 Provider 组件内，本类只管调 resolve()；当前所有环境 text-provider=llm，本注入属与图片侧对称的预防性改造） */
     private final TextModerationAdapterProvider textModerationAdapterProvider;
     /** 模型直调全站 QPS 护栏（3-8.3：Redis 降级直调模型仍受全站 QPS+本地兑底计数约束，超限延迟重试绝不放行） */
@@ -240,7 +240,7 @@ public class ModerationTextService {
         }
         // 步骤2：bizType=5→MessageClient 回查私信正文
         if (Objects.equals(bizType, ModerationBizTypeEnum.MESSAGE.getCode())) {
-            Result<MessageDTO> resp = messageClient.getContent(event.getBizId());
+            Result<MessageDTO> resp = socialClient.getContent(event.getBizId());
             if (resp == null || !resp.isSuccess() || resp.getData() == null) {
                 log.error("回查私信不存在，确认丢弃，bizId={}，resp={}", event.getBizId(), resp);
                 throw new BizException(ErrorCode.NOT_FOUND);
