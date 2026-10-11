@@ -19,9 +19,9 @@
 
 ```text
 client/           SeaweedFsClient（唯一接触 AWS SDK；put/get/getStream/delete/presign/listKeys/exists/copy）
-config/           FileProperties / SeaweedFsConfig / FileAsyncConfig / ModerationMqConfig
+config/           FileProperties / SeaweedFsConfig / FileAsyncConfig / ModerationMqConfig / SaTokenWebConfig
 constant/         FileLimitConstant（限流阈值）
-controller/       FileController（/api/file）
+controller/       FileUploadController（上传域）/ FileAccessController（访问/下载/预签名域）/ FileManageController（管理/删除域）——由 FileController 按业务域拆分，FileController 整体注释保留
 controller/feign/ FileFeignProviderController（implements FileClient，/api/feign/file）
 domain/entity/    FileMeta / FileRef
 domain/vo/        FileUploadVO / FileMetaVO / PresignVO / ThumbnailVO
@@ -29,7 +29,9 @@ domain/dto/       FileDownloadResource(record) / FileQuotaUsage
 enums/            StorageBizTypeEnum / AccessLevelEnum / SafeFlagEnum / UploadStatusEnum / AlignEnum
 interceptor/      FileGlobalQpsInterceptor / ModerationResultListener
 mapper/           FileMetaMapper / FileRefMapper
-service/          FileService + impl/FileServiceImpl
+service/          FileUploadService / FileAccessService / FileManageService / FileModerationService——由 FileService 按业务域拆分，FileService/FileServiceImpl 整体注释保留
+service/impl/     FileUploadServiceImpl / FileAccessServiceImpl / FileManageServiceImpl / FileModerationServiceImpl
+service/support/  FileMetaSupport（跨域公共方法：getMetaOrThrow / buildPublicUrl）
 task/             FileReconcileTask（每日 02:00 对账）
 thumbnail/        ThumbnailGenerator
 util/             FileMagicValidator（魔数校验）
@@ -55,12 +57,15 @@ util/             FileMagicValidator（魔数校验）
 | GET | `/{fileId}/meta` | 登录 | — | 非 owner/ADMIN 脱敏 ownerId |
 | POST | `/{fileId}/thumbnail` | 登录 | 120 | w/h 默认 300×300，不落库 |
 | DELETE | `/{fileId}` | owner/ADMIN | 30 | 方案C 解绑，无活跃引用才软删 |
+| GET | `/test` | ADMIN | 2（复用 DELETE 限流窗口） | 限流测试端点，非业务（FileManageController） |
+
+REST 层已按业务域拆分：上表端点分别落在 FileUploadController / FileAccessController / FileManageController。
 
 全站 QPS：`FileGlobalQpsInterceptor` 拦 `/api/file/**`（1s/200，外置可调）。
 
 ## 五、Feign 提供端（`FileFeignProviderController implements FileClient`，前缀 `/api/feign/file`）
 
-网关不路由 `/api/feign/**`，仅服务间可达；不加 @SaCheckLogin。
+网关不路由 `/api/feign/**`，仅服务间可达；不加 @SaCheckLogin。拆分后 Provider 委托 FileAccessService / FileManageService / FileModerationService 三域。
 
 - ✅ `GET /{fileId}/info` → `Result<FileOwnerDTO>`（归属校验，fail-fast）
 - ✅ `POST /ref/bind` · `/ref/unbind` → `Result<Void>`（引用登记，fail-fast）
@@ -70,9 +75,13 @@ util/             FileMagicValidator（魔数校验）
 - ✅ `GET /{fileId}/content` → `Result<FileContentDTO>`（机审取图唯一入口，不过 safe_flag 闸口，fail-fast）
 - 🆕 `deleteQuarantined(fileId)`（quarantine sweeper 用，见 next_update.md §6-3，尚未落地）
 
-## 六、Service 能力（`FileService`）
+## 六、Service 能力（按业务域拆分，原 `FileService`/`FileServiceImpl` 整体注释保留）
 
-`upload` / `uploadBatch` / `getUrl` / `batchGetUrls` / `download` / `presign` / `getMeta` / `getInternalMeta` / `getThumbnail` / `bindRef` / `unbindRef` / `delete` / `quarantine` / `unquarantine` / `updateSafeFlag` / `batchGetSafeFlags` / `getInternalContent`
+- `FileUploadService`（FileUploadServiceImpl）：`upload` / `uploadBatch`
+- `FileAccessService`（FileAccessServiceImpl）：`getUrl` / `batchGetUrls` / `download` / `presign` / `getMeta` / `getInternalMeta` / `getThumbnail`
+- `FileManageService`（FileManageServiceImpl）：`bindRef` / `unbindRef` / `delete`
+- `FileModerationService`（FileModerationServiceImpl）：`quarantine` / `unquarantine` / `updateSafeFlag` / `batchGetSafeFlags` / `getInternalContent`
+- 跨域公共方法收敛至 `FileMetaSupport`：`getMetaOrThrow` / `buildPublicUrl`
 
 ## 七、数据模型
 
@@ -143,8 +152,9 @@ util/             FileMagicValidator（魔数校验）
 | 加/改文件业务类型 | `StorageBizTypeEnum` + `FileProperties.collections` + `resolveAccess` |
 | 调上传大小/配额 | `FileProperties.Upload`（yml `litisle.file.upload`） |
 | 改限流阈值 | `FileLimitConstant`（per-user）+ `FileProperties.Limit`（全站 QPS） |
-| 改 safe_flag 闸口 | `FileServiceImpl`（checkNotViolative / 占位图分流）+ `SafeFlagEnum` |
+| 改 safe_flag 闸口 | `FileModerationServiceImpl`（safe_flag 回写）+ `FileAccessServiceImpl`（占位图分流）+ `SafeFlagEnum` |
 | 改审核 MQ 拓扑 | `ModerationMqConfig` + `ModerationResultListener` |
 | 改对账/清理策略 | `FileReconcileTask` + `FileProperties.ReconcileTask` |
 | 跨服务调用契约 | `litisle-api` 的 `FileClient`（Provider: `FileFeignProviderController`） |
+| 改跨域元数据公共方法 | `service/support/FileMetaSupport` |
 | 换存储后端 | `SeaweedFsClient`（唯一接触 AWS SDK 的门面） |

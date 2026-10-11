@@ -3,12 +3,15 @@ package com.litisle.litislereview.moderation.config;
 import com.litisle.litisleapi.constant.MqConstant;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.CustomExchange;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.Map;
 
 /**
  * 审核模块 MQ 拓扑声明（review 侧消费端）。
@@ -30,6 +33,60 @@ public class ReviewRabbitConfig {
     @Bean
     public TopicExchange moderationExchange() {
         return new TopicExchange(MqConstant.EXCHANGE_MODERATION, true, false);
+    }
+
+    /**
+     * 审核延迟重试专用交换机（板块三 3-8.1，x-delayed-message 插件类型）。
+     *
+     * 【为什么独立新建】现有 moderationExchange 为双侧共用普通 TopicExchange（file 侧已按该类型
+     * 声明绑定），直接改造类型必触发 PRECONDITION_FAILED；独立新建零波及现有拓扑。
+     *
+     * 【x-delayed-type=direct】插件按消息 x-delay 头延迟后，再以 direct 语义按原路由键精确投递，
+     * 重投复用原送审路由键落回原主队列，无需新增队列/路由键（拓扑见 MqConstant.EXCHANGE_MODERATION_DELAY 注释）。
+     *
+     * 【前提】broker 需启用 rabbitmq_delayed_message_exchange 插件，未启用时本声明启动报错（fail-fast）。
+     */
+    @Bean
+    public CustomExchange moderationDelayExchange() {
+        return new CustomExchange(
+                MqConstant.EXCHANGE_MODERATION_DELAY, // 交换机名称
+                "x-delayed-message",                  // 插件类型：按 x-delay 消息头延迟投递
+                true,                                 // durable：持久化
+                false,                                // autoDelete：不自动删除
+                Map.of("x-delayed-type", "direct") // 插件延迟后的真实路由语义（精确匹配原路由键）
+        );
+    }
+
+    /**
+     * 文本送审主队列绑定延迟交换机（板块三 3-8.1）。
+     *
+     * 【作用】消费失败延迟重投的消息经延迟交换机按原路由键 moderation.text.submit 落回本主队列；
+     * 同一队列绑定业务/延迟两个交换机属正常拓扑，不触发参数冲突。
+     */
+    @Bean
+    public Binding moderationTextSubmitDelayBinding(
+            CustomExchange moderationDelayExchange,
+            Queue moderationTextSubmitQueue) {
+        return BindingBuilder
+                .bind(moderationTextSubmitQueue)      // 绑定文本送审主队列
+                .to(moderationDelayExchange)          // 到延迟重试专用交换机
+                .with(MqConstant.ROUTING_MODERATION_TEXT_SUBMIT) // 复用原送审路由键
+                .noargs(); // spring-amqp 3.2 起 with(String) 返回 GenericArgumentsConfigurer，需 noargs() 收尾才返回 Binding
+    }
+
+    /**
+     * 图片送审主队列绑定延迟交换机（板块三 3-8.1，同文本侧口径）。
+     * 
+     */
+    @Bean
+    public Binding moderationImageSubmitDelayBinding(
+            CustomExchange moderationDelayExchange,
+            Queue moderationImageSubmitQueue) {
+        return BindingBuilder
+                .bind(moderationImageSubmitQueue)     // 绑定图片送审主队列
+                .to(moderationDelayExchange)          // 到延迟重试专用交换机
+                .with(MqConstant.ROUTING_MODERATION_IMAGE_SUBMIT) // 复用原送审路由键
+                .noargs(); // spring-amqp 3.2 起 with(String) 返回 GenericArgumentsConfigurer，需 noargs() 收尾才返回 Binding
     }
 
 

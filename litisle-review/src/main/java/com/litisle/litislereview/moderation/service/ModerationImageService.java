@@ -29,6 +29,8 @@ import com.litisle.litislereview.enums.ReviewTaskStatusEnum;
 import com.litisle.litislereview.enums.VerdictEnum;
 import com.litisle.litislereview.mapper.ModerationRecordMapper;
 import com.litisle.litislereview.mapper.ReviewTaskMapper;
+import com.litisle.litislereview.moderation.ModerationModelQpsGuard;
+import com.litisle.litislereview.moderation.cache.ModerationResultCache;
 import com.litisle.litislereview.moderation.config.ImageModerationAdapterProvider;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
 import com.litisle.litislereview.moderation.spi.ContentModerationService;
@@ -93,6 +95,8 @@ public class ModerationImageService {
     private final ContentClient contentClient;
     /** 机审 SPI 门面解析器（解析逻辑收敛单点：ObjectProvider/类型筛选/none 延迟重试语义全在 Provider 组件内，本类只管调 resolve()） */
     private final ImageModerationAdapterProvider imageModerationAdapterProvider;
+    /** 模型直调全站 QPS 护栏（3-8.3：Redis 降级直调模型仍受全站 QPS+本地兑底计数约束，超限延迟重试绝不放行） */
+    private final ModerationModelQpsGuard moderationModelQpsGuard;
     /** 机审可调参数（image-provider / image.model-version / cache.* 等） */
     private final ModerationProperties moderationProperties;
     /** Redis（单图结果缓存读写，key 含 provider+modelVersion 版本化隔离） */
@@ -188,7 +192,9 @@ public class ModerationImageService {
             cacheNote = "命中图片审核缓存";
             log.info("命中图片审核缓存，跳过模型调用，fileId={}，verdict={}", fileId, cached.getVerdict());
         } else {
-            // 步骤7：SPI 单图送审（Semaphore/超时已在适配器落地；异常上抛→Consumer nack 入 DLQ 延迟重试）
+            // 步骤7：SPI 单图送审（Semaphore/超时已在适配器落地；异常上抛→Consumer 延迟重试）：
+            //        送审前先申请模型直调全站 QPS 配额（3-8.3：超限抛非预期异常走延迟重试，绝不放行）
+            moderationModelQpsGuard.tryAcquire();
             result = imageModerationAdapterProvider.resolve().moderateImage(imageBytes);
         }
         // 步骤8：单图落库 + 事务提交后写缓存/发 result 事件（隔离与 safe_flag 回写由 file 侧消费事件处理）
@@ -318,7 +324,15 @@ public class ModerationImageService {
      * @return 缓存结论；miss/value 非法一律返回 null 降级送审（宁严勿松，不误放行）
      */
     private ImageCacheValue readImageCache(String cacheKey) {
-        String json = stringRedisTemplate.opsForValue().get(cacheKey);
+        String json;
+        try {
+            json = stringRedisTemplate.opsForValue().get(cacheKey);
+        } catch (Exception e) {
+            // 3-8.3 Redis 不可用降级（宁严勿松）：缓存读失败按未命中处理，降级直调模型——
+            // 只多花钱不漏审，绝不 default-allow；直调流量仍受模型直调 QPS 护栏约束
+            log.warn("图片审核缓存读取异常，降级直调模型（只多花钱不漏审），key={}", cacheKey, e);
+            return null;
+        }
         if (!StringUtils.hasText(json)) {
             return null;
         }
@@ -480,7 +494,9 @@ public class ModerationImageService {
                         cached.getReason(), null, 0L);
                 cacheNote = "命中图片审核缓存";
             } else {
-                // 步骤2.3：SPI 单图送审（异常上抛→Consumer nack 入 DLQ 延迟重试）
+                // 步骤2.3：SPI 单图送审（异常上抛→Consumer 延迟重试）：
+                //          送审前先申请模型直调全站 QPS 配额（3-8.3：超限抛非预期异常走延迟重试，绝不放行）
+                moderationModelQpsGuard.tryAcquire();
                 result = imageModerationAdapterProvider.resolve().moderateImage(imageBytes);
             }
             perImageResults.add(result);

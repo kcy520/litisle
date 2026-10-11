@@ -1,6 +1,6 @@
 # litisle-review 审核模块架构文档（简化版）
 
-> 版本：v1.0（2026-10-08，按当前实现对齐）
+> 版本：v1.1（2026-10-10，按当前实现对齐）
 >
 > 关联文档：[Review-Architecture-Development-detailed.md](Review-Architecture-Development-detailed.md)（详细版，防绕过推演/竞态分析看它）· [Sql-Document.md] litisle_review 章节（表结构 SSOT）· [Api-Architecture.md](Api-Architecture.md) · [commom-des.md](commom-des.md)
 >
@@ -29,16 +29,23 @@
 
 ```text
 litisle-review
+├── controller/       ★ 六域拆分：ReportController / ReviewTaskController / ReviewController
+│                       / AppealController / PunishController / WordlibController
 ├── moderation/                    # 机审域
 │   ├── spi/          ★ ContentModerationService 门面 + ModerationResult + dto/
 │   ├── adapter/      ★ LlmTextModerationAdapter（防注入三件套）/ OnnxImageModerationAdapter
-│   ├── config/       ★ ModerationProperties + ModerationProviderStartupChecker（启动自检 fail-fast）
-│   ├── consumer/     ☆ ModerationTextConsumer / ModerationImageConsumer / ModerationDlqConsumer
-│   ├── cache/        ☆ ModerationResultCache（Redis → moderation_record 表双层查重）
-│   └── service/      ☆ 统一建任务 upsert / 三分态落库 / result 事件发布
-├── dfa/              ★ WordlibVersionService（版本推进+快照+Pub 广播）/ WordlibChangeSubscriber
-├── service/          ★ ReviewService（认领 CAS / decide 终态 CAS / 举报 / 申诉）
-└── enums / domain    ★ 三分态枚举、review_task 状态机、实体与 Mapper
+│   ├── config/       ★ ModerationProperties + 启动自检 fail-fast + 文本/图片 AdapterProvider
+│   │                   （ObjectProvider 惰性注入收敛）+ ReviewRabbitConfig（文本/图片队列+DLX 声明）
+│   ├── consumer/     ★ ModerationTextConsumer / ModerationImageConsumer（手动 ACK；
+│   │                   ModerationDlqConsumer 尚未落地，重试耗尽兜底链路待补）
+│   ├── cache/        ★ ModerationResultCache（版本化 key；moderation_record 表双层兑底）
+│   └── service/      ★ ModerationTextService / ModerationImageService（统一建任务 upsert /
+│                       三分态落库 / result 事件发布）
+├── dfa/              ★ WordlibVersionService / WordlibChangeSubscriber / TableWordLibraryLoader
+│                       / DfaConfig / WordlibMetrics
+├── service/          ★ 六域拆分：ReviewService（认领 CAS / decide 终态 CAS）+ ReportService
+│                       / AppealService / PunishService / WordlibService（均含 impl）
+└── enums / domain    ★ 21 个枚举、实体与 Mapper（dto/vo 分包）
 ```
 
 ------
@@ -116,9 +123,10 @@ litisle-review
 
 ```java
 public interface ContentModerationService {
-    ModerationResult moderateText(TextModerationRequest request);   // 文本异步消费端调用
-    ModerationResult moderateImage(ImageModerationRequest request); // 图片上传即审/复审共用
+    ModerationResult moderateText(String content);      // 文本异步消费端调用（入参=分片后单片，非整体 DTO）
+    ModerationResult moderateImage(byte[] imageBytes);  // 图片上传即审/复审共用（字节流，禁用户 URL）
 }
+// dto/ 下 TextModerationRequest/ImageModerationRequest 为 SPI 扩展预留载体，现行入参为标量
 // ModerationResult: verdict(PASS/REJECT/SUSPICIOUS) + category + reason + providerTraceId + costMs
 // 视频音频一期显式不支持，预留 moderateVideo 扩展点，禁「无方法即默认放行」
 ```
@@ -130,7 +138,7 @@ public interface ContentModerationService {
 | 项 | 值 | 说明 |
 | --- | --- | --- |
 | 交换机 | moderation.exchange（x-delayed-message topic） | 重试走延迟插件指数退避 |
-| 路由键 | moderation.text.submit / image.submit / text.result / image.result / message.result | 文本/图片分队列；MESSAGE 单发 message.result |
+| 路由键 | moderation.text.submit / image.submit / moderation.result | 文本/图片分队列；结果**统一发 moderation.result**（事件体含 bizType，消费端自筛；file 仅消费 bizType=6） |
 | 死信 | moderation.dlx / moderation.dead | 重试耗尽转人审 |
 | 申诉改判 | moderation.appeal.result | 业务方按 allow-list 对称恢复（3→2、4→2、comment 2→1、safe_flag 0→1） |
 | 处罚 | moderation.punish.result | user 消费维护禁言态；封禁追加 Sa-Token kickout；**按 userId 串行消费**，消费端拉取权威态，不依赖到达顺序 |
@@ -239,7 +247,7 @@ public interface ContentModerationService {
 | --- | --- | --- |
 | 板块一 | 机审 SPI 域：门面/适配器/配置自检 | ★ 已落地 |
 | 板块二 | DFA 共享化 + 词库运营（版本推进/快照/Pub 热更/误报上报） | ★ 已落地 |
-| 板块三 | MQ 异步机审链路：consumer / cache / 统一建任务 / result 事件 / DLQ | ☆ 实施中（细案见 next_update.md） |
+| 板块三 | MQ 异步机审链路：consumer / cache / 统一建任务 / result 事件 / DLQ | ★ 主体已落地（细案见 next_update.md）；ModerationDlqConsumer 与 DLQ 转人审兑底待补 |
 | 板块四 | 发布侧文本链路接入（免审/DFA 埋点/preview-check） | 待办 |
 | 板块五 | 申诉与处罚联动（appeal.result / punish.result / 双向对账） | 待办 |
 | 板块六 | sweeper 基础设施（认领超时/申诉超时/隔离清理） | 待办 |

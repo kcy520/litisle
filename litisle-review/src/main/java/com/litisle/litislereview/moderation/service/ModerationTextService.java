@@ -27,6 +27,7 @@ import com.litisle.litislereview.enums.ReviewTaskStatusEnum;
 import com.litisle.litislereview.enums.VerdictEnum;
 import com.litisle.litislereview.mapper.ModerationRecordMapper;
 import com.litisle.litislereview.mapper.ReviewTaskMapper;
+import com.litisle.litislereview.moderation.ModerationModelQpsGuard;
 import com.litisle.litislereview.moderation.cache.ModerationResultCache;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
 import com.litisle.litislereview.moderation.config.TextModerationAdapterProvider;
@@ -83,6 +84,8 @@ public class ModerationTextService {
     private final MessageClient messageClient;
     /** 机审 SPI 门面解析器（解析逻辑收敛单点：ObjectProvider/类型筛选/none 延迟重试语义全在 Provider 组件内，本类只管调 resolve()；当前所有环境 text-provider=llm，本注入属与图片侧对称的预防性改造） */
     private final TextModerationAdapterProvider textModerationAdapterProvider;
+    /** 模型直调全站 QPS 护栏（3-8.3：Redis 降级直调模型仍受全站 QPS+本地兑底计数约束，超限延迟重试绝不放行） */
+    private final ModerationModelQpsGuard moderationModelQpsGuard;
     /** 审核结果缓存查重（Redis→moderation_record 兜底） */
     private final ModerationResultCache moderationResultCache;
     /** 词库装载 SPI（取当前词库版本，供缓存 key/兜底过滤） */
@@ -261,6 +264,9 @@ public class ModerationTextService {
         // 步骤3：逐片送审（单片口径，LLM 适配器负责防注入与解析失败宁疑不放）
         List<ModerationResult> results = new ArrayList<>(chunks.size());
         for (String chunk : chunks) {
+            // 每片都是一次真实模型调用：送审前申请模型直调全站 QPS 配额
+            //（3-8.3：超限抛非预期异常走延迟重试，绝不放行）
+            moderationModelQpsGuard.tryAcquire();
             results.add(textModerationAdapterProvider.resolve().moderateText(chunk));
         }
         if (results.size() == 1) {

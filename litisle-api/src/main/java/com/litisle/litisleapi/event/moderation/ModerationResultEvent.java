@@ -57,4 +57,19 @@ public class ModerationResultEvent implements Serializable {
 
     /** 关联审核任务ID */
     private Long reviewTaskId;
+
+    /** 审核场景码（同 review_task.scene；复审与发布任务同 biz 同 id 并存，缺 scene 定位歧义，3-4.2） */
+    private String scene;
+
+    /** 内容指纹 SHA256（3-4.2 口径锁定：必须是本次实际送审的指纹，非编辑后新值；content 侧 last-hash 免审键组成段） */
+    private String contentHash;
+
+    /** 判定时词库版本快照（3-4.2：错填则 last-hash 免审键落位错误、免审机制失效；重投补发场景可空，宁多审不漏审） */
+    private Long wordlibVer;
+
+    /** 违规类目（机审统一映射枚举：politics/porn/abuse/ad/none；LLM 不可信输出已由适配器白名单校验） */
+    private String category;
+
+    /** 判定理由（LLM 透传不可信输出，发布前由 publisher 剥离 \r\n + 截断 500） */
+    private String reason;
 }

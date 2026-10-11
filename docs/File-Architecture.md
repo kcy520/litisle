@@ -32,14 +32,16 @@ Master×3 (Raft HA) ← Volume Server×3 ← Filer×1 (S3 API :8333) ← litisle
 ```
 litisle-file
 ├── client/           # SeaweedFsClient（唯一接触 AWS SDK v2：put/get/getStream/delete/presign/listKeys/exists/copy）
-├── config/           # FileProperties / SeaweedFsConfig / FileAsyncConfig / ModerationMqConfig
+├── config/           # FileProperties / SeaweedFsConfig / FileAsyncConfig / ModerationMqConfig / SaTokenWebConfig
 ├── constant/         # FileLimitConstant（限流阈值常量）
-├── controller/       # FileController（/api/file REST）+ feign/FileFeignProviderController（implements FileClient）
+├── controller/       # /api/file REST 按业务域拆分：FileUploadController（上传）/ FileAccessController（访问·下载·预签名）
+│                     #   / FileManageController（管理·删除）+ feign/FileFeignProviderController（implements FileClient）
 ├── domain/           # entity(FileMeta/FileRef) / vo(FileUploadVO/FileMetaVO/PresignVO/ThumbnailVO) / dto(FileDownloadResource/FileQuotaUsage)
 ├── enums/            # StorageBizTypeEnum / AccessLevelEnum / SafeFlagEnum / UploadStatusEnum / AlignEnum
 ├── interceptor/      # FileGlobalQpsInterceptor（全站 QPS）+ ModerationResultListener（审核结果消费）
 ├── mapper/           # FileMetaMapper / FileRefMapper
-├── service/          # FileService + impl/FileServiceImpl
+├── service/          # 按业务域拆分：FileUploadService / FileAccessService / FileManageService / FileModerationService
+│                     #   + impl/ 四实现；跨域公共方法收敛 service/support/FileMetaSupport
 ├── task/             # FileReconcileTask（每日 02:00 对账）
 ├── thumbnail/        # ThumbnailGenerator（按需缩略图，不落库）
 └── util/             # FileMagicValidator（文件头魔数校验）
@@ -81,7 +83,7 @@ AlignEnum          // LEFT(1) / LEFT_CENTER(2) / CENTER(3) / RIGHT_CENTER(4) / R
 **上传（含秒传）**：
 
 ```
-客户端 → FileController.upload(bizType, file)
+客户端 → FileUploadController.upload(bizType, file)
 
 1. 校验：大小 ≤ max-image-size、MIME 白名单
 2. 计算 SHA256 → 查 file_meta
@@ -104,7 +106,10 @@ AlignEnum          // LEFT(1) / LEFT_CENTER(2) / CENTER(3) / RIGHT_CENTER(4) / R
 
 ## 三、接口设计
 
-### 3.1 REST 接口（FileController，`/api/file`）
+### 3.1 REST 接口（`/api/file`，按业务域拆分至三个 Controller）
+
+> 上传域 FileUploadController / 访问域 FileAccessController / 管理域 FileManageController；
+> FileManageController 另含 `GET /test` 限流测试端点（ADMIN，非业务）。
 
 | 方法   | 路径                  | 说明                     | 请求                                   | 响应                                         |
 | ------ | --------------------- | ------------------------ | -------------------------------------- | -------------------------------------------- |
@@ -138,20 +143,36 @@ FileMetaVO   { fileId, ownerId, bizType, access, mime, size, width, height, alig
 
 ### 3.2 内部 Service（Feign 契约，Provider 端实现）
 
-跨服务契约在 litisle-api（`FileClient`），file 侧由 `FileFeignProviderController` 实现（`/api/feign/file`，网关不路由、仅服务间可达、不加 @SaCheckLogin）：
+跨服务契约在 litisle-api（`FileClient`），file 侧由 `FileFeignProviderController` 实现（`/api/feign/file`，网关不路由、仅服务间可达、不加 @SaCheckLogin），拆分后委托 FileAccess / FileManage / FileModeration 三域 Service。内部 Service 能力按业务域拆分为四接口（impl 同名）+ FileMetaSupport 跨域公共组件：
 
 ```
-public interface FileService {
-    FileUploadVO upload(MultipartFile file, BizTypeEnum bizType, Long ownerId);
-    List<FileUploadVO> uploadBatch(List<MultipartFile> files, BizTypeEnum bizType, Long ownerId);
-    String getPublicUrl(String fileId);                          // 公开直链
-    String getPresignedUrl(String fileId, Duration expire);      // 私有预签名
-    FileMetaVO getMeta(String fileId);
-    void bindRef(String fileId, String bizType, Long bizId, Long ownerId);    // 业务方建立引用时登记（与业务表同事务，方案C）
-    void unbindRef(String fileId, String bizType, Long bizId, Long ownerId);  // 业务方解除引用时登记
-    void delete(String fileId, Long operatorId);                 // 解绑调用方引用；无活跃引用才 del_flag=1（方案C）
-    ThumbnailVO getThumbnail(String fileId, int width, int height);
-}
+// 上传域 FileUploadService
+FileUploadVO upload(MultipartFile file, StorageBizTypeEnum bizType, Long ownerId);
+List<FileUploadVO> uploadBatch(List<MultipartFile> files, StorageBizTypeEnum bizType, Long ownerId);
+
+// 访问域 FileAccessService
+String getUrl(String fileId, Long operatorId);                  // 统一入口：PUBLIC→直链 / PRIVATE→预签名
+Map<String, String> batchGetUrls(List<String> fileIds);         // 批量映射，防列表页 N+1
+FileDownloadResource download(String fileId, Long operatorId, String rangeHeader); // 流式代理 + Range
+PresignVO presign(String fileId, Integer expireMinutes, Long operatorId);
+FileMetaVO getMeta(String fileId, Long operatorId);             // 非 owner/ADMIN 脱敏 ownerId
+FileMetaVO getInternalMeta(String fileId);                      // 仅服务间，不脱敏
+ThumbnailVO getThumbnail(String fileId, Integer width, Integer height);
+
+// 管理域 FileManageService
+void bindRef(String fileId, StorageBizTypeEnum bizType, Long bizId, Long ownerId);    // 引用登记（与业务表同事务，方案C）
+void unbindRef(String fileId, StorageBizTypeEnum bizType, Long bizId, Long ownerId);  // 解除引用
+void delete(String fileId, Long operatorId);                    // 解绑调用方引用；无活跃引用才 del_flag=1（方案C）
+
+// 审核联动域 FileModerationService
+void quarantine(String fileId);                                 // 违规图隔离（REJECT）
+void unquarantine(String fileId);                               // 隔离恢复（申诉改判 PASS）
+void updateSafeFlag(String fileId, SafeFlagEnum safeFlag);      // 审核结果回写
+Map<String, Integer> batchGetSafeFlags(List<String> fileIds);   // 批量读 safe_flag
+FileContentDTO getInternalContent(String fileId);               // 机审取图（不过 safe_flag 闸口）
+
+// 跨域公共组件 FileMetaSupport（service/support/）
+getMetaOrThrow / buildPublicUrl                                 // 四域共用的元数据查询与直链拼接
 ```
 
 > 典型场景：user 服务保存头像 → `upload(avatar)` 拿 fileId 存 `sys_user.avatar_file_id`；
@@ -258,7 +279,7 @@ public interface FileService {
 5. **存储配额**：per-user 总容量/文件数限制，锁内校验，秒传不占配额（软限模型，见 next_update.md）
 6. **限流三层**：@RateLimiter(USER) 单用户 → FileGlobalQpsInterceptor 全站 QPS → Sentinel 熔断（存储资源 + Feign 调用，规则外置 Nacos DEFAULT_GROUP，热更新）
 7. **Redis 故障降级**：RedisRateLimiter 三态熔断 + LocalRateLimiter 本地兑底（RedisGuard 公共组件，配额分摊宁严勿松）；登录防爆破同机制
-8. **线程隔离**：下载走 fileIoExecutor（CallerRunsPolicy 回压）+ configureAsyncSupport；上传保持同步（multipart/事务语义，见 FileServiceImpl 注释）
+8. **线程隔离**：下载走 fileIoExecutor（CallerRunsPolicy 回压）+ configureAsyncSupport；上传保持同步（multipart/事务语义，见 FileUploadServiceImpl 注释）
 9. **上传完整性**：SDK ChecksumAlgorithm.SHA256 或显式下发摘要，SeaweedFS 网关侧校验（BadDigest 拒写）
 10. **副本策略**：Volume `replication=001`（单副本），重要 collection 可按需调高副本数
 11. **审核联动（已落地）**：safe_flag 四态 default-deny（0 违规/1 正常/2 待检/3 可疑）；上传前置闸门（黑名单 `review:img-blacklist:{sha256}`、结果缓存 `review:img-result:{provider}:{modelVersion}:{sha256}`）→ 未命中置 2 并生产 `moderation.image.submit`；`ModerationResultListener` 消费结果回写（REJECT→quarantine/0、PASS→1、SUSPICIOUS→3）；读类闸口按 access 分层（详见 file-index.md §十一）

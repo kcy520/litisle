@@ -8,7 +8,7 @@ import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.event.moderation.ModerationAppealResultEvent;
 import com.litisle.litisleapi.event.moderation.ModerationResultEvent;
 import com.litisle.litislefile.enums.SafeFlagEnum;
-import com.litisle.litislefile.service.FileService;
+import com.litisle.litislefile.service.FileModerationService;
 import com.rabbitmq.client.Channel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +38,7 @@ import java.io.IOException;
 @RequiredArgsConstructor
 public class ModerationResultListener {
 
-    private final FileService fileService;
+    private final FileModerationService fileService;
 
     /** 审核维度：图片（review 侧 ModerationBizTypeEnum biz_type=6，file 侧仅消费此值） */
     private static final int BIZ_TYPE_IMAGE = 6;

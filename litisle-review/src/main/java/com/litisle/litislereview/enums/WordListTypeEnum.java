@@ -2,15 +2,17 @@ package com.litisle.litislereview.enums;
 
 import com.baomidou.mybatisplus.annotation.EnumValue;
 import com.fasterxml.jackson.annotation.JsonValue;
+import com.litisle.commoncore.enums.IntDictEnum;
 import lombok.Getter;
 
 /**
  * 敏感词名单类型枚举（sensitive_word_library.is_blacklist）
  * <p>0-白名单 1-黑名单</p>
  * <p>对应差异化策略：评论加载白名单 / 用户名不加载白名单，按 scene 过滤加载</p>
+ * <p>code 为 int（入库 tinyint），接入 IntDictEnum 获得 name/code/desc 三值绑定</p>
  */
 @Getter
-public enum WordListTypeEnum {
+public enum WordListTypeEnum implements IntDictEnum {
 
     /** 白名单 */
     WHITELIST(0, "白名单"),

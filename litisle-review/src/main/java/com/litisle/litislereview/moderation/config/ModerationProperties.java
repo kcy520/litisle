@@ -41,6 +41,12 @@ public class ModerationProperties {
     /** 在途去重短锁参数（成本护栏 §2.7，防同内容并发送审烧 N 倍模型费） */
     private Dedup dedup = new Dedup();
 
+    /** 全站 QPS 护栏参数（成本护栏 §2.6，防机审调用量洪峰打穿模型后端/DB） */
+    private Qps qps = new Qps();
+
+    /** 消费端指数退避重试参数（故障降级 §4.2.4 3-8.1，外置 yml/Nacos 运营可调） */
+    private Retry retry = new Retry();
+
     @Data
     public static class Image {
 
@@ -108,5 +114,26 @@ public class ModerationProperties {
 
         /** 在途去重短锁 TTL（秒）：抢锁失败=原请求在途，后到者延迟重试 */
         private long lockSeconds = 60;
+    }
+
+    @Data
+    public static class Qps {
+
+        /** 全站固定窗口大小（秒）：review 服务 HTTP 接口总流量上限的计数窗口 */
+        private long windowSeconds = 1;
+
+        /** 全站 QPS 上限（窗口内最大请求数）：外置 yml/Nacos，运营可调；
+         * 超限抛 TOO_MANY_REQUESTS，Redis 故障期由 RedisRateLimiter 内部切 LocalRateLimiter 本地兑底（宁严勿松） */
+        private long maxCount = 200;
+    }
+
+    @Data
+    public static class Retry {
+
+        /** 消费端延迟重试上限：重试次数达上限仍失败 → nack 入 DLQ 由 3-6 死信消费转人审（绝不自动放行） */
+        private int maxCount = 5;
+
+        /** 指数退避基数（毫秒）：第 n 次重试延迟 = baseDelayMs × 2^(n-1)，默认 30s→60s→120s→240s→480s */
+        private long baseDelayMs = 30000;
     }
 }

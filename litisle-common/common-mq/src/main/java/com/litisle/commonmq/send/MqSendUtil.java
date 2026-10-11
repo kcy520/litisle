@@ -49,6 +49,9 @@ public class MqSendUtil {
     /** sendCritical 必达语义的静默重试次数（瞬时网络抖动重试一次，低成本提升必达概率，不引入异步任务框架） */
     private static final int CRITICAL_MAX_RETRY = 1;
 
+    /** 延迟重投消息头：重试次数（板块三 3-8.1 消费端指数退避重试口径，与事件体 retryCount 双写递增对账留痕） */
+    public static final String HEADER_RETRY_COUNT = "x-retry-count";
+
     private final RabbitTemplate rabbitTemplate;
 
     public MqSendUtil(RabbitTemplate rabbitTemplate) {
@@ -120,6 +123,51 @@ public class MqSendUtil {
                 }
             }
         }
+    }
+
+    /**
+     * 延迟重投发送（板块三 3-8.1 消费端指数退避重试专用）：traceId/x-delay/retryCount 注入消息 Header。
+     *
+     * <p>与 {@link #send} 的「吞异常」口径不同：延迟重投丢失会导致该条消息既不在主队列也不在 DLQ
+     * （仅剩板块六补偿重发扫描兑底），因此失败异常向调用方上抛，由调用方决定兑底走向
+     * （MqAckHelper 重试策略分支捕获后 nack 原消息入 DLQ）。</p>
+     *
+     * <p>依赖 broker 启用 rabbitmq_delayed_message_exchange 插件：目标交换机必须为
+     * x-delayed-message 类型，插件按 x-delay 消息头延迟投递。</p>
+     *
+     * @param exchange   目标交换机（须为 x-delayed-message 类型，如 MqConstant.EXCHANGE_MODERATION_DELAY）
+     * @param routingKey 路由键（重投复用原送审路由键，延迟后落回原主队列）
+     * @param event      事件体（事件体内 retryCount 已由调用方递增）
+     * @param delayMs    延迟毫秒数（指数退避：base * 2^(n-1)）
+     * @param retryCount 重试次数（写入消息头留痕，与事件体 retryCount 双写对账）
+     */
+    public void sendDelayed(String exchange, String routingKey, Object event, long delayMs, Integer retryCount) {
+        String traceId = MDC.get(TRACE_ID_MDC_KEY);
+        doSendDelayed(exchange, routingKey, event, traceId, delayMs, retryCount);
+        // 发布成功记录 info 日志（含重试次数/延迟时长，便于重试链路审计）
+        log.info("MQ 延迟重投事件已发布，exchange={}，routingKey={}，retryCount={}，delayMs={}，traceId={}",
+                exchange, routingKey, retryCount, delayMs, traceId);
+    }
+
+    /**
+     * 延迟重投发送主体：convertAndSend + traceId/x-delay/retryCount 注入消息 Header，异常向调用方上抛
+     */
+    private void doSendDelayed(String exchange, String routingKey, Object event, String traceId,
+                               long delayMs, Integer retryCount) {
+        rabbitTemplate.convertAndSend(exchange, routingKey, event, message -> {
+            // traceId 与普通发送同口径：跨 MQ 链路追踪不因重投断裂
+            if (traceId != null && !traceId.isBlank()) {
+                message.getMessageProperties().setHeader(HeaderConstant.TRACE_ID, traceId);
+            }
+            // x-delay 消息头：x-delayed-message 插件按此值延迟投递（Spring AMQP setDelayLong 即写 x-delay）
+            message.getMessageProperties().setDelayLong(delayMs);
+            // retryCount 消息头：与事件体 retryCount 双写递增，消费/死信侧对账留痕
+            if (retryCount != null) {
+                message.getMessageProperties().setHeader(HEADER_RETRY_COUNT, retryCount);
+            }
+            // MessagePostProcessor 约定：必须返回（可能已修改的）消息对象
+            return message;
+        });
     }
 
     /**

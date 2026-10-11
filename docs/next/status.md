@@ -9,11 +9,13 @@
 
 ## 当前执行锚点
 
-- **进行中**：板块三 **3-1 ModerationTextConsumer**（细案见 `spec-3-1.md`；已拆分为 3-1.1~3-1.12 子步骤，子项编号对应 `next_update.md` 细案步骤）
+- **进行中**：板块三代码落地收尾（3-7.1/3-8 全部完成；3-5 与 3-7.2/3-7.3 入口侧随 content/file 联动挂起）→ 下一步进入板块四
+
+- **挂起项**：3-5 业务方回写矩阵消费端——litisle-content 为空壳（无 litisle-api/common-mq/web/mybatis 依赖）、litisle-message 模块不存在；触发条件=两模块正式开发时随实体层一并落地（2026-10-10 决策跳过转 3-6；完整步骤已移入 next_update.md「暂不实现」节）
 
 - **前置阻塞**：litisle-ai chat 端点（`POST /api/feign/ai/chat`）未实现——3-1 联调前必须落地
 
-- **推进顺序**：3-1→3-2→3-3→3-4→3-5→3-6→3-7→3-8 → 板块四 → 板块五 → 板块六 → 板块七（随三并行埋点）
+- **推进顺序**：3-1→3-2→3-3→3-4→3-6→3-7→3-8 → 板块四 → 板块五 → 板块六 → 板块七（随三并行埋点；3-5 挂起待 content/message 落地）
 
 ## 现状基线（已完成，不再列入）
 
@@ -43,33 +45,33 @@ file 侧 safe_flag 四态闸口 / 拒传黑名单 / quarantine 契约 / result·
   - [x] 3-2.4 单图结论落 moderation_record（REJECT 的 safe_flag/隔离由 file 侧 result 消费处理）
   - [x] 3-2.5 配图复审聚合判定 + CAS 流转复审任务
   
-- [ ] 3-3 统一建任务 upsert（ReviewTaskUpsertService）
-  - [ ] 3-3.1 uk_biz_scene upsert：无行 insert（初始 status / content_hash / retry_count=0）
-  - [ ] 3-3.2 命中行分流：hash 变化或已终态→重置（清 assignee/decided_by/证据列/retry 归零）；非终态→复用
-  - [ ] 3-3.3 重置目标态按 scene 分列：机审场景→0；人审复审 _RE_REVIEW→2；IMG_RE_REVIEW 属机审→0
-- [ ] 3-4 result 事件发布
-  - [ ] 3-4.1 路由分发：message / text / image 三 result 队列
-  - [ ] 3-4.2 口径锁定：contentHash=本次送审指纹、wordlibVer=判定时快照（错填则免审失效）
-  - [ ] 3-4.3 事务顺序铁律：本地提交→confirm 发 result→basicAck
-  - [ ] 3-4.4 举报关联任务同事务回写 report（status<3，handler=0-系统）
-  - [ ] 3-4.5 bizType↔target_type 映射表（禁恒等：5↔4、6↔5）
-- [ ] 3-5 业务方回写矩阵消费端（content / message）
+- [x] 3-3 统一建任务 upsert（ReviewTaskUpsertService）（2026-10-10 完成：接口+impl，@Transactional 原子提交；superseded 留痕暂复用 MANUAL_REVIEW+SUSPICIOUS 承载，reason 固定前缀供过滤，后续如扩展 mod_type=7 需同步 Sql-Document.md）
+  - [x] 3-3.1 uk_biz_scene upsert：无行 insert（初始 status / content_hash / retry_count=0）
+  - [x] 3-3.2 命中行分流：hash 变化或已终态→重置（清 assignee/decided_by/证据列/retry 归零）；非终态→复用
+  - [x] 3-3.3 重置目标态按 scene 分列：机审场景→0；人审复审 _RE_REVIEW→2；IMG_RE_REVIEW 属机审→0
+- [x] 3-4 result 事件发布（2026-10-10 完成：ModerationResultPublisher（mq/publisher 包）路由分发/必达发送/举报回写/错位映射 + MqConstant 补 text/message/image 三路由键 + ModerationResultEvent 补 scene/contentHash/wordlibVer/category/reason 五字段；遗留集成点：既有三处内联发事件暂保留待统一切换、file 侧 QUEUE_FILE_MODERATION_RESULT 绑定须同步改 moderation.image.result）
+  - [x] 3-4.1 路由分发：message / text / image 三 result 队列（resolveRoutingKey 按 bizType 分流；republish() 尽力而为补发供重投对账）
+  - [x] 3-4.2 口径锁定：contentHash=本次送审指纹、wordlibVer=判定时快照（错填则免审失效）
+  - [x] 3-4.3 事务顺序铁律：本地提交→confirm 发 result→basicAck（sendCritical 重试耗尽转 IllegalStateException 入 DLQ，防 MqAckHelper 误 ack）
+  - [x] 3-4.4 举报关联任务同事务回写 report（status<3，handler=0-系统）
+  - [x] 3-4.5 bizType↔target_type 映射表（禁恒等：5↔4、6↔5）
+- [ ] 3-5 业务方回写矩阵消费端（content / message）（⏸ 挂起：content 空壳/message 模块不存在，触发条件=两模块正式开发，见执行锚点挂起项）
   - [ ] 3-5.1 content 侧消费 text/image result + bizType 分发 CAS（article/comment）
   - [ ] 3-5.2 文章双链路联合聚合：文本 PASS 且图片复审 PASS 才放行 1→2
   - [ ] 3-5.3 REJECT 分流：首发 1→3 / 复审下架 2→4；评论 CAS 0→1/0→2 禁 2→1
   - [ ] 3-5.4 空/纯图边界：纯图文本链路 trivially PASS；正文配图全空拒
   - [ ] 3-5.5 message 侧消费：REJECT/SUSPICIOUS→1→2 拦截；人审 PASS→1 恢复
-- [ ] 3-6 ModerationDlqConsumer
-  - [ ] 3-6.1 监听 DLX 死信队列 + 按 (biz_type,biz_id,scene) 定位 review_task
-  - [ ] 3-6.2 转人审三件套：status=2 + mod_verdict=3 + retry_count 回写；图片类置 safe_flag=3
+- [x] 3-6 ModerationDlqConsumer（2026-10-10 完成：ModerationDlqConsumer（consumer 包，@RabbitListener 双 DLQ 监听 + traceId/ACK 模板）+ ModerationDlqService（service 包，locateTask/transitionToManualReview/verifyHashMatch）；口径修正：IMAGE 单图审不建 review_task→无任务可 CAS，直接发 SUSPICIOUS(3) result 事件由 file 置 safe_flag=3；仅 ARTICLE_IMG_RE_REVIEW 走转人审 CAS；新增 hash 错配防线防旧死信污染 upsert 重置后的新任务）
+  - [x] 3-6.1 监听 DLX 死信队列 + 按 (biz_type,biz_id,scene) 定位 review_task（任务缺失/hash 不一致→BizException ack 丢弃，DLQ 无 DLX nack 即物理丢，靠 6-2 补偿兑底）
+  - [x] 3-6.2 转人审三件套：status=2 + mod_verdict=3 + retry_count 回写（CAS where status=0，与 6-2 补偿重发天然互斥）；图片类 IMAGE 单图置 safe_flag=3（发 SUSPICIOUS 事件，发布失败不抛）、复审死信不发事件
 - [ ] 3-7 成本护栏
-  - [ ] 3-7.1 全站 QPS 拦截器 ModerationGlobalQpsInterceptor（阈值外置 + Redis 降级本地兜底）
-  - [ ] 3-7.2 发布/上传入口 @RateLimiter(USER)
-  - [ ] 3-7.3 单内容在途 SETNX 短锁（复用 3-1.9 key 口径）
-- [ ] 3-8 故障降级
-  - [ ] 3-8.1 消费失败 x-delay 指数退避重投（retryCount 与 review_task.retry_count 对账）
-  - [ ] 3-8.2 重试耗尽路由 DLX → 3-6 转人审
-  - [ ] 3-8.3 Redis 不可用降级：跳缓存直调模型，仍受 QPS 护栏约束，超限延迟重试绝不放行
+  - [x] 3-7.1 全站 QPS 拦截器 ModerationGlobalQpsInterceptor（阈值外置 + Redis 降级本地兑底）（2026-10-10 完成：interceptor 包落地，阈值 litisle.moderation.qps.* 外置 yml，Redis 故障期 RedisRateLimiter 内部切 LocalRateLimiter 本地兜底计数，宁严勿松）
+  - [ ] 3-7.2 发布/上传入口 @RateLimiter(USER)（⏸ 挂起：发布入口在 content（空壳）、上传入口在 file（随 file 联动），触发条件同 3-5）
+  - [ ] 3-7.3 单内容在途 SETNX 短锁（复用 3-1.9 key 口径）（消费端已随 3-1.9 落地 ModerationProperties.Dedup；入口侧预检随 3-5 挂起）
+- [x] 3-8 故障降级（2026-10-10 完成：重试编排收口 common-mq MqAckHelper.executeWithRetry 统一模板（DelayedRetryPublisher 回调，业务消费者禁止手写重投模板）；新建独立 x-delayed-message 专用延迟交换机绑定 text/image 主队列、复用原路由键落回，零波及双侧共享交换机防 PRECONDITION_FAILED）
+  - [x] 3-8.1 消费失败 x-delay 指数退避重投（retryCount 与 review_task.retry_count 对账；retry.max-count=5、retry.base-delay-ms=30000 外置 application.yml 可运营调整）
+  - [x] 3-8.2 重试耗尽路由 DLX → 3-6 转人审（未耗尽延迟重投成功 ack、重投失败/耗尽 nack 入 DLX；ModerationTextConsumer/ModerationImageConsumer 已切换重试感知 ACK 模板）
+  - [x] 3-8.3 Redis 不可用降级：跳缓存直调模型，仍受 QPS 护栏约束，超限延迟重试绝不放行（新增 ModerationModelQpsGuard 复用 RedisRateLimiter 本地兜底计数、与 HTTP 全站护栏隔离计数；ModerationImageService 缓存读取补异常捕获按未命中处理，对齐文本侧宁严勿松口径）
 
 ## 板块四：发布侧文本链路接入（§4.2.1 / §4.5.3）
 

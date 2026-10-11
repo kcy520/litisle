@@ -1,5 +1,6 @@
 package com.litisle.commoncore.config;
 
+import com.litisle.commoncore.converter.IntDictEnumConverterFactory;
 import com.litisle.commoncore.converter.StringToDictEnumConverterFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Configuration;
@@ -7,7 +8,8 @@ import org.springframework.format.FormatterRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * 枚举参数绑定自动配置：注册 DictEnum 三值兼容转换工厂（全工程一处注册，模块零重复）。
+ * 枚举参数绑定自动配置：注册 DictEnum（String code）与 IntDictEnum（int code）三值兼容转换工厂
+ * （全工程一处注册，模块零重复）。
  *
  * 【守卫】@ConditionalOnWebApplication(SERVLET)：
  * WebMvcConfigurer 依赖 Servlet 栈，网关（WebFlux）等非 Servlet 消费方引入 common-core 时
@@ -24,5 +26,7 @@ public class EnumWebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addFormatters(FormatterRegistry registry) {
         registry.addConverterFactory(new StringToDictEnumConverterFactory());
+        // int code 枚举（如 WordLevelEnum/WordListTypeEnum）三值绑定：name/code/desc 通吃
+        registry.addConverterFactory(new IntDictEnumConverterFactory());
     }
 }

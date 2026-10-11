@@ -47,6 +47,14 @@ public class MqConstant {
     /** 审核模块死信交换机（独立 DLX，Direct 类型：与业务交换机隔离，避免 Topic 通配绑定误吸死信） */
     public static final String EXCHANGE_MODERATION_DLX = "litisle.moderation.dlx";
 
+    /**
+     * 审核延迟重试专用交换机（板块三 3-8.1，x-delayed-message 插件类型）：
+     * 独立新建、不改动现有共享业务交换机（EXCHANGE_MODERATION 为双侧共用普通 TopicExchange，
+     * file 侧已按该类型声明绑定，直接改造会触发 PRECONDITION_FAILED）；
+     * 重投复用原送审路由键，消息按 x-delay 消息头延迟后落回原主队列，无需新增队列/路由键
+     */
+    public static final String EXCHANGE_MODERATION_DELAY = "litisle.moderation.delay.exchange";
+
     /** file 侧审核结果队列（回写 safe_flag / 隔离违规图） */
     public static final String QUEUE_FILE_MODERATION_RESULT = "litisle.file.moderation.result.queue";
 
@@ -98,4 +106,23 @@ public class MqConstant {
 
     /** 图片送审死信路由键（主队列 deadLetterRoutingKey，决定死信进图片 DLQ） */
     public static final String ROUTING_MODERATION_IMAGE_SUBMIT_DLQ = "moderation.image.submit.dlq";
+
+    // ==================== 审核结果分发（板块三 3-4，§4.5.2）====================
+
+    /**
+     * 文本机审结果路由键（bizType∈{1-文章,2-评论}；4-作家申请亦走本键，无业务方消费者仅留链路）。
+     * <p>content 侧（3-5）消费：文章双链路聚合 + 评论 CAS 回写</p>
+     */
+    public static final String ROUTING_MODERATION_TEXT_RESULT = "moderation.text.result";
+
+    /** 私信机审结果路由键（bizType=5；message 侧消费：风控拦截/恢复） */
+    public static final String ROUTING_MODERATION_MESSAGE_RESULT = "moderation.message.result";
+
+    /**
+     * 图片机审结果路由键（bizType=6）。
+     * <p>⚠️ 联动改造点：file 侧 QUEUE_FILE_MODERATION_RESULT 现绑定 ROUTING_MODERATION_RESULT（moderation.result），
+     * 本键启用后 file 侧 ModerationMqConfig 须将绑定同步改为 moderation.image.result，
+     * 否则 safe_flag 回写/隔离链路收不到图片 result（拓扑改动两侧须参数对齐防 PRECONDITION_FAILED）</p>
+     */
+    public static final String ROUTING_MODERATION_IMAGE_RESULT = "moderation.image.result";
 }

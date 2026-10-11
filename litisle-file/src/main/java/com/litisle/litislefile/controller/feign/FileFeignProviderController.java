@@ -9,7 +9,9 @@ import com.litisle.litisleapi.dto.file.FileRefDTO;
 import com.litisle.litisleapi.feign.FileClient;
 import com.litisle.litislefile.domain.vo.FileMetaVO;
 import com.litisle.litislefile.enums.StorageBizTypeEnum;
-import com.litisle.litislefile.service.FileService;
+import com.litisle.litislefile.service.FileAccessService;
+import com.litisle.litislefile.service.FileManageService;
+import com.litisle.litislefile.service.FileModerationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.RestController;
@@ -38,7 +40,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class FileFeignProviderController implements FileClient {
 
-    private final FileService fileService;
+    private final FileAccessService fileAccessService;
+    private final FileManageService fileManageService;
+    private final FileModerationService fileModerationService;
 
     /**
      * 查询文件归属信息（不脱敏，仅服务间）：委托 Service 查活跃元数据
@@ -46,7 +50,7 @@ public class FileFeignProviderController implements FileClient {
     @Override
     public Result<FileOwnerDTO> getFileInfo(String fileId) {
         log.info("远程api调用getFileInfo fileId:{}", fileId);
-        FileMetaVO meta = fileService.getInternalMeta(fileId);
+        FileMetaVO meta = fileAccessService.getInternalMeta(fileId);
         FileOwnerDTO dto = new FileOwnerDTO();
         dto.setFileId(meta.getFileId());
         dto.setOwnerId(meta.getOwnerId());
@@ -61,7 +65,7 @@ public class FileFeignProviderController implements FileClient {
     public Result<Void> bindRef(FileRefDTO dto) {
         log.info("远程api调用bindRef fileId:{} bizType:{} bizId:{} ownerId:{}",
                 dto.getFileId(), dto.getBizType(), dto.getBizId(), dto.getOwnerId());
-        fileService.bindRef(dto.getFileId(), parseBizType(dto.getBizType()), dto.getBizId(), dto.getOwnerId());
+        fileManageService.bindRef(dto.getFileId(), parseBizType(dto.getBizType()), dto.getBizId(), dto.getOwnerId());
         return Result.success();
     }
 
@@ -72,7 +76,7 @@ public class FileFeignProviderController implements FileClient {
     public Result<Void> unbindRef(FileRefDTO dto) {
         log.info("远程api调用unbindRef fileId:{} bizType:{} bizId:{} ownerId:{}",
                 dto.getFileId(), dto.getBizType(), dto.getBizId(), dto.getOwnerId());
-        fileService.unbindRef(dto.getFileId(), parseBizType(dto.getBizType()), dto.getBizId(), dto.getOwnerId());
+        fileManageService.unbindRef(dto.getFileId(), parseBizType(dto.getBizType()), dto.getBizId(), dto.getOwnerId());
         return Result.success();
     }
 
@@ -84,7 +88,7 @@ public class FileFeignProviderController implements FileClient {
     @Override
     public Result<Map<String, String>> batchGetUrls(List<String> fileIds) {
         log.info("远程api调用batchGetUrls size:{}", fileIds == null ? 0 : fileIds.size());
-        return Result.success(fileService.batchGetUrls(fileIds));
+        return Result.success(fileAccessService.batchGetUrls(fileIds));
     }
 
     /**
@@ -93,7 +97,7 @@ public class FileFeignProviderController implements FileClient {
     @Override
     public Result<Void> quarantine(String fileId) {
         log.info("远程api调用quarantine fileId:{}", fileId);
-        fileService.quarantine(fileId);
+        fileModerationService.quarantine(fileId);
         return Result.success();
     }
 
@@ -103,7 +107,7 @@ public class FileFeignProviderController implements FileClient {
     @Override
     public Result<Void> unquarantine(String fileId) {
         log.info("远程api调用unquarantine fileId:{}", fileId);
-        fileService.unquarantine(fileId);
+        fileModerationService.unquarantine(fileId);
         return Result.success();
     }
 
@@ -113,7 +117,7 @@ public class FileFeignProviderController implements FileClient {
     @Override
     public Result<Map<String, Integer>> batchGetSafeFlags(List<String> fileIds) {
         log.info("远程api调用batchGetSafeFlags size:{}", fileIds == null ? 0 : fileIds.size());
-        return Result.success(fileService.batchGetSafeFlags(fileIds));
+        return Result.success(fileModerationService.batchGetSafeFlags(fileIds));
     }
 
     /**
@@ -123,7 +127,7 @@ public class FileFeignProviderController implements FileClient {
     @Override
     public Result<FileContentDTO> getContent(String fileId) {
         log.info("远程api调用getContent fileId:{}", fileId);
-        return Result.success(fileService.getInternalContent(fileId));
+        return Result.success(fileModerationService.getInternalContent(fileId));
     }
 
     /**
