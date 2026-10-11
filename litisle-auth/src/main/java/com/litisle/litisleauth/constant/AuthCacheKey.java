@@ -29,6 +29,13 @@ public final class AuthCacheKey {
     public static final String USER_DEVICES = "auth:user:devices:";
 
     /**
+     * 禁言/封禁态快照：auth:punish:snapshot:{userId} → PunishStatusDTO JSON，短 TTL 外置可调（默认 300s±10% 抖动）
+     * <p>各段服务端派生（userId 数字 ID，禁拼用户原串）；value 一律 JSON（禁 Java 原生反序列化）；
+     * 覆盖式写入（撤销=全空快照覆盖=同步解封），无独立 delete 分支</p>
+     */
+    public static final String PUNISH_SNAPSHOT = "auth:punish:snapshot:";
+
+    /**
      * 设备会话 Hash 字段名常量
      * <p>
      * 与 DEVICE_SESSION Hash 结构一一对应，供读写双方共用，避免拼写不一致。

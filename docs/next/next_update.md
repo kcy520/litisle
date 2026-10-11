@@ -46,13 +46,13 @@
 
 ### 板块四：发布侧文本链路接入（§4.2.1 ①①′② / §4.5.3）
 
-- [ ] 发布前置校验：空内容（trim + 去 HTML 标签可见文本非空）、标题≤100、标题与正文拼接一并送审（防违规藏标题）
-- [ ] 同步 DFA 闸门嵌入各发布链路（文章/评论/私信/用户名）；私信 HIGH 命中同步拒发 70001 且不投递，仅 MID/LLM 走先发后审（§4.2.1）
-- [ ] 免审 last-hash：版本化 key（wordlibVer:bizType:scene:bizId）+ scene 必带 + 状态排除条件按 bizType 分列（评论驳回态=2）+ 含图文章连查图片复审键且聚合 hash 一致 + 免审直落置 review\_task 终态（§4.2.1 ②）
-- [ ] content.unpublished（删除/下架/转私密）同步失效 last-hash 与该 content\_hash 结果缓存键；免审排除条件补 del\_flag=0（§2.1）
-- [ ] POST /api/content/preview-check：仅返回 {hit, risk} 不回吐命中词 + @RateLimiter(USER) 限频 + 仅本人草稿/待发内容，不替代发布闸门（§4.5.3）
-- [ ] 私信撤回 CAS（仅本人仅正常态）+ 陌生人配额原子更新（INCR 为主 + DB 条件更新兜底，REJECT 拦截仍占配额）（§4.2.1）
-- [ ] USERNAME 同步拒绝：不建 review\_task、只落 record(biz\_id=0)、不可申诉（明示设计非遗漏）（§4.2.2）
+- [x] 发布前置校验：空内容（trim + 去 HTML 标签可见文本非空）、标题≤100、标题与正文拼接一并送审（防违规藏标题）（✅ 2026-10-11 契约层落地：PublishTextPrecheck/SubmitTextAssembler；入口嵌入挂起，见 status.md 板块四）
+- [x] 同步 DFA 闸门嵌入各发布链路（文章/评论/私信/用户名）；私信 HIGH 命中同步拒发 70001 且不投递，仅 MID/LLM 走先发后审（§4.2.1）（✅ 2026-10-11 契约层落地：DfaPublishGate.decide 三态决策；四链路嵌入挂起）
+- [x] 免审 last-hash：版本化 key（wordlibVer:bizType:scene:bizId）+ scene 必带 + 状态排除条件按 bizType 分列（评论驳回态=2）+ 含图文章连查图片复审键且聚合 hash 一致 + 免审直落置 review\_task 终态（§4.2.1 ②）（✅ 2026-10-11 契约层落地：LastHashStore/LastHashExemptChecker 全量；写入/发布判定/失效嵌入挂起待 content）
+- [x] content.unpublished（删除/下架/转私密）同步失效 last-hash 与该 content\_hash 结果缓存键；免审排除条件补 del\_flag=0（§2.1）（✅ 2026-10-11 契约层落地：ContentUnpublishedEvent/Invalidator 三步矩阵；三路径嵌入挂起待 content）
+- [x] POST /api/content/preview-check：仅返回 {hit, risk} 不回吐命中词 + @RateLimiter(USER) 限频 + 仅本人草稿/待发内容，不替代发布闸门（§4.5.3）（✅ 2026-10-11 契约层落地：ContentPreviewCheckDTO/VO；端点实现嵌入挂起待 content）
+- [x] 私信撤回 CAS（仅本人仅正常态）+ 陌生人配额原子更新（INCR 为主 + DB 条件更新兑底，REJECT 拦截仍占配额）（§4.2.1）（✅ 2026-10-11 契约层落地：MessageRecallGate.recall/StrangerQuotaGate.tryAcquire；端点嵌入挂起待 social 私信域）
+- [x] USERNAME 同步拒绝：不建 review\_task、只落 record(biz\_id=0)、不可申诉（明示设计非遗漏）（§4.2.2）（✅ 2026-10-11 契约层落地：UsernameRejectGate.recordReject + ModerationConstant 补 BIZ\_TYPE\_USERNAME=3；注册链路嵌入挂起待 auth）
 
 ### 板块五：申诉与处罚联动闭环（§4.2.3 / §4.5.2）
 
@@ -147,6 +147,15 @@
 
 
 ### 板块四：发布侧文本链路接入（落位：litisle-content / litisle-social（私信）发布链路 / auth 注册链路）
+
+> **落地注记（2026-10-11）**：4-1～4-7 契约层已在 litisle-api 落地——moderation 包
+> PublishTextPrecheck / SubmitTextAssembler / DfaPublishGate / LastHashStore /
+> LastHashExemptChecker / MessageRecallGate / StrangerQuotaGate / UsernameRejectGate +
+> event/content 包 ContentUnpublishedEvent + ContentUnpublishedInvalidator + dto/content 包
+> ContentPreviewCheckDTO·VO；契约常量 MqConstant（QUEUE/ROUTING\_CONTENT\_UNPUBLISHED）与
+> ModerationConstant（BIZ\_TYPE\_*、SCENE\_ARTICLE\_IMG\_RE\_REVIEW、MESSAGE\_STATUS\_*、STRANGER\_QUOTA\_*）。
+> 发布/注册/撤回入口嵌入与 content/social 消费端挂起，触发条件同 3-5；私信按 social 归属落地
+> （契约类 Javadoc 中「message 模块」表述待随嵌入实现统一改为 social 私信域）。
 
 #### 4-1 发布前置校验（§4.2.1 ①′）
 
@@ -332,3 +341,28 @@
 - 推进顺序：3-1→3-2→3-3→3-4→3-5→3-6→3-7→3-8 → 板块四（与 3-4/3-5 联调）→ 板块五（复用 result 事件）→ 板块六 → 板块七随三收尾并行埋点。
 
 ## 文档设计方案修复清单
+
+
+# 临时清单
+
+## auth 模块待办整理（2026-10-11，源：板块四/五条目按落位归集，完成一项勾一项）
+
+### A 组：注册链路审核嵌入（触发条件同 3-5；依赖契约已全备，无其他阻塞）
+
+- [x] A1 用户名空内容校验（4-1 嵌入点）：注册入口对用户名做 trim 非空校验（标题≤100 不适用，仅空校验）——用 `PublishTextPrecheck`（✅ 2026-10-11 落地：AuthServiceImpl.register 步骤 0 嵌入 PublishTextPrecheck.check(null, username)）
+- [x] A2 DFA 闸门注入（4-2.1 嵌入点）：USERNAME 链路调 `DfaFacade.check` → `DfaPublishGate.decide`：HIGH 拒 70001 / MID 放行仅留痕（USERNAME 不建任务，layer1\_hit=2 无异步承接，同音/跳词变体靠注册后举报+人审兑底）（✅ 2026-10-11 落地：register 步骤 0.1 嵌入 check+decide；auth 侧装配四件套 AuthDfaConfig/RedisWordLibraryLoader/WordlibChangeSubscriber——Redis 快照优先+本地文件兑底，词库热更订阅 review:wordlib:change）
+- [x] A3 注册同步拒绝 + 取证（4-2.3/4-7 嵌入点）：`blocked=true` 时调 `UsernameRejectGate.recordReject` 落取证行（biz\_id=0 不建任务，取证行不落用户名明文），拒绝即终态、提示换名重试、禁回显命中词；取证失败仅 error 留痕不影响拦截（✅ 2026-10-11 落地：register 步骤 0.2 先取证后抛 70001；取证链路 UsernameRejectRecordAdapter → ReviewClient 契约（含降级工厂 fail-fast）→ review 侧 ReviewFeignProviderController + UsernameRejectRecordServiceImpl 落 moderation_record(biz_id=0, mod_type=1-DFA, verdict=2-REJECT)，append-only）
+- [x] A4 编排顺序：空校验 → DFA 闸门 → 拒绝取证/放行注册（顺序收口在 DfaPublishGate 类注）（✅ 2026-10-11 落地：register 方法 Javadoc 收口编排顺序铁律与依据，对齐 DfaPublishGate 类注落位口径）
+
+### B 组：punish.result 处罚消费端（触发条件：review 侧 5-2.1 事件发布先行）
+
+- [x] B1 处罚消费 + 权威态拉取（5-2.2）：消费 `moderation.punish.result`，经 Feign GET /api/review/punish/status 拉权威态覆盖本地禁言快照（短 TTL 本地缓存）；punishLogId 仅排障严禁作版本门控（防吞 op=2 撤销）（✅ 2026-10-11 落地：PunishMqConfig 拓扑（主队列+DLQ+双绑定，参数与 review 侧对齐，延迟交换机不声明由 review 侧提供）+ PunishResultConsumer 编排（MqTraceSupport 链路恢复 → executeWithRetry 指数退避模板 → 回查 → 覆盖快照 → kickout；重试参数外置 litisle.moderation.punish.retry.*；降级 BizException 转 IllegalStateException 走重试/DLQ 防漏封静默吞错）+ PunishResultEvent 补 retryCount 与 ACTION\_MUTE/ACTION\_BAN 常量）
+- [x] B2 封禁即时下线（5-2.3）：action=2 → Sa-Token kickout 强制下线该用户全部会话（✅ 2026-10-11 落地：PunishResultConsumer 步骤5——以回查权威态 banned 为准（非事件 action 判定，双保险防撤销事件误踢），StpUtil.logout(userId) 踢出全部会话，幂等重复执行无害）
+- [x] B3 禁言态快照维护（5-2 关联）：本地快照供发布链路拦截用（拦截点在 content，快照源在 auth/user）；撤销处罚后快照须同步解封（✅ 2026-10-11 落地：PunishSnapshotService/Impl——Redis key auth:punish:snapshot:{userId}（AuthCacheKey 常量），value JSON 覆盖式 SET（无 read-modify-write、无 delete 分支，撤销=全空快照覆盖=同步解封），TTL 外置默认 300s±10% 抖动；写失败上抛转重试防漏封，读失败全空快照兑底；本地 Caffeine 暂不引入，待发布链路拦截接入后按需）
+- [x] B4 串行消费配置（5-3.1）：punish.result 队列固定单消费者串行；扩容按 userId 一致性哈希；消费失败不 ACK → DLQ（✅ 2026-10-11 落地：PunishConsumeConfig 串行容器工厂——单消费者+prefetch=1+手动 ACK+显式挂 common-mq Jackson 转换器（关键坑：Spring Boot 自动配置仅覆盖主工厂，自定义工厂漏设必成反序列化毒丸），PunishResultConsumer containerFactory 接线；扩容预留 x-consistent-hash 一致性哈希扩展点，类注已收口口径）
+- [x] B5 对账查询供给（5-3.2 关联）：双向对账 sweeper（挂 6-1 调度）比对 punish\_log 封禁行 vs auth 活跃会话，auth 侧需提供会话查询契约或配合补漏 kickout（正向补踢人/反向补解封）（✅ 2026-10-11 落地：契约侧 PunishAuditDTO + AuthClient 两端点 getPunishAudit/refreshPunishSnapshot（/api/feign/** 网关不配路由）+ 降级工厂两端点 fail-fast 禁降级（对账假「无异常」会致漏补漏）；auth 侧 PunishAuditService/Impl——活跃会话判定 Sa-Token 登录态 ∥ 设备索引非空、任一判定故障保守按活跃上报（宁多补踢不漏踢）；反向补解封 SSOT 收口仅经回查覆盖禁直写；正向补踢复用既有 forceLogout 不新增端点）
+
+### 依赖与注意事项
+
+- A 组可独立先行（auth 注册功能动工时一次性嵌入）；B 组等板块五 review 侧启动，按 5-2.1 → B1/B2 → B4 → B5 顺序推进（✅ 2026-10-11 注记：B1-B5 代码已全部落地，仅待 review 侧 5-2.1 事件发布先行后联调）
+- 网关联动：/api/review/punish/status 不得配外网路由（5-2.4，gateway 配置项非 auth 侧），但 B1/B5 内部调用依赖该端点可达

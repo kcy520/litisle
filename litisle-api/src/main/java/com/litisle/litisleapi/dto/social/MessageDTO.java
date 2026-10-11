@@ -1,4 +1,4 @@
-package com.litisle.litisleapi.dto.message;
+package com.litisle.litisleapi.dto.social;
 
 import lombok.Data;
 

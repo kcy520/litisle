@@ -3,6 +3,7 @@ package com.litisle.litisleapi.dfa;
 
 
 import com.github.houbb.sensitive.word.bs.SensitiveWordBs;
+import com.litisle.litisleapi.constant.ModerationConstant;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
@@ -25,6 +26,9 @@ import java.util.stream.Collectors;
  * DfaHitResult r = dfaFacade.check("ARTICLE_FEATURED", title + content);
  * if (r.hit() && r.maxLevel() == 1) throw new BizException(70001);   // HIGH 同步拦截
  * // MID 命中不拦截，把 r.hitWords()/r.wordlibVer() 随内容送审留痕
+ * // 【4-2 SSOT】发布链路统一经 DfaPublishGate.decide 做闸门决策（HIGH 拦/MID 标记），
+ * // 上方 if 示例仅为原理演示，各链路禁止自行复制 if 分支（防口径漂移）；
+ * // 级别比对用 ModerationConstant.DFA_LEVEL_HIGH/DFA_LEVEL_MID，勿硬编码 1/2
  * }</pre>
  * <p>热更（Redis Pub 订阅端）：收到广播后调 {@link #rebuild}，内部 version 乐观比对
  * （新版本号 ≤ 当前版本则忽略，防乱序旧覆盖新）+ 原子换引擎，在途查询不受影响</p>
@@ -136,11 +140,11 @@ public class DfaFacade {
         if (hits.isEmpty()) {
             return DfaHitResult.noHit(engine.version());
         }
-        // 计算最高敏感级别：取命中最严级别（level 值最小），未配置兜底为 HIGH(1)
+        // 计算最高敏感级别：取命中最严级别（level 值最小），未配置兜底为 HIGH（SSOT 常量，与 DfaPublishGate 决策口径对齐）
         int maxLevel = hits.stream()
-                .mapToInt(w -> engine.wordLevels().getOrDefault(w, 1))
+                .mapToInt(w -> engine.wordLevels().getOrDefault(w, ModerationConstant.DFA_LEVEL_HIGH))
                 .min()
-                .orElse(1);
+                .orElse(ModerationConstant.DFA_LEVEL_HIGH);
         // 返回命中结果（是否命中 + 最高级别 + 命中词列表 + 词库版本）
         return new DfaHitResult(true, maxLevel, hits, engine.version());
     }

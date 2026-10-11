@@ -48,7 +48,11 @@ public class TextSubmitEvent implements Serializable {
     /** 审核场景（ARTICLE/COMMENT/USERNAME/MESSAGE；scene 必带，防同 bizType+bizId 复审任务定位歧义） */
     private String scene;
 
-    /** 内容指纹（正文 SHA256，消费端缓存 key 派生/幂等比对用） */
+    /**
+     * 内容指纹（送审文本 SHA256，消费端缓存 key 派生/幂等比对用）；
+     * 4-1.2 口径：送审文本=标题+正文拼接（title+分隔符+body，title 空取 body，SSOT 见 SubmitTextAssembler），
+     * 标题必须一并进 hash/DFA/模型，防违规藏标题躲过 LLM 漏审
+     */
     private String contentHash;
 
     /** 重试次数（首次送审 0，延迟重投递增，消费端与 review_task.retry_count 对账） */

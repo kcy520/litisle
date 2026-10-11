@@ -3,10 +3,12 @@ package com.litisle.litisleauth.controller.feign;
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonsecurity.desensitize.SensitiveStrategy;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
+import com.litisle.litisleapi.dto.moderation.PunishAuditDTO;
 import com.litisle.litisleapi.feign.AuthClient;
 import com.litisle.litisleauth.enums.EmailCodeUsage;
 import com.litisle.litisleauth.service.AuthService;
 import com.litisle.litisleauth.service.CaptchaService;
+import com.litisle.litisleauth.service.PunishAuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,6 +27,7 @@ public class AuthFeignProviderController implements AuthClient {
 
     private final AuthService authService;
     private final CaptchaService captchaService;
+    private final PunishAuditService punishAuditService;
 
     @Override
     public Result<Void> forceLogout(Long userId) {
@@ -40,6 +43,21 @@ public class AuthFeignProviderController implements AuthClient {
         captchaService.verifyImgCode(dto.getImgUuid(), dto.getImgCode());
         // 再校验邮箱验证码（用途 CHANGE_EMAIL，失败达阈值自动失效重发）
         captchaService.verifyEmailCode(dto.getEmail(), EmailCodeUsage.CHANGE_EMAIL, dto.getEmailCode());
+        return Result.success();
+    }
+
+    @Override
+    public Result<PunishAuditDTO> getPunishAudit(Long userId) {
+        // B5 对账审计只读查询：活跃会话态 + 本地快照态，供 review 侧 sweeper 判定补漏方向
+        log.info("Feign 处罚对账审计查询: userId={}", userId);
+        return Result.success(punishAuditService.getPunishAudit(userId));
+    }
+
+    @Override
+    public Result<Void> refreshPunishSnapshot(Long userId) {
+        // B5 反向补解封：SSOT 收口，仅经回查 review 权威态覆盖快照，禁止直写
+        log.info("Feign 反向补解封快照刷新: userId={}", userId);
+        punishAuditService.refreshPunishSnapshot(userId);
         return Result.success();
     }
 

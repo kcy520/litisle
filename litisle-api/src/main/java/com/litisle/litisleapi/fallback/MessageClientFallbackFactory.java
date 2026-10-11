@@ -3,7 +3,7 @@ package com.litisle.litisleapi.fallback;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
-import com.litisle.litisleapi.dto.message.MessageDTO;
+import com.litisle.litisleapi.dto.social.MessageDTO;
 import com.litisle.litisleapi.feign.SocialClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;

@@ -4,6 +4,7 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
+import com.litisle.litisleapi.dto.moderation.PunishAuditDTO;
 import com.litisle.litisleapi.feign.AuthClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
@@ -35,6 +36,21 @@ public class AuthClientFallbackFactory implements FallbackFactory<AuthClient> {
                 // 安全关键校验（改绑邮箱防爆破），禁止降级：fail-fast 抛出异常，保留原始异常链
                 log.error("远程调用 auth 模块校验改绑邮箱验证码失败！该校验为安全关键操作，禁止降级", cause);
                 throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "验证码服务暂不可用，请稍后重试", cause);
+            }
+
+            @Override
+            public Result<PunishAuditDTO> getPunishAudit(Long userId) {
+                // 对账数据禁降级：静默返回成功会让 sweeper 拿到假「无异常」结论而漏补漏，
+                // fail-fast 上抛让 sweeper 感知本轮对账失败并重试
+                log.error("远程调用 auth 模块处罚对账审计查询失败！对账数据禁降级，userId={}", userId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "对账审计服务暂不可用，请稍后重试", cause);
+            }
+
+            @Override
+            public Result<Void> refreshPunishSnapshot(Long userId) {
+                // 反向补解封为安全关键写操作（漏补解封=误禁持续），禁止降级：fail-fast 上抛
+                log.error("远程调用 auth 模块反向补解封失败！补漏写操作禁止降级，userId={}", userId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "补解封服务暂不可用，请稍后重试", cause);
             }
         };
     }

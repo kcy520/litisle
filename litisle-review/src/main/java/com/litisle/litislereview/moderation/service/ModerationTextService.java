@@ -10,7 +10,7 @@ import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.dfa.WordLibraryLoader;
 import com.litisle.litisleapi.dto.content.ContentDTO;
-import com.litisle.litisleapi.dto.message.MessageDTO;
+import com.litisle.litisleapi.dto.social.MessageDTO;
 import com.litisle.litisleapi.event.moderation.ModerationResultEvent;
 import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
 import com.litisle.litisleapi.feign.ContentClient;
@@ -216,6 +216,9 @@ public class ModerationTextService {
 
     /**
      * 回查正文（标题+正文拼接送审；标题违规语义须一并送审）
+     * <p>口径 SSOT（4-1.2）：拼接口径须与契约层 SubmitTextAssembler / ModerationConstant.TEXT_SUBMIT_SEPARATOR
+     * 保持逐字一致；该骨架落地实现后，本方法拼装逻辑应切换复用常量，禁止两侧各自演化
+     * （hash 错配会被消费端 ACK 丢弃，见 3-1.4）。
      *
      * @param event 送审事件（bizType/bizId 决定回查契约）
      * @return 待审文本（标题+正文）
@@ -236,7 +239,8 @@ public class ModerationTextService {
             ContentDTO dto = resp.getData();
             String title = StringUtils.hasText(dto.getTitle()) ? dto.getTitle() : "";
             String body = StringUtils.hasText(dto.getBody()) ? dto.getBody() : "";
-            return title.isEmpty() ? body : title + "\n" + body;
+            // 拼接分隔符收口 ModerationConstant.TEXT_SUBMIT_SEPARATOR（4-1.2 SSOT，与发布侧 SubmitTextAssembler 同口径）
+            return title.isEmpty() ? body : title + ModerationConstant.TEXT_SUBMIT_SEPARATOR + body;
         }
         // 步骤2：bizType=5→MessageClient 回查私信正文
         if (Objects.equals(bizType, ModerationBizTypeEnum.MESSAGE.getCode())) {

@@ -50,6 +50,12 @@
             <artifactId>common-security</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- common-mq -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-mq</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
 
 

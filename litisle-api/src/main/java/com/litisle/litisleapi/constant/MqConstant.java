@@ -31,6 +31,12 @@ public class MqConstant {
     /** 文章发布事件队列 */
     public static final String QUEUE_CONTENT_PUBLISHED = "litisle.content.published.queue";
 
+    /**
+     * 内容下架事件队列（板块四 4-4.1）：content 删除/下架/转私密三路径发布，
+     * ai 消费移除向量库 chunk、search 移除 ES 索引；缓存键失效由发布方本地执行不走本事件
+     */
+    public static final String QUEUE_CONTENT_UNPUBLISHED = "litisle.content.unpublished.queue";
+
     // ==================== 路由键 ====================
 
     /** 用户注册路由键 */
@@ -38,6 +44,9 @@ public class MqConstant {
 
     /** 文章发布路由键 */
     public static final String ROUTING_CONTENT_PUBLISHED = "content.published";
+
+    /** 内容下架路由键（板块四 4-4.1，发布至 EXCHANGE_CONTENT，事件体 ContentUnpublishedEvent） */
+    public static final String ROUTING_CONTENT_UNPUBLISHED = "content.unpublished";
 
     // ==================== 审核模块（moderation）====================
 
@@ -125,4 +134,24 @@ public class MqConstant {
      * 否则 safe_flag 回写/隔离链路收不到图片 result（拓扑改动两侧须参数对齐防 PRECONDITION_FAILED）</p>
      */
     public static final String ROUTING_MODERATION_IMAGE_RESULT = "moderation.image.result";
+
+    // ==================== 处罚结果分发（板块五 5-2，§4.2.3/§4.5.2）====================
+
+    /**
+     * 处罚结果路由键（5-2.1：punish_log 落库同一本地事务内发布；事件仅触发信号，
+     * auth/user 消费后经 Feign 回查权威态覆盖本地快照，幂等与到达顺序无关）
+     */
+    public static final String ROUTING_MODERATION_PUNISH = "moderation.punish.result";
+
+    /**
+     * auth 侧处罚结果队列（5-2.2/B1：固定单消费者串行消费（B4），扩容按 userId 一致性哈希；
+     * 消费失败不 ACK 经 DLX 入 DLQ，双向对账 sweeper（5-3.2）兑底补漏）
+     */
+    public static final String QUEUE_AUTH_MODERATION_PUNISH = "litisle.auth.moderation.punish.queue";
+
+    /** auth 侧处罚结果死信队列（消费失败 nack requeue=false 后经 DLX 路由入此，防毒消息无限重投） */
+    public static final String QUEUE_AUTH_MODERATION_PUNISH_DLQ = "litisle.auth.moderation.punish.dlq.queue";
+
+    /** auth 侧处罚结果死信路由键（主队列 deadLetterRoutingKey，决定死信进 DLQ） */
+    public static final String ROUTING_MODERATION_PUNISH_DLQ = "moderation.punish.result.dlq";
 }

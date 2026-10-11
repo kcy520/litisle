@@ -5,6 +5,7 @@ import com.litisle.litisleapi.fallback.AuthClientFallbackFactory;
 import com.litisle.litisleapi.fallback.ContentClientFallbackFactory;
 import com.litisle.litisleapi.fallback.FileClientFallbackFactory;
 import com.litisle.litisleapi.fallback.MessageClientFallbackFactory;
+import com.litisle.litisleapi.fallback.ReviewClientFallbackFactory;
 import com.litisle.litisleapi.fallback.UserClientFallbackFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;

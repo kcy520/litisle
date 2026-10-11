@@ -3,9 +3,11 @@ package com.litisle.litisleapi.feign;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.config.FeignApiConfig;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
+import com.litisle.litisleapi.dto.moderation.PunishAuditDTO;
 import com.litisle.litisleapi.fallback.AuthClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,5 +53,33 @@ public interface AuthClient {
      */
     @PostMapping("/api/feign/captcha/change-email/verify")
     Result<Void> verifyChangeEmail(@RequestBody ChangeEmailVerifyDTO dto);
+
+    /**
+     * 查询用户处罚对账审计快照（临时清单 B5，5-3.2）
+     *
+     * <p>【使用场景】双向对账 sweeper（挂 review 侧 6-1 调度）对每个 punish_log 生效封禁行
+     * 回查 auth 侧实况（活跃会话态 + 本地快照态），一次请求支撑两个补漏方向判定：
+     * 正向补踢（复用 forceLogout）/ 反向补解封（refreshPunishSnapshot）；只读无副作用</p>
+     *
+     * <p>【安全纪律】内部契约端点：网关不配置路由，防公网直查处罚审计态</p>
+     *
+     * @param userId 用户 ID
+     * @return 审计快照（非 null）
+     */
+    @GetMapping("/api/feign/auth/punish-audit/{userId}")
+    Result<PunishAuditDTO> getPunishAudit(@PathVariable("userId") Long userId);
+
+    /**
+     * 反向补解封：回查 review 权威态并覆盖 auth 本地禁言快照（B5，5-3.2）
+     *
+     * <p>【使用场景】sweeper 发现 auth 快照 banned=true 但 punish_log 无生效封禁行
+     * （撤销处罚事件丢失）时调用——auth 内部经 ReviewClient 回查权威态覆盖快照
+     * （SSOT：快照只能以回查覆盖，sweeper 不直写）；幂等，重复调用无害</p>
+     *
+     * @param userId 用户 ID
+     * @return 无业务数据；回查失败由提供方抛异常穿透
+     */
+    @PostMapping("/api/feign/auth/punish-audit/{userId}/refresh-snapshot")
+    Result<Void> refreshPunishSnapshot(@PathVariable("userId") Long userId);
 
 }

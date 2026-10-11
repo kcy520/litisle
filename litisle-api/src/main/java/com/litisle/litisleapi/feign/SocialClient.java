@@ -2,7 +2,7 @@ package com.litisle.litisleapi.feign;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.config.FeignApiConfig;
-import com.litisle.litisleapi.dto.message.MessageDTO;
+import com.litisle.litisleapi.dto.social.MessageDTO;
 import com.litisle.litisleapi.fallback.MessageClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;

@@ -21,11 +21,26 @@ public class ModerationConstant {
     /** 审核方式：1-机审 */
     public static final int MOD_TYPE_AUTO = 1;
 
+    /** 审核业务类型：1-文章（免审 last-hash / 图片连带校验键的 bizType 段） */
+    public static final int BIZ_TYPE_ARTICLE = 1;
+
+    /** 审核业务类型：2-评论 */
+    public static final int BIZ_TYPE_COMMENT = 2;
+
+    /** 审核业务类型：3-用户名（注册路径 HIGH 同步拒绝取证行的 bizType 段，biz_id=0 占位，4-7） */
+    public static final int BIZ_TYPE_USERNAME = 3;
+
+    /** 审核业务类型：5-私信 */
+    public static final int BIZ_TYPE_MESSAGE = 5;
+
     /** 审核业务类型：6-图片 */
     public static final int BIZ_TYPE_IMAGE = 6;
 
     /** 图片场景（上传预审/举报重审刻意共用 IMAGE 场景，同对象重审） */
     public static final String SCENE_IMAGE = "IMAGE";
+
+    /** 文章配图复审场景（不走 DFA；bizType=1 复用 LAST_HASH_KEY 做图片连带免审键，4-3.4） */
+    public static final String SCENE_ARTICLE_IMG_RE_REVIEW = "ARTICLE_IMG_RE_REVIEW";
 
     /** 终局判定：1-PASS */
     public static final int VERDICT_PASS = 1;
@@ -73,4 +88,71 @@ public class ModerationConstant {
      * %s 为 scene（ARTICLE/COMMENT/USERNAME/MESSAGE）；value 为 WordlibSnapshot JSON（无 TTL，随版本覆盖）
      */
     public static final String WORDLIB_SNAPSHOT_KEY = "review:wordlib-snapshot:%s";
+
+    // ==================== 发布前置校验口径（板块四 4-1，SSOT） ====================
+
+    /**
+     * 标题长度上限（4-1.1，对齐 article.title varchar(100)）：
+     * 发布/评论入口 trim 后校验，超限拒绝；
+     * 校验器骨架见 PublishTextPrecheck（实现挂起待发布链路开发）
+     */
+    public static final int TITLE_MAX_LENGTH = 100;
+
+    /**
+     * 送审文本标题与正文拼接分隔符（4-1.2）：title + 分隔符 + body（title 空取 body）；
+     * 发布侧（SubmitTextAssembler）与消费侧（ModerationTextService#fetchText）必须共用此常量，
+     * 禁止两侧各自硬编码（防口径漂移导致消费端 hash 错配 ACK 丢弃）
+     */
+    public static final String TEXT_SUBMIT_SEPARATOR = "\n";
+
+    // ==================== DFA 判定级别口径（板块四 4-2，SSOT） ====================
+
+    /**
+     * DFA 级别 int code：1-HIGH（黑名单词，同步拦截 70001；私信链路同时禁止投递 MQ）；
+     * 与 WordEntry.level / DfaHitResult.maxLevel 对齐，闸门决策 SSOT 见 DfaPublishGate
+     */
+    public static final int DFA_LEVEL_HIGH = 1;
+
+    /**
+     * DFA 级别 int code：2-MID（只标记 layer1_hit=2 随任务送异步层，兼新增词灰度观察位，不拦截）；
+     * 级别比对禁用魔法值 1/2，统一引用本常量
+     */
+    public static final int DFA_LEVEL_MID = 2;
+
+    // ==================== 免审 last-hash 契约（板块四 4-3，SSOT） ====================
+
+    /**
+     * 免审 last-hash key（content 消费 result 写入 4-3.1，发布侧免审判定 4-3.2，
+     * content.unpublished 失效 4-4.1，申诉改判 PASS 同步删 5-4.5）；
+     * %s 依次为 wordlibVer、bizType、scene、bizId——四段全部服务端派生；
+     * wordlibVer 进 key = 词库热更即整体换 key，旧结论键不会被新版本发布判定命中，
+     * 热更后旧 key 无法枚举清理，等 TTL 自然过期即可（无需扫描清理）；
+     * 图片连带校验复用本 key（bizType=1、scene=ARTICLE_IMG_RE_REVIEW，4-3.4）；
+     * TTL 外置 litisle.moderation.last-hash.ttl-hours（与 cache.ttl-hours 对齐 + ±10% 抖动，7-4.1 收尾落地）
+     */
+    public static final String LAST_HASH_KEY = "review:last-hash:%s:%s:%s:%s";
+
+    /** last-hash value JSON 字段：判定时送审文本指纹（防「仅换标题/正文任一」旧键命中） */
+    public static final String LAST_HASH_FIELD_HASH = "hash";
+
+    /** last-hash value JSON 字段：终局判定（1-PASS/2-REJECT；SUSPICIOUS 非终局禁写，防免审放行存疑内容） */
+    public static final String LAST_HASH_FIELD_VERDICT = "verdict";
+
+    // ==================== 私信撤回与陌生人配额契约（板块四 4-6，SSOT） ====================
+
+    /** 私信状态：0-已撤回（撤回 CAS 目标态；不物理删正文，留存审计，对方仅见「消息已撤回」） */
+    public static final int MESSAGE_STATUS_RECALLED = 0;
+
+    /** 私信状态：1-正常（已投递；撤回 CAS 前置态，与审核 1→2 CAS 同前置天然互斥） */
+    public static final int MESSAGE_STATUS_NORMAL = 1;
+
+    /** 陌生人会话配额上限：单会话累计最多 3 条（REJECT 拦截消息仍占配额——投递行为已发生） */
+    public static final int STRANGER_QUOTA_LIMIT = 3;
+
+    /**
+     * 陌生人配额 Redis INCR key：%s 为 conversationId（服务端派生数字 ID，不拼用户原串）；
+     * INCR 为主计数，Redis 故障降级 DB 原子条件更新（口径 SSOT 见 StrangerQuotaGate）；
+     * TTL 口径随 message 模块落地与 conversation 生命周期对齐，当前不设 TTL（会话级累计）
+     */
+    public static final String STRANGER_QUOTA_KEY = "biz:message:stranger-quota:%s";
 }
