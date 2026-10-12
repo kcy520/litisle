@@ -53,6 +53,48 @@ public class FileModerationServiceImpl implements FileModerationService {
     }
 
     /**
+     * 隔离图到期删除（6-3.2，review 侧 QuarantineSweeper 保留期收口经 FileClient.feign 调用）：
+     * 前缀校验（必须已在 quarantine/ 前缀，防误删正常文件）→ 删本体 + 缩略图
+     * （SeaweedFS 回收站兑底 7 天，-filer.recycleBinMaxHours=168）→ 软删 del_flag=1
+     * 退出活跃池/秒传判重池（对账任务物理清理对 quarantine/ 前缀豁免，不会与本删除重复触发）
+     * <p>幂等双闸口：① 元数据不存在（已物理清理/异常数据）直接跳过；
+     * ② 已软删（重复指令/重扫重投）直接跳过——删除指令对缺失/已删数据天然幂等</p>
+     */
+    @Override
+    public void deleteQuarantined(String fileId) {
+        // 幂等闸口①：查元数据（不过滤 del_flag，已删记录也能命中走闸口②）
+        FileMeta meta = fileMetaMapper.selectOne(new LambdaQueryWrapper<FileMeta>()
+                .eq(FileMeta::getFileId, fileId));
+        if (meta == null) {
+            log.info("隔离图删除跳过：元数据不存在，fileId={}", fileId);
+            return;
+        }
+        // 幂等闸口②：已软删（重复指令/MQ 重投/重扫）直接跳过
+        if (meta.getDelFlag() == DelFlag.DELETED) {
+            log.info("隔离图删除跳过：已处于删除态，fileId={}", fileId);
+            return;
+        }
+        // 前缀校验（防误删正常文件）：必须已在 quarantine/ 前缀才允许删除（前缀 SSOT 与隔离/对账同源）
+        String prefix = fileProperties.getReconcileTask().getQuarantinePrefix();
+        if (meta.getPath() == null || !meta.getPath().startsWith(prefix)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "文件不在隔离前缀，拒绝删除，fileId=" + fileId);
+        }
+        // 删本体 + 全部缩略图派生 key（_thumb_*）：delete 对不存在 key 也成功，重试安全
+        List<String> keys = seaweedFsClient.listKeys(meta.getBucket(), meta.getPath());
+        for (String key : keys) {
+            seaweedFsClient.delete(meta.getBucket(), key);
+        }
+        // 软删元数据（del_flag=1 + delete_time=now）：退出活跃池与秒传判重池，
+        // 对账任务对 quarantine/ 前缀豁免，残留元数据不再被常规清理触碰
+        fileMetaMapper.updateById(new FileMeta()
+                .setId(meta.getId())
+                .setDelFlag(DelFlag.DELETED)
+                .setDeleteTime(LocalDateTime.now())
+                .setUpdateTime(LocalDateTime.now()));
+        log.info("隔离图到期删除完成，fileId={}，path={}，对象数={}", fileId, meta.getPath(), keys.size());
+    }
+
+    /**
      * 隔离/恢复统一实现（S3 无原生 move：copy + delete 组合；两步均幂等，中途失败重试自愈）
      * <p>前缀 SSOT：与对账任务跳过清理共用 litisle.file.reconcile-task.quarantine-prefix（防两处配置漂移）。
      * 移入/移回按前缀可逆推导目标 key（隔离 = quarantine/ + 原 key），无需新增列记录原路径；

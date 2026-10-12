@@ -21,18 +21,20 @@
 
 ### 板块五：申诉与处罚联动闭环（§4.2.3 / §4.5.2）
 
-- [ ] 机审 REJECT 联动落 punish\_log(action=3 内容下架, operator\_id=0-系统) + violation\_score 累计；自动禁言/封禁阈值判定只重放 action∈{1,2} 生效行，机审 action=3 不计入（§4.2.3）
-- [ ] moderation.punish.result 事件 + user/auth 消费：禁言态快照维护 + 封禁 Sa-Token kickout 即时下线 + 权威态拉取（Feign /api/review/punish/status 短 TTL 本地缓存；punishLogId 仅排障严禁作版本门控）（§4.2.3）
-- [ ] punish.result 队列按 userId 串行消费（单消费者/一致性哈希路由）+ 失败走 DLQ + 双向对账 sweeper（正向补漏 kickout / 反向补漏解封）（§4.2.3）
-- [ ] 申诉改判 PASS：发布 moderation.appeal.result（allow-list：3→2/4→2、comment 2→1、message 2→1、safe\_flag 0→1）+ 缓存层同步失效（text/img-result key + last-hash + 黑名单移除该 sha256）+ punish 撤销 + violation\_score 重算 + 按内容身份回写同内容全部活跃举报 status<3（§4.2.3/§2.1）
-- [ ] 图片申诉对称恢复：safe\_flag 0→1 + 对象从 quarantine/ 移回原前缀（unquarantine 契约已备）
+- [x] 机审 REJECT 联动落 punish\_log(action=3 内容下架, operator\_id=0-系统) + violation\_score 累计；自动禁言/封禁阈值判定只重放 action∈{1,2} 生效行，机审 action=3 不计入（§4.2.3）（✅ 2026-10-12 实现落地：MachineRejectPunishGate 闸口 + RejectPunishAdapterHost 宿主 + 三处 REJECT 挂点接线，明细见 status.md 5-1）
+- [x] moderation.punish.result 事件 + user/auth 消费：禁言态快照维护 + 封禁 Sa-Token kickout 即时下线 + 权威态拉取（Feign /api/review/punish/status 短 TTL 本地缓存；punishLogId 仅排障严禁作版本门控）（§4.2.3）（✅ 2026-10-12 落地：5-2.1 发布收口 + auth B1/B2 消费端 + 5-2.4 网关拦截路由与 checkSpeak 禁言校验契约，明细见 status.md 5-2）
+- [x] punish.result 队列按 userId 串行消费（单消费者/一致性哈希路由）+ 失败走 DLQ + 双向对账 sweeper（正向补漏 kickout / 反向补漏解封）（§4.2.3）（✅ 2026-10-12 落地：auth 侧 punishListenerContainerFactory 单消费者串行（concurrency=1+prefetch=1）+ review 侧 PunishReconcileSweeper 双向对账（SETNX 互斥锁 + forceLogout 正向补踢 + refreshPunishSnapshot 反向补解封 SSOT 收口），明细见 status.md 5-3）
+- [x] 申诉改判 PASS：发布 moderation.appeal.result（allow-list：3→2/4→2、comment 2→1、message 2→1、safe\_flag 0→1）+ 缓存层同步失效（text/img-result key + last-hash + 黑名单移除该 sha256）+ punish 撤销 + violation\_score 重算 + 按内容身份回写同内容全部活跃举报 status<3（§4.2.3/§2.1）（✅ 2026-10-12 实现落地：AppealServiceImpl.judgeAppeal 七步编排全链路 + ModerationAppealResultPublisher 发布收口，明细见 status.md 5-4）
+- [x] 图片申诉对称恢复：safe\_flag 0→1 + 对象从 quarantine/ 移回原前缀（unquarantine 契约已备）（✅ 2026-10-12 落地：file 侧已随基线、review 侧 ImageAppealCacheInvalidator 缓存失效收口，明细见 status.md 5-5）
 
 ### 板块六：Sweeper 基建 + quarantine 清理任务（§4.3 / §4.2.2；即原「暂不实现」quarantine sweeper 条目，触发条件本板块达成）
 
-- [ ] ReviewTaskSweeper：认领超时自动回池（claim.timeout-minutes）+ 申诉超时自动维持（appeal.timeout-days，宁严勿松）+ 积压 Gauge 定时刷新（§4.3/§4.2.3）
-- [ ] status=0 待审超时补偿重发：阈值 > MQ 最大退避总时长 + 重发前先抢 dedup.lock + 沿用 retry\_count 不归零（§4.3）
-- [ ] quarantine sweeper：扫 record(biz\_type=6) verdict=REJECT 超 retention-days → 反查 appeal(status=0) 待裁决则顺延 → FileClient.deleteQuarantined（file 侧前缀校验 + 删缩略图 + del\_flag=1 + 回收站兜底）→ fail-fast 幂等 + 批量限速 + 天级频率（§4.2.2）
-- [ ] moderation\_record 归档任务占位：retention-months=6 配置先行，归档任务二期落地（§4.4.1）
+> 2026-10-12 落地注记：板块六四项全量完成——ReviewTaskSweeper 四职责合并（6-1 认领超时回池/申诉超时维持/积压 Gauge 三态+DLQ 深度 + 6-2 status=0 超时补偿重发，同任务内分频执行）；QuarantineSweeper（6-3 扫描源=moderation_record+最新态过滤+申诉豁免+file 侧 deleteQuarantined 前缀校验契约+限速天级+双标签 Gauge）；ModerationRecordArchiveSweeper（6-4 原计划占位、实际全量实现：moderation_record_archive 归档表 DDL + 原子迁档事务 + 引用保护 + backlog Gauge，archive-enabled 默认 false 待显式启用）；明细见 status.md 板块六。
+
+- [x] ReviewTaskSweeper：认领超时自动回池（claim.timeout-minutes）+ 申诉超时自动维持（appeal.timeout-days，宁严勿松）+ 积压 Gauge 定时刷新（§4.3/§4.2.3）（✅ 2026-10-12）
+- [x] status=0 待审超时补偿重发：阈值 > MQ 最大退避总时长 + 重发前先抢 dedup.lock + 沿用 retry\_count 不归零（§4.3）（✅ 2026-10-12）
+- [x] quarantine sweeper：扫 record(biz\_type=6) verdict=REJECT 超 retention-days → 反查 appeal(status=0) 待裁决则顺延 → FileClient.deleteQuarantined（file 侧前缀校验 + 删缩略图 + del\_flag=1 + 回收站兑底）→ fail-fast 幂等 + 批量限速 + 天级频率（§4.2.2）（✅ 2026-10-12）
+- [x] moderation\_record 归档任务：retention-months=6 配置先行；归档 sweeper 已按契约全量实现（原计划二期，提前落地），archive-enabled=false 默认关闭（§4.4.1）（✅ 2026-10-12）
 
 ### 板块七：观测与告警收尾（§4.8 / §4.7）
 
@@ -113,6 +115,10 @@
 
 #### 5-1 机审 REJECT 联动处罚（§4.2.3）
 
+> 2026-10-11 落地注记：契约层骨架+挂点注释已落地（实现挂起）——litisle-api 新增 MachineRejectPunishGate（recordRejectPunish 闸口编排 + RejectPunishContext（含 score 分值快照，供 5-4 重放重算确定可算）+ RejectPunishAdapter 列口径收口，模式同 UsernameRejectGate，方法体 UnsupportedOperationException 挂起）；litisle-review 三处挂点注释已插入：ModerationTextService.persistAndPublish（3-1 文本 REJECT）、ModerationImageService.persistSingleImage（单图 REJECT）/ 配图复审聚合 REJECT（均在编程式事务内、afterCommit 注册之前，与留痕/CAS 同生共死）；PunishService 类注补收口计划。落行实现（含 userId 归属解析）与 5-2.1 punish.result 事件发布属同一批事务改造，合并落地避免二次触碰事务模板。
+
+> 2026-10-12 实现落地注记：5-1 与 5-2.1 已全量落地——litisle-api 契约层 MachineRejectPunishGate.recordRejectPunish 闸口（入参 fail-fast + 事务活动态校验 + afterCommit 发布编排）正式实现（移除 UnsupportedOperationException 挂起）；litisle-review 侧新建 RejectPunishAdapterHost 宿主（punish_log 落行 action=3/operator_id=0/status=1 + violation_score 原子累加 setSql 参数化绑定 + 首插 DuplicateKeyException 转累加竞态兑底，仅累加 score 列不碰 last_punish_action/frozen_until）+ PunishResultPublisher 发布器（sendCritical 必达，BizException→IllegalStateException 入 DLQ，口径对齐 ModerationResultPublisher）；三处 REJECT 挂点全部接线：文本侧 fetchText 返回 FetchedText 透传 ownerId、单图支线 FileOwnerDTO 同取 fileMetaId+ownerId、配图复审聚合 REJECT 分支按 ContentClient 回查文章归属（bizId 取 task.getBizId() Long 口径），回查失败/落库失败均回滚整个审核事务入 DLQ 延迟重试。
+
 **步骤**：
 1. 3-1/3-2 消费端判 REJECT 的**同一本地事务内**：落 punish_log(action=3-内容下架, operator_id=0-系统, score=本次记入分值快照, status=1) + violation_score 累计。
 2. **自动禁言/封禁阈值判定只重放 action∈{1,2} 的 status=1 生效行**——机审 action=3 不计入。
@@ -124,7 +130,7 @@
 #### 5-2 moderation.punish.result 事件 + user/auth 消费（§4.2.3/§4.5.2）
 
 **步骤**：
-1. 处罚落库同一本地事务内发事件，体={userId, action, op(1-生效/2-撤销), punishLogId, frozenUntil, traceId}。
+1. 处罚落库同一本地事务内发事件，体={userId, action, op(1-生效/2-撤销), punishLogId, frozenUntil, traceId}。（✅ 2026-10-12 落地：发布收口 PunishResultPublisher，闸口 afterCommit 阶段发送，事件组装口径 action=3/op=1/frozenUntil=null/punishLogId 仅排障；落库失败不发、发布失败转 IllegalStateException 入 DLQ）
 2. user 消费：按 userId 经 Feign 调 review 内部端点 GET /api/review/punish/status 拉权威态（禁言/封禁快照）**覆盖本地**——事件仅作触发信号，幂等与到达顺序无关；端点短 TTL 本地缓存；**punishLogId 仅排障，严禁作版本门控**（撤销就地改同一行、id 不变不单调，按其丢弃会吞 op=2 撤销事件致误禁持续）。
 3. 封禁(action=2)：auth/user 消费后额外执行 Sa-Token kickout 强制下线全部会话（封禁即时生效）。
 4. 执行点在发布链路：content/social（私信）发布前经 user 契约校验禁言态拦截发言，不能只落 punish_log。
@@ -139,6 +145,8 @@
 **注意事项**：漏封是安全风险、漏解封是误伤，两向都要收敛；永久封禁 expire_time=null 无到期自愈，撤销事件丢失只能靠反向对账恢复。
 
 #### 5-4 申诉改判 PASS（§4.2.3/§2.1）
+
+> 2026-10-12 实现落地注记：review 侧全量落地——AppealServiceImpl.judgeAppeal 七步编排（步骤0入参闸门→步骤1 ADMIN/原裁决人回避校验→步骤2高风险 confirm=true 双签事务外预检→步骤3改判 CAS（affected=0 返 70004）→步骤4撤销分支同事务联动（逐行 CAS 撤销 status 1→2 + violation_score 重放生效行重算覆盖写回（update→insert→冲突重试两段式；score 含 action=3，last_punish_action/frozen_until 仅由 action∈{1,2} 生效行推导）+ mod_type=6 双签留痕）→步骤5缓存同步失效（text-result/img-result/last-hash 键删除 + 黑名单移除 sha256，键版本段与机审判定同源取值防漂移，失败仅 error 留痕）→步骤6按内容身份错位映射批量回写活跃举报）→步骤7事务提交后发 appeal.result（ModerationAppealResultPublisher.sendCritical 收口，BizException→IllegalStateException 入 DLQ）+ 被撤销封禁行补发 punish.result op=2 恢复事件（复用 PunishResultPublisher 收口，禁言撤销不发靠 frozen_until 清空+对账兑底）；步骤4属下游消费侧职责：file 侧 safe_flag 0→1+unquarantine 已随基线落地，content/message 随对应模块开发回接。
 
 **步骤**：
 1. judge 端点改判分支：CAS `update appeal set status=2, judge_by=?, judge_opinion=?, decide_time=now() where id=? and status=0`，affected=0→70004（@Idempotent 防不住跨人并发裁决）。
@@ -155,6 +163,8 @@
 **步骤**：
 1. appeal.result 消费（bizType=6）：safe_flag 0→1（file 侧既有 appeal.result 消费链路已备）+ 调 FileClient.unquarantine(fileId) 把对象从 quarantine/ 移回原前缀；del_flag 全程 0 无需回滚。
 2. 同步删 review:img-result key + 黑名单移除该 sha256（同 5-4 第 5 步）。
+
+**✅ 落地注记（2026-10-12）**：步骤1 file 侧已随基线落地（ModerationResultListener.onAppealResult：appealPass=true→unquarantine 幂等移回原前缀 + safe_flag 回 1）；步骤2 review 侧新建 ImageAppealCacheInvalidator（moderation/cache 包），按 moderation_record 留痕行逐行重建 img-result/img-blacklist 键（版本段取留痕固化 provider/model_version/content_hash，零版本漂移，append-only 全量取覆盖历史版本键），修复既有粗粒度拼键两缺口（① 配图复审聚合指纹错位漏删；② 单图审无 review_task 缓存失效整体丢失，已前移至 reviewTask 判空之前委派）；AppealServiceImpl.invalidateModerationCache 的 bizType=6 分支委派接入后直接返回（图片场景无文本键）；删除失败仅 error 留痕不阻断裁决事务，TTL 兑底。遗留：resolveImageProvider() 私有方法已无调用方，是否删除待确认。
 
 ### 板块六：Sweeper 基建 + quarantine 清理（落位：litisle-review workflow 包 ReviewTaskSweeper + cleanup 包）
 

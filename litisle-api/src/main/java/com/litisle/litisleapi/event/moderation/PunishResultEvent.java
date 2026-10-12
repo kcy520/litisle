@@ -39,6 +39,16 @@ public class PunishResultEvent implements Serializable {
     /** 处罚动作：封禁（同 punish_log.action=2，PunishActionEnum.BAN，消费端据此 kickout） */
     public static final int ACTION_BAN = 2;
 
+    /** 处罚动作：内容下架（同 punish_log.action=3，PunishActionEnum.CONTENT_TAKEDOWN；
+     * 机审 REJECT 联动的固定动作值，消费端不触发 kickout） */
+    public static final int ACTION_CONTENT_TAKEDOWN = 3;
+
+    /** 操作类型：1-生效 */
+    public static final int OP_EFFECTIVE = 1;
+
+    /** 操作类型：2-撤销 */
+    public static final int OP_REVOKE = 2;
+
     /** 事件唯一 ID（UUID，消费端幂等去重依据之一） */
     private String eventId;
 
@@ -57,10 +67,11 @@ public class PunishResultEvent implements Serializable {
     /** 被处罚用户 ID */
     private Long userId;
 
-    /** 处罚动作（1-禁言 2-封禁 3-内容下架 4-警告，口径同 punish_log.action） */
+    /** 处罚动作（1-禁言 2-封禁 3-内容下架 4-警告，口径同 punish_log.action；
+     * 取值用本类 ACTION_* 常量，禁裸字面量） */
     private Integer action;
 
-    /** 操作类型（1-生效 2-撤销） */
+    /** 操作类型（1-生效 2-撤销，取值用本类 OP_* 常量） */
     private Integer op;
 
     /** 处罚流水 ID（仅排障，严禁作版本门控——撤销就地改同一行、id 不变） */

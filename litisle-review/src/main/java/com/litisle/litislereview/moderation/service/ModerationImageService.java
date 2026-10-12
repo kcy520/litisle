@@ -11,12 +11,15 @@ import com.litisle.commonmq.send.MqSendUtil;
 import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
+import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.dto.file.FileContentDTO;
 import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litisleapi.event.moderation.ImageSubmitEvent;
 import com.litisle.litisleapi.event.moderation.ModerationResultEvent;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litisleapi.feign.FileClient;
+import com.litisle.litisleapi.moderation.MachineRejectPunishGate;
 import com.litisle.litislereview.domain.entity.ModerationRecord;
 import com.litisle.litislereview.domain.entity.ReviewTask;
 import com.litisle.litislereview.enums.Layer2RiskEnum;
@@ -35,6 +38,7 @@ import com.litisle.litislereview.moderation.config.ImageModerationAdapterProvide
 import com.litisle.litislereview.moderation.config.ModerationProperties;
 import com.litisle.litislereview.moderation.spi.ContentModerationService;
 import com.litisle.litislereview.moderation.spi.ModerationResult;
+import com.litisle.litislereview.mq.publisher.PunishResultPublisher;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -85,6 +89,12 @@ public class ModerationImageService {
     /** moderation_record.reason 列长度（落库前截断，防超长中断审核写入） */
     private static final int REASON_MAX_LENGTH = 500;
 
+    /**
+     * 机审 REJECT 联动处罚记入分值快照（5-1.1）：固定 0——机审 action=3 仅落流水、不参与登录态
+     * 阈值判定（PunishLog 实体注释口径）；后续运营若开放内容下架扣分，改此常量即可（分值快照随行固化）
+     */
+    private static final Integer MACHINE_REJECT_SCORE = 0;
+
     /** 审核任务表（定位 + CAS 状态流转） */
     private final ReviewTaskMapper reviewTaskMapper;
     /** 审核记录表（append-only 留痕，命中缓存也必追加） */
@@ -107,6 +117,10 @@ public class ModerationImageService {
     private final MqSendUtil mqSendUtil;
     /** 编程式事务模板（process 内部自调用不走代理，@Transactional 会失效，故用编程式事务） */
     private final TransactionTemplate transactionTemplate;
+    /** 机审 REJECT 处罚落库适配器（5-1.1：punish_log 落行 + violation_score 原子累加，契约见 MachineRejectPunishGate.RejectPunishAdapter） */
+    private final MachineRejectPunishGate.RejectPunishAdapter machineRejectPunishAdapter;
+    /** 处罚结果事件发布器（5-2.1：punish.result 出口收口，闸口 eventSender 注入本组件方法引用） */
+    private final PunishResultPublisher punishResultPublisher;
 
     /**
      * 处理图片送审事件（按 scene 分流：IMAGE 单图审 / ARTICLE_IMG_RE_REVIEW 文章配图复审）。
@@ -277,11 +291,13 @@ public class ModerationImageService {
         //        查询失败/缺失→业务性失败 ack 丢弃（留痕缺失无法补偿，重试无意义）
         Result<FileOwnerDTO> infoResp = fileClient.getFileInfo(fileId);
         if (infoResp == null || !infoResp.isSuccess() || infoResp.getData() == null
-                || infoResp.getData().getFileMetaId() == null) {
+                || infoResp.getData().getFileMetaId() == null || infoResp.getData().getOwnerId() == null) {
             log.error("单图落库前查询 file_meta 归属失败，确认丢弃，fileId={}，resp={}", fileId, infoResp);
             throw new BizException(ErrorCode.NOT_FOUND);
         }
         Long fileMetaId = infoResp.getData().getFileMetaId();
+        // 归属人（5-1 机审 REJECT 处罚上下文 userId 来源：file_meta 归属=违规责任归属）
+        Long ownerId = infoResp.getData().getOwnerId();
         // 步骤2：编程式事务（process 内部自调用不走代理，@Transactional 会失效，故用 TransactionTemplate）
         transactionTemplate.execute(tx -> {
             // 步骤3：追加 moderation_record（mod_type=3-本地图片模型；append-only 留痕，命中缓存也必追加）  ModerationRecord_审核记录表
@@ -303,6 +319,19 @@ public class ModerationImageService {
                     .setOperatorName("system")
                     .setCostMs((int) Math.min(result.costMs(), Integer.MAX_VALUE))
                     .setCreateTime(now));
+            // 【板块五 5-1.1 机审 REJECT 联动处罚】单图 verdict=REJECT 时在同一事务内落
+            // punish_log(action=3, operator_id=0, score=分值快照, status=1) + violation_score 累计，
+            // userId 按 file_meta 归属解析；5-1.2：阈值判定只重放 action∈{1,2}，action=3 仅落流水不计入；
+            // 事件发布由闸口 afterCommit 收口（发布失败→DLQ 兑底）
+            if (result.verdict() == VerdictEnum.REJECT
+                    && !MachineRejectPunishGate.recordRejectPunish(
+                    new MachineRejectPunishGate.RejectPunishContext(ownerId, ModerationConstant.BIZ_TYPE_IMAGE,
+                            fileMetaId, ReviewSceneEnum.IMAGE.getCode(), null, sha256, MACHINE_REJECT_SCORE,
+                            sanitizeReason(result.reason()), MDC.get(MqSendUtil.TRACE_ID_MDC_KEY)),
+                    machineRejectPunishAdapter, punishResultPublisher::publish)) {
+                // 落库失败：处罚记账静默丢失=违规者零分累计，宁严勿松——回滚整个审核事务（含留痕），延迟重试
+                throw new IllegalStateException("单图机审 REJECT 处罚记账落库失败，回滚审核事务，fileId=" + fileId);
+            }
             // 步骤4：注册事务提交后回调——写缓存 + 发 result 事件（事务成功提交后才执行，防脏缓存/脏事件）
                 //向当前线程的 Spring 事务注册一个“提交后回调”，当事前开启的事务成功提交后，才执行 afterCommit() 里的逻辑。
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -566,6 +595,40 @@ public class ModerationImageService {
                 log.info("复审任务状态 CAS 流转落空（已被并发处理），放弃本次结果，taskId={}", task.getId());
                 return null;
             }
+            // 【板块五 5-1.1 机审 REJECT 联动处罚】聚合判定=REJECT 时在同一事务内按文章归属落
+            // punish_log(action=3-内容下架, operator_id=0-系统, score=分值快照, status=1)
+            // + violation_score 原子累加；5-1.2 红线：阈值判定只重放 action∈{1,2} 的 status=1 生效行，
+            // action=3 仅落流水不计入（不改 last_punish_action/frozen_until，不影响登录态）；
+            // 事件发布由闸口 afterCommit 收口（发布失败→DLQ 兑底）
+            if (aggregate == VerdictEnum.REJECT) {
+                // 步骤4.2.1：回查文章归属（复用 ContentClient 文章契约，与文本侧归属解析口径一致）；
+                //           回查失败→业务性失败 ack 丢弃（对齐单图支线归属校验口径：逐图留痕随事务回滚，
+                //           DLQ 延迟重试按缓存+任务 CAS 幂等重放，无副作用）
+                Result<ContentDTO> ownerResp = contentClient.getContent(
+                        ModerationConstant.BIZ_TYPE_ARTICLE, task.getBizId());
+                if (ownerResp == null || !ownerResp.isSuccess() || ownerResp.getData() == null
+                        || ownerResp.getData().getOwnerId() == null) {
+                    log.error("复审聚合 REJECT 回查文章归属失败，确认丢弃，articleId={}，resp={}",
+                            event.getBizId(), ownerResp);
+                    throw new BizException(ErrorCode.NOT_FOUND);
+                }
+                if (!MachineRejectPunishGate.recordRejectPunish(
+                        new MachineRejectPunishGate.RejectPunishContext(ownerResp.getData().getOwnerId(),
+                                ModerationConstant.BIZ_TYPE_ARTICLE, task.getBizId(),
+                                ReviewSceneEnum.ARTICLE_IMG_RE_REVIEW.getCode(), task.getId(),
+                                event.getContentHash(), MACHINE_REJECT_SCORE,
+                                // reason 取聚合决胜的首个 REJECT 图判定理由（与聚合判定规则同源）
+                                sanitizeReason(perImageResults.stream()
+                                        .filter(r -> r.verdict() == VerdictEnum.REJECT)
+                                        .findFirst()
+                                        .map(ModerationResult::reason)
+                                        .orElse("")), MDC.get(MqSendUtil.TRACE_ID_MDC_KEY)),
+                        machineRejectPunishAdapter, punishResultPublisher::publish)) {
+                    // 落库失败：处罚记账静默丢失=违规者零分累计，宁严勿松——回滚整个复审事务（含逐图留痕/任务 CAS），延迟重试
+                    throw new IllegalStateException("配图复审聚合 REJECT 处罚记账落库失败，回滚复审事务，articleId="
+                            + event.getBizId());
+                }
+            }
             // 步骤4.3：注册事务提交后回调——回写各图终局缓存 + 发文章级聚合 result 事件（防脏缓存/脏事件）
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -689,5 +752,20 @@ public class ModerationImageService {
             return null;
         }
         return text.length() <= maxLength ? text : text.substring(0, maxLength);
+    }
+
+    /**
+     * reason 卫生处理（处罚 reason 口径，3-4.1 同款纪律）：剥离 \r\n（防 CRLF 伪造日志行）+ 截断 500，
+     * 与 ModerationResultPublisher.sanitizeReason 同口径
+     *
+     * @param reason 原始判定理由（模型不可信输出）
+     * @return 处理后的安全理由
+     */
+    private String sanitizeReason(String reason) {
+        if (reason == null || reason.isEmpty()) {
+            return reason;
+        }
+        String cleaned = reason.replace("\r", "").replace("\n", " ");
+        return cleaned.length() <= REASON_MAX_LENGTH ? cleaned : cleaned.substring(0, REASON_MAX_LENGTH);
     }
 }

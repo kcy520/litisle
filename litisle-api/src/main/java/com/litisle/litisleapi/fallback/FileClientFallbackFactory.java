@@ -94,6 +94,16 @@ public class FileClientFallbackFactory implements FallbackFactory<FileClient> {
             }
 
             /**
+             * 核心审核写操作 fail-fast：与 quarantine 对称（静默成功会致保留期收口假完成、
+             * 隔离图永久占存）；失败异常穿透到调用方（QuarantineSweeper）单条留痕下轮重试
+             */
+            @Override
+            public Result<Void> deleteQuarantined(String fileId) {
+                log.error("远程调用 file 模块 deleteQuarantined 失败！fileId = {}", fileId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "文件服务暂不可用，隔离图到期删除失败，请稍后重试", cause);
+            }
+
+            /**
              * 读操作静默降级：返回空 Map；调用方（review 复审聚合/申诉恢复）须将缺失的
              * fileId 视为未知态保守处理——不唤醒挂起的复审任务/保持占位（宁严勿松），
              * 严禁把「读不到」当「safe_flag=1 放行」

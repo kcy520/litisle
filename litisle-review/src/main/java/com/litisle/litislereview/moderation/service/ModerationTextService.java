@@ -15,6 +15,7 @@ import com.litisle.litisleapi.event.moderation.ModerationResultEvent;
 import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litisleapi.feign.SocialClient;
+import com.litisle.litisleapi.moderation.MachineRejectPunishGate;
 import com.litisle.litislereview.domain.entity.ModerationRecord;
 import com.litisle.litislereview.domain.entity.ReviewTask;
 import com.litisle.litislereview.enums.Layer2RiskEnum;
@@ -28,6 +29,7 @@ import com.litisle.litislereview.enums.VerdictEnum;
 import com.litisle.litislereview.mapper.ModerationRecordMapper;
 import com.litisle.litislereview.mapper.ReviewTaskMapper;
 import com.litisle.litislereview.moderation.ModerationModelQpsGuard;
+import com.litisle.litislereview.mq.publisher.PunishResultPublisher;
 import com.litisle.litislereview.moderation.cache.ModerationResultCache;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
 import com.litisle.litislereview.moderation.config.TextModerationAdapterProvider;
@@ -74,6 +76,12 @@ public class ModerationTextService {
     /** moderation_record.reason 列长度（落库前截断，防超长中断审核写入） */
     private static final int REASON_MAX_LENGTH = 500;
 
+    /**
+     * 机审 REJECT 联动处罚记入分值快照（5-1.1）：固定 0——机审 action=3 仅落流水、不参与登录态
+     * 阈值判定（PunishLog 实体注释口径）；后续运营若开放内容下架扣分，改此常量即可（分值快照随行固化）
+     */
+    private static final Integer MACHINE_REJECT_SCORE = 0;
+
     /** 审核任务表（定位 + CAS 状态流转） */
     private final ReviewTaskMapper reviewTaskMapper;
     /** 审核记录表（append-only 留痕，命中缓存也必追加） */
@@ -98,6 +106,10 @@ public class ModerationTextService {
     private final MqSendUtil mqSendUtil;
     /** 编程式事务模板（persistAndPublish 由 process 内部调用，自调用不走代理，@Transactional 会失效，故用编程式事务） */
     private final TransactionTemplate transactionTemplate;
+    /** 机审 REJECT 处罚落库适配器（5-1.1：punish_log 落行 + violation_score 原子累加，契约见 MachineRejectPunishGate.RejectPunishAdapter） */
+    private final MachineRejectPunishGate.RejectPunishAdapter machineRejectPunishAdapter;
+    /** 处罚结果事件发布器（5-2.1：punish.result 出口收口，闸口 eventSender 注入本组件方法引用） */
+    private final PunishResultPublisher punishResultPublisher;
 
     /**
      * 文本审核编排主入口（Consumer 委托）
@@ -139,8 +151,8 @@ public class ModerationTextService {
             return;
         }
 
-        // 步骤4：回查正文（标题+正文拼接；异常直接上抛不捕获，由 Consumer nack 入 DLQ 延迟重试）
-        String text = fetchText(event);
+        // 步骤4：回查正文（标题+正文拼接；标题违规语义须一并送审；同时取回归属人供 5-1 处罚上下文）
+        FetchedText fetched = fetchText(event);
 
         // 步骤5：解析版本依赖（词库版本按 DFA 场景归一映射取；few-shot 版本即文本 model_version）
         String sceneCode = task.getScene().getCode();
@@ -166,11 +178,11 @@ public class ModerationTextService {
             //        （原请求在途，经 DLQ 延迟重试，防并发穿透烧 N 倍模型费）
             tryLockInFlight(provider, event.getContentHash());
             // 步骤9：SPI 送审（分片+聚合，禁静默截断）
-            result = moderateWithChunking(text);
+            result = moderateWithChunking(fetched.text());
         }
 
         // 步骤10：三分态落库（同一本地事务）+ 事务提交后写缓存、发 result 事件
-        persistAndPublish(event, task, result, wordlibVer, cacheNote);
+        persistAndPublish(event, task, result, wordlibVer, cacheNote, fetched.ownerId());
     }
 
     /**
@@ -221,9 +233,9 @@ public class ModerationTextService {
      * （hash 错配会被消费端 ACK 丢弃，见 3-1.4）。
      *
      * @param event 送审事件（bizType/bizId 决定回查契约）
-     * @return 待审文本（标题+正文）
+     * @return 待审文本（标题+正文）+ 归属人（5-1 机审 REJECT 处罚上下文 userId 来源）
      */
-    private String fetchText(TextSubmitEvent event) {
+    private FetchedText fetchText(TextSubmitEvent event) {
         Integer bizType = event.getBizType();
         // 步骤1：bizType∈{1,2}→ContentClient 回查，标题+正文拼接送审（标题违规语义须一并送审）
         if (Objects.equals(bizType, ModerationBizTypeEnum.ARTICLE.getCode())
@@ -240,7 +252,8 @@ public class ModerationTextService {
             String title = StringUtils.hasText(dto.getTitle()) ? dto.getTitle() : "";
             String body = StringUtils.hasText(dto.getBody()) ? dto.getBody() : "";
             // 拼接分隔符收口 ModerationConstant.TEXT_SUBMIT_SEPARATOR（4-1.2 SSOT，与发布侧 SubmitTextAssembler 同口径）
-            return title.isEmpty() ? body : title + ModerationConstant.TEXT_SUBMIT_SEPARATOR + body;
+            String text = title.isEmpty() ? body : title + ModerationConstant.TEXT_SUBMIT_SEPARATOR + body;
+            return new FetchedText(text, dto.getOwnerId());
         }
         // 步骤2：bizType=5→MessageClient 回查私信正文
         if (Objects.equals(bizType, ModerationBizTypeEnum.MESSAGE.getCode())) {
@@ -249,7 +262,8 @@ public class ModerationTextService {
                 log.error("回查私信不存在，确认丢弃，bizId={}，resp={}", event.getBizId(), resp);
                 throw new BizException(ErrorCode.NOT_FOUND);
             }
-            return StringUtils.hasText(resp.getData().getContent()) ? resp.getData().getContent() : "";
+            return new FetchedText(StringUtils.hasText(resp.getData().getContent())
+                    ? resp.getData().getContent() : "", resp.getData().getSenderId());
         }
         // 其余 bizType（用户名不建任务、作家申请另链路）不在文本送审消费范围，脏消息 ack 丢弃
         log.error("文本送审事件 bizType 超出消费范围，确认丢弃，bizType={}，bizId={}", bizType, event.getBizId());
@@ -353,9 +367,10 @@ public class ModerationTextService {
      * @param task      已定位任务
      * @param result    聚合后判定
      * @param wordlibVer 当前词库版本（留痕 + 缓存 key）
+     * @param ownerId   归属人（回查 DTO 解析，5-1 机审 REJECT 处罚上下文 userId 来源）
      */
     private void persistAndPublish(TextSubmitEvent event, ReviewTask task, ModerationResult result,
-                                   long wordlibVer, String cacheNote) {
+                                   long wordlibVer, String cacheNote, Long ownerId) {
         LocalDateTime now = LocalDateTime.now();
         String fewShotVer = moderationProperties.getLlm().getFewShotVersion();
         // 三分态→任务状态流转映射：PASS→1-自动通过 / REJECT→4-驳回 / SUSPICIOUS→2-人工待审
@@ -409,6 +424,23 @@ public class ModerationTextService {
                     .setCostMs((int) Math.min(result.costMs(), Integer.MAX_VALUE))
                     .setCreateTime(now);
             moderationRecordMapper.insert(record);
+            // 【板块五 5-1.1 机审 REJECT 联动处罚】verdict=REJECT 时在同一本地事务内落
+            // punish_log(action=3-内容下架, operator_id=0-系统, score=分值快照, status=1)
+            // + violation_score 原子累加（userId 按回查 DTO 归属解析）；5-1.2 红线：阈值判定只重放
+            // action∈{1,2} 的 status=1 生效行，action=3 仅落流水不计入（不改 last_punish_action/
+            // frozen_until，不影响登录态）——误计入=机审误判在申诉裁决前触发真实封禁；
+            // 不落流水=零分累计重复违规。事件发布由闸口 afterCommit 收口（发布失败→DLQ 兑底）
+            if (result.verdict() == VerdictEnum.REJECT
+                    && !MachineRejectPunishGate.recordRejectPunish(
+                    new MachineRejectPunishGate.RejectPunishContext(ownerId, event.getBizType(),
+                            task.getBizId(), task.getScene().getCode(), task.getId(),
+                            event.getContentHash(), MACHINE_REJECT_SCORE,
+                            sanitizeReason(result.reason()), MDC.get(MqSendUtil.TRACE_ID_MDC_KEY)),
+                    machineRejectPunishAdapter, punishResultPublisher::publish)) {
+                // 落库失败：处罚记账静默丢失=违规者零分累计，宁严勿松——抛非预期异常回滚整个审核事务
+                // （含留痕/任务 CAS 同生共死），Consumer nack 入 DLQ 延迟重试
+                throw new IllegalStateException("机审 REJECT 处罚记账落库失败，回滚审核事务，taskId=" + task.getId());
+            }
             return record.getId();
         });
         // 并发已处理→直接返回（本次消息 ack，不重复发事件）
@@ -529,5 +561,27 @@ public class ModerationTextService {
             return null;
         }
         return text.length() <= maxLength ? text : text.substring(0, maxLength);
+    }
+
+    /**
+     * reason 卫生处理（处罚 reason 口径，3-4.1 同款纪律）：剥离 \r\n（防 CRLF 伪造日志行）+ 截断 500，
+     * 与 ModerationResultPublisher.sanitizeReason 同口径
+     *
+     * @param reason 原始判定理由（LLM 不可信输出）
+     * @return 处理后的安全理由
+     */
+    private String sanitizeReason(String reason) {
+        if (reason == null || reason.isEmpty()) {
+            return reason;
+        }
+        String cleaned = reason.replace("\r", "").replace("\n", " ");
+        return cleaned.length() <= REASON_MAX_LENGTH ? cleaned : cleaned.substring(0, REASON_MAX_LENGTH);
+    }
+
+    /**
+     * 文本回查结果（待审文本 + 归属人）：归属人供 5-1 机审 REJECT 处罚上下文组装
+     * （文章/评论取 ContentDTO.ownerId、私信取 MessageDTO.senderId）
+     */
+    private record FetchedText(String text, Long ownerId) {
     }
 }

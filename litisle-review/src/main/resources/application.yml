@@ -131,7 +131,13 @@ litisle:
     quarantine:
       retention-days: 10
     record:
+      # 归档任务二期启用开关（ModerationRecordArchiveSweeper 占位类注册闸，显式置 true 才激活；retention-months 见 §4.4.1 合规下限）
+      archive-enabled: false
       retention-months: 6
+      # 归档单轮批量上限（最老优先按 id 区间推进，防单轮长事务）
+      batch-limit: 500
+      # 归档互斥锁时长（秒），天级 04:00 调度（archive-cron 默认 0 0 4 * * ?，与 quarantine 清扫 03:00 错峰）
+      lock-seconds: 300
     sweeper:
       interval-seconds: 60
       stuck-resubmit-minutes: 30
@@ -153,6 +159,12 @@ litisle:
       model-version: v1
     dedup:
       lock-seconds: 60
+    reconcile:
+      # 处罚双向对账 sweeper（5-3.2）：cron 由 @Scheduled 占位符直读（默认 0 */10 * * * ? 每 10 分钟一轮）
+      cron: 0 */10 * * * ?
+      revoke-lookback-days: 7
+      batch-limit: 500
+      lock-seconds: 300
     alert:
       suspicious-backlog-threshold: 50
       dlq-backlog-threshold: 100

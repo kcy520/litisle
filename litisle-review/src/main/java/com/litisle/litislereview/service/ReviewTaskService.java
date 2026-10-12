@@ -38,6 +38,12 @@ public interface ReviewTaskService {
      * 裁决任务：终态 CAS（where status=2）置 {3,4} + decided_by/opinion/decide_time，天然拦截重复 decide；
      * REJECT 联动：内容下架事件 + punish_log 落行 + violation_score 原子累加 + 举报回写 status=3；
      * 高风险裁决（人审直接封禁）需 confirm=true + 双签留痕（moderation_record mod_type=6）
+     *
+     * <p>【板块五 5-2.1 挂点（实现挂起）】处罚落行成功后同事务发 punish.result 事件
+     * （组装/发布口径见 MachineRejectPunishGate 类注【5-2.1 发布端收口】，复用同一口径禁另起分支）：
+     * REJECT→punish_log(action=3, operator_id=审核员) + 事件(action=3, op=1)；
+     * 人审直接封禁→punish_log(action=2) + 事件(action=2, op=1, frozenUntil=null 永久)，
+     * auth 消费端据此 kickout 强制下线全会话（5-2.3 封禁即时生效）。</p>
      */
     void decideTask(Long taskId, TaskDecideDTO dto, Long reviewerId);
 }

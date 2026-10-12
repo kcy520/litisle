@@ -47,6 +47,78 @@ public class ModerationProperties {
     /** 消费端指数退避重试参数（故障降级 §4.2.4 3-8.1，外置 yml/Nacos 运营可调） */
     private Retry retry = new Retry();
 
+    /** 处罚双向对账 sweeper 配置（5-3.2，cron 由 @Scheduled 占位符直读不入本类） */
+    private Reconcile reconcile = new Reconcile();
+
+    /** 审核任务清扫 sweeper 配置（6-1，间隔 interval-seconds 由 @Scheduled 占位符直读不入本类） */
+    private Sweeper sweeper = new Sweeper();
+
+    /** 违规图隔离保留期配置（6-3，sweep-cron 由 @Scheduled 占位符直读不入本类） */
+    private Quarantine quarantine = new Quarantine();
+
+    /** moderation_record 归档配置（6-4，§4.4.1 归档占位：归档任务二期落地，本期仅绑定配置与设计契约） */
+    private Record record = new Record();
+
+    @Data
+    public static class Quarantine {
+
+        /** 违规图隔离保留期（天）：隔离图超期后由 QuarantineSweeper 委派 file 侧物理删除（6-3.1）；
+         * 申诉豁免顺延不受本阈值限制 */
+        private int retentionDays = 30;
+
+        /** 单轮候选上限：超期 REJECT 留痕行扫描限批（防全量扫描打满 DB，下轮兑剩余） */
+        private int batchLimit = 100;
+
+        /** 删除限速（次/分钟）：批内按 sleep 均摊控速，防批量物理删除打满 SeaweedFS（6-3.3） */
+        private int deleteRatePerMinute = 30;
+
+        /** 多实例互斥锁时长（秒）：SETNX 锁 TTL，天级单轮执行远小于该值，锁过期自动放行下轮 */
+        private int lockSeconds = 300;
+    }
+
+    @Data
+    public static class Record {
+
+        /** 留痕热表保留期（月）：《网络安全法》日志留存 ≥6 月合规下限；超期记录由二期归档任务
+         *  按 id 区间幂等迁移只读历史存储后删热表行——删前跳过被 appeal.status=0（待裁决申诉）
+         *  或 punish_log.status=1（生效处罚）引用的记录；归档存储应用账号仅授 INSERT/SELECT */
+        private int retentionMonths = 6;
+
+        /** 归档任务启用开关（二期）：默认关闭，占位类 ModerationRecordArchiveSweeper 仅在
+         *  显式置 true 时注册（防一期未实现时被调度空跑） */
+        private boolean archiveEnabled = false;
+
+        /** 归档单轮批量上限：最老优先按 id 区间推进，限批防单轮长事务拖垮调度线程与主链路 */
+        private int batchLimit = 500;
+
+        /** 归档互斥锁时长（秒）：SETNX 锁 TTL，天级单轮执行远小于该值，锁过期自动放行下轮 */
+        private int lockSeconds = 300;
+    }
+
+    @Data
+    public static class Sweeper {
+
+        /** 认领超时阈值（分钟）：status=2 且 claim_time 早于该阈值 → 回池置回待审（6-1.1） */
+        private int claimTimeoutMinutes = 30;
+
+        /** 申诉裁决超时阈值（天）：status=0 待裁决超时 → 自动维持原判（6-1.2，宁严勿松防态悬空） */
+        private int appealTimeoutDays = 7;
+
+        /** 待审超时补偿重发阈值（分钟）：status=0 早于该阈值 → 重投 submit 事件（6-2）；
+         * 必须大于 MQ 消费端最大退避总时长（retry.max-count 次指数退避累加），防与消费端正常延迟重试双发竞争
+         * （双投由 3-1 步骤4 CAS where status=0 去重兑底，此处阈值仅降无谓冲突） */
+        private int stuckResubmitMinutes = 30;
+
+        /** 补偿重发分频轮数：每 N 轮 sweep 执行一次（interval-seconds×N 为实际周期，降扫描开销） */
+        private int stuckResubmitEveryRounds = 30;
+
+        /** 单轮批量上限：回池/维持扫描均限批（防全量扫描打满 DB，下轮兑剩余） */
+        private int batchLimit = 100;
+
+        /** 多实例互斥锁时长（秒）：SETNX 锁 TTL，需大于单轮最长执行时间 */
+        private int lockSeconds = 30;
+    }
+
     @Data
     public static class Image {
 
@@ -135,5 +207,18 @@ public class ModerationProperties {
 
         /** 指数退避基数（毫秒）：第 n 次重试延迟 = baseDelayMs × 2^(n-1)，默认 30s→60s→120s→240s→480s */
         private long baseDelayMs = 30000;
+    }
+
+    @Data
+    public static class Reconcile {
+
+        /** 反向补解封撤销行回扫窗口（天）：仅扫近期撤销行防全表膨胀，窗口外残留快照靠自身 TTL 自愈 */
+        private int revokeLookbackDays = 7;
+
+        /** 单轮每方向最大扫描行数：防 punish_log 流水膨胀后单轮拖垮调度线程 */
+        private int batchLimit = 500;
+
+        /** 对账互斥锁 TTL（秒）：防多实例同轮重复扫描；需 ≥ 单轮最长执行时长，锁过期自动放行下轮 */
+        private long lockSeconds = 300;
     }
 }

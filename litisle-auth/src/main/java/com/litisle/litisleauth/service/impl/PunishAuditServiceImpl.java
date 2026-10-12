@@ -5,6 +5,7 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.moderation.PunishAuditDTO;
+import com.litisle.litisleapi.dto.moderation.PunishSpeakCheckDTO;
 import com.litisle.litisleapi.dto.moderation.PunishStatusDTO;
 import com.litisle.litisleapi.feign.ReviewClient;
 import com.litisle.litisleauth.constant.AuthCacheKey;
@@ -14,6 +15,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
 
 /**
  * 处罚对账审计服务实现（B5，5-3.2）
@@ -98,6 +101,35 @@ public class PunishAuditServiceImpl implements PunishAuditService {
         punishSnapshotService.overwriteFromAuthority(result.getData());
         log.info("反向补解封快照刷新完成: userId={}, banned={}, muted={}",
                 userId, result.getData().getBanned(), result.getData().getMuted());
+    }
+
+    /**
+     * 发布链路禁言态校验（5-2.4）：发言准入判定唯一收口点
+     *
+     * <p>决策口径：banned=true 一票拒；muted=true 且（frozenUntil==null 永久禁言 ∥ frozenUntil>now 未到期）拒；
+     * 其余放行。快照读故障的兑底口径（降级全空快照）由 PunishSnapshotService 收口，本方法不做二次兑底；
+     * 快照 TTL 窗口内（默认 300s）撤销延迟由 5-3.2 反向对账 + 快照覆盖式语义收敛</p>
+     */
+    @Override
+    public PunishSpeakCheckDTO checkSpeak(Long userId) {
+        // 步骤0：参数闸门 fail-fast——校验必须定位到具体用户
+        if (userId == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR);
+        }
+        // 步骤1：读本地快照（无记录=全空快照=允许发言，不返回 null）
+        PunishStatusDTO snapshot = punishSnapshotService.getSnapshot(userId);
+        // 步骤2：发言准入判定（封禁一票拒；禁言未到期/永久拒）
+        boolean banned = Boolean.TRUE.equals(snapshot.getBanned());
+        boolean mutedActive = Boolean.TRUE.equals(snapshot.getMuted())
+                && (snapshot.getFrozenUntil() == null
+                    || snapshot.getFrozenUntil().isAfter(LocalDateTime.now()));
+        // 步骤3：组装校验载荷（决策结果 + 细分态透传供调用方定制文案，调用方禁二次判定准入）
+        PunishSpeakCheckDTO dto = new PunishSpeakCheckDTO();
+        dto.setSpeakAllowed(!banned && !mutedActive);
+        dto.setBanned(snapshot.getBanned());
+        dto.setMuted(snapshot.getMuted());
+        dto.setFrozenUntil(snapshot.getFrozenUntil());
+        return dto;
     }
 
     /**

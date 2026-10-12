@@ -82,6 +82,17 @@ spring:
           predicates:
             - Path=/api/shop/**
 
+        # ---------- 审核服务内部契约拦截（安全项，5-2.4） ----------
+        # /api/review/punish/status 为服务间内部契约端点（处罚权威态回查），
+        # 公网登录用户直查可探测任意用户处罚态（信息泄露面），显式拦截返回 404 不暴露端点存在性；
+        # 置于 litisle-review 前缀路由之前确保优先命中
+        - id: block-review-punish-status
+          uri: no://op
+          predicates:
+            - Path=/api/review/punish/status
+          filters:
+            - SetStatus=404
+
         # ---------- 审核服务 ----------
         - id: litisle-review
           uri: lb://litisle-review

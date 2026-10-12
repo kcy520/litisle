@@ -4,6 +4,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.config.FeignApiConfig;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
 import com.litisle.litisleapi.dto.moderation.PunishAuditDTO;
+import com.litisle.litisleapi.dto.moderation.PunishSpeakCheckDTO;
 import com.litisle.litisleapi.fallback.AuthClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -81,5 +82,21 @@ public interface AuthClient {
      */
     @PostMapping("/api/feign/auth/punish-audit/{userId}/refresh-snapshot")
     Result<Void> refreshPunishSnapshot(@PathVariable("userId") Long userId);
+
+    /**
+     * 发布链路禁言态校验（5-2.4）
+     *
+     * <p>【使用场景】content/social（私信）发布前校验：封禁或禁言生效中（含永久禁言）
+     * 返回 speakAllowed=false，调用方拦截发言并按细分态定制提示；准入判定口径收口 auth 侧
+     * （banned ∥ muted&&(frozenUntil==null 永久 ∥ frozenUntil>now 未到期)），防各调用方自行判定漂移</p>
+     *
+     * <p>【安全纪律】内部契约端点：网关不配置路由；降级工厂 fail-fast 禁静默放行
+     * （校验失败静默放行=漏禁风险，宁严勿松）</p>
+     *
+     * @param userId 发言用户 ID
+     * @return 校验结果（非 null）
+     */
+    @GetMapping("/api/feign/auth/punish/speak-check/{userId}")
+    Result<PunishSpeakCheckDTO> checkSpeak(@PathVariable("userId") Long userId);
 
 }

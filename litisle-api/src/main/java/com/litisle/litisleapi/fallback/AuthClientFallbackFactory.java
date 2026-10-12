@@ -5,6 +5,7 @@ import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
 import com.litisle.litisleapi.dto.moderation.PunishAuditDTO;
+import com.litisle.litisleapi.dto.moderation.PunishSpeakCheckDTO;
 import com.litisle.litisleapi.feign.AuthClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
@@ -51,6 +52,13 @@ public class AuthClientFallbackFactory implements FallbackFactory<AuthClient> {
                 // 反向补解封为安全关键写操作（漏补解封=误禁持续），禁止降级：fail-fast 上抛
                 log.error("远程调用 auth 模块反向补解封失败！补漏写操作禁止降级，userId={}", userId, cause);
                 throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "补解封服务暂不可用，请稍后重试", cause);
+            }
+
+            @Override
+            public Result<PunishSpeakCheckDTO> checkSpeak(Long userId) {
+                // 发布链路拦截校验禁降级：静默放行=漏禁风险（被禁用户照常发言），fail-fast 上抛
+                log.error("远程调用 auth 模块发布链路禁言态校验失败！拦截校验禁降级，userId={}", userId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "发言校验服务暂不可用，请稍后重试", cause);
             }
         };
     }

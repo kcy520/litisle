@@ -757,6 +757,39 @@ index `idx_create` (`create_time`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '审核记录表（append-only 不可改不可删：《网络安全法》留痕硬凭证留存≥6个月，到期归档任务迁移历史存储，改判/申诉均追加新行）';
 ​ 
+
+
+# 1.1 审核记录归档表（6-4 §4.4.1：热表到期迁移只读历史存储——同库独立表承接，列口径与 moderation_record 逐列对齐；
+# 唯一写入入口 = ModerationRecordArchiveSweeper 原子迁档事务：迁档+删热行同事务，原子性天然兑底无半途态）
+# ⚠️ DBA 权限纪律：应用账号对本表仅授 INSERT/SELECT（无 UPDATE/DELETE），防误改误删历史凭证
+create table if not exists `moderation_record_archive`
+(
+`id`                bigint unsigned not null primary key comment '记录ID（原 moderation_record.id 原样保留，审计链路不断；禁 auto_increment，防重发新 id 破坏按 id 幂等迁档）',
+`mod_type`          tinyint         not null comment '审核方式：1-关键词DFA 2-LLM语义 3-本地图片模型 4-云API 5-人工复审 6-申诉改判（同 moderation_record.mod_type）',
+`biz_type`          tinyint         not null comment '业务类型：1-文章 2-评论 3-用户名 4-作家申请 5-私信 6-文件/图片（同 moderation_record.biz_type）',
+`biz_id`            bigint unsigned not null comment '业务ID（同 moderation_record.biz_id）',
+`review_task_id`    bigint unsigned null comment '关联审核任务ID（同 moderation_record.review_task_id）',
+`scene`             varchar(32)     null comment '审核场景（同 moderation_record.scene）',
+`content_hash`      char(64)        not null comment '内容指纹SHA256（同 moderation_record.content_hash）',
+`provider`          varchar(32)     null comment '审核提供方（同 moderation_record.provider）',
+`wordlib_ver`       bigint          null comment '词库版本快照（同 moderation_record.wordlib_ver）',
+`model_version`     varchar(32)     null comment '判定口径版本快照（同 moderation_record.model_version）',
+`verdict`           tinyint         not null comment '判定：1-PASS 2-REJECT 3-SUSPICIOUS（同 moderation_record.verdict）',
+`category`          varchar(32)     null comment '违规类目（同 moderation_record.category）',
+`hit_words`         text            null comment 'DFA 命中词快照（同 moderation_record.hit_words）',
+`reason`            varchar(500)    null comment '判定理由（同 moderation_record.reason）',
+`provider_trace_id` varchar(128)    null comment '审核凭证ID（同 moderation_record.provider_trace_id）',
+`trace_id`          varchar(64)     null comment '链路追踪ID（同 moderation_record.trace_id）',
+`operator_id`       bigint unsigned not null default 0 comment '操作人（同 moderation_record.operator_id）',
+`operator_name`     varchar(32)     not null default 'system' comment '操作人名称（同 moderation_record.operator_name）',
+`cost_ms`           int             null comment '审核耗时（同 moderation_record.cost_ms）',
+`create_time`       datetime        not null default current_timestamp comment '记录时间（=原热表记录时间，合规留存期以此为准）',
+index `idx_biz` (`biz_type`, `biz_id`),
+index `idx_create` (`create_time`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '审核记录归档表（只读历史存储：仅 INSERT/SELECT；《网络安全法》≥6个月合规留存收口于此，热表删除不影响审计凭证可查）';
+
+
 # 2. 举报表
 create table if not exists `report`
 (

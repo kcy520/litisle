@@ -4,6 +4,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.commonsecurity.desensitize.SensitiveStrategy;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
 import com.litisle.litisleapi.dto.moderation.PunishAuditDTO;
+import com.litisle.litisleapi.dto.moderation.PunishSpeakCheckDTO;
 import com.litisle.litisleapi.feign.AuthClient;
 import com.litisle.litisleauth.enums.EmailCodeUsage;
 import com.litisle.litisleauth.service.AuthService;
@@ -72,6 +73,18 @@ public class AuthFeignProviderController implements AuthClient {
         //刷新快照
         punishAuditService.refreshPunishSnapshot(userId);
         return Result.success();
+    }
+
+    /**
+     * 发布链路禁言态校验
+     * @param userId 发言用户 ID
+     * @return
+     */
+    @Override
+    public Result<PunishSpeakCheckDTO> checkSpeak(Long userId) {
+        // 5-2.4 发布链路拦截校验：决策收口 PunishAuditService.checkSpeak，调用方禁二次判定
+        log.info("Feign 发布链路禁言态校验: userId={}", userId);
+        return Result.success(punishAuditService.checkSpeak(userId));
     }
 
 }

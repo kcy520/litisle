@@ -90,6 +90,17 @@ public interface FileClient {
     Result<Void> unquarantine(@PathVariable("fileId") String fileId);
 
     /**
+     * 隔离图到期删除（6-3.2 review 侧 QuarantineSweeper 保留期收口时调用）：
+     * path 前缀校验（必须已在 quarantine/ 前缀，防误删正常文件）→ 删本体+缩略图
+     * （SeaweedFS 回收站兜底 7 天）→ del_flag=1 业务软删
+     * <p>核心审核写操作，降级 fail-fast（静默成功会致保留期收口假完成、隔离图永久占存）</p>
+     *
+     * @param fileId 文件ID
+     */
+    @PostMapping("/api/feign/file/{fileId}/delete-quarantined")
+    Result<Void> deleteQuarantined(@PathVariable("fileId") String fileId);
+
+    /**
      * 批量读取 safe_flag（review 复审聚合/申诉恢复用，禁止跨库直查 file_meta）
      * <p>value 为 safe_flag code（0-违规/1-正常/2-待审/3-存疑，SSOT 为 file 侧 SafeFlagEnum，
      * 契约库不反向依赖 file 模块故传 int）；仅返回活跃记录（del_flag=0），

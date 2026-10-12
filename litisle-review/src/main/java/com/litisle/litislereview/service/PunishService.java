@@ -10,6 +10,16 @@ import java.util.List;
  * 落地顺序建议：listMyPunish / getActivePunishes（PunishLog status=1）
  *
  * 【注入计划】实现时注入 PunishLogMapper；未来违规分重算/累加联动扩入本服务
+ *
+ * 【板块五 5-1】机审 REJECT 联动处罚经 litisle-api MachineRejectPunishGate 适配收口（实现挂起）：
+ * 同事务落 punish_log(action=3, operator_id=0) + violation_score 累计；
+ * 禁言/封禁阈值判定只重放 action∈{1,2} 的 status=1 生效行，action=3 仅落流水不计入
+ *
+ * 【板块五 5-2.1】punish.result 发布端收口计划（实现挂起）：发布编排统一收口在
+ * MachineRejectPunishGate 步骤4 + 人审 decideTask 联动（复用同一口径禁另起分支），
+ * 本服务不直接发 MQ；事件体 PunishResultEvent 已随 auth B 组落地备齐
+ * （userId/action/op/punishLogId/frozenUntil/traceId，punishLogId 禁作版本门控）；
+ * auth 侧消费端 B1-B5 已落地，user 侧 5-2.2 消费待 user 模块随发布链路禁言态拦截一并落地（5-2.4）
  */
 public interface PunishService {
 

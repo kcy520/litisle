@@ -13,6 +13,7 @@ import java.util.Map;
  *
  * void quarantine(String fileId)      // 违规图隔离（moderation 侧 REJECT 时经 Feign 调用）
  * void unquarantine(String fileId)    // 隔离恢复（申诉改判 PASS 时经 Feign 调用）
+ * void deleteQuarantined(String fileId) // 隔离图到期删除（review 侧 QuarantineSweeper 保留期收口经 Feign 委派）
  * void updateSafeFlag(String fileId, SafeFlagEnum safeFlag) // 审核结果回写 safe_flag
  * Map<String, Integer> batchGetSafeFlags(List<String> fileIds) // 批量读取 safe_flag
  * FileContentDTO getInternalContent(String fileId) // 机审取图（字节流，SSRF 防护唯一入口）
@@ -31,6 +32,14 @@ public interface FileModerationService {
      * 对象从 quarantine/ 前缀移回原前缀，safe_flag 回 1；幂等（不在隔离前缀则跳过）
      */
     void unquarantine(String fileId);
+
+    /**
+     * 隔离图到期删除（6-3.2，review 侧 QuarantineSweeper 保留期收口经 Feign 委派）：
+     * 前缀校验（必须已在 quarantine/ 前缀，防误删正常文件）→ 删本体 + 缩略图
+     * （SeaweedFS 回收站兑底 7 天）→ 软删 del_flag=1 退出活跃池/秒传判重池；
+     * 幂等（记录不存在/已软删直接跳过，重复指令与重扫安全）
+     */
+    void deleteQuarantined(String fileId);
 
     /**
      * 审核结果回写 safe_flag（仅元数据更新，不移动对象）

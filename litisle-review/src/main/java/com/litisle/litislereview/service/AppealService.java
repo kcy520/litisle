@@ -24,6 +24,9 @@ public interface AppealService {
      * 裁决申诉：仅 ADMIN（REVIEWER 不可自裁）+ 原驳回裁决人回避 + 改判撤销高风险需 confirm=true 双签；
      * 维持 → 置 status=1；撤销 → 置 status=2 + punish_log 撤销/violation_score 重算/
      * 同内容活跃举报批量回写 status=3（按 target_type+target_id，非仅 appeal.report_id）
+     * + 缓存同步失效（text-result/img-result/last-hash key 删除 + 黑名单移除 sha256，5-4.5）；
+     * 两分支事务提交后均发 appeal.result（reviewTaskId 作 notification 幂等键，5-4.3；
+     * 5-4.4 下游恢复由 file/content/message 消费侧执行，content/message 随对应模块开发回接）
      */
     void judgeAppeal(Long appealId, AppealDecideDTO dto, Long judgeId);
 }
