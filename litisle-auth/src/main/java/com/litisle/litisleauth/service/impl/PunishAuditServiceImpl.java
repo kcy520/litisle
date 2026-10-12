@@ -51,7 +51,7 @@ public class PunishAuditServiceImpl implements PunishAuditService {
         }
         // 步骤1：活跃会话判定——Sa-Token 登录态（主判定）与设备索引 Set（兑底）任一为真
         boolean hasActiveSession = isSessionActive(userId);
-        // 步骤2：读本地禁言快照（getSnapshot 不返回 null，无记录为全空快照）
+        // 步骤2：从redis读本地禁言快照（getSnapshot 不返回 null，无记录为全空快照）
         PunishStatusDTO snapshot = punishSnapshotService.getSnapshot(userId);
         // 步骤3：组装审计载荷（仅布尔态与时间，无 UGC）
         PunishAuditDTO dto = new PunishAuditDTO();
@@ -67,6 +67,10 @@ public class PunishAuditServiceImpl implements PunishAuditService {
 
     /**
      * 反向补解封：回查 review 权威态并覆盖本地快照（SSOT 收口，禁止 sweeper 直写快照）
+     *
+     * 以 review 服务为 SSOT（唯一可信源），回查权威处罚状态，然后覆盖写入本地 Redis 快照。
+     *  本质就是"用远端权威态纠正/同步本地缓存"。   即刷新快照
+     *
      * <p>回查失败/业务失败向上抛 IllegalStateException——sweeper 侧记 warn 跳过本用户，
      * 下轮 6-1 调度重试；覆盖动作与 B1 消费端完全同构（幂等，重复执行无害）</p>
      */
@@ -90,6 +94,7 @@ public class PunishAuditServiceImpl implements PunishAuditService {
                     + userId + "，msg=" + (result == null ? "null" : result.getMessage()));
         }
         // 步骤3：覆盖式写入（撤销=全空快照覆盖=同步解封，与 B1 消费端同构幂等）
+            //把审核服务回查到的权威处罚状态（banned/muted），序列化成 JSON 后直接 SET 覆盖写入 Redis——作为 auth 侧本地缓存
         punishSnapshotService.overwriteFromAuthority(result.getData());
         log.info("反向补解封快照刷新完成: userId={}, banned={}, muted={}",
                 userId, result.getData().getBanned(), result.getData().getMuted());

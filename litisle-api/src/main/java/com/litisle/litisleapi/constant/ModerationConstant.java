@@ -129,6 +129,8 @@ public class ModerationConstant {
      * 热更后旧 key 无法枚举清理，等 TTL 自然过期即可（无需扫描清理）；
      * 图片连带校验复用本 key（bizType=1、scene=ARTICLE_IMG_RE_REVIEW，4-3.4）；
      * TTL 外置 litisle.moderation.last-hash.ttl-hours（与 cache.ttl-hours 对齐 + ±10% 抖动，7-4.1 收尾落地）
+     *
+     * review:last-hash:{#wordlibVer}:{#bizType}:{#scene}:{#bizId}
      */
     public static final String LAST_HASH_KEY = "review:last-hash:%s:%s:%s:%s";
 

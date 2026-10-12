@@ -75,6 +75,9 @@ public final class ContentUnpublishedInvalidator {
         }
         List<String> keys = new ArrayList<>(2 + (imgResultKeys == null ? 0 : imgResultKeys.size()));
         // 步骤1：last-hash 键——防免审判定命中旧 PASS/REJECT 结论（与 LastHashStore 同 SSOT 常量，禁各自拼串）
+            //LAST_HASH_KEY:
+            // 这篇内容上次审核的文本指纹和结论
+            //review:last-hash:{#wordlibVer}:{#bizType}:{#scene}:{#bizId}
         keys.add(String.format(ModerationConstant.LAST_HASH_KEY, wordlibVer, bizType, scene, bizId));
         // 步骤2：text-result 键——防同 hash 重发命中旧机审 PASS 直落；null=从未送审无结果缓存
         if (contentHash != null && !contentHash.isEmpty()) {

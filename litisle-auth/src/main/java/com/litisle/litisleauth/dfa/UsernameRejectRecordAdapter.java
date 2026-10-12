@@ -11,6 +11,9 @@ import org.springframework.stereotype.Component;
 /**
  * 用户名拒绝取证落库适配器（auth 无 DB，经 ReviewClient 跨服务由 review 侧落库）
  *
+ * 当用户名被 DFA 敏感词命中拒绝注册时，把"为什么拒绝"的证据（指纹+命中词+词库版本）异步落库到 review 服务的 moderation_record 表，
+ * 供审计追溯——但取证失败绝不阻断注册拒绝本身。
+ *
  * <p>【列口径收口】落库列口径（mod_type=1-DFA、biz_type=3-用户名、biz_id=0 占位、
  * scene=USERNAME、verdict=2-REJECT 等）由契约 UsernameRejectGate.RecordAdapter 声明，
  * review 提供方按口径写入；本类只负责载荷组装与失败降级</p>

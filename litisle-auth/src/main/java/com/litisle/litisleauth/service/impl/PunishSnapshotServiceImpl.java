@@ -50,6 +50,12 @@ public class PunishSnapshotServiceImpl implements PunishSnapshotService {
     /**
      * 覆盖式写入快照（B1 步骤3）：以回查权威态覆盖本地，撤销=全空快照覆盖=同步解封
      *
+     * 把审核服务回查到的权威处罚状态（banned/muted），序列化成 JSON 后直接 SET 覆盖写入 Redis——作为 auth 侧本地缓存，
+     * 供登录/发消息等高频场景秒级判断，撤销时靠"全空快照覆盖"实现同步解封。
+     *
+     * 这个 Redis 快照不是“登录时才查”的临时数据，而是 auth 模块的本地安全状态缓存：
+     * 登录时查、发消息时查(比如评论，需要查询是否禁言)、敏感操作时查；写由 MQ 消费端覆盖更新，读是高频、写是事件驱动。
+     *
      * <p>Redis 写入失败向上抛非预期异常：消费端转重试/DLQ（漏写快照=漏封风险，禁静默吞错）</p>
      */
     @Override
@@ -77,8 +83,9 @@ public class PunishSnapshotServiceImpl implements PunishSnapshotService {
         }
     }
 
+
     /**
-     * 读快照（供发布链路拦截/会话校验兑底读取；Redis 直读，本地缓存待发布拦截接入后按需引入）
+     * 从redis读快照（供发布链路拦截/会话校验兑底读取；Redis 直读，本地缓存待发布拦截接入后按需引入）
      *
      * @return 当前快照；无记录/读取失败返回全空快照（不返回 null，避免调用方空指针分支）
      */

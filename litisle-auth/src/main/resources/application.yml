@@ -139,6 +139,18 @@ litisle:
     # Refresh Token 有效期（秒），默认 7 天（604800 秒）
     refresh-token-expire: 604800
 
+  # ===== 审核处罚消费配置（PunishResultConsumer 重试参数，B1 5-2.2）=====
+  # 注：当前代码取值已带同值默认，此处显式声明便于运营调整不重建包
+  moderation:
+    punish:
+      retry:
+        # 延迟重试上限（耗尽 nack 入 DLQ，由 5-3.2 双向对账 sweeper 兑底）
+        max-count: 5
+        # 指数退避基数毫秒：baseDelayMs × 2^n（默认 30s → 30s/60s/120s/240s/480s）
+        base-delay-ms: 30000
+        # 快照 TTL（秒，外置可调，默认 300；写入时 ±10% 抖动防雪崩）
+        snapshot-ttl-seconds: 300
+
 # ================================
 # 安全加密配置（common-security）
 # ================================

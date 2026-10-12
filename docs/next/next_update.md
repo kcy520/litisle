@@ -1,38 +1,9 @@
 ## 暂不实现（注释中已声明的预留项）
 
-- [x] safe\_flag 审核链路（MQ 异步消费 + getUrl 闸口校验）——2026-10-02 接入完成，见待办第三节
-- [ ] CDN 接入——public-url-base 已分离，届时仅改配置
 - [ ] common-redis 库模块不引 Sentinel（保持轻量，仍用自研 LocalRateLimiter）——**业务模块已引 Sentinel**（Nacos 数据源规则已落地）；触发条件与落位见归档文档 archive/20260929-implementation-records.md §一·五（库模块当前不动）
-- [ ] review 侧隔离保留期清理任务（quarantine sweeper）——设计口径已定稿并入审核文档
-  （Review-Architecture-Development-Plan.md §4.2.2「quarantine 清理任务」段）：扫描超期 REJECT 图 →
-  按图反查 appeal（status=0 待裁决顺延）→ FileClient.deleteQuarantined 经 file 侧前缀校验后物理删除
-  （review 无存储写凭证）。触发条件：review 侧开始搭建 sweeper 定时任务基建（认领超时回池/申诉超时维持）
-  时一并落地；此前违规图滞留隔离前缀不影响安全性（safe\_flag=0 闸口 default-deny 不放行），仅占存储空间。
-- [ ] litisle-ai 侧 chat 端点（POST /api/feign/ai/chat，OpenAI 兼容转发）——契约层已就绪
-  （AiClient + AiChatRequestDTO/AiChatResponseDTO + AiClientFallbackFactory fail-fast + 自动装配注册，
-  2026-10-06）；本端点暂不实现（用户决策：LLM 审核留注释占位，AiClient Javadoc 已标 TODO）。
-  base-url/api-key/model 走 Nacos 外置，禁提交密钥；超时对齐 feign.client.config.litisle-ai.read-timeout。
-  触发条件：板块三 ModerationTextConsumer 联调前，或 AI 侧 RAG 建设启动时一并落地。
-- [ ] 审核模块——板块三 3-5 业务方回写矩阵消费端（content / social）（§4.5.2）——2026-10-10 自板块三实施细案移入本节（触发条件：litisle-content / litisle-social 正式开发时随实体层落地；当前 content 为空壳、social 未开发；私信归属 social，无独立 message 模块）
-  **落位**：litisle-content 与 litisle-social 的 mq consumer 包（各自订阅对应 result 队列）。
+- [ ] 审核模块——板块三 3-5 业务方回写矩阵消费端（content / social）（§4.5.2）（⏸ 已移入 `Temporarily_not_implemented.md`（2026-10-11），含完整步骤与 message→social 口径修正）
 
-  **步骤（content 侧）**：
-  1. 消费 moderation.text.result / moderation.image.result，按 bizType 分发：1→article.status、2→comment.status；CAS 条件更新重放无副作用。
-  2. **文章双链路联合聚合**：放行(1→2)条件=文本 PASS 且（无配图 或 图片复审 result=PASS）；任一 REJECT→整文驳回。实现：两路 result 到达时先落本地聚合态（Redis 短暂暂存或回查 review_task 两行现态），聚合判定后再 CAS article。
-  3. REJECT 分流：首发驳回 1→3；已发布被复审下架 2→4（配套 punish_log action=3 由 review 侧 5-1 落）。
-  4. **评论 CAS**：PASS 0→1 / REJECT 0→2，条件 `where id=? and status=0 and del_flag=0`；**禁 2→1**（改判只认申诉来源，见 5-4）。
-  5. **空/纯图边界**：正文去 HTML 标签后可见文本为空且含配图→文本链路 trivially PASS（仅看图片复审）；正文与配图同时为空→拒。
-  6. 所有 CAS 补 del_flag=0（用户复审期间自删内容防误改）；CAS affected=0 静默丢弃 ACK 不重试（并发/已删是正常终局）。
-
-  **步骤（social 侧）**：
-  7. 消费 moderation.message.result（私信业务域路由键，消费端为 social）：REJECT/SUSPICIOUS→CAS `update message set status=2 where id=? and status=1`（风控拦截不可见）；人审 PASS→1 恢复（含 appeal.result 2→1，5-4）。
-
-  **注意事项**：评论驳回态=2 非 3，禁套文章口径；文章**禁 3→2**（驳回态不得被任何机审/人审 PASS 覆盖）；文本/图片两路 result 并发到达，驳回先落则 PASS 不得覆盖（CAS 白名单天然拦截）。
-
-  **2026-10-11 message→social 口径修正说明**（本节及板块三/四/五相关条目已统一改为 social 归属）：
-  1. 已实现部分零代码改动：3-1 ModerationTextConsumer（[x]）依赖的 MessageClient 契约、3-4 result 事件发布（[x]）的 moderation.message.result 路由键与 MESSAGE 场景枚举均属私信业务域命名，保留原名，已落地代码与本清单仍一致。
-  2. 未实现部分（3-5 消费端、板块四/五私信相关条目）尚未编码，实现时直接按 social 归属落地，无返工。
-  3. 未来唯一代码触点：social 实现私信域 Provider 时，需对齐 MessageClient 的 Feign 服务名（服务名硬编码在 @FeignClient 注解中而非 FeignConstant，仅需改 MessageClient.java 一处）。
+> 2026-10-11 转移注记：审核模块已实现任务（板块三/板块四契约层、auth 注册链路 A 组、auth 处罚消费端 B 组）及其实现步骤已归档至 `docs/archive/review-implemention-records.md`；板块三/四挂起项与预留项已移入 `docs/next/Temporarily_not_implemented.md`。
 
 ## 待实现（按优先级排序）
 
@@ -44,15 +15,9 @@
 注意**：**\
 **业务代码中LLM审核部分目前留下注释预留占位即可，暂不实现**
 
-### 板块四：发布侧文本链路接入（§4.2.1 ①①′② / §4.5.3）
+### 板块四：发布侧文本链路接入（§4.2.1 ①①′② / §4.5.3）——已全部转移（2026-10-11）
 
-- [x] 发布前置校验：空内容（trim + 去 HTML 标签可见文本非空）、标题≤100、标题与正文拼接一并送审（防违规藏标题）（✅ 2026-10-11 契约层落地：PublishTextPrecheck/SubmitTextAssembler；入口嵌入挂起，见 status.md 板块四）
-- [x] 同步 DFA 闸门嵌入各发布链路（文章/评论/私信/用户名）；私信 HIGH 命中同步拒发 70001 且不投递，仅 MID/LLM 走先发后审（§4.2.1）（✅ 2026-10-11 契约层落地：DfaPublishGate.decide 三态决策；四链路嵌入挂起）
-- [x] 免审 last-hash：版本化 key（wordlibVer:bizType:scene:bizId）+ scene 必带 + 状态排除条件按 bizType 分列（评论驳回态=2）+ 含图文章连查图片复审键且聚合 hash 一致 + 免审直落置 review\_task 终态（§4.2.1 ②）（✅ 2026-10-11 契约层落地：LastHashStore/LastHashExemptChecker 全量；写入/发布判定/失效嵌入挂起待 content）
-- [x] content.unpublished（删除/下架/转私密）同步失效 last-hash 与该 content\_hash 结果缓存键；免审排除条件补 del\_flag=0（§2.1）（✅ 2026-10-11 契约层落地：ContentUnpublishedEvent/Invalidator 三步矩阵；三路径嵌入挂起待 content）
-- [x] POST /api/content/preview-check：仅返回 {hit, risk} 不回吐命中词 + @RateLimiter(USER) 限频 + 仅本人草稿/待发内容，不替代发布闸门（§4.5.3）（✅ 2026-10-11 契约层落地：ContentPreviewCheckDTO/VO；端点实现嵌入挂起待 content）
-- [x] 私信撤回 CAS（仅本人仅正常态）+ 陌生人配额原子更新（INCR 为主 + DB 条件更新兑底，REJECT 拦截仍占配额）（§4.2.1）（✅ 2026-10-11 契约层落地：MessageRecallGate.recall/StrangerQuotaGate.tryAcquire；端点嵌入挂起待 social 私信域）
-- [x] USERNAME 同步拒绝：不建 review\_task、只落 record(biz\_id=0)、不可申诉（明示设计非遗漏）（§4.2.2）（✅ 2026-10-11 契约层落地：UsernameRejectGate.recordReject + ModerationConstant 补 BIZ\_TYPE\_USERNAME=3；注册链路嵌入挂起待 auth）
+> 板块四勾选清单与实施细案（4-1～4-7）已归档至 `docs/archive/review-implemention-records.md`；入口嵌入挂起项已移入 `docs/next/Temporarily_not_implemented.md`；进度勾选看 status.md 板块四。
 
 ### 板块五：申诉与处罚联动闭环（§4.2.3 / §4.5.2）
 
@@ -76,13 +41,9 @@
 - [ ] Alertmanager 六规则：存疑积压/在办超时/DLQ 堆积/机审失败率/通过率骤变/缓存命中率跌落；阈值全部外置（§4.7）
 - [ ] §4.7 剩余配置项收尾：retry.*、cache.ttl-hours+jitter-ratio、reject-blacklist.ttl-days、last-hash.ttl-hours（落 litisle-shared.yaml）、qps.max-count、consumer.prefetch、appeal.window-days、report.abuse-threshold、claim.*、sweeper.\*、dedup.lock-seconds、llm.max-text-chars、image.model-version、few-shot-version
 
-### 审核模块暂不做（触发条件随附）
+### 审核模块暂不做（⏸ 已移入 `Temporarily_not_implemented.md` 第三节，2026-10-11）
 
-- 云 API 生产适配器：生产切换时（pom runtime scope + Nacos 配置 AK/SK 走环境变量）
-- 图文组合审核/OCR 多模态盲区（§2.9）：二期；此前由人审详情页「图文并排核对」兜底
-- 撤销改判公示：二期，仅公示脱敏摘要，严禁回显 appeal.content/appellant\_id/reporter\_id（§4.2.3）
-- 视频/音频审核：一期显式不支持，业务出现前须先补 SPI 方法与适配器
-- quarantine sweeper 原条目已并入板块六，落地后回填「暂不实现」节勾选状态
+> 云 API 生产适配器 / 图文组合审核·OCR 多模态盲区 / 撤销改判公示 / 视频·音频审核 / quarantine sweeper 预留条目均已移入 `docs/next/Temporarily_not_implemented.md` 第三节（触发条件随附），本节不再重复维护。
 
 ### 四、待办
 
@@ -146,81 +107,7 @@
 > ⑥ 缓存/黑名单/last-hash TTL 一律 ±10% 抖动（防同批内容集体过期雪崩）。
 
 
-### 板块四：发布侧文本链路接入（落位：litisle-content / litisle-social（私信）发布链路 / auth 注册链路）
-
-> **落地注记（2026-10-11）**：4-1～4-7 契约层已在 litisle-api 落地——moderation 包
-> PublishTextPrecheck / SubmitTextAssembler / DfaPublishGate / LastHashStore /
-> LastHashExemptChecker / MessageRecallGate / StrangerQuotaGate / UsernameRejectGate +
-> event/content 包 ContentUnpublishedEvent + ContentUnpublishedInvalidator + dto/content 包
-> ContentPreviewCheckDTO·VO；契约常量 MqConstant（QUEUE/ROUTING\_CONTENT\_UNPUBLISHED）与
-> ModerationConstant（BIZ\_TYPE\_*、SCENE\_ARTICLE\_IMG\_RE\_REVIEW、MESSAGE\_STATUS\_*、STRANGER\_QUOTA\_*）。
-> 发布/注册/撤回入口嵌入与 content/social 消费端挂起，触发条件同 3-5；私信按 social 归属落地
-> （契约类 Javadoc 中「message 模块」表述待随嵌入实现统一改为 social 私信域）。
-
-#### 4-1 发布前置校验（§4.2.1 ①′）
-
-**步骤**：
-1. 发布/评论/私信接口内、DFA 之前执行：空内容=标题 trim 非空 且 正文去 HTML 标签后可见文本非空（防 `<p></p>` 空壳绕过）；标题≤100 字符（对齐 varchar(100)）。
-2. 送审文本=标题+正文拼接（DFA 与 LLM 同口径；标题只进 hash 不进模型=违规藏标题躲过 LLM 漏审）。
-
-**注意事项**：空内容校验必须在 hash 计算与送审之前——空内容 content_hash 恒定，全站共享同一 hash，一条 PASS 缓存即污染全部空内容免审。
-
-#### 4-2 同步 DFA 闸门嵌入（§4.2.1 ①）
-
-**步骤**：
-1. 文章/评论/私信/用户名四条发布链路注入 DfaFacade（板块二已下沉 litisle-api，本地执行免网络调用）。
-2. check(scene, 文本)→DfaHitResult：HIGH 命中→拒 70001；MID→不拦截，layer1_hit=2 随任务送异步层。
-3. **私信特殊**：HIGH 命中同步拒发 70001 且**不投递 MQ**（不进异步库）；仅 MID/LLM 走先发后审。
-4. USERNAME：注册路径同步拒绝即终态（见 4-7）。
-
-**注意事项**：scene 传原始值由 DfaScenes 归一（去 _RE_REVIEW 后缀等），勿自行映射；MID 只标记不拦截（新增词灰度观察位）。
-
-#### 4-3 免审 last-hash（§4.2.1 ②）
-
-**步骤**：
-1. content 消费 result 事件时写 Redis `review:last-hash:{wordlibVer}:{bizType}:{scene}:{bizId}`，value={hash,verdict} JSON，TTL=last-hash.ttl-hours(72)±10% 抖动，与 cache.ttl-hours 对齐（防「消费端已过期重审、发布侧仍免审」口径漂移）。
-2. 发布时判定顺序：算新 hash→查 key（wordlibVer 取当前 DfaFacade 该 scene 版本）→三分支：hash 一致且 verdict=PASS 且状态排除→**免审直落 status=2，不发 MQ，且 review_task 就地置 status=1 终态**；hash 一致且 verdict=REJECT→前置提示「内容未修改仍将驳回」，不落库不发 MQ；key 缺失/SUSPICIOUS→照常发 MQ（Redis 丢数据宁多审不漏审）。
-3. **状态排除按 bizType 分列**：文章 status∉{3-驳回,4-下架}；评论 status≠2-驳回（评论驳回态=2，套文章口径会漏排除→被驳评论原样重发复活）；均补 del_flag=0。
-4. **含配图文章连带校验** `review:last-hash:{wordlibVer}:1:ARTICLE_IMG_RE_REVIEW:{articleId}` 存在、其聚合 hash=当前配图 sha256 排序拼接后再 sha256、verdict=PASS，三者缺一不可。
-5. 免审直落必须置 review_task 终态（status=1）。
-
-**注意事项**：
-- 缺「聚合 hash 一致」比对→仅换图不改文时旧 PASS 键命中，架空图片复审。
-- 缺「置终态」→sweeper（6-2）把免审任务当卡死重投 MQ，可能机审 REJECT 触发已发布文章 2→4 下架。
-
-#### 4-4 content.unpublished 同步失效（§2.1）
-
-**步骤**：
-1. 删除(del_flag=1)/下架(status=4)/转私密 三处发 content.unpublished 事件的同一事务/紧随其后：删 `review:last-hash:{...}:{bizId}` + 删该 content_hash 的 text-result/img-result 缓存键。
-2. 免审直落排除条件补 del_flag=0（同 id 复活场景）。
-
-**注意事项**：防「PASS→人工/法务下架→删除→重发同内容（新 bizId 同 hash）」命中旧 PASS 缓存绕过下架决定——历史已定性的攻击面，必须闭环。
-
-#### 4-5 POST /api/content/preview-check（§4.5.3）
-
-**步骤**：
-1. content 侧新增端点：入参=草稿/待发内容标识（或标题+正文），复用 DfaFacade 同 scene、同词库版本同步校验。
-2. 返回仅 {hit: boolean, risk: HIGH|MID|none}，**禁回吐命中词**。
-3. 鉴权：登录用户+仅本人草稿/待发内容；@RateLimiter(USER) 限频。
-4. Javadoc 明示：预览仅为体验优化，**发布侧同步闸门必须独立执行，不替代发布校验**。
-
-**注意事项**：回吐命中词=词库 oracle，攻击者可逐词探测黑名单后以同音/插字变体绕过；与发布同 scene 同词库版本保证口径一致。
-
-#### 4-6 私信撤回 CAS + 陌生人配额（§4.2.1）
-
-**步骤**：
-1. 撤回：`update message set status=0 where id=? and sender_id=? and status=1`——仅本人、仅正常态；不物理删正文（留存审计），对方仅见「消息已撤回」。
-2. 陌生人配额：Redis INCR 为主；Redis 失败→DB 原子条件更新 `update conversation set a_quota_used=a_quota_used+1 where id=? and a_quota_used<3`（禁读-改-写两段式）；REJECT 拦截消息仍占配额（投递行为已发生）。
-
-**注意事项**：撤回与审核 1→2 CAS 并发互斥；撤回成功后审核 result 的 2→1 因 status=0 天然 no-op。
-
-#### 4-7 USERNAME 同步拒绝（§4.2.2）
-
-**步骤**：
-1. 注册路径 DFA HIGH 命中→同步拒绝，**不建 review_task**，只落 moderation_record(biz_type=3, biz_id=0, hit_words 自包含取证)。
-2. 不可申诉（appeal 三关联列至少其一非空才可建）——用户名被拒换名重试即可，明示设计非遗漏；无改名路径防绕过审核。
-
-**注意事项**：同音/跳词变体漏网靠注册后举报+人审兜底（板块二误报入口可辅助运营观察）。
+> 板块四 4-1～4-7 实施细案（含 4-3 免审 last-hash、4-5 preview-check）已归档至 `docs/archive/review-implemention-records.md`；入口嵌入挂起项见 `Temporarily_not_implemented.md` 第二节。以下细案仅覆盖板块五/六/七剩余待办。
 
 ### 板块五：申诉与处罚联动闭环（落位：litisle-review workflow 包 + litisle-user / litisle-auth 消费端）
 

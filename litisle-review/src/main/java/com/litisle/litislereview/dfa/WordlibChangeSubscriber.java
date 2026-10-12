@@ -31,9 +31,25 @@ public class WordlibChangeSubscriber implements MessageListener {
 
     /**
      * 广播回调：JSON → WordlibChangedMessage → rebuild（version 乐观比对兜底）
+     * 
+     * 被框架回调执行的 ，调用链路在 DfaConfig.java:42-53 里完成注册：
+     * 被subscriber 注册到 channel 上
      */
     @Override
     public void onMessage(Message message, byte[] pattern) {
+//
+//      container.addMessageListener(subscriber, new ChannelTopic(ModerationConstant.WORDLIB_CHANGE_CHANNEL));
+//         运营改词库 → WordlibService 同事务递增版本 + 发布广播
+//         │
+//         ▼  Redis PUBLISH review:wordlib:change（channel 常量在 ModerationConstant）
+//    Redis 服务端把消息推给所有订阅该 channel 的连接
+//              container.addMessageListener(subscriber, new ChannelTopic (ModerationConstant.WORDLIB_CHANGE_CHANNEL));
+//         │
+//         ▼  RedisMessageListenerContainer（Spring 后台线程，随应用启动常驻）
+//    容器按 channel 匹配 → 找到注册的 WordlibChangeSubscriber
+//         │
+//         ▼  框架反射回调
+//    onMessage(message, pattern)  ← 你选中的这段代码在这里被执行
         try {
             // Step1 广播体是 JSON 字节 → String → 反序列化为契约消息
             String body = new String(message.getBody(), StandardCharsets.UTF_8);

@@ -48,6 +48,7 @@ public class ReviewFeignProviderController implements ReviewClient {
     public Result<PunishStatusDTO> getPunishStatus(Long userId) {
         // 日志仅落 userId（处罚态属敏感信息，不落任何 UGC）
         log.info("Feign 处罚权威态查询: userId={}", userId);
-        return Result.success(punishService.getPunishStatusSnapshot(userId));
+        PunishStatusDTO punishStatusSnapshot = punishService.getPunishStatusSnapshot(userId);
+        return Result.success(punishStatusSnapshot);
     }
 }

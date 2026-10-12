@@ -9,13 +9,13 @@
 
 ## 当前执行锚点
 
-- **进行中**：板块四契约层收口——4-1 至 4-7 契约层全部实现（4-7 实现落地：UsernameRejectGate.recordReject + ModerationConstant 补 BIZ\_TYPE\_USERNAME=3）；板块三收尾项 3-5 与 3-7.2/3-7.3 入口侧随 content/file 联动挂起
+- **已完成并归档（2026-10-11）**：板块三（3-1~3-4、3-6、3-7.1、3-8）+ 板块四契约层（4-1~4-7）+ auth 注册链路嵌入（A1-A4）+ auth 处罚消费端（B1-B5）——明细与实现步骤已转 docs/archive/review-implemention-records.md
 
-- **挂起项**：3-5 业务方回写矩阵消费端——litisle-content 为空壳（无 litisle-api/common-mq/web/mybatis 依赖）、litisle-message 模块不存在；触发条件=两模块正式开发时随实体层一并落地（2026-10-10 决策跳过转 3-6；完整步骤已移入 next_update.md「暂不实现」节）
+- **挂起项**：板块三 3-5 / 3-7.2 / 3-7.3 与板块四各入口嵌入项——已移入同目录 `Temporarily_not_implemented.md`（触发条件=content/social 正式开发时随实体层落地）
 
-- **前置阻塞**：litisle-ai chat 端点（`POST /api/feign/ai/chat`）未实现——3-1 联调前必须落地
+- **前置阻塞**：litisle-ai chat 端点（`POST /api/feign/ai/chat`）未实现——3-1 联调前必须落地（见 Temporarily_not_implemented.md 预留项）
 
-- **推进顺序**：3-1→3-2→3-3→3-4→3-6→3-7→3-8 → 板块四 → 板块五 → 板块六 → 板块七（随三并行埋点；3-5 挂起待 content/message 落地）
+- **推进顺序**：板块五 → 板块六 → 板块七（板块三/四挂起项随 content/social 开发回接）
 
 ## 现状基线（已完成，不再列入）
 
@@ -55,19 +55,14 @@ file 侧 safe_flag 四态闸口 / 拒传黑名单 / quarantine 契约 / result·
   - [x] 3-4.3 事务顺序铁律：本地提交→confirm 发 result→basicAck（sendCritical 重试耗尽转 IllegalStateException 入 DLQ，防 MqAckHelper 误 ack）
   - [x] 3-4.4 举报关联任务同事务回写 report（status<3，handler=0-系统）
   - [x] 3-4.5 bizType↔target_type 映射表（禁恒等：5↔4、6↔5）
-- [ ] 3-5 业务方回写矩阵消费端（content / message）（⏸ 挂起：content 空壳/message 模块不存在，触发条件=两模块正式开发，见执行锚点挂起项）
-  - [ ] 3-5.1 content 侧消费 text/image result + bizType 分发 CAS（article/comment）
-  - [ ] 3-5.2 文章双链路联合聚合：文本 PASS 且图片复审 PASS 才放行 1→2
-  - [ ] 3-5.3 REJECT 分流：首发 1→3 / 复审下架 2→4；评论 CAS 0→1/0→2 禁 2→1
-  - [ ] 3-5.4 空/纯图边界：纯图文本链路 trivially PASS；正文配图全空拒
-  - [ ] 3-5.5 message 侧消费：REJECT/SUSPICIOUS→1→2 拦截；人审 PASS→1 恢复
+- [ ] 3-5 业务方回写矩阵消费端（content / message）（⏸ 已移入 `Temporarily_not_implemented.md`（含完整步骤与 message→social 口径修正），触发条件=content/social 正式开发时随实体层落地）
 - [x] 3-6 ModerationDlqConsumer（2026-10-10 完成：ModerationDlqConsumer（consumer 包，@RabbitListener 双 DLQ 监听 + traceId/ACK 模板）+ ModerationDlqService（service 包，locateTask/transitionToManualReview/verifyHashMatch）；口径修正：IMAGE 单图审不建 review_task→无任务可 CAS，直接发 SUSPICIOUS(3) result 事件由 file 置 safe_flag=3；仅 ARTICLE_IMG_RE_REVIEW 走转人审 CAS；新增 hash 错配防线防旧死信污染 upsert 重置后的新任务）
   - [x] 3-6.1 监听 DLX 死信队列 + 按 (biz_type,biz_id,scene) 定位 review_task（任务缺失/hash 不一致→BizException ack 丢弃，DLQ 无 DLX nack 即物理丢，靠 6-2 补偿兑底）
   - [x] 3-6.2 转人审三件套：status=2 + mod_verdict=3 + retry_count 回写（CAS where status=0，与 6-2 补偿重发天然互斥）；图片类 IMAGE 单图置 safe_flag=3（发 SUSPICIOUS 事件，发布失败不抛）、复审死信不发事件
 - [ ] 3-7 成本护栏
   - [x] 3-7.1 全站 QPS 拦截器 ModerationGlobalQpsInterceptor（阈值外置 + Redis 降级本地兑底）（2026-10-10 完成：interceptor 包落地，阈值 litisle.moderation.qps.* 外置 yml，Redis 故障期 RedisRateLimiter 内部切 LocalRateLimiter 本地兜底计数，宁严勿松）
-  - [ ] 3-7.2 发布/上传入口 @RateLimiter(USER)（⏸ 挂起：发布入口在 content（空壳）、上传入口在 file（随 file 联动），触发条件同 3-5）
-  - [ ] 3-7.3 单内容在途 SETNX 短锁（复用 3-1.9 key 口径）（消费端已随 3-1.9 落地 ModerationProperties.Dedup；入口侧预检随 3-5 挂起）
+  - [ ] 3-7.2 发布/上传入口 @RateLimiter(USER)（⏸ 已移入 `Temporarily_not_implemented.md`，触发条件同 3-5）
+  - [ ] 3-7.3 单内容在途 SETNX 短锁（复用 3-1.9 key 口径）（⏸ 已移入 `Temporarily_not_implemented.md`；消费端已随 3-1.9 落地 ModerationProperties.Dedup，入口侧预检随 3-5 回接）
 - [x] 3-8 故障降级（2026-10-10 完成：重试编排收口 common-mq MqAckHelper.executeWithRetry 统一模板（DelayedRetryPublisher 回调，业务消费者禁止手写重投模板）；新建独立 x-delayed-message 专用延迟交换机绑定 text/image 主队列、复用原路由键落回，零波及双侧共享交换机防 PRECONDITION_FAILED）
   - [x] 3-8.1 消费失败 x-delay 指数退避重投（retryCount 与 review_task.retry_count 对账；retry.max-count=5、retry.base-delay-ms=30000 外置 application.yml 可运营调整）
   - [x] 3-8.2 重试耗尽路由 DLX → 3-6 转人审（未耗尽延迟重投成功 ack、重投失败/耗尽 nack 入 DLX；ModerationTextConsumer/ModerationImageConsumer 已切换重试感知 ACK 模板）
@@ -79,28 +74,30 @@ file 侧 safe_flag 四态闸口 / 拒传黑名单 / quarantine 契约 / result·
   - [x] 4-1.1 空内容/标题校验：标题 trim 非空 + 正文去标签可见文本非空 + 标题≤100 字符（2026-10-11 契约层实现落地，入口嵌入随发布链路）
   - [x] 4-1.2 送审文本=标题+正文拼接（hash 与模型同口径，防违规藏标题）（2026-10-11 契约层实现落地，消费侧 fetchText 已同步 SSOT 常量）
 - [ ] 4-2 同步 DFA 闸门嵌入（⏳ 2026-10-11 契约层已实现：DfaPublishGate.decide 三态决策（HIGH 拦截/MID 标记/未命中放行，入参判空 fail-fast）+ DfaFacade 兕底级别收口 DFA_LEVEL_HIGH；四链路嵌入挂起待 content/social/auth 开发，触发条件同 3-5）
-  - [ ] 4-2.1 文章/评论/私信/用户名四链路注入 DfaFacade：HIGH 拒 70001 / MID 标记放行
-  - [ ] 4-2.2 私信 HIGH 同步拒发且不投递 MQ（仅 MID/LLM 先发后审）
-  - [ ] 4-2.3 USERNAME 注册同步拒绝即终态（联动 4-7）（⏳ 契约层已实现：UsernameRejectGate.recordReject 拒绝取证收口；注册链路嵌入挂起待 auth，触发条件同 3-5）
+  - [ ] 4-2.1 文章/评论/私信/用户名四链路注入 DfaFacade：HIGH 拒 70001 / MID 标记放行（⏸ 嵌入步骤已移入 `Temporarily_not_implemented.md`，触发条件同 3-5；USERNAME 链路已随 auth A2 落地）
+  - [ ] 4-2.2 私信 HIGH 同步拒发且不投递 MQ（仅 MID/LLM 先发后审）（⏸ 已移入 `Temporarily_not_implemented.md`，触发条件同 3-5）
+  - [x] 4-2.3 USERNAME 注册同步拒绝即终态（联动 4-7）（✅ 2026-10-11 注册链路嵌入已随 auth A2/A3 落地，见 docs/archive/review-implemention-records.md）
 - [ ] 4-3 免审 last-hash（✅ 2026-10-11 契约层已实现：LastHashStore 全量（RedisAdapter 函数式注入零 redis 依赖 / write 终局 fail-fast 含 ttlSeconds 参数 / read 正则强校验异常按未命中 / remove 单键删除）+ LastHashExemptChecker 全量（decide 五步三分支编排 / statusExcluded 按 bizType 分列未定义口径 fail-fast / imgReReviewPassed 补 wordlibVer+redis 参数复用 LAST_HASH_KEY）+ ModerationConstant 补 BIZ_TYPE_ARTICLE/COMMENT/MESSAGE 与 SCENE_ARTICLE_IMG_RE_REVIEW；写入/发布判定/失效嵌入挂起待 content 开发，触发条件同 3-5）
-  - [ ] 4-3.1 content 消费 result 写 last-hash（TTL 与 cache.ttl 对齐 + ±10% 抖动）（判定契约 write 已实现，写入嵌入挂起待 content）
-  - [ ] 4-3.2 发布三分支判定：PASS 免审直落并置 review_task 终态 / REJECT 前置提示 / 键缺失照常发 MQ（decide 已实现，发布编排嵌入挂起待 content）
+  - [ ] 4-3.1 content 消费 result 写 last-hash（TTL 与 cache.ttl 对齐 + ±10% 抖动）（判定契约 write 已实现，嵌入步骤已移入 `Temporarily_not_implemented.md`，触发条件同 3-5）
+  - [ ] 4-3.2 发布三分支判定：PASS 免审直落并置 review_task 终态 / REJECT 前置提示 / 键缺失照常发 MQ（decide 已实现，嵌入步骤已移入 `Temporarily_not_implemented.md`，触发条件同 3-5）
   - [x] 4-3.3 免审状态排除按 bizType 分列（文章排除 3/4、评论排除 2，补 del_flag=0）（2026-10-11 statusExcluded 实现落地，入口嵌入随发布链路）
   - [x] 4-3.4 含配图文章连带校验：IMG_RE_REVIEW last-hash 存在 + 聚合 hash 一致 + PASS 三者齐备（2026-10-11 imgReReviewPassed 实现落地，调用方聚合指纹随 content 链路传入）
 - [ ] 4-4 content.unpublished 同步失效（⏳ 2026-10-11 事件与编排骨架已落：litisle-api 新建 event/content 包 ContentUnpublishedEvent（对齐 UserRegisteredEvent 步骤注释模式）+ ContentUnpublishedInvalidator 失效编排骨架（last-hash/text-result/img-result 三步矩阵）+ MqConstant 补 QUEUE/ROUTING_CONTENT_UNPUBLISHED；4-4.2 已随 LastHashExemptChecker.statusExcluded 骨架注释覆盖 del_flag=0；三路径嵌入挂起待 content 开发，触发条件同 3-5）
   - [x] 4-4.1 删除/下架/转私密三路径发 unpublished 事件并删 last-hash + text/img-result 缓存键（2026-10-11 契约层实现落地：ContentUnpublishedEvent 全字段 POJO（@Data+Serializable，Schema 四公共字段+bizType/bizId/contentHash/reason 四业务字段）+ ContentUnpublishedInvalidator.invalidateAll 三步矩阵（RedisKeyDeleter 函数式注入，契约层零 redis 依赖）+ MqConstant 补 QUEUE/ROUTING_CONTENT_UNPUBLISHED；三路径发布入口嵌入挂起待 content 开发，触发条件同 3-5）
   - [x] 4-4.2 免审直落排除条件补 del_flag=0（2026-10-11 已随 LastHashExemptChecker.statusExcluded 实现落地：delFlag≠0 一票排除）
 - [ ] 4-5 POST /api/content/preview-check（⏳ 2026-10-11 契约层已实现：litisle-api dto/content 新建 ContentPreviewCheckDTO（scene/title/content 三字段，场景白名单/禁回吐/鉴权/限频口径全写入 Javadoc）+ ContentPreviewCheckVO（仅 {hit,risk} 两字段，字段纪律防词库探测）；端点实现嵌入挂起待 content 开发，触发条件同 3-5）
-  - [ ] 4-5.1 端点实现：复用 DfaFacade 同 scene 同词库版本
-  - [ ] 4-5.2 返回仅 {hit,risk} 禁回吐命中词 + 本人草稿鉴权 + @RateLimiter(USER)
+  - [ ] 4-5.1 端点实现：复用 DfaFacade 同 scene 同词库版本（⏸ 已移入 `Temporarily_not_implemented.md`，触发条件同 3-5）
+  - [ ] 4-5.2 返回仅 {hit,risk} 禁回吐命中词 + 本人草稿鉴权 + @RateLimiter(USER)（⏸ 已移入 `Temporarily_not_implemented.md`，触发条件同 3-5）
 - [ ] 4-6 私信撤回 CAS + 陌生人配额（✅ 2026-10-11 契约层已实现：MessageRecallGate.recall（适配器/入参 fail-fast + CAS 结果判定，affected=0 统一失败禁区分原因）/StrangerQuotaGate.tryAcquire（五步编排：双适配器 fail-fast→Redis INCR 为主→null 降级 DB 条件更新→上限比对，漂移口径留档）+ ModerationConstant 补 MESSAGE_STATUS_*/STRANGER_QUOTA_* 契约；撤回端点与发送链路嵌入挂起待 message 模块，触发条件同 3-5）
   - [x] 4-6.1 撤回 CAS：仅本人仅正常态 status=1→0，不物理删正文（2026-10-11 recall 实现落地，CAS SQL 由宿主适配器收口，端点嵌入挂起待 message）
   - [x] 4-6.2 陌生人配额：Redis INCR 为主，失败降级 DB 原子条件更新 a_quota_used<3（2026-10-11 tryAcquire 实现落地，发送链路嵌入挂起待 message）
-- [x] 4-7 USERNAME 同步拒绝（✅ 2026-10-11 契约层已实现：UsernameRejectGate.recordReject（HIGH 命中 fail-fast 校验 + SubmitTextAssembler 全站口径派生 contentHash + RecordAdapter 取证落库，不建 review_task/biz_id=0 占位）+ ModerationConstant 补 BIZ\_TYPE\_USERNAME=3（对齐 review 侧 ModerationBizTypeEnum.USERNAME(3)）；注册链路嵌入挂起待 auth 开发，触发条件同 3-5）
+- [x] 4-7 USERNAME 同步拒绝（✅ 2026-10-11 契约层已实现：UsernameRejectGate.recordReject（HIGH 命中 fail-fast 校验 + SubmitTextAssembler 全站口径派生 contentHash + RecordAdapter 取证落库，不建 review_task/biz_id=0 占位）+ ModerationConstant 补 BIZ\_TYPE\_USERNAME=3（对齐 review 侧 ModerationBizTypeEnum.USERNAME(3)）；✅ 2026-10-11 注册链路嵌入已随 auth A2/A3 落地，见 docs/archive/review-implemention-records.md）
   - [x] 4-7.1 DFA HIGH 同步拒绝不建任务，只落 moderation_record(biz_id=0) 取证（2026-10-11 recordReject 实现落地，取证列口径由宿主适配器收口，取证行不落用户名明文）
   - [x] 4-7.2 明示不可申诉设计（换名重试，无改名路径防绕过）（2026-10-11 类注留档：无 review_task 即无申诉载体，端点天然查不到，零拦截逻辑；二期若引入改名须重新过 USERNAME 场景闸门）
 
 ## 板块五：申诉与处罚联动闭环（§4.2.3 / §4.5.2）
+
+> 2026-10-11 注记：auth 侧处罚消费端 B1-B5 已全部落地（punish.result 消费/权威态拉取/kickout/禁言快照/串行消费配置/对账供给，见 docs/archive/review-implemention-records.md），待 review 侧 5-2.1 事件发布后联调；本板块剩余为 review 侧 5-1/5-2.1/5-3 sweeper/5-4/5-5。
 
 - [ ] 5-1 机审 REJECT 联动处罚
   - [ ] 5-1.1 REJECT 同一事务落 punish_log(action=3，operator_id=0) + violation_score 累计
@@ -158,20 +155,8 @@ file 侧 safe_flag 四态闸口 / 拒传黑名单 / quarantine 契约 / result·
 
 - [x] safe_flag 审核链路（2026-10-02 接入完成）
 
-- [ ] CDN 接入——public-url-base 已分离，届时仅改配置
-
-- [ ] common-redis 库模块不引 Sentinel（库模块当前不动）
-
-- [ ] review 侧 quarantine sweeper——触发条件 = 板块六达成
-
-- [ ] litisle-ai chat 端点——触发条件 = 板块三 3-1 联调前
+- [ ] 以下预留项已统一移入 `Temporarily_not_implemented.md`（2026-10-11）：CDN 接入 / review 侧 quarantine sweeper（触发条件=板块六达成）/ litisle-ai chat 端点（触发条件=板块三 3-1 联调前）；common-redis 不引 Sentinel 为库模块决策，非审核模块挂起项，保留于 next_update.md。
 
 ## 审核模块暂不做（触发条件随附）
 
-- 云 API 生产适配器（生产切换时）
-
-- 图文组合审核 / OCR 多模态盲区（二期，人审详情页图文并排兜底）
-
-- 撤销改判公示（二期，仅脱敏摘要）
-
-- 视频 / 音频审核（一期显式不支持）
+- 已统一移入 `Temporarily_not_implemented.md`（2026-10-11）：云 API 生产适配器 / 图文组合审核·OCR 多模态盲区 / 撤销改判公示 / 视频·音频审核。

@@ -163,6 +163,7 @@ public class TableWordLibraryLoader implements WordLibraryLoader {
     /**
      * 快照持久化（临时文件 + 原子 move 防截断）：仅在查表成功且非空时调用——
      * 快照语义是「上次成功装载的非空词库」，空表不覆盖旧快照（宁严勿松）
+     *
      */
     private void persistSnapshot(String scene, List<WordEntry> entries) {
         // 解析当前场景的正式快照文件路径
@@ -173,6 +174,7 @@ public class TableWordLibraryLoader implements WordLibraryLoader {
             // Step1 附带版本号（读取失败不阻断快照落盘，按 -1 占位仅损失排障信息）
             long version;
             try {
+                //从数据库读取
                 version = selectVersion(WordSceneEnum.valueOf(scene));
             } catch (Exception e) {
                 version = NO_VERSION;
@@ -203,6 +205,7 @@ public class TableWordLibraryLoader implements WordLibraryLoader {
                 // 原子地将临时文件重命名为正式快照文件：要么完整替换成功，要么旧快照纹丝不动；
                 // 要求 tmp 与 file 同目录（同一文件系统），保证 ATOMIC_MOVE 不降级为 copy+delete
                 //把临时文件移动/重命名为正式快照文件，如果正式文件已存在就覆盖它。
+                //Files.move(tmp, file, ATOMIC_MOVE) = 把临时文件的文件名直接改成正式快照的文件名。成功就覆盖，失败（包括半途崩溃）正式快照纹丝不动。
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                 ///捕获"当前文件系统不支持 ATOMIC_MOVE"这个特定异常，走降级逻辑。
@@ -222,6 +225,35 @@ public class TableWordLibraryLoader implements WordLibraryLoader {
             }
             log.error("词库快照持久化失败（不影响本次装载，但削弱下次故障兑底）：scene={}, file={}", scene, file, e);
         }
+
+//        ┌─ 调用方（本方法之外）
+//        │   从 MySQL 查词库 → 得到 List<WordEntry> entries
+//        │   校验非空 → 调用 persistSnapshot(scene, entries)
+//        │
+//        ├─ Step 1：解析路径
+//        │   file = 正式快照路径（snapshot-{scene}.json）
+//        │
+//        ├─ Step 2：读版本号（best-effort）
+//        │   version = selectVersion(scene)，失败则 -1，不阻断
+//        │
+//        ├─ Step 3：创建临时文件
+//        │   tmp = {dir}/snapshot-{scene}.json1234567890.tmp
+//        │   同目录，保证后续原子 move
+//        │
+//        ├─ Step 4：序列化写入临时文件
+//        │   JSON(WordlibSnapshot(version, entries)) → 写入 tmp
+//        │
+//        ├─ Step 5：原子重命名 ← 核心
+//        │   Files.move(tmp → file, ATOMIC_MOVE)
+//        │   ✅ 成功：tmp 直接"变成"正式文件，不存在"先删后写"
+//        │   ❌ FS 不支持原子：降级为普通 move（copy + delete）
+//        │
+//        ├─ Step 6：异常处理
+//        │   进程内异常 → catch 里 best-effort 删除 tmp
+//        │   kill -9 / 断电残留 → 启动期 cleanupStaleTempSnapshots() 清扫
+//        │
+//        └─ 日志 & 返回
+
     }
 
     /**

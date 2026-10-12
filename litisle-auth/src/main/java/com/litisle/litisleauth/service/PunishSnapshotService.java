@@ -28,7 +28,7 @@ public interface PunishSnapshotService {
     void overwriteFromAuthority(PunishStatusDTO status);
 
     /**
-     * 读快照（供发布链路拦截/会话校验兜底读取）
+     * 从redis读快照（供发布链路拦截/会话校验兜底读取）
      *
      * @return 当前快照；无记录时返回全空快照（不返回 null，避免调用方空指针分支）
      */

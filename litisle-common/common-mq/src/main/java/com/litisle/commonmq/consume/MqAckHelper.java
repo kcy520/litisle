@@ -72,6 +72,9 @@ public final class MqAckHelper {
      * 执行业务逻辑并按「重试感知 ACK 纪律」确认消息（板块三 3-8.1，在 {@link #executeWithAck}
      * 基础上为非预期异常增加指数退避延迟重试编排）。
      *
+     * 在 RabbitMQ 消费失败时，按“可重试 vs 不可重试”区分处理：可预期业务失败直接丢弃，
+     * 环境类/临时异常走指数退避延迟重试，重试耗尽或重投失败则进 DLQ 转人工，绝不静默丢消息。
+     *
      * <p>【重试口径】与 executeWithAck 的差异仅在非预期异常分支：</p>
      * <ul>
      *   <li>未耗尽（当前 retryCount &lt; maxRetryCount）：计算指数退避延迟 = baseDelayMs × 2^retryCount，

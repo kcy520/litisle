@@ -41,13 +41,24 @@ public class DfaConfig {
     /**
      * 词库广播监听容器：订阅 review:wordlib:change，词库变更广播触发本实例重建
      * DFA（rebuild 内 version 乐观比对防乱序，§2.5）
+     *
+     * @param connectionFactory
+     * @param subscriber
+     * @return
      */
     @Bean
     public RedisMessageListenerContainer wordlibRedisMessageListenerContainer(
             RedisConnectionFactory connectionFactory, WordlibChangeSubscriber subscriber) {
+
+        // 创建监听容器：Spring Data Redis 提供的 Pub/Sub 订阅容器，持有一条后台线程常驻消费订阅消息
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+        // 注入 Redis 连接工厂：容器基于该连接向 Redis 服务端发送 SUBSCRIBE 订阅命令并接收推送
         container.setConnectionFactory(connectionFactory);
+        // 注册订阅关系：本实例的 WordlibChangeSubscriber 回调 onMessage 绑定到
+        // review:wordlib:change 频道——任何实例 PUBLISH 该频道，容器即回调本 subscriber
         container.addMessageListener(subscriber, new ChannelTopic(ModerationConstant.WORDLIB_CHANGE_CHANNEL));
+            //container.addMessageListener( subscriber , new ChannelTopic(WORDLIB_CHANGE_CHANNEL) )
+            //                           └──甲：回调对象──┘        └──乙：频道（信道标识）──┘
         return container;
     }
 }

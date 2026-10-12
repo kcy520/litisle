@@ -11,6 +11,8 @@ import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.dto.moderation.PunishStatusDTO;
 import com.litisle.litisleapi.event.moderation.PunishResultEvent;
 import cn.dev33.satoken.stp.StpUtil;
+import com.litisle.litisleapi.feign.ReviewClient;
+import com.litisle.litisleauth.service.PunishSnapshotService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
@@ -61,10 +63,10 @@ public class PunishResultConsumer {
     private long retryBaseDelayMs;
 
     /** 审核服务 Feign 客户端（降级 fail-fast，回查失败转重试分支） */
-    private final com.litisle.litisleapi.feign.ReviewClient reviewClient;
+    private final ReviewClient reviewClient;
 
     /** 本地禁言快照维护（B3，覆盖式写入） */
-    private final com.litisle.litisleauth.service.PunishSnapshotService punishSnapshotService;
+    private final PunishSnapshotService punishSnapshotService;
 
     /** MQ 发送工具（延迟重投经 EXCHANGE_MODERATION_DELAY x-delayed 交换机） */
     private final MqSendUtil mqSendUtil;
@@ -104,6 +106,8 @@ public class PunishResultConsumer {
 
     /**
      * 业务编排：回查权威态 → 覆盖本地快照（B3）→ 封禁即时下线（B2）
+     *
+     * 收到处罚结果事件后，回查审核服务的权威状态，覆盖本地快照，并在仍处封禁状态时立即踢人下线——全程 fail-closed，宁可重试也不漏封。
      *
      * <p>【异常语义】回查失败抛 IllegalStateException 走非预期分支（重试/入 DLQ）——
      * 降级工厂抛的 BizException 会被 MqAckHelper 按「业务性失败」ack 丢弃，

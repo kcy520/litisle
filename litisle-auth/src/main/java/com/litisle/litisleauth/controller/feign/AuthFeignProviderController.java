@@ -46,6 +46,11 @@ public class AuthFeignProviderController implements AuthClient {
         return Result.success();
     }
 
+    /**
+     * 查询用户处罚对账审计快照
+     * @param userId 用户 ID
+     * @return
+     */
     @Override
     public Result<PunishAuditDTO> getPunishAudit(Long userId) {
         // B5 对账审计只读查询：活跃会话态 + 本地快照态，供 review 侧 sweeper 判定补漏方向
@@ -53,10 +58,18 @@ public class AuthFeignProviderController implements AuthClient {
         return Result.success(punishAuditService.getPunishAudit(userId));
     }
 
+    /**
+     * 反向补解封快照 = 发现本地缓存还记着"用户被封"，
+     * 但 review 权威源已经解封了，于是主动从 review 拉最新状态覆盖本地缓存，把本地也"解封"掉。
+     *
+     * @param userId 用户 ID
+     * @return
+     */
     @Override
     public Result<Void> refreshPunishSnapshot(Long userId) {
         // B5 反向补解封：SSOT 收口，仅经回查 review 权威态覆盖快照，禁止直写
         log.info("Feign 反向补解封快照刷新: userId={}", userId);
+        //刷新快照
         punishAuditService.refreshPunishSnapshot(userId);
         return Result.success();
     }

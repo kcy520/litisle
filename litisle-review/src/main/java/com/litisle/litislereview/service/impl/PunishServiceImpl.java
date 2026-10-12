@@ -40,6 +40,9 @@ public class PunishServiceImpl implements PunishService {
 
     /**
      * 查询用户处罚权威态快照（B1，5-2.2）：聚合生效禁言/封禁行为覆盖式快照
+     *
+     * 查数据库里用户当前有没有生效中的封禁/禁言记录，有就返回 banned=true / muted=true，没有就返回全空快照（解封信号）。
+     *
      * <p>单次索引查询（user_id 过滤，建议 punish_log 已建 user_id 索引）；
      * 无生效行返回全空快照（非 null），auth 消费端据此同步解封</p>
      */
@@ -61,6 +64,7 @@ public class PunishServiceImpl implements PunishService {
         }
         // 步骤3：聚合布尔态与禁言到期时间（封禁永久态不落 frozenUntil，banned 布尔即权威；
         //        禁言取生效行 expire_time，若为 null 视为永久禁言——布尔 muted 已表达拦截语义）
+            //会被最后一行覆盖，取最新的封禁记录
         for (PunishLog row : rows) {
             if (row.getAction() == PunishActionEnum.BAN) {
                 dto.setBanned(Boolean.TRUE);
