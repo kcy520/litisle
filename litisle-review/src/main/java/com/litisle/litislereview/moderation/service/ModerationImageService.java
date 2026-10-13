@@ -121,6 +121,8 @@ public class ModerationImageService {
     private final MachineRejectPunishGate.RejectPunishAdapter machineRejectPunishAdapter;
     /** 处罚结果事件发布器（5-2.1：punish.result 出口收口，闸口 eventSender 注入本组件方法引用） */
     private final PunishResultPublisher punishResultPublisher;
+    /** 机审观测埋点组件（7-1：moderation_total/cost/cache_hit 计数计时，ObjectProvider optional 模式静默跳过） */
+    private final ModerationMetrics moderationMetrics;
 
     /**
      * 处理图片送审事件（按 scene 分流：IMAGE 单图审 / ARTICLE_IMG_RE_REVIEW 文章配图复审）。
@@ -204,14 +206,20 @@ public class ModerationImageService {
             result = new ModerationResult(toVerdict(cached.getVerdict()), toCategory(cached.getCategory()),
                     cached.getReason(), null, 0L);
             cacheNote = "命中图片审核缓存";
+            // 7-1：moderation_cache_hit{layer=result} 图片审核结果缓存命中计数（单图审跳过模型费）
+            moderationMetrics.incrementCacheHit(ModerationMetrics.LAYER_RESULT);
             log.info("命中图片审核缓存，跳过模型调用，fileId={}，verdict={}", fileId, cached.getVerdict());
         } else {
             // 步骤7：SPI 单图送审（Semaphore/超时已在适配器落地；异常上抛→Consumer 延迟重试）：
             //        送审前先申请模型直调全站 QPS 配额（3-8.3：超限抛非预期异常走延迟重试，绝不放行）
             moderationModelQpsGuard.tryAcquire();
             result = imageModerationAdapterProvider.resolve().moderateImage(imageBytes);
+            // 7-1：moderation_cost Timer 记录单图 SPI 真实送审耗时（缓存命中不进入此分支）
+            moderationMetrics.recordCost(result.costMs());
         }
         // 步骤8：单图落库 + 事务提交后写缓存/发 result 事件（隔离与 safe_flag 回写由 file 侧消费事件处理）
+        // 7-1：moderation_total{verdict} 单图机审三分态计数（缓存命中/真实送审两路均经此收口，落库前统一计数）
+        moderationMetrics.incrementTotal(result.verdict());
         persistSingleImage(fileId, sha256, provider, modelVersion, result, cacheNote, cacheKey);
     }
 
@@ -522,11 +530,15 @@ public class ModerationImageService {
                 result = new ModerationResult(toVerdict(cached.getVerdict()), toCategory(cached.getCategory()),
                         cached.getReason(), null, 0L);
                 cacheNote = "命中图片审核缓存";
+                // 7-1：moderation_cache_hit{layer=result} 配图复审场景缓存命中计数（跨场景复用不重复烧模型费）
+                moderationMetrics.incrementCacheHit(ModerationMetrics.LAYER_RESULT);
             } else {
                 // 步骤2.3：SPI 单图送审（异常上抛→Consumer 延迟重试）：
                 //          送审前先申请模型直调全站 QPS 配额（3-8.3：超限抛非预期异常走延迟重试，绝不放行）
                 moderationModelQpsGuard.tryAcquire();
                 result = imageModerationAdapterProvider.resolve().moderateImage(imageBytes);
+                // 7-1：moderation_cost Timer 记录配图复审逐张 SPI 真实送审耗时（聚合口径为逐图累加）
+                moderationMetrics.recordCost(result.costMs());
             }
             perImageResults.add(result);
             perImageSha256.add(sha256);
@@ -543,6 +555,8 @@ public class ModerationImageService {
                         .findFirst())
                 .map(ModerationResult::verdict)
                 .orElse(VerdictEnum.PASS);
+        // 7-1：moderation_total{verdict} 配图复审聚合判定计数（聚合落库同源收口，非逐图重复计数）
+        moderationMetrics.incrementTotal(aggregate);
         // 聚合三分态→任务状态流转映射（同文本侧口径）：PASS→1-自动通过 / REJECT→4-驳回 / SUSPICIOUS→2-人工待审
         ReviewTaskStatusEnum targetStatus;
         Layer2RiskEnum layer2Risk;

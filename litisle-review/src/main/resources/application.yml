@@ -106,10 +106,14 @@ litisle:
       max-count: 5
       base-delay-ms: 30000
     cache:
+      # 默认值归 litisle-shared.yaml（§4.7 跨服务共享，与 last-hash.ttl-hours 对齐防口径漂移）；
+      # 本地值仅作环境特定覆盖用，Nacos 导入后以共享值为准
       ttl-hours: 72
       ttl-jitter-ratio: 0.1
     # last-hash.ttl-hours 归属 litisle-shared.yaml（content 写、review 声明），不放单服务 yml（§4.7）
     reject-blacklist:
+      # 已绑定 ModerationProperties.RejectBlacklist 组（7-4.2）；默认值归 litisle-shared.yaml
+      #   （§4.7 共享口径），本地值仅作环境特定覆盖；消费点（REJECT 落黑名单写入 TTL）随图片拒绝链路接线
       ttl-days: 30
     qps:
       # 语义层全站 QPS 护栏（Redis 降级直调模型时仍生效）
@@ -121,11 +125,20 @@ litisle:
       # DFA 词库本地持久化快照目录（表加载失败/为空时回退上次成功词库，§4.4.4 宁严勿松）
       snapshot-dir: ${user.home}/.litisle/review/dfa-snapshot
     appeal:
+      # ⚠️ 本组不绑定（7-4.2 口径收敛决策）：timeout-days 与 sweeper.appeal-timeout-days
+      #   （6-1.2 已落地消费）口径重复，统一读 sweeper 组防双源漂移，本项永远不生效保留备查；
+      #   window-days（申诉窗口期）消费点随申诉创建链路（板块五）实现，届时确需可调再绑定
       window-days: 7
       timeout-days: 7
     report:
+      # 已绑定 ModerationProperties.Report 组（7-4.2）；消费点（人审 decide 判诬告后
+      #   累计反向处罚）随板块五 decideTask 实现接线
       abuse-threshold: 3
     claim:
+      # max-active-per-reviewer 已绑定 ModerationProperties.Claim 组（7-4.2）；
+      #   消费点（认领配额校验）随板块五 claimTask 实现接线；
+      # timeout-minutes ⚠️ 本项不绑定：口径已收敛至 sweeper.claim-timeout-minutes
+      #   （7-3 决策，勿在此重复定义），本项永远不生效保留备查
       timeout-minutes: 30
       max-active-per-reviewer: 20
     quarantine:

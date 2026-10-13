@@ -59,6 +59,62 @@ public class ModerationProperties {
     /** moderation_record 归档配置（6-4，§4.4.1 归档占位：归档任务二期落地，本期仅绑定配置与设计契约） */
     private Record record = new Record();
 
+    /** 告警阈值配置（7-3，Alertmanager 六规则的阈值外置口；阈值经 AlertThresholdMetrics
+     *  暴露为 Prometheus 阈值指标，规则文件引用指标而非写死数字——改 Nacos 即时生效，无需改规则文件） */
+    private Alert alert = new Alert();
+
+    /** 拒传黑名单参数（7-4.2）：ttl-days 默认值归 litisle-shared.yaml（§4.7 共享口径，
+     *  防后续 content 等服务直探黑名单时 TTL 口径漂移），本地 yml 值仅作环境覆盖 */
+    private RejectBlacklist rejectBlacklist = new RejectBlacklist();
+
+    /** 人审认领参数（7-4.2）：max-active-per-reviewer 消费点（认领配额校验）随板块五
+     *  claimTask 实现接线；timeout-minutes 口径已收敛至 sweeper 组（7-3 决策）不在此重复绑定 */
+    private Claim claim = new Claim();
+
+    /** 举报诬告反制参数（7-4.2）：abuse-threshold 消费点（人审 decide 判诬告后累计反向处罚）
+     *  随板块五 decideTask 实现接线，本组先完成配置绑定收尾 */
+    private Report report = new Report();
+
+    @Data
+    public static class Alert {
+
+        /** 存疑积压阈值（①）：moderation_backlog{status="suspicious"} 持续超该值告警（人审池堆积预警） */
+        private int suspiciousBacklogThreshold = 50;
+
+        /** DLQ 堆积阈值（③）：moderation_dlq_backlog 持续超该值告警（死信兜底链路积压，需人工介入） */
+        private int dlqBacklogThreshold = 100;
+
+        /** 机审失败率阈值（④）：非 pass 判定占比（reject+suspicious / 总判定）持续超该值告警（模型/词库质量劣化信号） */
+        private double moderationFailRate = 0.2;
+
+        /** 通过率相对基线跌幅阈值（⑤）：短窗通过率相对长窗基线的相对跌幅超该值告警（prompt/模型变更后回滑检测） */
+        private double passRateDropRatio = 0.3;
+
+        /** 缓存命中率跌落阈值（⑥）：result 层短窗命中率相对长窗基线的相对跌幅超该值告警（省钱效果劣化信号） */
+        private double cacheHitDropRatio = 0.5;
+    }
+
+    @Data
+    public static class RejectBlacklist {
+
+        /** 拒传黑名单保留天数：REJECT 图片结论写入 review:img-blacklist:{sha256} 的 TTL（默认值归 shared.yaml 共享口径） */
+        private int ttlDays = 30;
+    }
+
+    @Data
+    public static class Claim {
+
+        /** 单审核员同时在办任务上限：防单人占满人审队列（消费点随板块五 claimTask 配额校验接线） */
+        private int maxActivePerReviewer = 20;
+    }
+
+    @Data
+    public static class Report {
+
+        /** 诬告反制阈值：同一举报人被计诬告达此次数后触发反向处罚（消费点随板块五 decideTask 接线） */
+        private int abuseThreshold = 3;
+    }
+
     @Data
     public static class Quarantine {
 

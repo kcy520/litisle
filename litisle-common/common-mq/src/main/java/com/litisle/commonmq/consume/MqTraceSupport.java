@@ -1,6 +1,7 @@
 package com.litisle.commonmq.consume;
 
 import com.litisle.commoncore.constant.HeaderConstant;
+import com.litisle.commoncore.utils.TraceIdSanitizer;
 import com.litisle.commonmq.send.MqSendUtil;
 import org.slf4j.MDC;
 import org.springframework.amqp.core.Message;
@@ -49,7 +50,9 @@ public final class MqTraceSupport {
         // 步骤2：有效时写入当前消费线程的 MDC——此后该线程内所有日志 pattern %X{traceId} 自动带上链路 ID；
         // 缺失（如旧消息/定时任务直投）时静默跳过，日志显示 [] 不影响运行
         if (traceId != null && !traceId.toString().isBlank()) {
-            MDC.put(MqSendUtil.TRACE_ID_MDC_KEY, traceId.toString());
+            // 7-2.1：写入 MDC 前过 TraceIdSanitizer 净化剥离 \r\n 等控制字符，防 CRLF 日志注入
+            //（Header 缺失仍静默跳过保持既有口径，定时任务直投场景日志显示 [] 不受影响）
+            MDC.put(MqSendUtil.TRACE_ID_MDC_KEY, TraceIdSanitizer.sanitize(traceId.toString()));
         }
     }
 

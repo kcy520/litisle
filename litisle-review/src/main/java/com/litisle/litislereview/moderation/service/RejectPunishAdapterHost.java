@@ -48,6 +48,9 @@ public class RejectPunishAdapterHost implements MachineRejectPunishGate.RejectPu
     /** 违规分窄状态表 Mapper（原子累加专用） */
     private final ViolationScoreMapper violationScoreMapper;
 
+    /** 处罚结果事件发布器相关依赖不动，本类新增机审观测埋点组件（7-1：moderation_punish_total{action}，ObjectProvider optional 模式静默跳过） */
+    private final ModerationMetrics moderationMetrics;
+
     /**
      * 同一事务落处罚行 + 违规分累计（5-1.1 列口径收口）
      *
@@ -84,6 +87,8 @@ public class RejectPunishAdapterHost implements MachineRejectPunishGate.RejectPu
             return null;
         }
         // 步骤2：violation_score 违规分原子累加（仅 score 列，红线：不碰 last_punish_action/frozen_until）
+        // 7-1：moderation_punish_total{action} 处罚落库计数——punish_log 落行成功后同源收口（机审/人审/申诉撤销全链路 punish_log 均落本类/同源 Mapper，无分支重复埋点）
+        moderationMetrics.incrementPunish(punishLog.getAction());
         accumulateViolationScore(context.userId(), context.score());
         // 步骤3：返回新流水 ID 供闸口组装 punish.result 事件（punishLogId 仅排障，严禁作版本门控）
         return punishLog.getId();

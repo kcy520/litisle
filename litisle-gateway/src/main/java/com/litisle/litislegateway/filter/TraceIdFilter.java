@@ -1,6 +1,7 @@
 package com.litisle.litislegateway.filter;
 
 import com.litisle.commoncore.constant.HeaderConstant;
+import com.litisle.commoncore.utils.TraceIdSanitizer;
 import org.slf4j.MDC;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.server.reactive.ServerHttpRequest;
@@ -9,8 +10,6 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
-
-import java.util.UUID;
 
 /**
  * 网关 Trace ID 过滤器（链路追踪入口）
@@ -37,11 +36,10 @@ public class TraceIdFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        // 1. 复用上游 traceId，缺失则生成
-        String traceId = exchange.getRequest().getHeaders().getFirst(HeaderConstant.TRACE_ID);
-        if (traceId == null || traceId.isBlank()) {
-            traceId = UUID.randomUUID().toString().replace("-", "");
-        }
+        // 1. 复用上游 traceId（先过 TraceIdSanitizer 净化剥离 \r\n 等控制字符，防 CRLF 日志注入），
+        //    缺失则生成；生成口径统一收敛到 sanitizeOrGenerate（SSOT，与各服务 TraceIdFilter 一致）
+        String traceId = TraceIdSanitizer.sanitizeOrGenerate(
+                exchange.getRequest().getHeaders().getFirst(HeaderConstant.TRACE_ID));
 
         // 2. 注入下游请求 Header + 响应 Header（客户端可关联）
         ServerHttpRequest request = exchange.getRequest().mutate()

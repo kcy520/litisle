@@ -1,6 +1,7 @@
 package com.litisle.commonsecurity.trace;
 
 import com.litisle.commoncore.constant.HeaderConstant;
+import com.litisle.commoncore.utils.TraceIdSanitizer;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -9,7 +10,6 @@ import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.UUID;
 
 /**
  * 业务服务 Trace ID 过滤器（链路追踪承接）
@@ -38,11 +38,9 @@ public class TraceIdFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        // 1. 复用上游 traceId，缺失则生成
-        String traceId = request.getHeader(HeaderConstant.TRACE_ID);
-        if (traceId == null || traceId.isBlank()) {
-            traceId = UUID.randomUUID().toString().replace("-", "");
-        }
+        // 1. 复用上游 traceId（先过 TraceIdSanitizer 净化剥离 \r\n 等控制字符，防 CRLF 日志注入），
+        //    缺失则生成；生成口径统一收敛到 sanitizeOrGenerate（SSOT，与网关 TraceIdFilter 一致）
+        String traceId = TraceIdSanitizer.sanitizeOrGenerate(request.getHeader(HeaderConstant.TRACE_ID));
 
         // 2. 写入 MDC（FeignAuthInterceptor 从此读取透传）
         MDC.put("traceId", traceId);

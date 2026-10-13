@@ -42,6 +42,26 @@ seata:
       username: nacos
       password: nacos
 
+# ===== 审核域跨服务共享配置（板块七 7-4.1，Review-Plan §4.7）=====
+# 【为什么归共享】last-hash 免审直落键由 content 服务「写入」、review 服务「声明 TTL」——
+# 两侧必须读同一份 TTL 值，否则 content 写 48h / review 过期声明 72h 会产生口径漂移；
+# cache.ttl-hours 与 last-hash.ttl-hours 须严格对齐（免审窗口 = 结果缓存窗口，见 §2.11）；
+# reject-blacklist 归共享是为后续 content/其他服务直探黑名单时读同一 TTL 口径。
+# 【生效方式】本段为 Nacos DataId=litisle-shared.yaml 的待导入内容；
+# 各服务本地 yml 同名键可作环境特定覆盖（见 litisle-review application.yml 同名段的注释口径）。
+litisle:
+  moderation:
+    # 免审直落 last-hash TTL（小时）：同一内容同哈希 72h 内免重审
+    last-hash:
+      ttl-hours: 72
+    # 审核结果缓存 TTL（小时）：仅缓存终局结论 PASS/REJECT（§2.11），须与 last-hash.ttl-hours 对齐
+    cache:
+      ttl-hours: 72
+      # TTL 抖动比例（±10%，防同批内容集体过期雪崩）
+      ttl-jitter-ratio: 0.1
+    # 拒传黑名单保留天数：REJECT 结论写入 review:img-blacklist:{sha256} 的 TTL
+    reject-blacklist:
+      ttl-days: 30
 
 ```
 

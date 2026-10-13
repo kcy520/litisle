@@ -110,6 +110,8 @@ public class ModerationTextService {
     private final MachineRejectPunishGate.RejectPunishAdapter machineRejectPunishAdapter;
     /** 处罚结果事件发布器（5-2.1：punish.result 出口收口，闸口 eventSender 注入本组件方法引用） */
     private final PunishResultPublisher punishResultPublisher;
+    /** 机审观测埋点组件（7-1：moderation_total/cost/cache_hit 计数计时，ObjectProvider optional 模式静默跳过） */
+    private final ModerationMetrics moderationMetrics;
 
     /**
      * 文本审核编排主入口（Consumer 委托）
@@ -171,6 +173,8 @@ public class ModerationTextService {
             result = new ModerationResult(toVerdict(cv.getVerdict()), toCategory(cv.getCategory()),
                     cv.getReason(), null, 0L);
             cacheNote = "命中缓存，原记录ID=" + cv.getRecordId();
+            // 7-1：moderation_cache_hit{layer=result} 审核结果缓存命中计数（缓存复用成功即计，跳过模型费）
+            moderationMetrics.incrementCacheHit(ModerationMetrics.LAYER_RESULT);
             log.info("命中审核结果缓存，跳过模型调用，taskId={}，verdict={}，原记录ID={}",
                     task.getId(), cv.getVerdict(), cv.getRecordId());
         } else {
@@ -179,6 +183,8 @@ public class ModerationTextService {
             tryLockInFlight(provider, event.getContentHash());
             // 步骤9：SPI 送审（分片+聚合，禁静默截断）
             result = moderateWithChunking(fetched.text());
+            // 7-1：moderation_cost Timer 记录 SPI 真实送审耗时（缓存命中/重投补发不进入此分支）
+            moderationMetrics.recordCost(result.costMs());
         }
 
         // 步骤10：三分态落库（同一本地事务）+ 事务提交后写缓存、发 result 事件
@@ -386,6 +392,8 @@ public class ModerationTextService {
             targetStatus = ReviewTaskStatusEnum.MANUAL_PENDING;
             layer2Risk = Layer2RiskEnum.MID;
         }
+        // 7-1：moderation_total{verdict} 机审三分态计数（判定落库同源收口：缓存命中/真实送审两路均经此落库）
+        moderationMetrics.incrementTotal(result.verdict());
 
         // 步骤1：编程式事务（process 内部自调用不走代理，@Transactional 会失效，故用 TransactionTemplate）
         Long recordId = transactionTemplate.execute(tx -> {

@@ -6,6 +6,9 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commonredis.lock.DistributedLock;
 import com.litisle.commonredis.util.RedisUtil;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.event.moderation.ImageSubmitEvent;
@@ -113,6 +116,8 @@ public class FileUploadServiceImpl implements FileUploadService {
     private final FileProperties fileProperties;
     private final DistributedLock distributedLock;
     private final RedisUtil redisUtil;
+    /** MeterRegistry optional 提供器（7-1：moderation_cache_hit{layer=blacklist} 埋点用；未引 actuator 时 getIfAvailable() 返回 null 静默跳过，file 侧无 review 侧 ModerationMetrics 组件故内联注册） */
+    private final ObjectProvider<MeterRegistry> meterRegistryProvider;
     private final MqSendUtil mqSendUtil;
     private final FileMetaSupport fileMetaSupport;
 
@@ -436,6 +441,11 @@ public class FileUploadServiceImpl implements FileUploadService {
     private void checkRejectBlacklist(String sha256) {
         String key = String.format(ModerationConstant.IMG_REJECT_BLACKLIST_KEY, sha256);
         if (redisUtil.hasKey(key)) {
+            // 7-1：moderation_cache_hit{layer=blacklist} 拒传黑名单命中计数（review 侧审核结果缓存与 file 侧拒传黑名单共用同一指标名，layer 标签区分）
+            MeterRegistry registry = meterRegistryProvider.getIfAvailable();
+            if (registry != null) {
+                Counter.builder("moderation.cache.hit").tag("layer", "blacklist").register(registry).increment();
+            }
             log.warn("上传命中审核黑名单，拒绝上传，sha256={}", sha256);
             throw new BizException(ErrorCode.FILE_UPLOAD_REJECTED);
         }

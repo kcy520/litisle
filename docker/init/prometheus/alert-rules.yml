@@ -17,3 +17,75 @@ groups:
         annotations:
           summary: "[{{ $labels.application }}] Redis 降级中，已走本地兑底限流"
           description: "实例 {{ $labels.instance }} 的 redis_guard_degraded == 1 已持续 5 分钟，限流降级为本地计数模式，请检查 Redis（compose: litisle-redis / 6380）。"
+
+  - name: litisle-moderation
+    rules:
+      # ========================================================================
+      # 7-3 机审六规则：阈值全部外置 §4.7 litisle.moderation.alert.*（Nacos）
+      # 【阈值外置机制】阈值不写死在本文件——review 服务 AlertThresholdMetrics 把阈值
+      #   暴露为阈值指标 moderation_alert_threshold{rule=...}，表达式用 on(application)
+      #   向量匹配引用；改 Nacos 阈值 → 抓取端数值更新 → 告警判定即时生效，零规则文件变更
+      # 【建议初值】存疑积压 50 / 在办超时 30 分钟 / DLQ 100 / 失败率 0.2 / 通过率跌幅 0.3 / 缓存命中跌幅 0.5
+      # ========================================================================
+
+      # ① 存疑积压：人审池（suspicious）持续超阈 → 审核人力不足或模型疑判率异常
+      - alert: ModerationSuspiciousBacklogHigh
+        expr: moderation_backlog{status="suspicious"} > on(application) moderation_alert_threshold{rule="suspicious-backlog"}
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] 存疑积压超阈（当前 {{ $value }}）"
+          description: "存疑任务积压持续 5 分钟超阈值（阈值由 Nacos alert.suspicious-backlog-threshold 下发），请扩充人审运力或排查模型疑判率。"
+
+      # ② 在办超时：认领超时回池持续发生 → 审核员认领后离线/遗忘（claim.timeout-minutes 决定回池触发线，改 Nacos 即改告警口径）
+      - alert: ModerationClaimTimeoutRepooled
+        expr: increase(moderation_claim_timeout_repool_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] 近 15 分钟出现认领超时回池 {{ $value }} 单"
+          description: "审核员认领后超时未裁决被 sweeper 回池（回池线=Nacos sweeper.claim-timeout-minutes），持续出现说明在办任务悬死，请关注审核员在线率。"
+
+      # ③ DLQ 堆积：死信兑底链路存量超阈 → 消费端持续故障，需人工介入转人审
+      - alert: ModerationDlqBacklogHigh
+        expr: moderation_dlq_backlog > on(application) moderation_alert_threshold{rule="dlq-backlog"}
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "[{{ $labels.application }}] DLQ 堆积超阈（当前 {{ $value }}）"
+          description: "送审死信存量持续 5 分钟超阈值（阈值=Nacos alert.dlq-backlog-threshold），消费端重试耗尽的消息正堆积，请排查消费故障并人工转人审。"
+
+      # ④ 机审失败率：非 pass 判定占比持续超阈 → 模型/词库质量劣化信号（分母为 0 时结果 NaN 不触发，天然防初启动误报）
+      - alert: ModerationFailRateHigh
+        expr: sum by (application) (rate(moderation_total{verdict!="pass"}[10m])) / sum by (application) (rate(moderation_total[10m])) > on(application) moderation_alert_threshold{rule="moderation-fail-rate"}
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "[{{ $labels.application }}] 机审失败率 {{ $value | humanizePercentage }} 持续超阈"
+          description: "10 分钟窗口内 reject+suspicious 占比超阈值（阈值=Nacos alert.moderation-fail-rate），请检查模型输出/词库变更/内容源质量。"
+
+      # ⑤ 通过率相对基线跌幅：短窗（1h）通过率相对长窗（24h）基线的相对跌幅超阈 →
+      #   prompt/模型/词库变更后判定口径回滑检测（分母为 0 时 NaN 不触发）
+      - alert: ModerationPassRateDropped
+        expr: ((sum by (application) (rate(moderation_total{verdict="pass"}[24h])) / sum by (application) (rate(moderation_total[24h]))) - (sum by (application) (rate(moderation_total{verdict="pass"}[1h])) / sum by (application) (rate(moderation_total[1h])))) / (sum by (application) (rate(moderation_total{verdict="pass"}[24h])) / sum by (application) (rate(moderation_total[24h]))) > on(application) moderation_alert_threshold{rule="pass-rate-drop"}
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] 机审通过率相对基线跌幅 {{ $value | humanizePercentage }}"
+          description: "1h 窗口通过率较 24h 基线相对跌幅超阈值（阈值=Nacos alert.pass-rate-drop-ratio），若近期有模型/prompt/词库变更请评估回滚。"
+
+      # ⑥ 缓存命中率跌落：result 层短窗命中率相对长窗基线的相对跌幅超阈 → 省钱效果劣化
+      #   （缓存失效/版本号频繁变更信号；layer=blacklist 由 file 侧上报，不参与本规则计算）
+      - alert: ModerationCacheHitRateDropped
+        expr: ((sum by (application) (rate(moderation_cache_hit{layer="result"}[24h])) / sum by (application) (rate(moderation_total[24h]))) - (sum by (application) (rate(moderation_cache_hit{layer="result"}[1h])) / sum by (application) (rate(moderation_total[1h])))) / (sum by (application) (rate(moderation_cache_hit{layer="result"}[24h])) / sum by (application) (rate(moderation_total[24h]))) > on(application) moderation_alert_threshold{rule="cache-hit-drop"}
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] 审核缓存命中率相对基线跌幅 {{ $value | humanizePercentage }}"
+          description: "result 层 1h 命中率较 24h 基线相对跌幅超阈值（阈值=Nacos alert.cache-hit-drop-ratio），请检查缓存版本号变更/last-hash 失效是否过频。"

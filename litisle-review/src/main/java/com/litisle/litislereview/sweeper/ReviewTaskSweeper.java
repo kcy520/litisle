@@ -43,6 +43,14 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * 审核任务清扫 sweeper（板块六 6-1，§4.3/§4.2.3）
  *
+ *
+ * ReviewTaskSweeper 是一个 Spring 定时任务组件，每 60 秒执行一轮，负责：
+ * 1.认领超时回池
+ * 2.申诉超时自动维持
+ * 3.审核积压监控指标刷新
+ * 4.待审任务超时补偿重发
+ * 5.它保证审核任务不会因为人工离线、消息丢失、申诉无人处理而永久卡死。
+ *
  * 【四职责合并单入口】间隔 litisle.moderation.sweeper.interval-seconds(60) 外置可调，
  * fixedDelayString 占位符直读（对齐 PunishReconcileSweeper cron 占位符直读惯例）：
  * - 6-1.1 认领超时回池：审核员认领后离线/遗忘导致任务悬死 → CAS 置回待审池重新进入认领视野；
@@ -79,6 +87,12 @@ public class ReviewTaskSweeper {
      *（review:dedup:{provider.code}:{contentHash}），provider 段取当前配置（与消费端
      * adapter @ConditionalOnProperty 同源值=枚举 code），禁拼用户原串 */
     private static final String DEDUP_KEY_FORMAT = "review:dedup:%s:%s";
+
+    /** 积压 Gauge 指标名（三态共用 + status 标签区分；重复字面量收敛为常量防拼写漂移，对齐 ModerationMetrics 惯例） */
+    private static final String METRIC_BACKLOG = "moderation.backlog";
+
+    /** DLQ 死信存量 Gauge 指标名（独立指标，无 status 维度） */
+    private static final String METRIC_DLQ_BACKLOG = "moderation.dlq.backlog";
 
     /** 审核任务 Mapper（6-1.1 回池扫描源 / 6-1.3 三态计数源） */
     private final ReviewTaskMapper reviewTaskMapper;
@@ -128,7 +142,11 @@ public class ReviewTaskSweeper {
     private final AtomicLong sweepRoundCounter = new AtomicLong(0);
 
     /**
-     * 定时清扫入口（fixedDelayString 占位符直读，默认 60s 一轮；四职责顺序执行互不依赖，6-2 分频）
+     * 定时清扫入口（fixedDelayString 占位符直读，默认 60s 一轮；四职责顺序执行互不依赖，6-2 分频
+     *
+     *定时任务主入口，调度所有清扫动作
+     * 作用：定时任务主入口，负责抢锁、按顺序调用四个清扫动作、最后安全释放锁。
+     *
      * <p>互斥锁先行：抢不到说明他实例在扫，本轮直接跳过；finally 中仅当锁仍归属本实例才释放</p>
      */
     @Scheduled(fixedDelayString = "${litisle.moderation.sweeper.interval-seconds:60}",
@@ -175,6 +193,8 @@ public class ReviewTaskSweeper {
      * <p>CAS 条件：where status=2 and assignee=原值——decide 的 CAS（where status=2）天然拦截
      * 回池后原审核员的过期裁决；回池后 claim_time/assignee 清空，任务重新进入公共认领池</p>
      *
+     * 作用：把审核员认领后长时间未裁决的任务，CAS 退回公共待审池。
+     *
      * @param claimTimeoutMinutes 认领超时阈值（分钟）
      * @param batchLimit          单轮批量上限（防全量扫描打满 DB，下轮兜剩余）
      * @return 本轮实际回池任务数
@@ -208,11 +228,21 @@ public class ReviewTaskSweeper {
             }
         }
         // ===== 步骤3：回池属调度行为非裁决，不写 moderation_record（口径见注释） =====
+        // 7-3 告警②数据支撑：回池计数器（Prometheus 渲染 moderation_claim_timeout_repool_total）——
+        // 规则用 increase(...[15m]) > 0 表达「持续出现认领超时」，claim.timeout-minutes 阈值变更
+        // 在 Nacos 改即间接改变告警触发点，无需改规则文件（阈值外置口径）
+        MeterRegistry registry = registryProvider.getIfAvailable();
+        if (registry != null && reclaimed > 0) {
+            registry.counter("moderation.claim.timeout.repool").increment(reclaimed);
+        }
         return reclaimed;
     }
 
     /**
      * 申诉超时自动维持（6-1.2）：扫 appeal.status=0(待裁决) 且 create_time 早于 now-appeal-timeout-days
+     *
+     * 作用：申诉超过 N 天未裁决，按"维持原判"自动处理，并留痕+通知作者。
+     *
      * <p>宁严勿松：超时未裁决按维持原判处理，防内容/处罚态无限悬空；单条完整编排为——
      * ① CAS 置 status=1(维持) where id=? and status=0（affected=0 并发跳过）；
      * ② 同事务写 mod_type=6 留痕（结构对齐 AppealServiceImpl.insertRejudgeRecord，reason=超时自动维持）；
@@ -289,6 +319,8 @@ public class ReviewTaskSweeper {
      * 待审超时补偿重发（6-2）：扫 status=0(待机审) 且 create_time 早于 now-stuck-resubmit-minutes 的任务，
      * 重投对应 submit 事件重新触发机审——兑底「消费端重试耗尽前的消息丢失/队列异常」场景，
      * 任务永不因消息丢失而永久悬死在待审态
+     *
+     * 作用：扫描长时间卡在 status=0 的任务，重新投递 submit 事件触发机审，兜底消息丢失。
      *
      * <p>【双投安全】重复投递由 3-1 步骤4 的 CAS（where status=0）天然去重：后到消费者
      * affected=0 直接 ACK 丢弃，不产生双份审核结论/双份留痕；与 DLQ 转人审（置 status=2）
@@ -391,54 +423,100 @@ public class ReviewTaskSweeper {
 
     /**
      * 积压 Gauge 三态全量刷新 + DLQ 深度（6-1.3）
+     *
+     * 作用：全量统计审核任务三态积压数 + DLQ 死信深度，刷新 Micrometer Gauge 供 Prometheus 抓取。
+     *把当前审核系统的“积压状态”和“死信队列深度”统计出来，刷新到 Micrometer 的 Gauge 指标里，供 Prometheus / Grafana 监控抓取。
+     *ReviewTaskSweeper 是审核系统的“自动兜底守护进程”，负责修复各种超时/悬死/丢失状态，同时顺带把系统健康度暴露给监控系统。
+     * 
+     * 这个 Sweeper 里涉及的那些“异常/悬死/超时”问题，系统到底是怎么修复的？修复的原理和机制是什么？
+     * 所有修复都是“用 CAS + 状态机兜底，把卡死的状态推回正常流转路径”。
+     *
+     *
      * <p>三态口径见类注释：pending(status=0)/suspicious(status=2 且 assignee 空)/
      * claimed(status=2 且 assignee 非空)——认领后任务仍在 claimed 态被监控，不脱离视野；
      * Gauge 惰性注册（ObjectProvider<MeterRegistry> optional 模式，未接 actuator 静默跳过，
      * 对齐 WordlibMetrics 惯例），首轮注册后复用，本轮仅刷新 AtomicLong 值；
      * DLQ 深度经 AmqpAdmin passiveDeclare 队列取 messageCount（admin 缺失时置 -1 表示不可观测）</p>
+     *
+     *
+     * 每轮 Sweeper 执行时，它会：
+     * 1.统计审核任务的三类积压数量
+     * 2.查询 RabbitMQ 死信队列（DLQ）深度
+     * 3.把这些数字写进 Micrometer Gauge
+     * 4.Prometheus 定时来抓这些 Gauge 的值
+     * 5.Grafana 上就能看到实时积压图
      */
     private void refreshBacklogGauges() {
-        // ===== 步骤1：三态计数（status=0 / status=2+assignee null / status=2+assignee 非空） =====
+        // ===== 步骤1：三态计数 —— 给运营/监控提供「审核链路健康度」的三个仪表盘读数 =====
+        // 业务意义：审核链路分三段（机审消费→人审认领→人审裁决），每段堵了症状不同，
+        // 必须分开计量才能定位瓶颈：pending 高=机审消费卡死；suspicious 高=没人认领（人手不足）；
+        // claimed 高=认领了但迟迟不裁决（审核员息或单人占满配额）。
+        // 实现上仅做 COUNT(*) 三连查，无写操作，对清扫主流程零侵入
+        // 态① 待机审积压：status=0（机审待处理/超时回池后仍是 0），反映机审链路吞吐压力
         backlogPending.set(reviewTaskMapper.selectCount(new LambdaQueryWrapper<ReviewTask>()
-                .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.PENDING)));
+                .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.PENDING))); //待审
+        // 态② 人审待认领积压：status=2（人工待审）且 assignee IS NULL（无人认领），
+        // 反映人审队列入口的排队量，是审核员侧「待领取」池的深度
         backlogSuspicious.set(reviewTaskMapper.selectCount(new LambdaQueryWrapper<ReviewTask>()
-                .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.MANUAL_PENDING)
+                .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.MANUAL_PENDING)//人工待审 isNULL
                 .isNull(ReviewTask::getAssignee)));
+        // 态③ 已认领待裁决积压：status=2 且 assignee IS NOT NULL（已认领未裁决），
+        // 认领后任务仍留在监控视野内不脱离（对齐类注释口径：认领不等于出队），
+        // 该值异常偏高通常意味着审核员认领后长期未裁决（可结合 claim 超时回池告警）
         backlogClaimed.set(reviewTaskMapper.selectCount(new LambdaQueryWrapper<ReviewTask>()
-                .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.MANUAL_PENDING)
+                .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.MANUAL_PENDING)//人工待审 NotNULL
                 .isNotNull(ReviewTask::getAssignee)));
-        // ===== 步骤2：DLQ 深度（AmqpAdmin 被动查询取 messageCount；text/image 两条送审 DLQ 求和，
-        // admin 缺失/查询异常置 -1 表示不可观测，不影响核心清扫） =====
+        // ===== 步骤2：DLQ 深度 —— 机审「死信告警」的数据源 =====
+        // 业务意义：DLQ 里出现消息 = 机审消费链路反复失败（模型不可用/MQ 异常），
+        // 任务已脱离正常重试，只能靠人工/补偿扫描捞回；本读数就是 Grafana 死信告警的取数来源。
+        // getIfAvailable 语义（不常见 API 简释）：AmqpAdmin 仅在引入 amqp starter 时才存在，
+        // ObjectProvider 包住可选依赖，有 Bean 返实例、没有返 null 而非启动报错——
+        // 监控埋点是锦上添花，绝不能因未接监控让核心清扫启动失败
         AmqpAdmin admin = amqpAdminProvider.getIfAvailable();
         if (admin == null) {
+            // 没接 RabbitMQ 管理客户端：无法观测，记 -1（告警规则会排除 -1，不会误报）
             dlqBacklog.set(-1);
         } else {
             try {
+                // getQueueInfo 内部走 AMQP passive declare：不创建队列、仅向 broker 回查队列声明信息，
+                // 从返回的 QueueInfo.messageCount 拿到 ready 消息数（不含 unacked）；
+                // text/image 两条送审 DLQ 求和 = 机审链路死信总存量，>0 持续增长即需人工介入
                 long depth = admin.getQueueInfo(MqConstant.QUEUE_MODERATION_TEXT_SUBMIT_DLQ).getMessageCount()
                         + admin.getQueueInfo(MqConstant.QUEUE_MODERATION_IMAGE_SUBMIT_DLQ).getMessageCount();
                 dlqBacklog.set(depth);
             } catch (Exception e) {
+                // 查询异常（如队列未声明/broker 抖动）：仅 error 留痕，本轮置 -1，
+                // 不向上抛——Gauge 刷新失败不能影响核心清扫主流程
                 log.error("DLQ 深度查询失败（本轮置 -1 表示不可观测）", e);
                 dlqBacklog.set(-1);
             }
         }
-        // ===== 步骤3：Gauge 惰性注册（绑定 AtomicLong，同名同标签幂等；未接 actuator 静默跳过） =====
+        // ===== 步骤3：把读数挂到监控暴露端点 —— 供 Prometheus 周期抓取 =====
+        // 业务意义：上面算出的三个 AtomicLong 只是内存数字，必须挂到 MeterRegistry 才会被
+        // /actuator/prometheus 端点吐出、被 Prometheus 抓走画进面板；未接 actuator 时
+        // registry 为 null，跳过暴露但计数照常刷新（以后接了监控无需改代码即恢复）
         MeterRegistry registry = registryProvider.getIfAvailable();
         if (registry == null) {
             return;
         }
-        Gauge.builder("moderation.backlog", backlogPending, AtomicLong::get)
+        // 首轮执行时把「读某个 AtomicLong」这个动作注册成 Gauge，之后每轮只会刷新数值，
+        // 重复注册同名同标签是幂等的不会产生重复指标；三态共用一个指标名+status 标签区分，
+        // Grafana 侧按 status=pending/suspicious/claimed 拆三条曲线
+        Gauge.builder(METRIC_BACKLOG, backlogPending, AtomicLong::get)
                 .tag("status", "pending").description("审核任务积压（待机审）").register(registry);
-        Gauge.builder("moderation.backlog", backlogSuspicious, AtomicLong::get)
+        Gauge.builder(METRIC_BACKLOG, backlogSuspicious, AtomicLong::get)
                 .tag("status", "suspicious").description("审核任务积压（人审待认领）").register(registry);
-        Gauge.builder("moderation.backlog", backlogClaimed, AtomicLong::get)
+        Gauge.builder(METRIC_BACKLOG, backlogClaimed, AtomicLong::get)
                 .tag("status", "claimed").description("审核任务积压（已认领待裁决）").register(registry);
-        Gauge.builder("moderation.dlq.backlog", dlqBacklog, AtomicLong::get)
+        // DLQ 存量为独立指标（无 status 维度）；抓取值为 -1 时代表不可观测，可在告警规则里排除
+        Gauge.builder(METRIC_DLQ_BACKLOG, dlqBacklog, AtomicLong::get)
                 .description("机审送审 DLQ 死信存量").register(registry);
     }
 
     /**
      * 释放互斥锁（Lua 比对 token 防误删他实例锁；异常仅 warn 留痕由锁 TTL 自愈）
+     *
+     * 作用：比对 token 后删除 Redis 互斥锁，防止误删其他实例的锁。
      *
      * @param token 本实例锁 token
      */
