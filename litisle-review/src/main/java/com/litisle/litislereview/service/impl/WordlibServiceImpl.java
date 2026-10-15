@@ -1,6 +1,7 @@
 package com.litisle.litislereview.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litislereview.dfa.WordlibMetrics;
@@ -152,18 +153,36 @@ public class WordlibServiceImpl implements WordlibService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteWord(Long wordId, Long operatorId) {
+        // 1. 查询
         SensitiveWordLibrary origin = sensitiveWordLibraryMapper.selectById(wordId);
+        //2.存在性校验
         if (origin == null) {
             throw new BizException(ErrorCode.WORD_NOT_FOUND);
         }
+        // 3. 物理删除
         sensitiveWordLibraryMapper.deleteById(wordId);
+        // 4. 版本+1 + 广播
         wordlibVersionService.bumpAndBroadcast(origin.getScene(), operatorId);
     }
 
-    /** 按场景+词内容删除敏感词：TODO scene+word 精确匹配定位 → 不存在抛 WORD_NOT_FOUND → 物理删 + version+1 同事务 + Pub */
+    /** 按场景+词内容删除敏感词：*/
     @Override
     public void deleteWordByContent(WordSceneEnum scene, String word, Long operatorId) {
-        throw new UnsupportedOperationException("deleteWordByContent 待实现");
+        // 1. 查询
+        SensitiveWordLibrary origin = sensitiveWordLibraryMapper.selectOne(
+                Wrappers.<SensitiveWordLibrary>lambdaQuery()
+                        .eq(SensitiveWordLibrary::getScene, scene)
+                        .eq(SensitiveWordLibrary::getWord, word)
+                        .last("limit 1")
+        );
+        //2.存在性校验
+        if (origin == null) {
+            throw new BizException(ErrorCode.WORD_NOT_FOUND);
+        }
+        // 3. 物理删除
+        sensitiveWordLibraryMapper.deleteById(origin.getId());
+        // 4. 版本+1 + 广播
+        wordlibVersionService.bumpAndBroadcast(origin.getScene(), operatorId);
     }
 
     /**
@@ -220,6 +239,7 @@ public class WordlibServiceImpl implements WordlibService {
                 scene, safeWord, safeReason, reporterId
         );
     }
+
 
     /**
      * 词库导入（§2.12 安全口径）：CSV 单列 UTF-8（扩展名白名单 .csv/.txt，≤2MB）；

@@ -22,6 +22,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class WordlibMetrics {
 
+    /** wordlib_misreport 指标名（Prometheus 渲染 wordlib_misreport_total） */
+    private static final String METRIC_MISREPORT = "wordlib.misreport";
+
+    /** 误报计数的 scene 标签 key */
+    private static final String TAG_SCENE = "scene";
+
     private final ObjectProvider<MeterRegistry> registryProvider;
 
     public WordlibMetrics(ObjectProvider<MeterRegistry> registryProvider) {
@@ -38,8 +44,8 @@ public class WordlibMetrics {
             return;
         }
         // Counter 按 scene 懒注册复用（Micrometer 同名同标签自动幂等）；禁按 word 加标签防基数爆炸
-        Counter.builder("wordlib.misreport")
-                .tag("scene", scene.getCode())
+        Counter.builder(METRIC_MISREPORT)
+                .tag(TAG_SCENE, scene.getCode())
                 .register(registry)
                 .increment();
     }

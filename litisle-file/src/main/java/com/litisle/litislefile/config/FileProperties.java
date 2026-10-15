@@ -71,9 +71,11 @@ public class FileProperties {
     public static class Upload {
         /** 图片大小上限（字节），默认 10MB */
         private long maxImageSize = 10485760L;
-        /** per-user 总容量上限（字节），默认 200MB；超限抛 FILE_QUOTA_EXCEEDED */
+        /** per-user 配额校验开关（false 时跳过 checkQuota，不执行聚合查询，不限容量/数量） */
+        private boolean quotaEnabled = true;
+        /** per-user 总容量上限（字节），默认 200MB；超限抛 FILE_QUOTA_EXCEEDED（仅 quotaEnabled=true 时生效） */
         private long maxTotalSize = 209715200L;
-        /** per-user 文件数上限，默认 200；超限抛 FILE_QUOTA_EXCEEDED */
+        /** per-user 文件数上限，默认 200；超限抛 FILE_QUOTA_EXCEEDED（仅 quotaEnabled=true 时生效） */
         private long maxFileCount = 200L;
     }
 

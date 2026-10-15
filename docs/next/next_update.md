@@ -15,27 +15,8 @@
 注意**：**\
 **业务代码中LLM审核部分目前留下注释预留占位即可，暂不实现**
 
-### 板块四：发布侧文本链路接入（§4.2.1 ①①′② / §4.5.3）——已全部转移（2026-10-11）
-
-> 板块四勾选清单与实施细案（4-1～4-7）已归档至 `docs/archive/review-implemention-records.md`；入口嵌入挂起项已移入 `docs/next/Temporarily_not_implemented.md`；进度勾选看 status.md 板块四。
-
-### 板块五：申诉与处罚联动闭环（§4.2.3 / §4.5.2）——已全部归档（2026-10-13）
-
-> 板块五勾选清单（5-1~5-5 全部 [x]，含落地注记）已归档至 `docs/archive/review-implemention-records.md`；进度勾选看 status.md 板块五。
-
-### 板块六：Sweeper 基建 + quarantine 清理任务（§4.3 / §4.2.2）——已全部归档（2026-10-13）
-
-> 板块六勾选清单（6-1~6-4 全部 [x]，含 2026-10-12 落地注记）已归档至 `docs/archive/review-implemention-records.md`；进度勾选看 status.md 板块六。
-
-### 板块七：观测与告警收尾（§4.8 / §4.7）——已全部归档（2026-10-13）
-
-> 板块七勾选清单（7-1~7-4 全部 [x]，含 2026-10-12 落地注记）已归档至 `docs/archive/review-implemention-records.md`；进度勾选看 status.md 板块七。
-
-### 审核模块暂不做（⏸ 已移入 `Temporarily_not_implemented.md` 第三节，2026-10-11）
-
-> 云 API 生产适配器 / 图文组合审核·OCR 多模态盲区 / 撤销改判公示 / 视频·音频审核 / quarantine sweeper 预留条目均已移入 `docs/next/Temporarily_not_implemented.md` 第三节（触发条件随附），本节不再重复维护。
-
-### 四、待办
+#
+# 四、待办
 
 #### 代码修改类
 
@@ -68,7 +49,7 @@
 
 ***
 
-## 待办决策定稿（2026-09-28，已定稿并完成）
+## 待办决策定稿-暂不实现（2026-09-28，已定稿并完成）
 
 > 全量决策记录已压缩归档至
 > [archive/20260929-implementation-records.md](archive/20260929-implementation-records.md) §二。
@@ -85,7 +66,7 @@
 - [ ] **file模块-Filer 元数据切 MySQL**：当前 leveldb 与数据同盘，盘坏 = 目录全丢（比丢文件更致命）；
   复用已有 MySQL 实例。开发期 leveldb 无所谓。
 
-## 审核模块剩余待办 · 实施细案（2026-10-08 定稿，可直接照此写码，无需回查 Review 计划文档）
+## 审核模块剩余待办 · 暂不实现（2026-10-08 定稿，可直接照此写码，无需回查 Review 计划文档）
 
 > **前置阻塞**：litisle-ai chat 端点（POST /api/feign/ai/chat，OpenAI 兼容转发）未实现——板块三 3-1 联调前必须落地（base-url/api-key/model 走 Nacos 外置，禁提交密钥；超时对齐 feign.client.config.litisle-ai.read-timeout）。业务代码中 LLM 审核部分留注释预留占位即可（用户决策）。
 > **通用纪律（所有条目默认适用，后文不再重复）**：
@@ -95,24 +76,6 @@
 > ④ 指标埋点 ObjectProvider<MeterRegistry> optional 注入，未接入不影响核心功能。
 > ⑤ review 不跨库直写业务表，业务态回写一律 result 事件 + 业务方 CAS；跨库回查走 litisle-api 契约，fallbackFactory fail-fast（回查失败不 ACK 进延迟重试，禁静默吞错）。
 > ⑥ 缓存/黑名单/last-hash TTL 一律 ±10% 抖动（防同批内容集体过期雪崩）。
-
-
-> 板块四 4-1～4-7 实施细案（含 4-3 免审 last-hash、4-5 preview-check）已归档至 `docs/archive/review-implemention-records.md`；入口嵌入挂起项见 `Temporarily_not_implemented.md` 第二节。板块五/六/七实施细案均已归档至 `docs/archive/review-implemention-records.md`。
-
-### 板块五：申诉与处罚联动闭环（落位：litisle-review workflow 包 + litisle-user / litisle-auth 消费端）——细案已归档（2026-10-13）
-
-> 板块五实施细案（5-1～5-5，含步骤、注意事项与落地注记）已归档至 `docs/archive/review-implemention-records.md`。
-
-
-
-### 板块六：Sweeper 基建 + quarantine 清理（落位：litisle-review workflow 包 ReviewTaskSweeper + cleanup 包）——细案已归档（2026-10-13）
-
-> 板块六实施细案（6-1～6-4，含步骤与注意事项）已归档至 `docs/archive/review-implemention-records.md`。
-
-### 板块七：观测与告警收尾（§4.8/§4.7）
-
-> 板块七实施细案（7-1～7-4，含步骤与 2026-10-12 落地注记）已归档至 `docs/archive/review-implemention-records.md`。
-
 
 
 ### 完成后动作

@@ -1,6 +1,6 @@
 # litisle-file 文件模块架构文档
 
-> 版本：v1.2（2026-10-08 按当前实现对齐）
+> 版本：v1.3（2026-10-14 按当前实现对齐：补 deleteQuarantined 契约、batch/download 限流明细、public-url-base 配置、申诉结果消费链路）
 >
 > 关联文档：[Design-Document.md](https://tencent.yuanbao/Design-Document.md) §2.1.3 / §2.7 · [Function-Document.md](https://tencent.yuanbao/Function-Document.md) §3 · [Sql-Document.md](https://tencent.yuanbao/Sql-Document.md) §八
 >
@@ -25,7 +25,8 @@ Master×3 (Raft HA) ← Volume Server×3 ← Filer×1 (S3 API :8333) ← litisle
 
 - **Master**：3 节点 Raft，管理卷映射，保证 HA
 - **Volume Server**：实际存储小文件，按业务 collection 划分（`avatar`/`cover`/`article`/`license`），副本数 `replication=001`
-- **Filer**：提供 S3 兼容 API + 路径语义，litisle-file 只对接 Filer
+- **Filer**：提供 S3 兼容 API + 路径语义，litisle-file 只对接 Filer；
+  SDK 写操作（上传/删除/预签名）走 S3 网关 :8333，公开直链走 Filer HTTP :8888（`{public-url-base}/{bucket}/{path}`，基址须含 `/buckets` 前缀）
 
 ### 1.2 代码结构
 
@@ -85,11 +86,10 @@ AlignEnum          // LEFT(1) / LEFT_CENTER(2) / CENTER(3) / RIGHT_CENTER(4) / R
 ```
 客户端 → FileUploadController.upload(bizType, file)
 
-1. 校验：大小 ≤ max-image-size、MIME 白名单
-2. 计算 SHA256 → 查 file_meta
-   ├─ 命中 → 返回已有 fileId（秒传，不落 SeaweedFS）
-   └─ 未命中 → SeaweedFsClient.upload(collection, path, bytes)
-   → 写 file_meta（fileId/sha256/mime/size/宽高/access）
+1. 校验：大小 ≤ max-image-size、MIME 白名单 + 魔数；审核前置闸门（黑名单 `review:img-blacklist:{sha256}` 命中拒传 / 结果缓存 PASS 免审直落）
+2. 流式计算 SHA256 → 判重查询
+   ├─ 命中 → 返回已有 fileId（秒传，不落 SeaweedFS、不占配额）
+   └─ 未命中 → 分布式锁内写 file_meta 占位(status=0) → 解锁 → 整份 put（ChecksumAlgorithm.SHA256 存储侧校验）→ status=1
 3. 返回 FileUploadVO { fileId, url, sha256, deduplicated }
 ```
 
@@ -122,7 +122,7 @@ AlignEnum          // LEFT(1) / LEFT_CENTER(2) / CENTER(3) / RIGHT_CENTER(4) / R
 | POST   | `/{fileId}/thumbnail` | 生成/获取缩略图          | path：fileId，可选 width/height        | `Result<ThumbnailVO>`                        |
 | GET/HEAD | `/{fileId}/download` | 服务端流式代理下载（支持 Range 断点续传） | path：fileId；可选 Range/If-Range | 200 全量 / 206 部分内容 / 416；PRIVATE 需 owner/ADMIN，PUBLIC 登录即可 |
 
-**限流配置（均 @RateLimiter(keyType=USER)，叠加全站 QPS 拦截器）**：upload 60s/30、thumbnail 60s/120、presign 60s/60、delete 60s/30；全站 `/api/file/**` 1s/200（阈值外置 `litisle.file.limit.global-qps-max-count`）。
+**限流配置（均 @RateLimiter(keyType=USER)，叠加全站 QPS 拦截器）**：upload 60s/30、upload/batch 60s/5、download 60s/120、thumbnail 60s/120、presign 60s/60、delete 60s/30；全站 `/api/file/**` 1s/200（阈值外置 `litisle.file.limit.global-qps-max-count`）。
 
 **VO 摘要**：
 
@@ -167,6 +167,7 @@ void delete(String fileId, Long operatorId);                    // 解绑调用�
 // 审核联动域 FileModerationService
 void quarantine(String fileId);                                 // 违规图隔离（REJECT）
 void unquarantine(String fileId);                               // 隔离恢复（申诉改判 PASS）
+void deleteQuarantined(String fileId);                          // 隔离图到期删除（review 侧 QuarantineSweeper 委托；前缀校验+删本体/缩略图+软删，幂等）
 void updateSafeFlag(String fileId, SafeFlagEnum safeFlag);      // 审核结果回写
 Map<String, Integer> batchGetSafeFlags(List<String> fileIds);   // 批量读 safe_flag
 FileContentDTO getInternalContent(String fileId);               // 机审取图（不过 safe_flag 闸口）
@@ -234,11 +235,12 @@ getMetaOrThrow / buildPublicUrl                                 // 四域共用�
 
 | 配置项                                            | 默认值                  | 说明                         |
 | ------------------------------------------------- | ----------------------- | ---------------------------- |
-| `litisle.file.seaweedfs.endpoint`                 | `http://localhost:8333` | Filer S3 网关地址            |
+| `litisle.file.seaweedfs.endpoint`                 | `http://localhost:8333` | Filer S3 网关地址（SDK 写操作） |
+| `litisle.file.seaweedfs.public-url-base`          | `http://localhost:8888/buckets` | 公开直链基址（Filer HTTP，须含 /buckets；接 CDN 后改 CDN 域名） |
 | `litisle.file.seaweedfs.access-key / secret-key`  | —                       | S3 凭证，生产走环境变量      |
 | `litisle.file.seaweedfs.presign-expire-minutes`   | 30                      | 预签名 URL 有效期            |
 | `litisle.file.upload.max-image-size`              | 10485760                | 单文件大小上限（10MB）       |
-| `litisle.file.upload.max-total-size / max-file-count` | — / —               | per-user 存储配额（总容量/文件数） |
+| `litisle.file.upload.max-total-size / max-file-count` | 209715200 / 200     | per-user 存储配额（总容量 200MB / 文件数 200） |
 | `litisle.file.executor.*`                         | —                       | fileIoExecutor 线程池参数 + async-timeout-seconds(默认600s) |
 | `litisle.file.limit.global-qps-max-count`         | 200                     | /api/file/** 全站 QPS 上限   |
 | `litisle.rate-limit.fallback.*`                   | enabled:true / cooldown:5 / instance-count:1 | Redis 故障降级本地兑底（common-redis RedisGuard） |
@@ -282,4 +284,4 @@ getMetaOrThrow / buildPublicUrl                                 // 四域共用�
 8. **线程隔离**：下载走 fileIoExecutor（CallerRunsPolicy 回压）+ configureAsyncSupport；上传保持同步（multipart/事务语义，见 FileUploadServiceImpl 注释）
 9. **上传完整性**：SDK ChecksumAlgorithm.SHA256 或显式下发摘要，SeaweedFS 网关侧校验（BadDigest 拒写）
 10. **副本策略**：Volume `replication=001`（单副本），重要 collection 可按需调高副本数
-11. **审核联动（已落地）**：safe_flag 四态 default-deny（0 违规/1 正常/2 待检/3 可疑）；上传前置闸门（黑名单 `review:img-blacklist:{sha256}`、结果缓存 `review:img-result:{provider}:{modelVersion}:{sha256}`）→ 未命中置 2 并生产 `moderation.image.submit`；`ModerationResultListener` 消费结果回写（REJECT→quarantine/0、PASS→1、SUSPICIOUS→3）；读类闸口按 access 分层（详见 file-index.md §十一）
+11. **审核联动（已落地）**：safe_flag 四态 default-deny（0 违规/1 正常/2 待检/3 可疑）；上传前置闸门（黑名单 `review:img-blacklist:{sha256}`、结果缓存 `review:img-result:{provider}:{modelVersion}:{sha256}`）→ 未命中置 2 并生产 `moderation.image.submit`；`ModerationResultListener` 消费结果回写（moderation.result：REJECT→quarantine/0、PASS→1、SUSPICIOUS→3；moderation.appeal.result：改判 PASS→unquarantine/1）；隔离图到期删除经 `deleteQuarantined` 契约由 review 侧 QuarantineSweeper 保留期收口；读类闸口按 access 分层（详见 file-index.md §十一）

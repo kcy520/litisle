@@ -10,7 +10,7 @@
 | 项 | 值 |
 |---|---|
 | 服务名 / 端口 | `litisle-file` / `8083`（application.yml） |
-| 定位 | 独立微服务，封装 SeaweedFS S3（Filer :8333），只管**文件本体 + 元数据** |
+| 定位 | 独立微服务，封装 SeaweedFS S3（SDK 走 S3 网关 :8333，公开直链走 Filer :8888 /buckets），只管**文件本体 + 元数据** |
 | 库 | `litisle_file`（`file_meta` / `file_ref`） |
 | 关键依赖 | spring-boot-starter-amqp、common-redis（限流/锁）、common-mq（ACK/幂等）、litisle-api（契约）、AWS SDK v2（S3） |
 | 不负责 | 内容审核判定（DFA/机审在 review）、业务权限判定（调用方决定） |
@@ -73,14 +73,14 @@ REST 层已按业务域拆分：上表端点分别落在 FileUploadController / 
 - ✅ `POST /{fileId}/quarantine` · `/unquarantine` → `Result<Void>`（违规图隔离/恢复，fail-fast）
 - ✅ `POST /batch-safe-flags` → `Result<Map<String,Integer>>`（读，静默空 Map，缺失=未知态）
 - ✅ `GET /{fileId}/content` → `Result<FileContentDTO>`（机审取图唯一入口，不过 safe_flag 闸口，fail-fast）
-- 🆕 `deleteQuarantined(fileId)`（quarantine sweeper 用，见 next_update.md §6-3，尚未落地）
+- ✅ `POST /{fileId}/delete-quarantined` → `Result<Void>`（隔离图到期删除：review 侧 QuarantineSweeper 保留期收口委托；前缀校验防误删 + 删本体/缩略图 + 软删，幂等）
 
 ## 六、Service 能力（按业务域拆分，原 `FileService`/`FileServiceImpl` 整体注释保留）
 
 - `FileUploadService`（FileUploadServiceImpl）：`upload` / `uploadBatch`
 - `FileAccessService`（FileAccessServiceImpl）：`getUrl` / `batchGetUrls` / `download` / `presign` / `getMeta` / `getInternalMeta` / `getThumbnail`
 - `FileManageService`（FileManageServiceImpl）：`bindRef` / `unbindRef` / `delete`
-- `FileModerationService`（FileModerationServiceImpl）：`quarantine` / `unquarantine` / `updateSafeFlag` / `batchGetSafeFlags` / `getInternalContent`
+- `FileModerationService`（FileModerationServiceImpl）：`quarantine` / `unquarantine` / `deleteQuarantined` / `updateSafeFlag` / `batchGetSafeFlags` / `getInternalContent`
 - 跨域公共方法收敛至 `FileMetaSupport`：`getMetaOrThrow` / `buildPublicUrl`
 
 ## 七、数据模型
@@ -155,6 +155,7 @@ REST 层已按业务域拆分：上表端点分别落在 FileUploadController / 
 | 改 safe_flag 闸口 | `FileModerationServiceImpl`（safe_flag 回写）+ `FileAccessServiceImpl`（占位图分流）+ `SafeFlagEnum` |
 | 改审核 MQ 拓扑 | `ModerationMqConfig` + `ModerationResultListener` |
 | 改对账/清理策略 | `FileReconcileTask` + `FileProperties.ReconcileTask` |
+| 改违规图隔离保留期/到期删除 | review 侧 `QuarantineSweeper`（§6-3）+ file 侧 `FileModerationServiceImpl.deleteQuarantined`；`quarantine/` 前缀 SSOT 同 `FileProperties.ReconcileTask.quarantinePrefix` |
 | 跨服务调用契约 | `litisle-api` 的 `FileClient`（Provider: `FileFeignProviderController`） |
 | 改跨域元数据公共方法 | `service/support/FileMetaSupport` |
 | 换存储后端 | `SeaweedFsClient`（唯一接触 AWS SDK 的门面） |

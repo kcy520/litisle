@@ -133,6 +133,18 @@ public class FileUploadServiceImpl implements FileUploadService {
      */
     @Override
     public FileUploadVO upload(MultipartFile file, StorageBizTypeEnum bizType, Long ownerId) {
+        /**
+         * 此处为什么要秒传？
+         *
+         * ## 去掉锁外查，能省到什么？
+         * 省一次`idx_dedup` 索引点查—— 微秒级，且每次上传本来就要查 （您并没有省掉它，只是把位置从锁外挪到锁内）。非热点场景下锁无竞争，tryLock 一次成功，锁内查和锁外查的实际体验完全一样。 收益 ≈ 0 。
+         * ## 去掉锁外查，会失去什么？
+         * 失去的是尾部场景保护。而且头像没您想的那么“冷”：
+         * 1. 预设头像/封面是真实热点。 平台通常提供一套预设头像（用户从图库选），如果实现方式是“用户选择→前端把该图作为文件走上传接口”， 成千上万用户上传的是同一张图 ——同一 sha256 全局去重，这正是最典型的秒传热点。
+         * 2. ARTICLE_IMG 同为 PUBLIC 全局去重。 表情包、素材图被多篇或多用户文章引用同一张图，撞 sha256 是真实会发生的。
+         * 3. 恶意/异常流量。 攻击者或脚本批量上传同一文件时，锁外查让这些请求全部走秒传路径直接返回， 反而消化了攻击流量 ；没有它，这些请求全部涌向 tryLock → 大面积“系统繁忙”报错。
+         */
+
         // 步骤1：校验 size ≤ maxImageSize + MIME 白名单（按 bizType 区分，LICENSE 放开授权文件类型）
         validateUpload(file, bizType);
 
@@ -144,21 +156,28 @@ public class FileUploadServiceImpl implements FileUploadService {
         // 步骤2.5：审核前置检查（仅公开面图片：AVATAR/COVER/ARTICLE_IMG 上传即预审；LICENSE 私有面豁免机审落 1）
         // ① REJECT 拒传黑名单：命中直接拒传，不落库不进 MQ（同图重传不再重烧审核费）
         // ② 审核结果缓存：命中终局结论直接复用（PASS→1 免审直落 / REJECT→拒传），跳过 MQ
-        boolean publicFace = resolveAccess(bizType) == AccessLevelEnum.PUBLIC;
-        SafeFlagEnum initialSafeFlag = SafeFlagEnum.NORMAL;
+        boolean publicFace = resolveAccess(bizType) == AccessLevelEnum.PUBLIC;//public:公开
+        SafeFlagEnum initialSafeFlag = SafeFlagEnum.NORMAL;//normal:正常：检测通过
         if (publicFace) {
+            //查询redis，是否命中黑名单缓存  命中黑名单则抛出异常【redis查询黑名单缓存】
             checkRejectBlacklist(sha256);
+            //查询是否已有此对象的审核结论缓存  如果命中且审核未通过则抛出异常【redis查询审核结论的缓存】
             initialSafeFlag = checkAuditCache(sha256);
         }
 
-        // 步骤3：无锁快查判重（走 idx_dedup）；PRIVATE/LICENSE 追加 owner_id 隔离，防跨用户秒传探测泄露隐私
+        // 步骤3：无锁快查判重（走 idx_dedup）；PRIVATE/LICENSE 追加 owner_id 隔离，防跨用户秒传探测泄露隐私【数据库秒传查重】
+            //查询第1次，锁外查询  （锁外查询和拿锁之间存在时间窗口）
         FileMeta exist = selectByDedupKey(sha256, size, bizType, ownerId);
         if (exist != null) {
             log.info("秒传命中，fileId={}，bizType={}，size={}", exist.getFileId(), bizType, size);
             return buildUploadVO(exist, true);
         }
+//        查询之后马上就是拿锁了，为什么不直接在锁内查询，丢弃锁外查询？
+//        丢弃锁外查 = 把秒传读路径强行塞进写锁 + tryLock 快速失败下热点必报错。
+//        这两条任意一条都足以否决这个“简化”。DCL（双重检查锁）在这里的形态是标准且最小化的： 读无锁、写互斥、写前双检
 
         // 步骤4：Redisson 分布式锁（leaseTime=5s 自动释放，无看门狗续期；临界区仅查库+写库足够）
+            //tryLock 快速失败，竞争=报错
         boolean locked = distributedLock.tryLock(DEDUP_LOCK_KEY_PREFIX + sha256, 5, TimeUnit.SECONDS);
         if (!locked) {
             log.warn("秒传判重锁竞争失败，sha256={}，bizType={}", sha256, bizType);
@@ -166,20 +185,24 @@ public class FileUploadServiceImpl implements FileUploadService {
         }
         FileMeta meta;
         try {
-            // 拿锁后双重检查（防等锁期间其他线程已写入同一摘要文件）
+            // 拿锁后双重检查（防等锁期间其他线程已写入同一摘要文件） 【再次查询数据库，检查其他线程是否已经插入此文件】
+                //查询第2次，锁内查询  （锁外查询和拿锁之间存在时间窗口）
             exist = selectByDedupKey(sha256, size, bizType, ownerId);
             if (exist != null) {
                 log.info("锁内双检秒传命中，fileId={}，bizType={}，size={}", exist.getFileId(), bizType, size);
                 return buildUploadVO(exist, true);
             }
 
-            // 步骤4.5：per-user 存储配额校验（软限；秒传已在上方 return，不占新增配额）
+            // 步骤4.5：per-user 存储配额校验（软限；秒传已在上方 return，不占新增配额），可配置关闭配额校验
             checkQuota(ownerId, size);
 
             // 步骤5：锁内临界区（只包「查 DB + 写 DB」，不包 IO）
             // fileId=UUID 无连字符，path={yyyy/MM/dd}/{fileId}.{ext}，status=0 占位
+                //生成fileId
             String fileId = UUID.randomUUID().toString().replace("-", "");
+                //进行seaweedfs的bucket校验
             String bucket = resolveBucket(bizType);
+                //组合文件存储path
             String path = LocalDate.now().format(PATH_DATE_FORMAT)
                     + "/" + fileId + "." + resolveExt(file.getOriginalFilename());
 
@@ -216,7 +239,8 @@ public class FileUploadServiceImpl implements FileUploadService {
 //        步骤7  ── 锁外 ── put 到 SeaweedFS（真正写存储）
 //        步骤8  解析图片宽高
 //        步骤9  ── 锁外 ── update DB（status=1 完成）
-//        步骤10 返回 VO
+//        步骤10 异步发送文件审核事件，设置属性为待检查
+//        步骤11 返回 VO
         //为什么不在步骤5锁内第一次 insert 的时候就把宽高一起解析了，而是放到锁外单独 update 一次？
         //因为解析宽高需要拿到文件的完整字节（bytes），而 bytes 是在锁外才通过 file.getBytes() 拿到的。
         //为什么不把解析宽高放在锁内？
@@ -234,6 +258,7 @@ public class FileUploadServiceImpl implements FileUploadService {
         } catch (IOException e) {
             throw new BizException(ErrorCode.FILE_STORAGE_UNAVAILABLE, e);
         }
+        //上传seaweedfs
         seaweedFsClient.put(meta.getBucket(), meta.getPath(), bytes, mime);
         log.info("文件上传成功（锁外 put 完成），fileId={}，bucket={}，path={}，size={}",
                 meta.getFileId(), meta.getBucket(), meta.getPath(), size);
@@ -247,11 +272,13 @@ public class FileUploadServiceImpl implements FileUploadService {
         if (wh != null) {
             update.setWidth(wh[0]).setHeight(wh[1]);
         }
+        //解析宽高，更新刚才插入的文件(为什么不在插入时解析？原因如上注释所述)
         fileMetaMapper.updateById(update);
 
         // 步骤8：审核埋点（image.submit 异步送审）：仅缓存未命中（safe_flag=2 占位）时发布；
         // 发布失败仅记 error 不回滚上传——safe_flag 停留 2（default-deny 闸口不放行，宁严勿松）
-        if (initialSafeFlag == SafeFlagEnum.PENDING) {
+        //异步发布审核事件
+        if (initialSafeFlag == SafeFlagEnum.PENDING) {//preding:待检查
             publishImageSubmitEvent(meta, sha256);
         }
 
@@ -341,6 +368,11 @@ public class FileUploadServiceImpl implements FileUploadService {
      * 最坏可超限约 1×单文件上限（已有 30 次/分钟限流兜底，超限量有界）。
      */
     private void checkQuota(Long ownerId, long incomingSize) {
+        // 配额总开关（quota-enabled=false 时彻底关闭限制，跳过聚合查询直接放行） 配置是否开启文件容量/数量校验
+        if (!fileProperties.getUpload().isQuotaEnabled()) {
+            return;
+        }
+
         // 查询当前用户已使用的存储信息（1次查询，返回总量+总数）
         FileQuotaUsage usage = fileMetaMapper.selectQuotaUsage(ownerId);
 
@@ -441,10 +473,12 @@ public class FileUploadServiceImpl implements FileUploadService {
     private void checkRejectBlacklist(String sha256) {
         String key = String.format(ModerationConstant.IMG_REJECT_BLACKLIST_KEY, sha256);
         if (redisUtil.hasKey(key)) {
-            // 7-1：moderation_cache_hit{layer=blacklist} 拒传黑名单命中计数（review 侧审核结果缓存与 file 侧拒传黑名单共用同一指标名，layer 标签区分）
+            // 7-1：moderation_cache_hit{layer=blacklist} 拒传黑名单命中计数（指标名/标签与 review 侧同源契约收口 ModerationConstant，layer 标签区分）
             MeterRegistry registry = meterRegistryProvider.getIfAvailable();
             if (registry != null) {
-                Counter.builder("moderation.cache.hit").tag("layer", "blacklist").register(registry).increment();
+                Counter.builder(ModerationConstant.METRIC_MODERATION_CACHE_HIT)
+                        .tag(ModerationConstant.METRIC_TAG_LAYER, ModerationConstant.METRIC_LAYER_BLACKLIST)
+                        .register(registry).increment();
             }
             log.warn("上传命中审核黑名单，拒绝上传，sha256={}", sha256);
             throw new BizException(ErrorCode.FILE_UPLOAD_REJECTED);

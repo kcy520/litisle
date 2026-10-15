@@ -157,4 +157,18 @@ public class ModerationConstant {
      * TTL 口径随 message 模块落地与 conversation 生命周期对齐，当前不设 TTL（会话级累计）
      */
     public static final String STRANGER_QUOTA_KEY = "biz:message:stranger-quota:%s";
+
+    // ==================== 跨服务埋点契约（review 写 / file 写同一指标名，双方禁止各自拼字符串） ====================
+
+    /** moderation_cache_hit 指标名（review 侧审核结果缓存命中 + file 侧拒传黑名单命中共用，layer 标签区分） */
+    public static final String METRIC_MODERATION_CACHE_HIT = "moderation.cache.hit";
+
+    /** moderation_cache_hit 的 layer 标签 key */
+    public static final String METRIC_TAG_LAYER = "layer";
+
+    /** layer 标签-审核结果缓存命中（review 侧缓存查重复用终局结论时计数） */
+    public static final String METRIC_LAYER_RESULT = "result";
+
+    /** layer 标签-拒传黑名单命中（file 侧上传闸门命中黑名单拒传时计数） */
+    public static final String METRIC_LAYER_BLACKLIST = "blacklist";
 }

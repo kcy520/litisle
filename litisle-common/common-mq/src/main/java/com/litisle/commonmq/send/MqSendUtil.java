@@ -1,5 +1,6 @@
 package com.litisle.commonmq.send;
 
+import com.litisle.commoncore.constant.CommonConstant;
 import com.litisle.commoncore.constant.HeaderConstant;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
@@ -44,7 +45,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 public class MqSendUtil {
 
     /** MDC key：与 common-security TraceIdFilter / FeignAuthInterceptor 的 traceId 写入 key 保持一致（SSOT 为日志 pattern %X{traceId}） */
-    public static final String TRACE_ID_MDC_KEY = "traceId";
+    public static final String TRACE_ID_MDC_KEY = CommonConstant.MDC_TRACE_ID_KEY;
 
     /** sendCritical 必达语义的静默重试次数（瞬时网络抖动重试一次，低成本提升必达概率，不引入异步任务框架） */
     private static final int CRITICAL_MAX_RETRY = 1;
@@ -151,9 +152,11 @@ public class MqSendUtil {
 
     /**
      * 延迟重投发送主体：convertAndSend + traceId/x-delay/retryCount 注入消息 Header，异常向调用方上抛
+     *
      */
     private void doSendDelayed(String exchange, String routingKey, Object event, String traceId,
                                long delayMs, Integer retryCount) {
+        // convertAndSend:把 Java 对象转成消息，然后发送到 RabbitMQ。
         rabbitTemplate.convertAndSend(exchange, routingKey, event, message -> {
             // traceId 与普通发送同口径：跨 MQ 链路追踪不因重投断裂
             if (traceId != null && !traceId.isBlank()) {
@@ -173,6 +176,9 @@ public class MqSendUtil {
     /**
      * 发送主体（两档语义共用收口）：convertAndSend + traceId 注入消息 Header。
      * 异常向调用方上抛，由 send（吞掉记日志）或 sendCritical（重试后抛出）决定口径
+     *
+     * 在消息正式发送到 RabbitMQ 之前，往消息的 Header 里写入 traceId（用于全链路追踪），并且保证 不写 null / 空串。
+     *
      */
     private void doSend(String exchange, String routingKey, Object event, String traceId) {
         // 步骤2：convertAndSend + MessagePostProcessor 后置处理器。

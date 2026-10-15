@@ -75,7 +75,7 @@ MessageRecallGate.recall / StrangerQuotaGate.tryAcquire 契约已备；发送链
 
 ## 三、审核模块预留项（暂不实现/暂不做，触发条件随附）
 
-- [ ] review 侧 quarantine sweeper——设计口径已定稿（Review-Architecture-Development-Plan.md §4.2.2）：扫描超期 REJECT 图 → 按图反查 appeal（status=0 待裁决顺延）→ FileClient.deleteQuarantined 经 file 侧前缀校验后物理删除（review 无存储写凭证）。触发条件：review 侧开始搭建 sweeper 定时任务基建（板块六 6-1）时一并落地；此前违规图滞留隔离前缀不影响安全性（safe_flag=0 闸口 default-deny 不放行），仅占存储空间。
+- [x] ~~review 侧 quarantine sweeper~~（✅ 2026-10-12 已随板块六 6-3 落地实现（QuarantineSweeper，sweeper 包），从预留项移除；落地明细见 docs/archive/review-implemention-records.md 板块六——设计口径：扫描超期 REJECT 图 → 按图反查 appeal（status=0 待裁决顺延）→ FileClient.deleteQuarantined 经 file 侧前缀校验后物理删除（review 无存储写凭证）。原触发条件（review 侧 sweeper 定时任务基建，板块六 6-1）已达成并关闭）
 
 - [ ] litisle-ai 侧 chat 端点（POST /api/feign/ai/chat，OpenAI 兼容转发）——契约层已就绪（AiClient + AiChatRequestDTO/AiChatResponseDTO + AiClientFallbackFactory fail-fast + 自动装配注册，2026-10-06）；本端点暂不实现（用户决策：LLM 审核留注释占位，AiClient Javadoc 已标 TODO）。base-url/api-key/model 走 Nacos 外置，禁提交密钥；超时对齐 feign.client.config.litisle-ai.read-timeout。触发条件：板块三 3-1 联调前，或 AI 侧 RAG 建设启动时一并落地。
 
@@ -88,3 +88,41 @@ MessageRecallGate.recall / StrangerQuotaGate.tryAcquire 契约已备；发送链
 - [ ] 视频/音频审核：一期显式不支持，业务出现前须先补 SPI 方法与适配器
 
 - [ ] CDN 接入——public-url-base 已分离，届时仅改配置（file 侧预留项，随审核图片外链需求一并评估）
+
+## 四、板块五挂起项（触发条件：litisle-content / litisle-social 正式开发时回接；2026-10-13 自 status.md 板块五转移）
+
+### 5-4.4 content/file/message allow-list CAS 恢复（article 3→2/4→2、comment 2→1、message 2→1、safe_flag 0→1）（⏳ 下游消费侧职责：review 侧仅发 appeal.result 触发信号已落地；file 侧 safe_flag 0→1+unquarantine 已随基线落地，content/message 随对应模块开发回接）
+
+## 五、review 模块骨架待实现项（2026-10-13 自代码扫描补录：逐方法 TODO 占位，方法体仅抛 UnsupportedOperationException）
+
+> 全部为 litisle-review 自身 service/controller 骨架（实现责任方均属 review 模块，不涉及 api/auth/user/gateway/file 模块代办）；各条目实现口径以代码内步骤注释为准，逐字保留。
+
+### ReviewTaskServiceImpl（人审任务链路，4 方法）
+
+- listQueue：REVIEWER/ADMIN 校验 + layer2_risk 降序 + 认领配额过滤
+- getTask：REVIEWER/ADMIN 校验 + 证据图经 FileClient 批量取 URL
+- claimTask：CAS where id=? and status=2 and assignee is null；affected=0 抛 70004
+- decideTask：终态 CAS + REJECT 联动（下架事件/处罚落行/违规分累加/举报回写）+ 高风险 confirm 双签
+
+### ReportServiceImpl（举报链路，3 方法）
+
+- submitReport：Step1 防自举报 → Step2 活跃去重 → Step3 落 report+证据 → Step4 DFA 初审分流
+- withdrawReport：CAS where reporter_id=? and status<3 置 4-已撤回；affected=0 抛错
+- getInternalReport：内部契约查询（举报详情回查）
+
+### AppealServiceImpl（申诉链路，1 方法）
+
+- submitAppeal：归属校验 → 双层防重（关联列级+内容级）→ 落 appeal（bizType/bizId 解析固化）（⏳ 注：同类的 judgeAppeal 裁决侧已随板块五 5-4 落地，仅提交侧待实现）
+
+### PunishServiceImpl（处罚链路，2 方法）
+
+- listMyPunish：仅本人；status 全量展示，reason UGC 回显由前端 sanitize
+- getActivePunishes：活跃处罚查询（内部契约）
+
+### WordlibServiceImpl（词库链路，1 方法）
+
+- deleteWordByContent：scene+word 精确匹配定位 → 不存在抛 WORD_NOT_FOUND → 物理删 + version+1 同事务 + Pub（广播）
+
+### ReportController（1 端点）
+
+- GET /report/my：我的举报列表（头注释标注 TODO 待实现）

@@ -1,5 +1,6 @@
 package com.litisle.litislereview.moderation.service;
 
+import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litislereview.enums.PunishActionEnum;
 import com.litisle.litislereview.enums.VerdictEnum;
 import io.micrometer.core.instrument.Counter;
@@ -11,6 +12,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 机审观测埋点组件（板块七 7-1，ObjectProvider optional 模式：未接 MeterRegistry 不影响核心功能，项目惯例对齐 {@link com.litisle.litislereview.dfa.WordlibMetrics}）
+ *
+ * ModerationMetrics 是「机审（内容审核）模块」的 Micrometer 指标采集类，
+ * 负责把机审判定、SPI 耗时、缓存命中、处罚落库等关键行为，以 Prometheus 指标的形式安全、低侵入地暴露出来。
  *
  * <p>指标口径（§4.8）：</p>
  * <ul>
@@ -26,14 +30,20 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class ModerationMetrics {
 
-    /** moderation_cache_hit layer 标签-审核结果缓存命中（review 侧 3-1/3-2 缓存查重复用结论时计数） */
-    public static final String LAYER_RESULT = "result";
+    /** moderation_cache_hit layer 标签-审核结果缓存命中（review 侧 3-1/3-2 缓存查重复用结论时计数；值收口 ModerationConstant 跨服务契约） */
+    public static final String LAYER_RESULT = ModerationConstant.METRIC_LAYER_RESULT;
 
     /** 指标名常量（Prometheus 渲染为下划线：moderation_total / moderation_cost / moderation_cache_hit / moderation_punish_total） */
     private static final String METRIC_TOTAL = "moderation.total";
     private static final String METRIC_COST = "moderation.cost";
-    private static final String METRIC_CACHE_HIT = "moderation.cache.hit";
+    /** 跨服务共享指标名：review/file 两侧写同一名称，契约收口 litisle-api 防改名漂移 */
+    private static final String METRIC_CACHE_HIT = ModerationConstant.METRIC_MODERATION_CACHE_HIT;
     private static final String METRIC_PUNISH = "moderation.punish";
+
+    /** 标签 key 常量（layer 跨服务契约同源；verdict/action 仅本组件内部使用） */
+    private static final String TAG_LAYER = ModerationConstant.METRIC_TAG_LAYER;
+    private static final String TAG_VERDICT = "verdict";
+    private static final String TAG_ACTION = "action";
 
     /** MeterRegistry optional 提供器（未引 actuator 时 getIfAvailable() 返回 null，静默跳过埋点） */
     private final ObjectProvider<MeterRegistry> registryProvider;
@@ -63,7 +73,7 @@ public class ModerationMetrics {
         }
         // Counter 按 verdict 懒注册复用（Micrometer 同名同标签自动幂等）
         Counter.builder(METRIC_TOTAL)
-                .tag("verdict", verdict.name().toLowerCase())
+                .tag(TAG_VERDICT, verdict.name().toLowerCase())
                 .register(registry)
                 .increment();
     }
@@ -80,6 +90,8 @@ public class ModerationMetrics {
             return;
         }
         // Timer 懒注册复用（Micrometer 同名自动幂等），预量测口径记录
+            //用 Micrometer 记录一次「机审 SPI 调用」的耗时（毫秒），并且保证耗时不会是负数，同时利用 Micrometer 的自动幂等机制复用同一个 Timer。
+            //“这次机审 SPI 调用花了 costMs 毫秒，把它记到 moderation.cost 指标里。”
         registry.timer(METRIC_COST).record(Math.max(costMs, 0L), TimeUnit.MILLISECONDS);
     }
 
@@ -95,7 +107,7 @@ public class ModerationMetrics {
             return;
         }
         Counter.builder(METRIC_CACHE_HIT)
-                .tag("layer", layer)
+                .tag(TAG_LAYER, layer)
                 .register(registry)
                 .increment();
     }
@@ -115,7 +127,7 @@ public class ModerationMetrics {
             return;
         }
         Counter.builder(METRIC_PUNISH)
-                .tag("action", action.name().toLowerCase())
+                .tag(TAG_ACTION, action.name().toLowerCase())
                 .register(registry)
                 .increment();
     }

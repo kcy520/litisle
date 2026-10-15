@@ -118,13 +118,14 @@
 | --------------- | ---- | ------------------------------------------------ |
 | pom.xml         | ✅   | 纯 jar 契约库（无 boot 插件/启动依赖）；openfeign / autoconfigure / sensitive-word 为 provided，不强制传递给消费方 |
 | 启动类/配置文件 | ✅   | 已删除                                           |
-| feign/ 包       | ✅   | UserClient / AuthClient / FileClient / AiClient（均含 fallbackFactory 降级） |
+| feign/ 包       | ✅   | UserClient / AuthClient / FileClient / AiClient / ContentClient / SocialClient / ReviewClient（均含 fallbackFactory 降级） |
 | config/ 包      | ✅   | FeignApiConfig（超时/重试统一配置）+ FeignFallbackAutoConfiguration（降级工厂自动装配） |
-| fallback/ 包    | ✅   | User / Auth / File / Ai 四个 FallbackFactory     |
+| fallback/ 包    | ✅   | User / Auth / File / Ai / Content / Message / Review 七个 FallbackFactory |
+| moderation/ 包  | ✅   | 发布前置/机审联动门面组件 10 个（见 §15） |
 | dfa/ 包         | ✅   | DFA 同步闸门共享组件（DfaFacade / DfaScenes / WordLibraryLoader SPI 等 7 个，见 §14） |
-| dto/ 包         | ✅   | auth / captcha / user / file / ai 子包           |
+| dto/ 包         | ✅   | auth / captcha / user / file / ai / moderation / content / social 子包 |
 | vo/ 包          | ✅   | 已独立成包（vo/user/UserBriefVO、UserRolesVO 暂为空类占位） |
-| event/ 包       | ✅   | user/UserRegisteredEvent（空类，Schema 字段已在 Javadoc 约定）+ moderation/ 三个事件（字段完整） |
+| event/ 包       | ✅   | user/UserRegisteredEvent（空类）+ moderation/ 五个事件 + content/ContentUnpublishedEvent（均字段完整） |
 | enums/ 包       | ✅   | RegisterSourceEnum + ImageAuditTriggerEnum（RoleEnum 等共享枚举待实现） |
 | constant/ 包    | ✅   | MqConstant / BizCacheKey / FeignConstant / ModerationConstant |
 | result/ 包      | ❌   | 不再需要（ErrorCode 由 common-core 统一维护）    |
@@ -153,7 +154,10 @@ litisle-api
 
 │   ├── AiClient              # ✅ AI 服务契约（LLM 通用对话通道，提供方端点待实现，见 §4.5）
 
-│   └── ContentFeignApi / SocialFeignApi / PaymentFeignApi / ShopFeignApi / NotificationFeignApi  # ⏳ 待实现
+│   ├── ContentClient         # ✅ 内容服务契约（机审回查正文/配图反查，见 §4.6）
+│   ├── SocialClient          # ✅ 私信服务契约（私信机审回查，见 §4.7）
+│   ├── ReviewClient          # ✅ 审核服务契约（取证落库/处罚态回查，见 §4.8）
+│   └── PaymentFeignApi / ShopFeignApi / NotificationFeignApi  # ⏳ 待实现
 
 ├── config/
 
@@ -169,7 +173,10 @@ litisle-api
 
 │   ├── FileClientFallbackFactory     # ✅（写操作/闸口 fail-fast，展示读静默空 Map）
 
-│   └── AiClientFallbackFactory       # ✅（LLM 核心读依赖 fail-fast，转 SUSPICIOUS 人审）
+│   ├── AiClientFallbackFactory       # ✅（LLM 核心读依赖 fail-fast，转 SUSPICIOUS 人审）
+│   ├── ContentClientFallbackFactory  # ✅（机审回查正文 fail-fast）
+│   ├── MessageClientFallbackFactory  # ✅（私信回查 fail-fast，服务接口为 SocialClient）
+│   └── ReviewClientFallbackFactory   # ✅（取证/处罚态回查 fail-fast）
 
 ├── dfa/                      # ✅ DFA 同步闸门共享组件（见 §14）
 
@@ -198,20 +205,22 @@ litisle-api
 │   ├── file/                 # ✅ FileOwnerDTO / FileRefDTO / FileContentDTO
 
 │   ├── ai/                   # ✅ AiChatRequestDTO / AiChatResponseDTO
-
-│   └── content/ review/ ...  # ⏳ 待实现
+│   ├── moderation/           # ✅ PunishStatusDTO / PunishAuditDTO / PunishSpeakCheckDTO / UsernameRejectRecordDTO
+│   ├── content/              # ✅ ContentDTO / ArticleImageRefDTO / ContentPreviewCheckDTO / ContentPreviewCheckVO
+│   ├── social/               # ✅ MessageDTO（私信机审回查出参）
+│   └── review/ payment/ ...  # ⏳ 待实现
 
 ├── event/
 
 │   ├── user/UserRegisteredEvent        # ⚠️ 空类，Schema 字段已在 Javadoc 约定待补
 
+│   ├── content/ContentUnpublishedEvent # ✅ 内容下架（content 发布 → ai/search 消费）
 │   └── moderation/
-
 │       ├── ImageSubmitEvent            # ✅ 图片送审（file 发布 → review 消费）
-
+│       ├── TextSubmitEvent             # ✅ 文本送审（content/message 发布 → review 消费）
 │       ├── ModerationResultEvent       # ✅ 审核结果（review 发布 → file/内容/社交 消费）
-
-│       └── ModerationAppealResultEvent # ✅ 申诉裁决结果（review 发布 → file 消费）
+│       ├── ModerationAppealResultEvent # ✅ 申诉裁决结果（review 发布 → file 消费）
+│       └── PunishResultEvent           # ✅ 处罚结果（review 发布 → auth/user 消费回查权威态）
 
 ├── vo/
 
@@ -303,6 +312,20 @@ litisle-api
 | ------ | ------------------------ | ------------------- | -------------------- | -------- | ------------------------------------------------------------ |
 | `chat` | POST `/api/feign/ai/chat`| `AiChatRequestDTO`  | `AiChatResponseDTO`  | fail-fast | OpenAI 兼容通道（base-url/api-key/model 外置 Nacos）；system+user 双段 prompt 最小对话面，few-shot/防注入/JSON 白名单校验由调用方组织；降级由 review 侧转 SUSPICIOUS 人审 |
 
+### 4.6 ContentClient（litisle-content 提供方，端点待实现，均 fail-fast）
+
+- `getContent(bizType, bizId)` — GET `/api/feign/content/get` → `ContentDTO`：机审回查正文
+- `listArticleImages(articleId)` — GET `/api/feign/content/article-images` → `List<ArticleImageRefDTO>`：配图复审反查列表（逐张经 FileClient 取图）
+
+### 4.7 SocialClient（litisle-social 私信域提供方，端点待实现，fail-fast）
+
+- `getContent(bizId)` — GET `/api/feign/message/get` → `MessageDTO`：私信机审回查（降级工厂 MessageClientFallbackFactory）
+
+### 4.8 ReviewClient（litisle-review 提供方，fail-fast）
+
+- `insertUsernameRejectRecord(UsernameRejectRecordDTO)` — POST `/api/feign/moderation/insert-username-reject-record`：注册拒绝取证（不建任务不进 MQ）
+- `getPunishStatus(userId)` — GET `/api/review/punish/status` → `PunishStatusDTO`：处罚权威态回查（撤销返回全空快照；网关不路由防公网直查）
+
 ------
 
 ## 五、共享 DTO 设计
@@ -333,6 +356,11 @@ File / Ai 模块关键 DTO 如下：
 | `FileContentDTO`   | fileId, mime, content（byte[]→Base64）   | 机审取图字节流传输（SSRF 防护唯一入口） |
 | `AiChatRequestDTO` | systemPrompt, userPrompt, temperature    | LLM 通用对话请求（最小对话面，防注入由调用方组织） |
 | `AiChatResponseDTO`| content, model, providerTraceId          | LLM 通用对话响应（原始文本，结构校验由调用方负责） |
+| `PunishStatusDTO`  | banned, muted, frozenUntil 等             | 处罚权威态快照（ReviewClient 出参） |
+| `PunishAuditDTO` / `PunishSpeakCheckDTO` | — | 处罚审计 / 发言前禁言校验 |
+| `UsernameRejectRecordDTO` | contentHash, hitWords, wordlibVer  | 用户名拒绝取证载荷（禁落用户名明文） |
+| `ContentDTO` / `ArticleImageRefDTO` | — | 机审回查正文 / 配图引用（fileId+file_meta.id） |
+| `MessageDTO`       | —                                          | 私信机审回查出参 |
 
 ------
 
@@ -385,6 +413,9 @@ Routing:  moderation.result（死信：moderation.result.dlq）
 | `ImageSubmitEvent`             | event/moderation  | file   | review         | ✅ 字段完整（modType/bizType/bizId/scene/contentHash/retryCount） |
 | `ModerationResultEvent`        | event/moderation  | review | file/内容/社交 | ✅ 字段完整（bizType/bizId/verdict/reviewTaskId） |
 | `ModerationAppealResultEvent`  | event/moderation  | review | file           | ✅ 字段完整（bizType/bizId/appealId/appealPass/reviewTaskId） |
+| `TextSubmitEvent`              | event/moderation  | content/message | review | ✅ 字段完整（modType/bizType/bizId/scene/contentHash/retryCount，不含正文） |
+| `PunishResultEvent`            | event/moderation  | review | auth/user      | ✅ 字段完整（userId/action/op/punishLogId/frozenUntil/retryCount，仅触发信号） |
+| `ContentUnpublishedEvent`      | event/content     | content | ai/search     | ✅ 字段完整（bizType/bizId/contentHash/reason，下架失效向量库/ES） |
 
 > 全部事件均含公共字段 eventId/eventTime/traceId/version，JSON 序列化（Jackson2JsonMessageConverter），禁止 @Builder。
 
@@ -548,7 +579,24 @@ litisle-service
 
 > houbb sensitive-word 为 **provided** 依赖：使用 DFA 的服务（review/content/message）自行声明，网关等不需要的服务不被污染。词库完全来自 `WordLibraryLoader`，不链 houbb 内置词库（避免与内置双词库源不一致）。
 
-## 十五、架构亮点总结
+## 十五、moderation 门面组件（moderation/ 包）✅
+
+跨服务决策口径 SSOT 收口（宿主服务经适配器接入，禁两侧各写漂移）：
+
+| 组件 | 职责 |
+| ---- | ---- |
+| `SubmitTextAssembler` | 送审文本组装 `assemble(title, body)` + `contentHash`（分隔符 TEXT_SUBMIT_SEPARATOR，发布/消费两侧共用） |
+| `PublishTextPrecheck` | 发布前置校验：空内容（trim+去标签可见文本）/ 标题≤100 |
+| `DfaPublishGate` | DFA 闸门决策：HIGH 拦 70001、MID 只标记（decide→DfaGateDecision） |
+| `UsernameRejectGate` | 注册拒绝取证编排（取证失败仅留痕，不影响拦截结论） |
+| `LastHashStore` | 免审 last-hash 读写删（value JSON：hash+verdict，SUSPICIOUS 禁写） |
+| `LastHashExemptChecker` | 免审判定 SSOT：decide / statusExcluded / imgReReviewPassed（图片连带免审） |
+| `StrangerQuotaGate` | 陌生人配额：Redis INCR 主计数，故障降级 DB 原子条件更新（上限 3） |
+| `MessageRecallGate` | 私信撤回 CAS：仅本人、仅正常态可撤回 |
+| `MachineRejectPunishGate` | 机审拒绝处罚统一收口：记账同事务 + afterCommit 发 punish 事件（禁双链路各写） |
+| `ContentUnpublishedInvalidator` | 下架失效：text/img-result + last-hash 缓存键批量删除 |
+
+## 十六、架构亮点总结
 
 - 
 

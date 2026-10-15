@@ -65,6 +65,7 @@ public class FileUploadController {
     public Result<List<FileUploadVO>> uploadBatch(@RequestParam("files") List<MultipartFile> files,
                                                   @RequestParam("bizType") StorageBizTypeEnum bizType) {
         // 逐个委托单文件链路；中途失败已成功的不回滚，部分成功由调用方处理
-        return Result.success(fileService.uploadBatch(files, bizType, StpUtil.getLoginIdAsLong()));
+        List<FileUploadVO> fileUploadVOS = fileService.uploadBatch(files, bizType, StpUtil.getLoginIdAsLong());
+        return Result.success(fileUploadVOS);
     }
 }

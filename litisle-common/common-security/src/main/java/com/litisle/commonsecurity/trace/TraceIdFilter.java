@@ -1,5 +1,6 @@
 package com.litisle.commonsecurity.trace;
 
+import com.litisle.commoncore.constant.CommonConstant;
 import com.litisle.commoncore.constant.HeaderConstant;
 import com.litisle.commoncore.utils.TraceIdSanitizer;
 import jakarta.servlet.FilterChain;
@@ -43,15 +44,16 @@ public class TraceIdFilter extends OncePerRequestFilter {
         String traceId = TraceIdSanitizer.sanitizeOrGenerate(request.getHeader(HeaderConstant.TRACE_ID));
 
         // 2. 写入 MDC（FeignAuthInterceptor 从此读取透传）
-        MDC.put("traceId", traceId);
+        MDC.put(CommonConstant.MDC_TRACE_ID_KEY, traceId);
 
         // 3. 响应 Header 回写 traceId（客户端可关联）
         response.setHeader(HeaderConstant.TRACE_ID, traceId);
 
         try {
+            //把请求交给 下一个 Filter 或 Controller
             filterChain.doFilter(request, response);
         } finally {
-            MDC.remove("traceId");
+            MDC.remove(CommonConstant.MDC_TRACE_ID_KEY);
         }
     }
 }

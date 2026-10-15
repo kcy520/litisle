@@ -3,6 +3,7 @@ package com.litisle.commonsecurity.feign;
 
 import cn.dev33.satoken.session.SaSession;
 import cn.dev33.satoken.stp.StpUtil;
+import com.litisle.commoncore.constant.CommonConstant;
 import com.litisle.commoncore.constant.HeaderConstant;
 import com.litisle.commoncore.constant.SaTokenSessionKeyConstant;
 import feign.RequestInterceptor;
@@ -58,7 +59,7 @@ public class FeignAuthInterceptor implements RequestInterceptor {
     public void apply(RequestTemplate template) {
         // 1. 先透传链路追踪ID（无论是否登录，保证链路不中断）
         //    从 MDC 获取（由 TraceIdFilter 写入），与用户上下文解耦
-        String traceId = MDC.get("traceId");
+        String traceId = MDC.get(CommonConstant.MDC_TRACE_ID_KEY);
         if (traceId != null) {
             template.header(HeaderConstant.TRACE_ID, traceId);
         }

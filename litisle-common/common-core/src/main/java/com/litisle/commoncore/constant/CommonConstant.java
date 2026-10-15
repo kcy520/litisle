@@ -46,4 +46,11 @@ public class CommonConstant {
      * "谁持有这个 token，谁就是合法用户。"
      */
     public static final String TOKEN_TYPE_BEARER = "Bearer";
+
+    /**
+     * MDC 链路追踪 Key（日志上下文中的 traceId 键名）
+     * 用于 TraceIdFilter 写入、FeignAuthInterceptor/MqSendUtil 读取，
+     * 统一收敛避免各模块硬编码 "traceId" 字符串导致口径漂移
+     */
+    public static final String MDC_TRACE_ID_KEY = "traceId";
 }

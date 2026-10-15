@@ -34,6 +34,9 @@ import java.util.stream.Collectors;
 /**
  * 违规图隔离清理 sweeper（板块六 6-3，§4.4.5 隔离保留期收口）
  *
+ * QuarantineSweeper 是一个定时补偿任务，负责扫描“超期且未被申诉推翻”的违规隔离图片，限速、
+ * 安全地委派 file 服务物理删除，并通过 Redis 互斥锁和 Micrometer 指标保证多实例安全与可观测性。
+ *
  * 【职责】隔离图（safe_flag=0，quarantine/ 前缀）仅作审核证据暂存，超保留期
  * （litisle.moderation.quarantine.retention-days）后由本 sweeper 委派 file 侧
  * FileClient.deleteQuarantined 物理删除（对象进 SeaweedFS 回收站兜底 7 天 +
@@ -71,6 +74,14 @@ public class QuarantineSweeper {
 
     /** 清扫互斥锁 key（各段服务端派生，无用户原串拼接，对齐 ReviewTaskSweeper 纪律） */
     private static final String LOCK_KEY = "review:sweep:quarantine:lock";
+
+    /** 隔离积压 Gauge 指标名（stage 标签区分，Prometheus 渲染 moderation_quarantine_backlog） */
+    private static final String METRIC_QUARANTINE_BACKLOG = "moderation.quarantine.backlog";
+
+    /** 隔离积压 Gauge 的 stage 标签 key 及取值（expired=超期待删 / appeal-held=申诉豁免顺延） */
+    private static final String TAG_STAGE = "stage";
+    private static final String STAGE_EXPIRED = "expired";
+    private static final String STAGE_APPEAL_HELD = "appeal-held";
 
     /** 机审留痕 Mapper（6-3.1 扫描源：biz_type=6 且 REJECT 超期的留痕行） */
     private final ModerationRecordMapper moderationRecordMapper;
@@ -128,12 +139,41 @@ public class QuarantineSweeper {
 
     /**
      * 超期候选扫描 → 最新态过滤 → 申诉豁免 → 限速删除（6-3.1/6-3.2/6-3.3 主编排）
+     *
+     * 扫描超期且未被申诉推翻的违规隔离图片，限速、幂等地委派 file 服务物理删除，并刷新积压指标。
+     * 超期：这张图片被判定为违规、放进隔离区（quarantine）之后，已经超过了配置的"保留天数"（retention-days），审核证据不再需要继续存着了，可以删了。
+     *
      * <p>单条失败 error 留痕不阻断整轮，下轮重扫兜底；删除动作幂等
      * （file 侧前缀校验 + del_flag 已删跳过，重投/重扫安全）</p>
      *
      * @return 本轮实际删除数
      */
     private int deleteExpiredQuarantined() {
+//        阶段一：找出"超期且当初被判违规"的留痕行
+//        1. 先查第一批候选
+//        2. 去重：一张图可能有多条留痕
+//        3. 查这些图的全部留痕，取"最新状态"
+
+//        阶段二：申诉豁免（有申诉的图先不删）
+//        4. 查候选图里有没有"待裁决的申诉"
+//（用户正在申诉中，你这边把证据图删了 → 申诉裁决时没图可看 → 不公平。）
+//        5. 最终要删除的列表
+//（从 stillRejected 里 剔除掉 held 里的，剩下的就是 toDelete：
+//        超期 + 最新仍违规 + 没有待裁决申诉 = 可以删）
+
+//        阶段三：限速逐条删除
+//        6. 按速率限制，一条一条调 file 服务
+//            遍历 toDelete，每条之间按 60000/rate 毫秒 sleep 限流，防止打爆 SeaweedFS。
+//            调用 fileClient.deleteQuarantined(fileId)：
+//            file 侧执行物理删除 + 回收站兜底 7 天 + 业务软删
+//              容错：
+//            单条失败 → error 日志，跳过，下轮重扫兜底（删除幂等）
+//            线程中断 → 恢复中断位，终止本轮，剩余候选下轮处理
+
+//        阶段四：刷新指标 + 返回结果
+//        7. 刷新 Gauge 指标
+//        8. 返回本轮实际删除数
+
         ModerationProperties.Quarantine cfg = properties.getQuarantine();
         // ===== 步骤1：扫超期 REJECT 留痕行（biz_type=FILE，create_time < now-retention-days，限批防全量扫描） =====
         List<ModerationRecord> expiredRows = moderationRecordMapper.selectList(new LambdaQueryWrapper<ModerationRecord>()
@@ -231,10 +271,12 @@ public class QuarantineSweeper {
         if (registry == null) {
             return;
         }
-        Gauge.builder("moderation.quarantine.backlog", backlogExpired, AtomicLong::get)
-                .tag("stage", "expired").description("违规图隔离积压（超期待删）").register(registry);
-        Gauge.builder("moderation.quarantine.backlog", backlogAppealHeld, AtomicLong::get)
-                .tag("stage", "appeal-held").description("违规图隔离积压（申诉豁免顺延）").register(registry);
+        ///Gauge 不能“自动”更新数据。 它只能“自动”去读你给它的那个对象里的值。
+        //它只能“自动”去读你给它的那个对象里的值。:Gauge 不会自己"算"任何东西，它只是——Prometheus 来问的时候，帮你去"问一下"你提前交给它的那个对象："你现在是多少？"
+        Gauge.builder(METRIC_QUARANTINE_BACKLOG, backlogExpired, AtomicLong::get)
+                .tag(TAG_STAGE, STAGE_EXPIRED).description("违规图隔离积压（超期待删）").register(registry);
+        Gauge.builder(METRIC_QUARANTINE_BACKLOG, backlogAppealHeld, AtomicLong::get)
+                .tag(TAG_STAGE, STAGE_APPEAL_HELD).description("违规图隔离积压（申诉豁免顺延）").register(registry);
     }
 
     /**

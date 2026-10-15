@@ -166,9 +166,11 @@ litisle:
     upload:
       max-image-size: 10485760
       # per-user 存储配额（软限：sha256 锁内写库前校验，超限抛 FILE_QUOTA_EXCEEDED）
-      # max-total-size：单用户已用总容量上限（字节，默认 200MB）
+      # quota-enabled：配额总开关，false 时关闭容量/数量限制且跳过聚合查询（现设 false 取消限制）
+      quota-enabled: false
+      # max-total-size：单用户已用总容量上限（字节，默认 200MB；仅 quota-enabled=true 时生效）
       max-total-size: 209715200
-      # max-file-count：单用户已用文件数上限（默认 200）
+      # max-file-count：单用户已用文件数上限（默认 200；仅 quota-enabled=true 时生效）
       max-file-count: 200
     # 缩略图配置（头像/封面场景按需生成）
     thumbnail:

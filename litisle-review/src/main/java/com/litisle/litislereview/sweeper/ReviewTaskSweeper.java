@@ -94,6 +94,12 @@ public class ReviewTaskSweeper {
     /** DLQ 死信存量 Gauge 指标名（独立指标，无 status 维度） */
     private static final String METRIC_DLQ_BACKLOG = "moderation.dlq.backlog";
 
+    /** 积压 Gauge 的 status 标签 key 及取值（pending=待机审 / suspicious=人审待认领 / claimed=已认领待裁决） */
+    private static final String TAG_STATUS = "status";
+    private static final String STATUS_PENDING = "pending";
+    private static final String STATUS_SUSPICIOUS = "suspicious";
+    private static final String STATUS_CLAIMED = "claimed";
+
     /** 审核任务 Mapper（6-1.1 回池扫描源 / 6-1.3 三态计数源） */
     private final ReviewTaskMapper reviewTaskMapper;
 
@@ -409,6 +415,7 @@ public class ReviewTaskSweeper {
                 } finally {
                     // 释放前置锁：不占住会让消费端步骤8 的 SETNX 失败白耗一轮延迟重试；
                     // GET 比对 token 归属才 DEL（防本锁 TTL 过期后误删消费端新锁，对齐 releaseLock 纪律）
+                    //Redis 里当前这个 key 的 value，是不是当初自己写进去的那个 token
                     if (lockToken.equals(stringRedisTemplate.opsForValue().get(dedupKey))) {
                         stringRedisTemplate.delete(dedupKey);
                     }
@@ -426,11 +433,7 @@ public class ReviewTaskSweeper {
      *
      * 作用：全量统计审核任务三态积压数 + DLQ 死信深度，刷新 Micrometer Gauge 供 Prometheus 抓取。
      *把当前审核系统的“积压状态”和“死信队列深度”统计出来，刷新到 Micrometer 的 Gauge 指标里，供 Prometheus / Grafana 监控抓取。
-     *ReviewTaskSweeper 是审核系统的“自动兜底守护进程”，负责修复各种超时/悬死/丢失状态，同时顺带把系统健康度暴露给监控系统。
-     * 
-     * 这个 Sweeper 里涉及的那些“异常/悬死/超时”问题，系统到底是怎么修复的？修复的原理和机制是什么？
-     * 所有修复都是“用 CAS + 状态机兜底，把卡死的状态推回正常流转路径”。
-     *
+     * 只为检测
      *
      * <p>三态口径见类注释：pending(status=0)/suspicious(status=2 且 assignee 空)/
      * claimed(status=2 且 assignee 非空)——认领后任务仍在 claimed 态被监控，不脱离视野；
@@ -448,30 +451,32 @@ public class ReviewTaskSweeper {
      */
     private void refreshBacklogGauges() {
         // ===== 步骤1：三态计数 —— 给运营/监控提供「审核链路健康度」的三个仪表盘读数 =====
-        // 业务意义：审核链路分三段（机审消费→人审认领→人审裁决），每段堵了症状不同，
-        // 必须分开计量才能定位瓶颈：pending 高=机审消费卡死；suspicious 高=没人认领（人手不足）；
-        // claimed 高=认领了但迟迟不裁决（审核员息或单人占满配额）。
-        // 实现上仅做 COUNT(*) 三连查，无写操作，对清扫主流程零侵入
+            // 业务意义：审核链路分三段（机审消费→人审认领→人审裁决），每段堵了症状不同，
+            // 必须分开计量才能定位瓶颈：pending 高=机审消费卡死；suspicious 高=没人认领（人手不足）；
+            // claimed 高=认领了但迟迟不裁决（审核员息或单人占满配额）。
+            // 实现上仅做 COUNT(*) 三连查，无写操作，对清扫主流程零侵入
         // 态① 待机审积压：status=0（机审待处理/超时回池后仍是 0），反映机审链路吞吐压力
         backlogPending.set(reviewTaskMapper.selectCount(new LambdaQueryWrapper<ReviewTask>()
                 .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.PENDING))); //待审
         // 态② 人审待认领积压：status=2（人工待审）且 assignee IS NULL（无人认领），
-        // 反映人审队列入口的排队量，是审核员侧「待领取」池的深度
+         // 反映人审队列入口的排队量，是审核员侧「待领取」池的深度
         backlogSuspicious.set(reviewTaskMapper.selectCount(new LambdaQueryWrapper<ReviewTask>()
                 .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.MANUAL_PENDING)//人工待审 isNULL
                 .isNull(ReviewTask::getAssignee)));
         // 态③ 已认领待裁决积压：status=2 且 assignee IS NOT NULL（已认领未裁决），
-        // 认领后任务仍留在监控视野内不脱离（对齐类注释口径：认领不等于出队），
-        // 该值异常偏高通常意味着审核员认领后长期未裁决（可结合 claim 超时回池告警）
+            // 认领后任务仍留在监控视野内不脱离（对齐类注释口径：认领不等于出队），
+            // 该值异常偏高通常意味着审核员认领后长期未裁决（可结合 claim 超时回池告警）
         backlogClaimed.set(reviewTaskMapper.selectCount(new LambdaQueryWrapper<ReviewTask>()
                 .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.MANUAL_PENDING)//人工待审 NotNULL
                 .isNotNull(ReviewTask::getAssignee)));
         // ===== 步骤2：DLQ 深度 —— 机审「死信告警」的数据源 =====
-        // 业务意义：DLQ 里出现消息 = 机审消费链路反复失败（模型不可用/MQ 异常），
-        // 任务已脱离正常重试，只能靠人工/补偿扫描捞回；本读数就是 Grafana 死信告警的取数来源。
-        // getIfAvailable 语义（不常见 API 简释）：AmqpAdmin 仅在引入 amqp starter 时才存在，
-        // ObjectProvider 包住可选依赖，有 Bean 返实例、没有返 null 而非启动报错——
-        // 监控埋点是锦上添花，绝不能因未接监控让核心清扫启动失败
+            // 业务意义：DLQ 里出现消息 = 机审消费链路反复失败（模型不可用/MQ 异常），
+            // 任务已脱离正常重试，只能靠人工/补偿扫描捞回；本读数就是 Grafana 死信告警的取数来源。
+            // getIfAvailable 语义（不常见 API 简释）：AmqpAdmin 仅在引入 amqp starter 时才存在，
+            // ObjectProvider 包住可选依赖，有 Bean 返实例、没有返 null 而非启动报错——
+            // 监控埋点是锦上添花，绝不能因未接监控让核心清扫启动失败
+                //amqpAdminProvider.getIfAvailable():从 Spring 容器中“按需取”一个 AmqpAdmin 实例，拿不到就返回 null，不抛异常。
+                // AmqpAdmin 是 Spring AMQP 提供的 RabbitMQ 管理接口，在这里用来查 DLQ 里还有多少条死信。
         AmqpAdmin admin = amqpAdminProvider.getIfAvailable();
         if (admin == null) {
             // 没接 RabbitMQ 管理客户端：无法观测，记 -1（告警规则会排除 -1，不会误报）
@@ -492,22 +497,24 @@ public class ReviewTaskSweeper {
             }
         }
         // ===== 步骤3：把读数挂到监控暴露端点 —— 供 Prometheus 周期抓取 =====
-        // 业务意义：上面算出的三个 AtomicLong 只是内存数字，必须挂到 MeterRegistry 才会被
-        // /actuator/prometheus 端点吐出、被 Prometheus 抓走画进面板；未接 actuator 时
-        // registry 为 null，跳过暴露但计数照常刷新（以后接了监控无需改代码即恢复）
+            // 业务意义：上面算出的三个 AtomicLong 只是内存数字，必须挂到 MeterRegistry 才会被
+            // /actuator/prometheus 端点吐出、被 Prometheus 抓走画进面板；未接 actuator 时
+            // registry 为 null，跳过暴露但计数照常刷新（以后接了监控无需改代码即恢复）
+            //MeterRegistry 是 Micrometer​ 的核心接口，所有监控指标都要通过它来注册和上报。
         MeterRegistry registry = registryProvider.getIfAvailable();
         if (registry == null) {
             return;
         }
-        // 首轮执行时把「读某个 AtomicLong」这个动作注册成 Gauge，之后每轮只会刷新数值，
-        // 重复注册同名同标签是幂等的不会产生重复指标；三态共用一个指标名+status 标签区分，
-        // Grafana 侧按 status=pending/suspicious/claimed 拆三条曲线
+            // 首轮执行时把「读某个 AtomicLong」这个动作注册成 Gauge，之后每轮只会刷新数值，
+            // 重复注册同名同标签是幂等的不会产生重复指标；三态共用一个指标名+status 标签区分，
+            // Grafana 侧按 status=pending/suspicious/claimed 拆三条曲线
+            //把四个 AtomicLong 变量注册成 Prometheus Gauge 指标，让监控系统能定时抓到当前积压数。
         Gauge.builder(METRIC_BACKLOG, backlogPending, AtomicLong::get)
-                .tag("status", "pending").description("审核任务积压（待机审）").register(registry);
+                .tag(TAG_STATUS, STATUS_PENDING).description("审核任务积压（待机审）").register(registry);
         Gauge.builder(METRIC_BACKLOG, backlogSuspicious, AtomicLong::get)
-                .tag("status", "suspicious").description("审核任务积压（人审待认领）").register(registry);
+                .tag(TAG_STATUS, STATUS_SUSPICIOUS).description("审核任务积压（人审待认领）").register(registry);
         Gauge.builder(METRIC_BACKLOG, backlogClaimed, AtomicLong::get)
-                .tag("status", "claimed").description("审核任务积压（已认领待裁决）").register(registry);
+                .tag(TAG_STATUS, STATUS_CLAIMED).description("审核任务积压（已认领待裁决）").register(registry);
         // DLQ 存量为独立指标（无 status 维度）；抓取值为 -1 时代表不可观测，可在告警规则里排除
         Gauge.builder(METRIC_DLQ_BACKLOG, dlqBacklog, AtomicLong::get)
                 .description("机审送审 DLQ 死信存量").register(registry);

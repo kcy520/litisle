@@ -34,7 +34,7 @@ public class TextSubmitEvent implements Serializable {
     private String traceId;
 
     /** Schema 版本号（当前固定 1） */
-    private Integer version;
+    private Integer version ;
 
     /** 审核方式（1-机审；送审链路当前仅机审） */
     private Integer modType;

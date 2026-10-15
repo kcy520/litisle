@@ -54,6 +54,9 @@ public class FileModerationServiceImpl implements FileModerationService {
 
     /**
      * 隔离图到期删除（6-3.2，review 侧 QuarantineSweeper 保留期收口经 FileClient.feign 调用）：
+     *
+     * 从seaweedfs 和 MySQL 删除 隔离图
+     *
      * 前缀校验（必须已在 quarantine/ 前缀，防误删正常文件）→ 删本体 + 缩略图
      * （SeaweedFS 回收站兑底 7 天，-filer.recycleBinMaxHours=168）→ 软删 del_flag=1
      * 退出活跃池/秒传判重池（对账任务物理清理对 quarantine/ 前缀豁免，不会与本删除重复触发）
@@ -96,6 +99,9 @@ public class FileModerationServiceImpl implements FileModerationService {
 
     /**
      * 隔离/恢复统一实现（S3 无原生 move：copy + delete 组合；两步均幂等，中途失败重试自愈）
+     *
+     *
+     *
      * <p>前缀 SSOT：与对账任务跳过清理共用 litisle.file.reconcile-task.quarantine-prefix（防两处配置漂移）。
      * 移入/移回按前缀可逆推导目标 key（隔离 = quarantine/ + 原 key），无需新增列记录原路径；
      * del_flag 全程保持 0，不破坏 file_ref 不变式（隔离图不是删除，是暂存证据）</p>
@@ -131,6 +137,9 @@ public class FileModerationServiceImpl implements FileModerationService {
 
     /**
      * 审核结果回写 safe_flag（file 侧 MQ 消费入口）：按主键定点 update，幂等（已处于目标态直接跳过，
+     *
+     * 根据 filedID 与 审核结果 更新MySQL 文件元数据
+     *
      * MQ 重投安全）；REJECT 分支不走本方法（走 quarantine() 含物理隔离）
      */
     public void updateSafeFlag(String fileId, SafeFlagEnum target) {
@@ -152,6 +161,9 @@ public class FileModerationServiceImpl implements FileModerationService {
 
     /**
      * 批量读取 safe_flag（file 客户端契约提供方）：仅查活跃记录（del_flag=0），
+     *
+     * 根据fileId，从MySQL批量查询文件审核状态
+     *
      * select 只取两列降 IO；查不到的 fileId 不在 Map 中，由调用方按未知态保守处理
      */
     @Override
@@ -169,6 +181,9 @@ public class FileModerationServiceImpl implements FileModerationService {
 
     /**
      * 机审取图（file 客户端契约提供方）：不过 safe_flag 闸口（申诉复核需重取隔离图
+     *
+     * 根据fileId，从seaweedfs查询文件数据
+     *
      * safe_flag=0）；seaweedFsClient.get 整读（≤10MB，与上传同步瓶颈同源）
      */
     @Override

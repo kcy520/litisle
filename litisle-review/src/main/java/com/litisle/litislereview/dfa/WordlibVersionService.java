@@ -1,5 +1,6 @@
 package com.litisle.litislereview.dfa;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.litisle.litisleapi.constant.ModerationConstant;
@@ -57,7 +58,7 @@ public class WordlibVersionService {
     public void bumpAndBroadcast(WordSceneEnum scene, Long operatorId) {
         // Step1 版本原子 +1：REQUIRED 传播加入调用方词表变更事务（词表回滚则版本一并回滚）
         long newVersion = bumpInTx(scene, operatorId);
-        // Step2 注册 afterCommit 钩子：事务提交成功后才执行「写快照+广播」，回滚不广播（杜绝假广播）
+        // Step2 注册 afterCommit 钩子：事务提交成功后才执行「写redis快照+广播」，回滚不广播（杜绝假广播）
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -109,10 +110,11 @@ public class WordlibVersionService {
      */
     private void publishSnapshotAndNotify(WordSceneEnum scene, long newVersion, Long operatorId) {
         try {
-            // Step1 重新装载全量词条与最新版本（查表路径同时刷新 review 本地文件快照，一举两得）
+            // Step1 重新装载全量词条 与 最新版本（查表路径同时刷新 review 本地文件快照，一举两得）
             List<WordEntry> words = wordLibraryLoader.loadWords(scene.getCode());
             long version = wordLibraryLoader.loadVersion(scene.getCode());
             // Step2 写 Redis 词库快照（先快照后广播：content/message 订阅端 rebuild 时读快照装载新词库）
+                //objectMapper.writeValueAsString : 把 Java 对象序列化成 JSON 字符串
             String snapshotJson = objectMapper.writeValueAsString(new WordlibSnapshot(version, words));
             stringRedisTemplate.opsForValue().set(
                     String.format(ModerationConstant.WORDLIB_SNAPSHOT_KEY, scene.getCode()), snapshotJson);
@@ -128,15 +130,16 @@ public class WordlibVersionService {
     }
 
     /**
-     * 读当前版本（推进后取值用；无行返回 0）
+     * 从mysql读当前版本（推进后取值用；无行返回 0）
      *
      * 推进版本后读一下返回最新值。纯查询，无副作用。
      */
     private long selectVersion(WordSceneEnum scene) {
         // 查 scene 主键行；无行/版本为 null 返回 0（仅在推进成功后取值，理论上不会走到 0）
         SensitiveWordVersion row = versionMapper.selectOne(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SensitiveWordVersion>()
+                new LambdaQueryWrapper<SensitiveWordVersion>()
                         .eq(SensitiveWordVersion::getScene, scene));
         return row == null || row.getVersion() == null ? 0L : row.getVersion();
     }
+
 }

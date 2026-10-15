@@ -65,7 +65,7 @@ public class RejectPunishAdapterHost implements MachineRejectPunishGate.RejectPu
     @Override
     public Long recordPunish(MachineRejectPunishGate.RejectPunishContext context) {
         // 步骤1：同事务落 punish_log 行（action=3-内容下架、operator_id=0-系统、status=1-生效，
-        //        score 为本次记入分值快照，落行固化 Δ 供按 status=1 行重放确定可算）
+        //   MySQL记录处罚日志     score 为本次记入分值快照，落行固化 Δ 供按 status=1 行重放确定可算）
         PunishLog punishLog = new PunishLog()
                 .setUserId(context.userId())
                 .setAction(PunishActionEnum.CONTENT_TAKEDOWN)
@@ -87,8 +87,10 @@ public class RejectPunishAdapterHost implements MachineRejectPunishGate.RejectPu
             return null;
         }
         // 步骤2：violation_score 违规分原子累加（仅 score 列，红线：不碰 last_punish_action/frozen_until）
-        // 7-1：moderation_punish_total{action} 处罚落库计数——punish_log 落行成功后同源收口（机审/人审/申诉撤销全链路 punish_log 均落本类/同源 Mapper，无分支重复埋点）
+                // 7-1：moderation_punish_total{action} 处罚落库计数——punish_log 落行成功后同源收口（机审/人审/申诉撤销全链路 punish_log 均落本类/同源 Mapper，无分支重复埋点）
+            //检测组件处罚记录+1
         moderationMetrics.incrementPunish(punishLog.getAction());
+            //mysql对应处罚积分+1
         accumulateViolationScore(context.userId(), context.score());
         // 步骤3：返回新流水 ID 供闸口组装 punish.result 事件（punishLogId 仅排障，严禁作版本门控）
         return punishLog.getId();
@@ -135,6 +137,7 @@ public class RejectPunishAdapterHost implements MachineRejectPunishGate.RejectPu
                 .setSql("score = score + {0}", delta)
                 .set(ViolationScore::getUpdateTime, LocalDateTime.now()));
     }
+
 
     /**
      * 机审 bizType 码 → punish_log.biz_type 枚举映射（ModerationConstant.BIZ_TYPE_* 口径）

@@ -1,6 +1,6 @@
 # litisle-review 审核模块架构文档（简化版）
 
-> 版本：v1.1（2026-10-10，按当前实现对齐）
+> 版本：v1.2（2026-10-14，按当前实现对齐）
 >
 > 关联文档：[Review-Architecture-Development-detailed.md](Review-Architecture-Development-detailed.md)（详细版，防绕过推演/竞态分析看它）· [Sql-Document.md] litisle_review 章节（表结构 SSOT）· [Api-Architecture.md](Api-Architecture.md) · [commom-des.md](commom-des.md)
 >
@@ -36,15 +36,25 @@ litisle-review
 │   ├── adapter/      ★ LlmTextModerationAdapter（防注入三件套）/ OnnxImageModerationAdapter
 │   ├── config/       ★ ModerationProperties + 启动自检 fail-fast + 文本/图片 AdapterProvider
 │   │                   （ObjectProvider 惰性注入收敛）+ ReviewRabbitConfig（文本/图片队列+DLX 声明）
-│   ├── consumer/     ★ ModerationTextConsumer / ModerationImageConsumer（手动 ACK；
-│   │                   ModerationDlqConsumer 尚未落地，重试耗尽兜底链路待补）
-│   ├── cache/        ★ ModerationResultCache（版本化 key；moderation_record 表双层兑底）
+│   ├── consumer/     ★ ModerationTextConsumer / ModerationImageConsumer / ModerationDlqConsumer
+│   │                   （手动 ACK；DLQ 消费失败一律 ack，任务停留 status=0 由 sweeper 兜底）
+│   ├── cache/        ★ ModerationResultCache（版本化 key；moderation_record 表双层兜底）
+│   │                   / ImageAppealCacheInvalidator（申诉按留痕行重建键失效，防聚合指纹错位）
 │   └── service/      ★ ModerationTextService / ModerationImageService（统一建任务 upsert /
-│                       三分态落库 / result 事件发布）
+│                       三分态落库 / result 事件发布）/ RejectPunishAdapterHost（机审处罚记账）
+│                       / ModerationDlqService / ModerationMetrics（optional 埋点）
+│   （config 内另有：ModerationModelQpsGuard / AlertThresholdMetrics）
+├── mq/publisher/     ★ ModerationResultPublisher / ModerationAppealResultPublisher
+│                       / PunishResultPublisher（事务铁律：落库失败不发、afterCommit 发送、失败入 DLQ）
+├── sweeper/          ★ ReviewTaskSweeper（认领超时回池/申诉超时维持/三态 Gauge/stuck 分频重投）
+│                       / QuarantineSweeper（隔离清理/申诉豁免/限速删除）
+│                       / ModerationRecordArchiveSweeper（留痕归档，archive-enabled 默认关）
+│                       / PunishReconcileSweeper（处罚双向对账）
 ├── dfa/              ★ WordlibVersionService / WordlibChangeSubscriber / TableWordLibraryLoader
 │                       / DfaConfig / WordlibMetrics
 ├── service/          ★ 六域拆分：ReviewService（认领 CAS / decide 终态 CAS）+ ReportService
 │                       / AppealService / PunishService / WordlibService（均含 impl）
+│                       + ReviewTaskUpsertService（建任务收敛）/ UsernameRejectRecordService
 └── enums / domain    ★ 21 个枚举、实体与 Mapper（dto/vo 分包）
 ```
 
@@ -147,6 +157,7 @@ public interface ContentModerationService {
 - **submit 事件体**：`{ modType, bizType, bizId, scene, contentHash, retryCount, traceId }`——不含正文/图片地址，消费端按任务定位后回查
 - **result 事件体**：`{ bizType, bizId, scene, contentHash, wordlibVer, reviewTaskId, verdict, category, reason, traceId }`
 - **顺序纪律**：本地事务提交 → publisher confirm 发 result → ACK，任何一步失败抛异常不 ACK
+- **发布收口**：result / appeal.result / punish 三事件发布统一收口 `mq/publisher/`（事件组装在本地事务内、物理发送 afterCommit、发布失败入 DLQ 延迟重试）
 - **bizType ↔ report.target_type 映射非恒等**：1/2/3 同值，5↔4、6↔5 错位，两方向都必须走映射表，禁 `==` 恒等实现
 
 ### 3.3 REST API（管理端 REVIEWER/ADMIN，申诉端点为作者本人）
@@ -191,11 +202,12 @@ public interface ContentModerationService {
 | litisle.moderation.last-hash.ttl-hours | 72 | 发布侧免审 key 有效期（与 cache.ttl 对齐，落 litisle-shared.yaml） |
 | litisle.moderation.qps.max-count | — | 语义层全站 QPS 护栏 |
 | litisle.moderation.consumer.prefetch | 10 | MQ 消费者预取上限 |
-| litisle.moderation.appeal.window-days / timeout-days | 7 / 7 | 申诉窗口 / 超时自动维持 |
+| litisle.moderation.appeal.window-days | 7 | 申诉窗口（timeout-days 口径已收敛至 sweeper 组，原键仅备查） |
 | litisle.moderation.report.abuse-threshold | 3 | 诬告累计阈值（反向落警告+降信誉） |
-| litisle.moderation.claim.timeout-minutes / max-active-per-reviewer | 30 / 20 | 认领超时回池 / 单审核员在手上限 |
-| litisle.moderation.quarantine.retention-days | 10 | 违规图隔离保留期（review 侧专属清理，file 侧跳过该前缀） |
-| litisle.moderation.sweeper.interval-seconds / stuck-resubmit-minutes | 60 / 30 | sweeper 周期 / status=0 卡死补偿重发阈值 |
+| litisle.moderation.claim.max-active-per-reviewer | 20 | 单审核员在手上限（timeout-minutes 口径已收敛至 sweeper 组） |
+| litisle.moderation.quarantine.* | retention-days=30 等 | 隔离保留期 + 限速删除/批次/短锁（review 侧专属清理，file 侧跳过该前缀） |
+| litisle.moderation.sweeper.* | claim-timeout-minutes=30 / appeal-timeout-days=7 / stuck-resubmit-minutes=30 / stuck-resubmit-every-rounds=30 | 认领超时回池 / 申诉超时维持 / status=0 卡死任务分频重投 |
+| litisle.moderation.record.* | retention-months=6 / archive-enabled=false | 留痕归档：保留期与归档开关（默认关，04:00 错峰调度） |
 | litisle.moderation.llm.temperature / few-shot-version / timeout-ms / max-text-chars | 0 / v1 / 15000 / 6000 | LLM 判定一致性与超长分片阈值 |
 | litisle.moderation.onnx.timeout-ms / max-concurrency | 10000 / CPU 核数 | ONNX 超时与并发信号量 |
 | litisle.moderation.api.timeout-ms / image.model-version | 8000 / v1 | 云 API 超时与图片判定口径版本 |
@@ -247,8 +259,8 @@ public interface ContentModerationService {
 | --- | --- | --- |
 | 板块一 | 机审 SPI 域：门面/适配器/配置自检 | ★ 已落地 |
 | 板块二 | DFA 共享化 + 词库运营（版本推进/快照/Pub 热更/误报上报） | ★ 已落地 |
-| 板块三 | MQ 异步机审链路：consumer / cache / 统一建任务 / result 事件 / DLQ | ★ 主体已落地（细案见 next_update.md）；ModerationDlqConsumer 与 DLQ 转人审兑底待补 |
-| 板块四 | 发布侧文本链路接入（免审/DFA 埋点/preview-check） | 待办 |
-| 板块五 | 申诉与处罚联动（appeal.result / punish.result / 双向对账） | 待办 |
-| 板块六 | sweeper 基础设施（认领超时/申诉超时/隔离清理） | 待办 |
-| 板块七 | 观测指标埋点与 Alertmanager 规则 | 待办 |
+| 板块三 | MQ 异步机审链路：consumer / cache / 统一建任务 / result 事件 / DLQ | ★ 已落地（ModerationDlqConsumer 兑底已补；条目归档 review-implemention-records.md） |
+| 板块四 | 发布侧文本链路接入（免审/DFA 埋点/preview-check） | ★ 主体已落地（门面组件 SSOT 收口 litisle-api moderation 包；content 侧接线进度以 status.md 为准） |
+| 板块五 | 申诉与处罚联动（appeal.result / punish.result / 双向对账） | ★ 已落地（改判七步编排 / MachineRejectPunishGate 收口 / PunishReconcileSweeper 对账） |
+| 板块六 | sweeper 基础设施（认领超时/申诉超时/隔离清理） | ★ 已落地（sweeper 包四任务，含 6-2 stuck 分频重投 / 6-4 留痕归档） |
+| 板块七 | 观测指标埋点与 Alertmanager 规则 | ★ 已落地（ModerationMetrics / AlertThresholdMetrics / 7-4 配置绑定全量收口） |
