@@ -68,6 +68,26 @@ public interface ContentClient {
     Result<List<ArticleImageRefDTO>> listArticleImages(@RequestParam("articleId") Long articleId);
 
     /**
+     * 按配图 fileId 反查引用该图的文章 ID 列表（review 侧图片复审再聚合用）
+     *
+     * <p>【使用场景】review 消费单图复审 result（biz_id=file_meta.id）后，按
+     * article_image.idx_file_id 反查所有引用该图的文章，重算 ARTICLE_IMG_RE_REVIEW
+     * 文章级聚合结论（聚合判定收口 review 消费端，content 仅提供反查数据不做判定）</p>
+     *
+     * <p>【设计说明】
+     * 1. 契约先行：本接口已就绪；提供方端点随板块八 [8.2] 补齐（ContentFeignProviderController）；
+     * 2. 路径前缀 /api/feign/content 网关未路由，仅服务间可用；
+     * 3. 反查结果是图片复审再聚合核心读依赖，降级 fail-fast（见降级工厂）：
+     *    静默返回空列表会让 review 误判「无文章引用」跳过聚合，由消费端不 ACK 进延迟重试；
+     * 4. 仅返回未删除文章（del_flag=0），已删文章不参与复审聚合</p>
+     *
+     * @param fileId 配图文件 ID（article_image.file_id，varchar(64)，索引 idx_file_id 支撑）
+     * @return 引用该图的未删除文章 ID 去重列表（无引用返回空列表）
+     */
+    @GetMapping("/api/feign/content/article-ids-by-file")
+    Result<List<Long>> listArticleIdsByFileId(@RequestParam("fileId") String fileId);
+
+    /**
      * 计数回写（social 聚合侧单点回写，§4.6）：view/like/comment_cnt 幂等绝对值 SET
      *
      * <p>【设计说明】

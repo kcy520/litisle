@@ -38,4 +38,19 @@ public final class ContentLimitConstant {
 
     /** 标签前缀搜索（60s 30 次，矩阵外补充防爬） */
     public static final int TAG_SEARCH_MAX_COUNT = 30;
+
+    /** 单篇文章标签数上限（§五配置 tag.max-per-article=5，防关键词堆砌） */
+    public static final int TAG_MAX_PER_ARTICLE = 5;
+
+    /** 热门标签 TOP N 条数（GET /tags/hot 返回上限） */
+    public static final int TAG_HOT_TOP_N = 10;
+
+    /** 标签前缀搜索单次返回上限（输入联想防全池拖出） */
+    public static final int TAG_SEARCH_RESULT_LIMIT = 10;
+
+    /** 标签名长度上限（字）：与词库词条同口径 ≤64，超长入参直接拒绝不进 DFA */
+    public static final int TAG_NAME_MAX_LENGTH = 64;
+
+    /** 热门标签缓存 TTL 基准（秒）：实际写入 ±10% 抖动防雪崩 */
+    public static final long TAG_HOT_CACHE_TTL_SECONDS = 300;
 }

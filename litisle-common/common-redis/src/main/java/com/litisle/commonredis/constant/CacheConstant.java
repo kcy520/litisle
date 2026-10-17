@@ -87,6 +87,12 @@ public class CacheConstant {
      */
     public static final String ARTICLE_LIKE_CNT = "content:article:like:";
 
+    /** 热门标签 TOP N 缓存（值：TagVO 列表 JSON；TTL 短缓存 + 抖动，防穿透/雪崩） */
+    public static final String CONTENT_TAG_HOT = "content:tag:hot:";
+
+    /** 推荐流分页缓存（key 追加 {pageNo}:{pageSize}；值：FeedItemVO 列表 JSON；空结果短缓存防穿透） */
+    public static final String CONTENT_FEED = "content:feed:page:";
+
     // ==================== 社交模块 ====================
 
     /**

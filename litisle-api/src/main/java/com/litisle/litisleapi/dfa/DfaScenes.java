@@ -52,6 +52,8 @@ public final class DfaScenes {
             case "ARTICLE", "ARTICLE_FEATURED", "ARTICLE_COMMUNITY" -> ARTICLE;
             case "COMMENT" -> COMMENT;
             case USERNAME, MESSAGE -> s;
+            // BIO 直审场景（简介/标签等短文本共用词库，不经 review_task）直映自身，防止被 default 误判非文本
+            case BIO -> BIO;
             default -> null;
         };
     }

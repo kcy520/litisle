@@ -3,6 +3,7 @@ package com.litisle.litislecontent.mq;
 import com.litisle.commoncore.constant.HeaderConstant;
 import com.litisle.commonmq.send.MqSendUtil;
 import com.litisle.litisleapi.constant.MqConstant;
+import com.litisle.litisleapi.event.content.ContentPublishedEvent;
 import com.litisle.litisleapi.event.content.ContentUnpublishedEvent;
 import com.litisle.litisleapi.event.moderation.ImageSubmitEvent;
 import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
@@ -79,8 +80,21 @@ public class ContentEventProducer {
                 event.getBizType(), event.getBizId(), event.getScene());
     }
 
-    // TODO(板块四 [4.2])：补 sendPublished（ContentPublishedEvent 契约类为缺口，随转公开链路一并补）
-    //  落地后本类即为 content 域唯一事件出口
+    /**
+     * 发送 content.published（发布成功/转公开不重审事件）
+     * <p>消费方：search（建立/恢复 ES 索引）/ ai（RAG 重新收录，门控回查 status=2 且 visibility=公开）/
+     * notification（发布结果通知）</p>
+     * <p>转公开场景不重审（[4.1]：方案B 禁改正文 + content_hash 未变，原审核结论仍有效），
+     * 且不重建/不重写任何审核缓存（原键仍有效，直落命中口径不变）</p>
+     * <p>业务字段（bizType/bizId/contentHash）由调用方填充，本方法仅补基座四字段</p>
+     *
+     * @param event 发布成功事件
+     */
+    public void sendPublished(ContentPublishedEvent event) {
+        fillBase(event);
+        mqSendUtil.send(MqConstant.EXCHANGE_CONTENT, MqConstant.ROUTING_CONTENT_PUBLISHED, event);
+        log.info("content.published 已发布，bizId={}", event.getBizId());
+    }
 
     /**
      * 填充事件 Schema 基座四字段（全部事件必须，禁遗漏）
@@ -109,11 +123,24 @@ public class ContentEventProducer {
     }
 
     /**
-     * 填充 ImageSubmitEvent Schema 基座四字段（重载：三事件无公共基类，禁各自拼装基座字段）
+     * 填充 ImageSubmitEvent Schema 基座四字段（重载：四事件无公共基类，禁各自拼装基座字段）
      *
      * @param event 配图复审送审事件
      */
     private void fillBase(ImageSubmitEvent event) {
+        event.setEventId(UUID.randomUUID().toString());
+        event.setEventTime(LocalDateTime.now());
+        // traceId 从 MDC 透传（HTTP 入口由 TraceIdFilter 生成；定时任务场景为 null 属正常）
+        event.setTraceId(MDC.get(HeaderConstant.TRACE_ID));
+        event.setVersion(1);
+    }
+
+    /**
+     * 填充 ContentPublishedEvent Schema 基座四字段（重载：四事件无公共基类，禁各自拼装基座字段）
+     *
+     * @param event 发布成功事件
+     */
+    private void fillBase(ContentPublishedEvent event) {
         event.setEventId(UUID.randomUUID().toString());
         event.setEventTime(LocalDateTime.now());
         // traceId 从 MDC 透传（HTTP 入口由 TraceIdFilter 生成；定时任务场景为 null 属正常）

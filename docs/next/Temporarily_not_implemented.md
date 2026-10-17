@@ -56,11 +56,15 @@
 
 #### 3-5 业务方回写矩阵消费端（content / social）（§4.5.2）
 
+> ✅ content 侧已落地（2026-10-17，随 review 模块推进回收），social 侧继续挂起（评论区/私信随 social 模块开发接线）。
+
 **落位**：litisle-content 与 litisle-social 的 mq consumer 包（各自订阅对应 result 队列）。触发条件：content / social 正式开发时随实体层落地。
 
 **步骤（content 侧）**：
 
 1. 消费 moderation.text.result / moderation.image.result，按 bizType 分发：1→article.status、2→comment.status；CAS 条件更新重放无副作用。
+
+   > ⚠️ 口径批注（2026-10-17，详见文末「content 侧落地记录」第 2 条）：实际 content 侧仅订阅 moderation.text.result 单队列——配图复审 result（scene=ARTICLE_IMG_RE_REVIEW）bizType 仍=1 复用文章任务走文本路由键，同队列到达按 scene 分流聚合；moderation.image.result（bizType=6 单图）归 file 侧消费，content 不订阅。
 
 2. **文章双链路联合聚合**：放行(1→2)条件=文本 PASS 且（无配图 或 图片复审 result=PASS）；任一 REJECT→整文驳回。实现：两路 result 到达时先落本地聚合态（Redis 短暂暂存或回查 review_task 两行现态），聚合判定后再 CAS article。
 
@@ -85,6 +89,20 @@
 2. 未实现部分实现时直接按 social 归属落地，无返工。
 
 3. 未来唯一代码触点：social 实现私信域 Provider 时，需对齐 MessageClient 的 Feign 服务名（硬编码在 @FeignClient 注解，仅需改 MessageClient.java 一处）。
+
+**content 侧落地记录（2026-10-17）**：
+
+1. 落位文件：ContentRabbitConfig（队列拓扑：2 主队列+2 DLQ+业务/延迟/死信三向绑定，声明幂等参数与 review 侧对齐）；ModerationResultConsumer / ModerationAppealResultConsumer（消费编排：traceId 恢复+MqAckHelper ACK 纪律+延迟重投，耗尽入 DLQ）；ArticleReviewWriteBackServiceImpl（业务：聚合判定/CAS 白名单/last-hash 写删）。
+
+2. 消费拓扑口径澄清：清单原步骤 1 写「消费 moderation.text.result / moderation.image.result」，实际实现为 content 侧仅消费 moderation.text.result 单队列——文章配图复审 result（scene=ARTICLE_IMG_RE_REVIEW）bizType 仍=1 复用文章任务，发送侧走 ROUTING_MODERATION_TEXT_RESULT 同队列到达，按 scene 分流聚合；moderation.image.result（bizType=6 单图）归 file 侧消费，content 不订阅。
+
+3. 双链路聚合实现选型：Redis Hash 槽暂存（key=content:article:review-agg:{articleId}，field text/img → verdict，TTL 2h），REJECT 到达即驳回不等另一路；有无配图以 article_image 表现状为准（防事件与落库竞态误判无图直放）；空/纯图 trivially PASS 边界由发布侧 A2 段保证（正文可见文本为空且含配图时不发文本送审，仅走配图复审），消费端无需重判。
+
+4. last-hash 写入时机口径：跟随 result 事件到达写入（文本主键指纹=落库指纹已过陈旧性比对；图片连带键指纹=事件体聚合指纹），非聚合判定后写入——避免图片路触发聚合时拿不到文本指纹的数据依赖。
+
+5. 评论 bizType=2 / 私信 bizType=5：消费端 bizType 分流已预置（留痕丢弃防毒丸），评论/私信实体落地后替换为对应 CAS 回写即可。
+
+6. 遗留关联：板块八 [8.2] 封禁连带消费待 user.banned 事件契约就绪后落地。
 
 #### 3-7.2 发布/上传入口 @RateLimiter(USER)（§2.6）
 

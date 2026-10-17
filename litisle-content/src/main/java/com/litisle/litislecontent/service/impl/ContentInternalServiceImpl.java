@@ -94,6 +94,32 @@ public class ContentInternalServiceImpl implements ContentInternalService {
     }
 
     /**
+     * 按配图 fileId 反查引用该图的未删除文章 ID 列表（图片复审再聚合用，板块八 [8.2]）
+     * 聚合判定收口 review 消费端，本方法仅提供反查数据；无引用返回空列表（非 fail-fast，
+     * 空列表=真实无引用，与降级失败语义区分：降级走降级工厂异常穿透）
+     */
+    @Override
+    public List<Long> listArticleIdsByFileId(String fileId) {
+        // 步骤1：fileId 必填校验（服务间契约 fail-fast）
+        if (fileId == null || fileId.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_ERROR);
+        }
+        // 步骤2：按 idx_file_id 索引反查引用登记（去重，同一图单文内可多位置登记）
+        List<Long> articleIds = articleImageMapper.selectList(new LambdaQueryWrapper<ArticleImage>()
+                        .eq(ArticleImage::getFileId, fileId))
+                .stream().map(ArticleImage::getArticleId).distinct().toList();
+        if (articleIds.isEmpty()) {
+            return List.of();
+        }
+        // 步骤3：过滤已删除文章（del_flag=0），已删文章不参与复审聚合
+        return articleMapper.selectList(new LambdaQueryWrapper<Article>()
+                        .in(Article::getId, articleIds)
+                        .eq(Article::getDelFlag, 0)
+                        .select(Article::getId))
+                .stream().map(Article::getId).toList();
+    }
+
+    /**
      * 计数回写：幂等绝对值 SET（仅非空字段更新），CAS 补 del_flag=0
      */
     @Override

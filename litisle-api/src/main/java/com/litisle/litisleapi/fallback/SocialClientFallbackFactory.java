@@ -17,7 +17,7 @@ import org.springframework.cloud.openfeign.FallbackFactory;
  * @author litisle
  */
 @Slf4j
-public class MessageClientFallbackFactory implements FallbackFactory<SocialClient> {
+public class SocialClientFallbackFactory implements FallbackFactory<SocialClient> {
 
     @Override
     public SocialClient create(Throwable cause) {
@@ -30,6 +30,16 @@ public class MessageClientFallbackFactory implements FallbackFactory<SocialClien
             public Result<MessageDTO> getContent(Long bizId) {
                 log.error("远程调用 message 模块 getContent 失败！bizId = {}", bizId, cause);
                 throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "私信服务暂不可用，请稍后重试", cause);
+            }
+
+            /**
+             * 关注关系回查核心读依赖 fail-fast：social 不可用时异常穿透到调用方
+             * （content visibility=3 判定链禁止静默当「非关注者」以外的放行，宁严勿松）
+             */
+            @Override
+            public Result<Boolean> isFollowing(Long ownerId, Long viewerId) {
+                log.error("远程调用 social 模块 isFollowing 失败！ownerId = {}, viewerId = {}", ownerId, viewerId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "关注关系服务暂不可用，请稍后重试", cause);
             }
         };
     }

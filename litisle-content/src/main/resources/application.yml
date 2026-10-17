@@ -89,6 +89,13 @@ litisle:
     publish:
       # 批量发布单批上限（§6.3，ContentProperties.publish.batchMax 绑定；超限抛 ARTICLE_BATCH_EXCEEDED——防批量刷审）
       batch-max: 20
+    moderation:
+      # 审核结果回写消费参数（板块三 3-5，ContentProperties.moderation 绑定）
+      last-hash-ttl-hours: 72        # last-hash 免审键 TTL（小时，与 review 结果缓存同窗防口径漂移）
+      ttl-jitter-ratio: 0.1          # TTL ±10% 抖动，防同批键同刻过期雪崩
+      retry:
+        max-count: 5                 # 消费延迟重试上限，耗尽 nack 入 DLQ 兑底
+        base-delay-ms: 30000         # 指数退避基数（30s→60s→120s→240s→480s）
   security:
     anonymous:
       paths:

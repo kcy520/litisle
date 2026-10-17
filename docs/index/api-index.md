@@ -28,6 +28,7 @@
 - `TextSubmitEvent` ✅：字段对齐 ImageSubmitEvent（`modType/bizType/bizId/scene/contentHash/retryCount`，不含正文）
 - `PunishResultEvent` ✅：`eventId/eventTime/traceId/version/retryCount + userId/action/op/punishLogId/frozenUntil`（仅触发信号，消费端回查权威态覆盖快照）
 - `ContentUnpublishedEvent` ✅（event.content 包）：`eventId/eventTime/traceId/version + bizType/bizId/contentHash/reason`（删除/下架/转私密三路径发布，ai/search 消费）
+- `ContentPublishedEvent` ✅（event.content 包）：`eventId/eventTime/traceId/version + bizType/bizId/contentHash`（审核 PASS/免审直落/转公开不重审发布，search/ai/notification 消费）
 
 ## 三、Feign 客户端（`com.litisle.litisleapi.feign`）
 
@@ -49,9 +50,11 @@
 ### ContentClient ✅（`name="litisle-content"`，提供方端点待 content 实现）
 - `Result<ContentDTO> getContent(bizType, bizId)` — GET `/api/feign/content/get`（机审回查正文，fail-fast）
 - `Result<List<ArticleImageRefDTO>> listArticleImages(articleId)` — GET `/api/feign/content/article-images`（配图复审反查，fail-fast）
+- `Result<List<Long>> listArticleIdsByFileId(fileId)` — GET `/api/feign/content/article-ids-by-file`（按 idx_file_id 反查引用文章，图片复审再聚合用，fail-fast；聚合判定收口 review 消费端，板块八 8.2）
 
-### SocialClient ✅（`name="litisle-social"`，提供方端点待 social 私信域实现）
+### SocialClient ✅（`name="litisle-social"`，提供方端点待 social 实现）
 - `Result<MessageDTO> getContent(bizId)` — GET `/api/feign/message/get`（私信机审回查，fail-fast；降级工厂类名 `MessageClientFallbackFactory`）
+- `Result<Boolean> isFollowing(ownerId, viewerId)` — GET `/api/feign/follow/check`（visibility=3 仅关注者判定回查，fail-fast；业务 fail 按非关注者处理宁严勿松）
 
 ### ReviewClient ✅（`name="litisle-review"`）
 - `Result<Void> insertUsernameRejectRecord(UsernameRejectRecordDTO)` — POST `/api/feign/moderation/insert-username-reject-record`（注册拒绝取证，fail-fast）
@@ -88,7 +91,7 @@
 - `DfaFacade` ✅：`initAll()` / `rebuild(scene)` / `check(scene, text) → DfaHitResult`
 - `DfaHitResult` ✅：`hit/maxLevel/hitWords/wordlibVer`（70001 仅 HIGH；MID 只标记 layer1_hit=2）
 - `WordLibraryLoader`（SPI）✅ / `WordEntry(word/level/blacklist)` ✅
-- `WordlibSnapshot` / `WordlibChangedMessage` ✅ / `DfaScenes`（scene 归一，图片场景→null）✅
+- `WordlibSnapshot` / `WordlibChangedMessage` ✅ / `DfaScenes`（scene 归一：文章族三态→ARTICLE；COMMENT/USERNAME/MESSAGE 直映；**BIO 直审场景直映自身**（2026-10-17 补：原 switch 漏映射致 BIO 引擎在 textScenes 全集却不可达）；图片/未知场景→null 不走 DFA）✅
 
 ## 七、common-mq 消费工具（`com.litisle.commonmq`）
 

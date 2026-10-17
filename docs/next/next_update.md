@@ -105,15 +105,18 @@
 
 ###### 4.1 visibility 判定链
 
-- [ ] 1/2/3/4 四级；仅关注者回查 social 契约；转公开不重审（content_hash 校验）
+- [x] 1/2/3/4 四级；仅关注者回查 social 契约；转公开不重审（content_hash 校验）
+  - ✅ 2026-10-17：FOLLOWERS 分支接通 FollowRelationCache（短 TTL 60s±10% 抖动 + 负缓存 + Redis 故障降级直查；social 回查 fail-fast 不静默放行，非关注者按不存在处理）；SocialClient 补 isFollowing 契约 + MessageClientFallbackFactory 对称降级（提供方端点待 social 实现，联调随 social 落地验证）；转公开不重审落地：update 单篇 visibility 2/3/4→1 且 status=2 走独立 CAS（where status=2）+ afterCommit 发 content.published（ContentPublishedEvent 契约补齐 + ContentEventProducer.sendPublished）；细目见 status.md 板块四 [4.1]
 
 ###### 4.2 密码访问与下架收口
 
-- [ ] BCrypt + 失败限频防爆破；四路径必发 content.unpublished（隐私红线）
+- [x] BCrypt + 失败限频防爆破；四路径必发 content.unpublished（隐私红线）
+  - ✅ 2026-10-17：新增端点 POST /article/{id}/verify-password（@RateLimiter 5/60s + LoginRetryLimiter 连 5 次失败锁 60s 双层防爆破，identifier=article-pwd:{userId} 隔离命名空间，超限抛 10005）；验密通过写短时效凭证标记 content:pwd-pass:{operatorId}:{articleId}（TTL 10min），getDetail PASSWORD 分支命中放行正文；access_password 不落草稿快照验证性确认（DraftSaveDTO/article_draft 均无密码字段，天然满足）；批量路径 batchVisibility 转公开分支补发 content.published（单篇转公开 [4.1] 已落地），转私密/删除/封禁连带/复审驳回四路径 unpublished 收口既有；细目见 status.md 板块四 [4.2]
 
 ###### 4.3 限流矩阵
 
-- [ ] @RateLimiter(USER) 全端点落地（对齐挂起项 3-7.2）
+- [x] @RateLimiter(USER) 全端点落地（对齐挂起项 3-7.2）
+  - ✅ 2026-10-17：§3.1 矩阵八端点全量核对——POST /article 与 /article/{id}/submit（10）、/draft/save（10）、/article/publish-batch（3）、/preview-check（10）、/article/{id}/verify-password（5，[4.2] 刚挂）、PUT /reading-progress（2）、GET /feed（60）均已挂 @RateLimiter(USER) 且 count 与 ContentLimitConstant 一致；本次补唯一缺口 GET /tags?keyword=（TAG_SEARCH_MAX_COUNT=30，矩阵外补充防爬）；阈值统一收口 ContentLimitConstant（@RateLimiter 注解参数需编译期常量，yml 外置需切面运行时配置支持，属 common-redis 增强项不在本清单）；3-7.2 挂起项可回收（content 侧限流范式已就绪，review 侧成本护栏随板块八接入）
 
 ------------
 
@@ -121,11 +124,13 @@
 
 ###### 5.1 书籍/章节管理
 
-- [ ] book / book_chapter（uk_book_id_chapter_no）；挂载校验文章归属本人
+- [x] book / book_chapter（uk_book_id_chapter_no）；挂载校验文章归属本人
+  - ✅ 2026-10-17：BookServiceImpl 五方法全量落地（Controller/实体/DTO/VO 既有，服务层原为 TODO 壳）：① create 默认 status=0 连载中 + category 空落默认「小说」；② update owner 校验 + 非 null 字段更新；③ delete 软删 CAS（where del_flag=0，重复删幂等）+ 物理清挂载行（挂载关系无独立业务价值，文章本体不动）@Transactional；④ addChapter 四重校验：书籍归属 requireOwnedBook 复用 → 文章归属本人（挂他人文章 NO_PERMISSION，非已发布 ARTICLE_PARAM_INVALID，软删按不存在）→ uk 冲突预检 → 落挂载行（并发双挂 DB uk 兑底转 30015）；⑤ removeChapter 书籍归属 + 章节归属（chapter_id 不属 book_id 拒 BOOK_CHAPTER_MISMATCH，防伪造跨书章节）仅删挂载行不删文章；新增 ErrorCode BOOK_CHAPTER_NO_CONFLICT(30015)；细目见 status.md 板块五 [5.1]
 
 ###### 5.2 阅读进度
 
-- [ ] 章节归属校验 + ≥30s 节流 + 仅前进不回退 + 续读
+- [x] 章节归属校验 + ≥30s 节流 + 仅前进不回退 + 续读
+  - ✅ 2026-10-17：ReadingProgressServiceImpl 两方法全量落地（Controller/实体/Mapper/VO 既有，服务层原为 TODO 壳）：① report：chapter_id 归属 book_id 反查（章节行缺失或 bookId 不匹配拒 BOOK_CHAPTER_MISMATCH，伪造跨书章节被拒；书籍软删时挂载行随删，无需额外 book 查询）→ UPSERT：selectOne uk_user_book 无则 insert（并发首报 catch DuplicateKeyException 重读转 update，uk 兑底）→ 仅前进不回退：progress 无 chapter_no 列，经 book_chapter 反查双方序号比对，新序号 ≤ 当前序号静默忽略（多端乱序不回退），当前章节行被退章移除时容错放行；② getLastChapter：无进度返回 null（前端落第一章），进度指向章节已被退章移除时按 null 返回前端按最新章容错；③ 节流：Controller @RateLimiter(USER)=2/60s 既有（[4.3] 已核对），配合前端 30s 节流；细目见 status.md 板块五 [5.2]
 
 ------------
 
@@ -133,11 +138,15 @@
 
 ###### 6.1 标签挂载
 
-- [ ] tag/article_tag 多对多；≤5 上限；uk 冲突幂等跳过
+- [x] tag/article_tag 多对多；≤5 上限；uk 冲突幂等跳过
+  - ✅ 2026-10-17：TagServiceImpl#attachTags/detachTags 全量落地（Controller/实体/Mapper 既有，服务层原为 TODO 壳）：① attachTags：owner 校验（requireOwnedArticle 复用，软删按 ARTICLE_NOT_FOUND 不暴露存在性）→ 同名单请求内去重收敛 + 已有挂载数与新增合计 >5 抛 ARTICLE_TAG_EXCEEDED（新常量 TAG_MAX_PER_ARTICLE=5 收口）→ 仅池内命中可挂（in name + status=NORMAL + del_flag=0；封禁标签拒挂不给违规词引流）→ 已挂载过滤后逐条 insert（并发双挂 catch DuplicateKeyException 幂等跳过不报错不计数，清单口径与 addChapter 的冲突拒绝不同）→ 挂载成功才 use_count 原子 +1 @Transactional；② detachTags：owner 校验 → 先查实际存在的挂载行（幂等重复摘除不多扣）→ 删挂载行 → use_count 原子 -1（GREATEST 兑底不为负）；③ 方案B：requireOwnedArticle 不校验文章 status（status=2 允许增删标签，不影响 content_hash 不参与审核聚合）；池中无命中标签名的新建 DFA 闸门随 [6.2] 接入；细目见 status.md 板块六 [6.1]
 
 ###### 6.2 标签池与闸门
 
-- [ ] 前缀搜索已有标签池/热门 TOP N；新建过 DFA 闸门；use_count 异步刷新
+- [x] searchByPrefix 前缀搜索（防碎片化）+ DFA 新建闸门（同步，命中拒挂）
+  - ✅ 2026-10-17：① searchByPrefix：空参空列表 → likeRight 前缀（%/_/\\ 转义防通配符全池拖出）+ status=NORMAL + del_flag=0 + use_count 倒序 LIMIT 10（TAG_SEARCH_RESULT_LIMIT）；② attachTags 接 DFA 闸门：池内全量按名查询（不过滤状态）→ 正常态可挂/封禁已删静默跳过/池外名字同步 dfaFacade.check(DfaScenes.BIO, name)（BIO 短文本词库，标签/简介/代表作共用）→ 任一命中即抛 SENSITIVE_WORD_DETECTED(70001)（标签是聚合锚点宁严勿松，不分 HIGH/MID）→ 未命中落池（useCount=0，uk_name 并发冲突重查幂等）；③ 名称规范化：trim + 空串跳过 + >64 字拒（TAG_NAME_MAX_LENGTH 与词库词条同口径）；④ 契约缺口修复：DfaScenes.normalize 未映射 BIO（BIO 在 textScenes 全集但 check(BIO) 被 default 判非文本抛异常，直审场景不可达）→ 补 case BIO -> BIO 直映；⑤ 顺带修复 6.1 遗留编译问题：tagIdsOf 占位方法及三处调用全部内联替换
+- [x] use_count 冗余计数异步刷新（与 view_cnt 同机制）；热门 TOP N 走 GET /tags/hot
+  - ✅ 2026-10-17：① hotTags：Redis 短缓存（key=content:tag:hot:10，值=TagVO[] JSON，TTL 基准 300s ±10% 抖动防雪崩，缓存三防对齐 §七.6）→ miss 查库 status=NORMAL + del_flag=0 + use_count 倒序 LIMIT 10（TAG_HOT_TOP_N，走 idx_use_count）；② use_count 机制定位修正：挂载/摘除同事务原子增减（[6.1]，计数正确性来源，比异步回写更准），另建 TagCountReconcileJob 定时对账兜底（单条 UPDATE 自联仅修漂移行，默认 1h 间隔/5min 初延，litisle.content.tag.reconcile 可调）；CacheConstant 新增 CONTENT_TAG_HOT，ContentLimitConstant 新增 4 常量；细目见 status.md 板块六 [6.2]
 
 ------------
 
@@ -145,24 +154,26 @@
 
 ###### 7.1 zone=3 收录与缓存
 
-- [ ] 仅 ADMIN/运营写；缓存三防（互斥重建/空值短缓存/TTL 抖动）
+- [x] 仅 ADMIN/运营写；缓存三防（互斥重建/空值短缓存/TTL 抖动）
+  - ✅ 2026-10-17：① zone=3 收录校验核对确认已落地（[3.3] ZoneRouter 单点收口：checkPublishPermission RECOMMEND 分支，create 步骤 A0 + update 均调用，接口未暴露给普通作者）；② FeedServiceImpl.feed 全量落地（原 TODO 壳）：快路径读缓存 → miss 后单飞锁互斥重建（tryLock 2s + 双检回填 + finally unlock）→ 空结果短缓存 60s 防穿透（恶意翻页/冷页不持续打库）→ 正常结果 TTL 基准 300s ±10% 抖动防雪崩（litisle.content.feed.{cache-ttl-seconds,page-size} 外置 yml，ContentProperties 新增 Feed 嵌套类）；未抢到锁让渡 200ms 重读、仍 miss 兑底直查库不拒绝服务；③ 回源口径：zone=RECOMMEND + status=2 + visibility=PUBLIC + del_flag=0，createTime 倒序（article 无 publish_time 列，发布时间以 createTime 代理；ai 算法重排接入后替换数据源）；④ CacheConstant 新增 CONTENT_FEED；细目见 status.md 板块七 [7.1]
 
 ###### 7.2 展示前回查
 
-- [ ] 渲染前回查 status=2 且 visibility=1，下架/转私密即时剔除
+- [x] 渲染前回查 status=2 且 visibility=1，下架/转私密即时剔除
+  - ✅ 2026-10-17：核对确认已随 [7.1] 落地，零新增代码——FeedServiceImpl#recheckFilter（L131）：对缓存/回源所得条目批量回查权威态（in id + status=PUBLISHED + visibility=PUBLIC + del_flag=0，仅取 id 列走主键），不满足条目即时剔除；全链路三道防线叠加：① 缓存写入侧过滤（回源 SQL 同口径）② 每次读回查兑底（缓存 TTL 内下架/转私密内容防残留曝光）③ 下架四路径 content.unpublished（板块四收口）；标签聚合列表页端点未建（未在 §3.1 矩阵），复用同口径的约定迁移至阅读侧接口实现时落地；细目见 status.md 板块七 [7.2]
 
 ------------
 
 ##### 板块八：审核回写与联动消费
 
-###### 8.1 result 回写消费
+###### 8.1 result 回写与申诉改判
 
-- [ ] 消费统一单队列 moderation.result（review v1.2 已废弃 review.decided 旧口径；自筛 bizType=1，事件体含 scene：发布场景=文本链路 / ARTICLE_IMG_RE_REVIEW=图片复审链路）回写状态 + 通知作者（对接 review 板块三 3-5 消费端）
-- [ ] 消费 moderation.appeal.result（仅自筛 bizType=1，bizType=2 为评论属评论模块）：allow-list 对称恢复 3→2 / 4→2（挂起项 5-4.4 回收）
+- [x] 三项（result 回写 / 双链路聚合 / 申诉改判）核对确认主体已落地 + 三缺口补齐
+  - ✅ 2026-10-17：主体（板块三 3-5 期间实现）核对确认：ModerationResultConsumer / ModerationAppealResultConsumer（消费编排）+ ArticleReviewWriteBackServiceImpl（handleResult：bizType 自筛/scene 分流/陈旧性比对/CAS/last-hash；tryAggregate：Hash 槽双链路聚合；handleAppeal：改判）。本次补齐三缺口：① 2→4 复审下架补审计留痕（@AuditLog 切面 AOP 不覆盖 MQ 消费端私有调用，改同格式 JSON 结构化日志显式落痕，operator=system(mq)）；② 申诉改判补 4→2 两向（原仅 3→2，与 [8.1]/§2.3 状态机口径偏差；先 3→2 未生效再 4→2）+ 改判前 ReviewClient.getPunishStatus 封禁态回查 fail-fast（banned=true 拒改判，回查异常穿透交延迟重试）+ 4→2 成功后连带逐张 FileClient.unquarantine 恢复被隔离配图（失败留痕不阻断）；③ 申诉改判成功发 content.published 既有；陈旧性比对：appeal 事件契约无 contentHash 字段，条件性不适用（注记）。细目见 status.md 板块八 [8.1]
 
 ###### 8.2 封禁连带与图片复审
 
-- [ ] user.banned 连带下架（发 content.unpublished）；图片复审聚合判定收口 review 消费端（content 仅提供 article_image.idx_file_id 反查契约，不重复实现）
+- [x] user.banned 连带下架（发 content.unpublished）；图片复审聚合判定收口 review 消费端（content 仅提供 article_image.idx_file_id 反查契约，不重复实现）——封禁连带：UserBannedEvent 契约+三向绑定+Consumer+handleUserBanned（批量 CAS 2→4+逐篇事件+三键失效+结构化审计留痕）；反查契约：ContentClient.listArticleIdsByFileId+Provider 实现（review 聚合重算随 3-5 联调接入）
 
 ------------
 

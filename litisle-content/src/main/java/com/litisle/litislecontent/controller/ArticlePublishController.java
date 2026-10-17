@@ -7,6 +7,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.commonredis.ratelimit.RateLimiter;
 import com.litisle.litisleapi.dto.content.ContentPreviewCheckDTO;
 import com.litisle.litisleapi.dto.content.ContentPreviewCheckVO;
+import com.litisle.litislecontent.domain.dto.ArticlePasswordVerifyDTO;
 import com.litisle.litislecontent.domain.vo.ArticleBatchResultVO;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.service.ArticlePublishService;
@@ -28,6 +29,7 @@ import static com.litisle.litislecontent.constant.ContentLimitConstant.*;
  * | POST | /article/publish-batch     | 批量发布（≤20，逐篇回执）             | 登录 |
  * | POST | /article/batch-visibility  | 批量改可见性（逐篇 CAS + 逐篇发事件） | owner |
  * | POST | /preview-check             | 发布前预检（仅 {hit,risk}）           | 登录·限频 |
+ * | POST | /article/{id}/verify-password | 密码访问校验（BCrypt+双层防爆破）  | 登录·限频 |
  *
  * 【发布同步段（口径B）】A1 校验 → A2 免审直落 → A3 CAS 0→1 发事件即返回「审核中」，
  * 不同步等审；终审结论由 moderation.result 事件驱动回写
@@ -64,6 +66,23 @@ public class ArticlePublishController {
                                         @RequestParam("visibility") VisibilityEnum visibility) {
         // 每篇独立发事件，删除/转私密必发 unpublished（隐私红线）；Spring 按枚举 name 绑定
         publishService.batchVisibility(articleIds, visibility, StpUtil.getLoginIdAsLong());
+        return Result.success();
+    }
+
+    /**
+     * 密码访问校验（[4.2]）：BCrypt 比对不回显；双层防爆破——@RateLimiter 5/60s（固定窗口）
+     * + LoginRetryLimiter 连续 5 次失败锁 60s（对齐 auth 登录防爆破口径，超限抛 10005）；
+     * 通过后写短时效凭证标记（TTL 10min），getDetail PASSWORD 分支命中放行正文
+     */
+    @Operation(summary = "密码访问校验", description = "登录；限频 5/60s 防爆破；通过后 10min 窗口内详情正文放行；密码不回显不落日志")
+    @RateLimiter(time = LIMIT_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = VERIFY_PASSWORD_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
+    @SaCheckLogin
+    @PostMapping("/article/{id}/verify-password")
+    public Result<Void> verifyPassword(@PathVariable("id") Long id,
+                                       @RequestBody ArticlePasswordVerifyDTO dto) {
+        // Service 内完成：锁定闸口 → BCrypt 比对 → 失败计数/成功重置 + 凭证标记写入
+        publishService.verifyPassword(id, dto.getPassword(), StpUtil.getLoginIdAsLong());
         return Result.success();
     }
 

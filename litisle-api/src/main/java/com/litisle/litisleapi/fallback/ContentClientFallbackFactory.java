@@ -47,6 +47,16 @@ public class ContentClientFallbackFactory implements FallbackFactory<ContentClie
                 throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);
             }
 
+            /**
+             * 按图反查引用文章为图片复审再聚合核心读依赖 fail-fast：静默返回空列表会让
+             * review 侧误判「无文章引用」跳过聚合，异常穿透到调用方由消费端重试
+             */
+            @Override
+            public Result<List<Long>> listArticleIdsByFileId(String fileId) {
+                log.error("远程调用 content 模块 listArticleIdsByFileId 失败！fileId = {}", fileId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);
+            }
+
             @Override
             public Result<Void> updateCounters(ArticleCounterUpdateDTO dto) {
                 log.error("远程调用 content 模块 updateCounters 失败！articleId = {}", dto, cause);

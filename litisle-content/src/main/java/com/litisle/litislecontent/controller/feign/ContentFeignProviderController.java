@@ -51,6 +51,15 @@ public class ContentFeignProviderController implements ContentClient {
     }
 
     /**
+     * 按配图 fileId 反查引用文章：委托 Service（图片复审再聚合核心读依赖，fail-fast）
+     */
+    @Override
+    public Result<List<Long>> listArticleIdsByFileId(String fileId) {
+        log.info("远程api调用listArticleIdsByFileId fileId:{}", fileId);
+        return Result.success(contentInternalService.listArticleIdsByFileId(fileId));
+    }
+
+    /**
      * 计数回写：委托 Service（social 聚合侧单点回写，幂等绝对值 SET）
      */
     @Override

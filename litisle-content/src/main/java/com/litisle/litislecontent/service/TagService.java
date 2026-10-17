@@ -8,10 +8,12 @@ import java.util.List;
 /**
  * 标签域服务接口（前缀搜索/热门/挂载）——REST 由 TagController 调用：
  *
- * 【核心机制（§6.7）】
- * - 写路径：输入触发前缀搜索已有标签池（防碎片化），确无命中才新建——新建走 DFA 闸门（同步，命中拒挂）
- * - 数量上限：每篇 ≤ tag.max-per-article(5)；uk_article_tag 冲突幂等跳过
- * - use_count：冗余计数异步刷新（与 view_cnt 同机制）；支撑热门 TOP N
+ * 【核心机制（§6.7 + [6.2]）】
+ * - 写路径：输入触发前缀搜索已有标签池（防碎片化），确无命中才新建——新建走 DFA 闸门
+ *   （同步 dfaFacade.check(BIO, name)，任一命中即拒挂抛 SENSITIVE_WORD_DETECTED；uk_name 并发重查幂等）
+ * - 数量上限：每篇 ≤ tag.max-per-article(5)；uk_article_tag 冲突幂等跳过；名称 ≤64 字与词库词条同口径
+ * - use_count：挂载/摘除同事务原子增减为主 + TagCountReconcileJob 定时对账兑底；支撑热门 TOP N
+ * - 热门 TOP N：Redis 短缓存（TTL 基准 300s ±10% 抖动）
  * - 方案B：status=2 允许增删标签（标签不影响 content_hash），新增仍过 DFA
  */
 public interface TagService {

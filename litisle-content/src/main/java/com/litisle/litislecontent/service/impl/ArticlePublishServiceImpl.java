@@ -5,8 +5,10 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.commonredis.login.LoginRetryLimiter;
 import com.litisle.commonsecurity.crypto.PasswordCrypto;
 import com.litisle.litisleapi.constant.ModerationConstant;
+import com.litisle.litisleapi.event.content.ContentPublishedEvent;
 import com.litisle.litisleapi.dfa.DfaFacade;
 import com.litisle.litisleapi.dfa.DfaHitResult;
 import com.litisle.litisleapi.dfa.DfaScenes;
@@ -28,11 +30,13 @@ import com.litisle.litislecontent.mq.ContentEventProducer;
 import com.litisle.litislecontent.service.ArticlePublishService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -68,6 +72,12 @@ public class ArticlePublishServiceImpl implements ArticlePublishService {
 
     /** 下架审核缓存失效编排（[3.4] 方案 A：last-hash 精确删 + text/img-result SCAN 通配版本段） */
     private final UnpublishedCacheCleaner unpublishedCacheCleaner;
+
+    /** 登录防爆破限频器（common-redis；[4.2] 密码访问失败计数/锁定/重置与 auth 同源同口径） */
+    private final LoginRetryLimiter loginRetryLimiter;
+
+    /** 字符串 Redis 模板（[4.2] 密码验证通过凭证标记写入） */
+    private final StringRedisTemplate stringRedisTemplate;
 
     /**
      * 批量发布（§6.3：单批 ≤ batch-max(20) 超限拒绝；逐篇独立事务 + 逐篇回执 {articleId, success, errorCode}；
@@ -155,25 +165,40 @@ public class ArticlePublishServiceImpl implements ArticlePublishService {
     }
 
     /**
-     * 密码访问校验（§4.2）：BCrypt 比对不回显；失败限频（attempt-limit=5/60s）防爆破
+     * 密码访问校验（[4.2]）：BCrypt 比对不回显；失败限频防爆破对齐 auth 登录口径
+     * （LoginRetryLimiter：连续 5 次失败锁 60s，锁定中直接抛 10005）；校验通过写短时效
+     * 凭证标记（content:pwd-pass:{operatorId}:{articleId}，TTL 10min），getDetail PASSWORD
+     * 分支命中标记放行正文——判定链仍收口 getDetail，本方法不回吐正文
      *
      * @param articleId 文章ID
      * @param password  用户输入密码（明文，不落日志）
-     * @param operatorId 当前登录用户ID（限频维度）
+     * @param operatorId 当前登录用户ID（防爆破维度）
      */
     @Override
     public void verifyPassword(Long articleId, String password, Long operatorId) {
+        // 防爆破闸口前置：锁定中直接拒绝（超限 TOO_MANY_REQUESTS=10005，不再暴露密码错误细节）
+        String retryIdentifier = ContentBizConstant.PASSWORD_RETRY_IDENTIFIER_PREFIX + operatorId;
+        if (loginRetryLimiter.isLocked(retryIdentifier)) {
+            throw new BizException(ErrorCode.TOO_MANY_REQUESTS);
+        }
         Article article = articleMapper.selectById(articleId);
         if (article == null) {
             throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
         }
         String encoded = article.getAccessPassword();
         // 未设密码与密码错误统一按密码错误处理（不暴露配置状态）；BCrypt 比对不回显明文；
-        // 失败限频 attempt-limit=5/60s 挂 Controller @RateLimiter（防爆破），本层只做比对
+        // 失败计数入 LoginRetryLimiter（连 5 次锁 60s）+ Controller @RateLimiter 双层防爆破
         if (password == null || encoded == null || encoded.isBlank()
                 || !passwordCrypto.matches(password, encoded)) {
+            loginRetryLimiter.recordFailure(retryIdentifier,
+                    ContentBizConstant.PASSWORD_RETRY_MAX_ATTEMPTS, ContentBizConstant.PASSWORD_LOCK_SECONDS);
             throw new BizException(ErrorCode.ARTICLE_PASSWORD_ERROR);
         }
+        // 比对成功：重置失败计数 + 写密码凭证标记（getDetail PASSWORD 分支 10min 内放行正文）
+        loginRetryLimiter.resetFailure(retryIdentifier);
+        stringRedisTemplate.opsForValue().set(
+                ContentBizConstant.PWD_PASS_MARK_KEY_PREFIX + operatorId + ":" + articleId,
+                "1", Duration.ofSeconds(ContentBizConstant.PWD_PASS_MARK_TTL_SECONDS));
     }
 
     /**
@@ -264,10 +289,23 @@ public class ArticlePublishServiceImpl implements ArticlePublishService {
             return;
         }
         // 转私密（已发布态 → PRIVATE）对齐单篇 update 口径：afterCommit 必发 content.unpublished；
-        // content.published 事件随板块四 [4.2] 补契约后接通（转公开路径当前仅 DB CAS）
+        // 转公开（→PUBLIC）不重审（content_hash 未变原审核结论仍有效）：afterCommit 发 content.published
+        // （[4.2] 补契约后接通；不重建/不重写任何审核缓存，原键仍有效）
         boolean toPrivate = target == VisibilityEnum.PRIVATE
                 && article.getStatus() == ArticleStatusEnum.PUBLISHED
                 && article.getVisibility() != VisibilityEnum.PRIVATE;
+        if (target == VisibilityEnum.PUBLIC) {
+            ContentPublishedEvent publishedEvent = new ContentPublishedEvent();
+            publishedEvent.setBizType(ModerationConstant.BIZ_TYPE_ARTICLE);
+            publishedEvent.setBizId(articleId);
+            publishedEvent.setContentHash(article.getContentHash());
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    contentEventProducer.sendPublished(publishedEvent);
+                }
+            });
+        }
         if (toPrivate) {
             // 批量转私密同样收口下架缓存失效（[3.4] 方案 A，fail-safe 不阻断批量主流程）
             unpublishedCacheCleaner.invalidateArticle(articleId, article.getContentHash());

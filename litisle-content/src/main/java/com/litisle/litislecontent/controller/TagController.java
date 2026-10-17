@@ -4,6 +4,7 @@ package com.litisle.litislecontent.controller;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.result.Result;
+import com.litisle.commonredis.ratelimit.RateLimiter;
 import com.litisle.litislecontent.domain.vo.TagVO;
 import com.litisle.litislecontent.service.TagService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -12,6 +13,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import static com.litisle.litislecontent.constant.ContentLimitConstant.*;
 
 /**
  * REST 接口层——标签域：
@@ -31,8 +35,10 @@ public class TagController {
 
     private final TagService tagService;
 
-    /** 前缀搜索已有标签池（输入联想，防标签碎片化） */
-    @Operation(summary = "标签搜索", description = "登录；仅返回已有标签池命中项")
+    /** 前缀搜索已有标签池（输入联想，防标签碎片化；限频 30/60s 防爬，矩阵外补充） */
+    @Operation(summary = "标签搜索", description = "登录；仅返回已有标签池命中项；限频 30/60s")
+    @RateLimiter(time = LIMIT_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = TAG_SEARCH_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
     @SaCheckLogin
     @GetMapping("/tags")
     public Result<List<TagVO>> search(@RequestParam("keyword") String keyword) {

@@ -37,10 +37,25 @@ public class MqConstant {
      */
     public static final String QUEUE_CONTENT_UNPUBLISHED = "litisle.content.unpublished.queue";
 
+    /**
+     * 封禁连带下架队列（板块八 8.2）：user 服务发布 user.banned，content 消费
+     * 将该作者全部已发布文章批量置 4-下架（配套逐篇发 content.unpublished + 本地缓存键失效）
+     */
+    public static final String QUEUE_CONTENT_USER_BANNED = "litisle.content.user.banned.queue";
+
+    /** 封禁连带下架死信队列（消费重试耗尽兜底，复用 moderation.dlx；无 TTL、无二级 DLX） */
+    public static final String QUEUE_CONTENT_USER_BANNED_DLQ = "litisle.content.user.banned.dlq.queue";
+
     // ==================== 路由键 ====================
 
     /** 用户注册路由键 */
     public static final String ROUTING_USER_REGISTERED = "user.registered";
+
+    /** 用户封禁路由键（板块八 8.2，发布至 EXCHANGE_USER，事件体 UserBannedEvent） */
+    public static final String ROUTING_USER_BANNED = "user.banned";
+
+    /** 封禁连带下架死信路由键（复用 moderation.dlx 精确投递，防通配误吸） */
+    public static final String ROUTING_USER_BANNED_DLQ = "user.banned.dlq";
 
     /** 文章发布路由键 */
     public static final String ROUTING_CONTENT_PUBLISHED = "content.published";
@@ -134,6 +149,31 @@ public class MqConstant {
      * 否则 safe_flag 回写/隔离链路收不到图片 result（拓扑改动两侧须参数对齐防 PRECONDITION_FAILED）</p>
      */
     public static final String ROUTING_MODERATION_IMAGE_RESULT = "moderation.image.result";
+
+    // ==================== content 侧审核结果/申诉回写队列（板块三 3-5，§4.5.2）====================
+
+    /**
+     * content 侧审核结果队列（文章双链路聚合回写，3-5）。
+     * <p>绑定 ROUTING_MODERATION_TEXT_RESULT：文章文本 result（scene=ARTICLE）与配图复审
+     * result（scene=ARTICLE_IMG_RE_REVIEW，bizType 仍=1 复用文章任务）同队列到达，
+     * 消费端按 scene 分流聚合；评论 bizType=2 随评论模块开发接线（当前留痕丢弃）</p>
+     */
+    public static final String QUEUE_CONTENT_MODERATION_TEXT_RESULT = "litisle.content.moderation.text.result.queue";
+
+    /** content 侧审核结果死信队列（消费失败重试耗尽兜底，防毒丸消息无限重投） */
+    public static final String QUEUE_CONTENT_MODERATION_TEXT_RESULT_DLQ = "litisle.content.moderation.text.result.dlq.queue";
+
+    /** content 侧审核结果死信路由键（主队列 deadLetterRoutingKey，决定死信进 content DLQ） */
+    public static final String ROUTING_MODERATION_TEXT_RESULT_DLQ = "moderation.text.result.dlq";
+
+    /** content 侧申诉改判结果队列（5-4.5：文章改判 PASS → CAS 3→2 恢复发布 + last-hash 失效） */
+    public static final String QUEUE_CONTENT_MODERATION_APPEAL_RESULT = "litisle.content.moderation.appeal.result.queue";
+
+    /** content 侧申诉改判结果死信队列（消费失败重试耗尽兜底） */
+    public static final String QUEUE_CONTENT_MODERATION_APPEAL_RESULT_DLQ = "litisle.content.moderation.appeal.result.dlq.queue";
+
+    /** content 侧申诉改判结果死信路由键 */
+    public static final String ROUTING_MODERATION_APPEAL_RESULT_DLQ = "moderation.appeal.result.dlq";
 
     // ==================== 处罚结果分发（板块五 5-2，§4.2.3/§4.5.2）====================
 

@@ -12,6 +12,7 @@ import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litisleapi.dfa.DfaFacade;
 import com.litisle.litisleapi.dfa.DfaHitResult;
 import com.litisle.litisleapi.dfa.DfaScenes;
+import com.litisle.litisleapi.event.content.ContentPublishedEvent;
 import com.litisle.litisleapi.event.content.ContentUnpublishedEvent;
 import com.litisle.litisleapi.event.moderation.ImageSubmitEvent;
 import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
@@ -21,6 +22,7 @@ import com.litisle.litisleapi.moderation.LastHashExemptChecker;
 import com.litisle.litisleapi.moderation.LastHashStore;
 import com.litisle.litisleapi.moderation.PublishTextPrecheck;
 import com.litisle.litisleapi.moderation.SubmitTextAssembler;
+import com.litisle.litislecontent.cache.FollowRelationCache;
 import com.litisle.litislecontent.cache.UnpublishedCacheCleaner;
 import com.litisle.litislecontent.constant.ContentBizConstant;
 import com.litisle.litislecontent.domain.dto.ArticleImageDTO;
@@ -38,6 +40,7 @@ import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.enums.ZoneEnum;
 import com.litisle.litislecontent.mapper.ArticleImageMapper;
 import com.litisle.litislecontent.mapper.ArticleMapper;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import com.litisle.litislecontent.mq.ContentEventProducer;
 import com.litisle.litislecontent.service.ArticleService;
 import com.litisle.litislecontent.utils.LogSanitizeUtil;
@@ -94,6 +97,12 @@ public class ArticleServiceImpl implements ArticleService {
 
     /** 下架审核缓存失效编排（[3.4] 方案 A：last-hash 精确删 + text/img-result SCAN 通配版本段） */
     private final UnpublishedCacheCleaner unpublishedCacheCleaner;
+
+    /** 关注关系回查缓存（[4.1] visibility=3：短 TTL 缓存 + miss 回查 SocialClient，fail-fast） */
+    private final FollowRelationCache followRelationCache;
+
+    /** 字符串 Redis 模板（[4.2] 密码验证通过凭证标记读取） */
+    private final StringRedisTemplate stringRedisTemplate;
 
     /**
      * 创建并发布（同步段，§2.4 发布编排）：A0 分区权限 → A1 图文联合判定+契约门面校验 → sanitize 三层铁律 →
@@ -249,18 +258,25 @@ public class ArticleServiceImpl implements ArticleService {
         upd.setCategory(dto.getCategory());
         upd.setZone(dto.getZone());
         boolean toPrivate = false;
+        boolean toPublic = false;
         if (dto.getVisibility() != null) {
-            upd.setVisibility(dto.getVisibility());
-            if (dto.getVisibility() == VisibilityEnum.PASSWORD) {
-                // 密码访问必须携带新密码（BCrypt 落库）
-                if (dto.getAccessPassword() == null || dto.getAccessPassword().isBlank()) {
-                    throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
+            // 转公开（visibility 2/3/4→1 且 status=2）不重审（[4.1]：方案B 禁改正文 + content_hash 未变，
+            // 原审核结论仍有效）；走独立 CAS 收口不入 upd 通用集合（status 不变，禁与「4-下架终态」流转混淆）
+            toPublic = published && dto.getVisibility() == VisibilityEnum.PUBLIC
+                    && article.getVisibility() != VisibilityEnum.PUBLIC;
+            if (!toPublic) {
+                upd.setVisibility(dto.getVisibility());
+                if (dto.getVisibility() == VisibilityEnum.PASSWORD) {
+                    // 密码访问必须携带新密码（BCrypt 落库）
+                    if (dto.getAccessPassword() == null || dto.getAccessPassword().isBlank()) {
+                        throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
+                    }
+                    upd.setAccessPassword(passwordCrypto.encode(dto.getAccessPassword()));
                 }
-                upd.setAccessPassword(passwordCrypto.encode(dto.getAccessPassword()));
+                // 转非公开（已发布文 → PRIVATE）隐私红线：必发 content.unpublished
+                toPrivate = published && dto.getVisibility() == VisibilityEnum.PRIVATE
+                        && article.getVisibility() != VisibilityEnum.PRIVATE;
             }
-            // 转非公开（已发布文 → PRIVATE）隐私红线：必发 content.unpublished
-            toPrivate = published && dto.getVisibility() == VisibilityEnum.PRIVATE
-                    && article.getVisibility() != VisibilityEnum.PRIVATE;
         }
         // 配图整体重挂（仅 status=0/3；null=不修改）
         if (dto.getImages() != null) {
@@ -270,6 +286,18 @@ public class ArticleServiceImpl implements ArticleService {
             saveArticleImages(dto.getImages(), id, null);
         }
         articleMapper.updateById(upd);
+        if (toPublic) {
+            // 转公开 CAS（where status=2，MP 自动拼 del_flag=0）：仅已发布态可变更，并发下架/删除时 fail-fast
+            int rows = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
+                    .eq(Article::getId, id)
+                    .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
+                    .set(Article::getVisibility, VisibilityEnum.PUBLIC));
+            if (rows == 0) {
+                throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
+            }
+            // afterCommit 发 content.published（search/ai 重新收录；不重建/不重写任何审核缓存，原键仍有效）
+            publishPublishedAfterCommit(article);
+        }
         if (toPrivate) {
             // 下架审核缓存失效（[3.4] 方案 A，事务内同步执行，fail-safe 不阻断主流程）
             unpublishedCacheCleaner.invalidateArticle(article.getId(), article.getContentHash());
@@ -347,7 +375,8 @@ public class ArticleServiceImpl implements ArticleService {
      *
      * @param articleId 文章ID
      * @param viewerId  查看者ID（null=匿名，仅可读发布态）
-     * @return 详情 VO（PASSWORD 时 contentHtml=null 且 needPassword=true）
+     * @return 详情 VO（PASSWORD 未验密时 contentHtml=null 且 needPassword=true；
+     *         验密凭证标记命中则放行正文，[4.2]）
      * @throws BizException ARTICLE_NOT_FOUND 不存在/非发布态/可见性拦截
      */
     @Override
@@ -368,13 +397,21 @@ public class ArticleServiceImpl implements ArticleService {
                     throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
                 }
                 case FOLLOWERS -> {
-                    // TODO(板块六)：回查 social 关注关系（结果短 TTL 缓存±10%抖动）；当前降级宁严勿松
-                    throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
+                    // 仅关注者（[4.1]）：回查 social 关注关系（短 TTL 缓存 ±10% 抖动，fail-fast 不静默放行）；
+                    // 非关注者按不存在处理，不暴露存在性
+                    if (!followRelationCache.isFollowing(article.getAuthorId(), viewerId)) {
+                        throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
+                    }
                 }
                 case PASSWORD -> {
-                    // 密码访问：元信息可见，正文不带出，前端引向 verify-password 端点
-                    contentHtml = null;
-                    needPassword = true;
+                    // 密码访问（[4.2]）：验密凭证标记命中（10min 窗口内已通过 verify-password）放行正文；
+                    // 未验密元信息可见，正文不带出，前端引向 verify-password 端点
+                    boolean pwdGranted = stringRedisTemplate.hasKey(
+                            ContentBizConstant.PWD_PASS_MARK_KEY_PREFIX + viewerId + ":" + articleId);
+                    if (!pwdGranted) {
+                        contentHtml = null;
+                        needPassword = true;
+                    }
                 }
                 default -> {
                     // PUBLIC：放行
@@ -587,6 +624,25 @@ public class ArticleServiceImpl implements ArticleService {
             @Override
             public void afterCommit() {
                 contentEventProducer.sendUnpublished(event);
+            }
+        });
+    }
+
+    /**
+     * 注册 afterCommit 发送 content.published（转公开不重审场景，[4.1]）：
+     * 事件体仅携指纹（bizType/bizId/contentHash），消费方按需门控回查权威态
+     *
+     * @param article 已发布文章（contentHash 取库中现值，方案B 禁改正文故未变）
+     */
+    private void publishPublishedAfterCommit(Article article) {
+        ContentPublishedEvent event = new ContentPublishedEvent();
+        event.setBizType(ModerationConstant.BIZ_TYPE_ARTICLE);
+        event.setBizId(article.getId());
+        event.setContentHash(article.getContentHash());
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                contentEventProducer.sendPublished(event);
             }
         });
     }

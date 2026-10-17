@@ -33,6 +33,14 @@ public interface ContentInternalService {
     List<ArticleImageRefDTO> listArticleImages(Long articleId);
 
     /**
+     * 按配图 fileId 反查引用该图的未删除文章 ID 列表（图片复审再聚合用，板块八 [8.2]）
+     *
+     * @param fileId 配图文件 ID（article_image.file_id，索引 idx_file_id 支撑）
+     * @return 引用该图的未删除文章 ID 去重列表（无引用返回空列表）
+     */
+    List<Long> listArticleIdsByFileId(String fileId);
+
+    /**
      * 计数回写（幂等绝对值 SET，仅非空字段更新）
      *
      * @param dto 计数回写 DTO
