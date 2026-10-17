@@ -14,8 +14,12 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
 import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litisleapi.dto.file.FileRefDTO;
+import com.litisle.litisleapi.dfa.DfaFacade;
 import com.litisle.litisleapi.feign.AuthClient;
 import com.litisle.litisleapi.feign.FileClient;
+import com.litisle.litisleapi.moderation.BioModerationGate;
+import com.litisle.litisleapi.moderation.UsernameModerationGate;
+import com.litisle.litisleuser.dfa.UsernameRejectRecordAdapter;
 import com.litisle.litisleuser.domain.dto.AvatarUpdateDTO;
 import com.litisle.litisleuser.domain.dto.BindEmailDTO;
 import com.litisle.litisleuser.domain.dto.UpdateEmailDTO;
@@ -56,6 +60,12 @@ public class UserProfileServiceImpl
 
     /** 文件服务跨服务调用（file_ref 引用登记，方案C） */
     private final FileClient fileClient;
+
+    /** DFA 同步闸门门面（user 宿主本地引擎，改名链路 USERNAME 场景判定用，运行期零网络） */
+    private final DfaFacade dfaFacade;
+
+    /** 用户名拒绝取证适配器（HIGH 拒绝落 moderation_record，经 review 侧） */
+    private final UsernameRejectRecordAdapter usernameRejectRecordAdapter;
 
     /** 头像引用的业务类型（BizTypeEnum 定义在 litisle-file，api 模块不可反向依赖，此处用常量字符串） */
     private static final String BIZ_TYPE_AVATAR = "AVATAR";
@@ -342,6 +352,32 @@ public class UserProfileServiceImpl
 
         Long userId = StpUtil.getLoginIdAsLong();
 
+        // ===== 0. 改名审核闸门（仅本次携带 username 时执行，部分更新不触发；SSOT 收口 UsernameModerationGate，注册/改名共用同一链路实现）=====
+        if (dto.getUsername() != null) {
+            // 链路与纪律见门面类注释；与注册链路唯一差异：改名是部分更新，username 可空需判空
+            UsernameModerationGate.review(dto.getUsername(), dfaFacade, usernameRejectRecordAdapter);
+        }
+
+        // ===== 0.1 笔名审核闸门（作者身份且携带 penName 时执行；笔名是作者对外身份标识，与用户名同类——
+        //      复用 USERNAME 场景词库口径与同一 SSOT 门面（HIGH 拦截+取证），非作者传 penName 本就不处理故无需审；
+        //      时序：先于步骤 3 主表写库与步骤 4 笔名唯一性校验（审核先于业务校验铁律））=====
+        if (dto.getPenName() != null && SaRoleHelper.isAuthor()) {
+            UsernameModerationGate.review(dto.getPenName(), dfaFacade, usernameRejectRecordAdapter);
+        }
+
+        // ===== 0.2 简介类字段审核闸门（bio/创作方向/代表作 同属作品介绍类短文本，共用 BIO 场景词库，SSOT 收口 BioModerationGate）=====
+        //      策略差异：非身份字段——HIGH 拦截（70001）但不取证落库（原值仍在展示，拒绝无状态影响）；
+        //      空串 = 清空字段，闸门内短路放行；时序：先于步骤 3 写库（审核先于业务校验铁律）
+        if (dto.getBio() != null) {
+            BioModerationGate.review(dto.getBio(), dfaFacade);
+        }
+        if (dto.getCreationDir() != null) {
+            BioModerationGate.review(dto.getCreationDir(), dfaFacade);
+        }
+        if (dto.getMasterpiece() != null) {
+            BioModerationGate.review(dto.getMasterpiece(), dfaFacade);
+        }
+
         // ===== 1. 查当前主表 =====
         User oldUser = userMapper.selectOne(
                 new LambdaQueryWrapper<User>()
@@ -379,10 +415,6 @@ public class UserProfileServiceImpl
         }
         if (dto.getBio() != null) {
             userUpd.set(User::getBio, dto.getBio());
-            userChanged = true;
-        }
-        if (dto.getAvatarColor() != null) {
-            userUpd.set(User::getAvatarColor, dto.getAvatarColor());
             userChanged = true;
         }
 

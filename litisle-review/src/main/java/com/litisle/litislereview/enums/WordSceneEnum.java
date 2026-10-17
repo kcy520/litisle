@@ -7,7 +7,7 @@ import lombok.Getter;
 
 /**
  * 敏感词库场景枚举（sensitive_word_version.scene / sensitive_word_library.scene）
- * <p>仅文本场景走 DFA：WordLibraryLoader 只加载 ARTICLE/COMMENT/USERNAME/MESSAGE，
+ * <p>仅文本场景走 DFA：WordLibraryLoader 只加载 ARTICLE/COMMENT/USERNAME/MESSAGE/BIO，
  * 图片场景（IMAGE/ARTICLE_IMG_RE_REVIEW）查词库为空属预期，跳过不报错</p>
  * <p>code 为 String，接入 DictEnum 获得 name/code/desc 三值绑定</p>
  */
@@ -24,7 +24,10 @@ public enum WordSceneEnum implements DictEnum {
     USERNAME("USERNAME", "用户名"),
 
     /** 私信 */
-    MESSAGE("MESSAGE", "私信");
+    MESSAGE("MESSAGE", "私信"),
+
+    /** 简介类短文本（bio/创作方向/代表作 共用；宿主直审场景，不建审核任务） */
+    BIO("BIO", "简介");
 
     /** 入库值（varchar(20)） */
     @EnumValue

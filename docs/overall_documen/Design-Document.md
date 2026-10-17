@@ -117,7 +117,7 @@
 四类核心数据流：
 
 1. **命令同步流**：写操作走 Gateway → 业务服务 → MySQL，同时发 MQ 事件异步更新 ES/缓存/计数。
-2. **审核编排流**（事件驱动状态机）：Content 发 `content.submitted` → Review 接收 → 调 DFA → 调 AI 小审 → 据 risk 路由 → 回写 Content + 通知作者。
+2. **审核编排流**（事件驱动状态机）：Content 发 `content.submitted`（事件体不含正文，Review 经 ContentClient 回查）→ Review 消费端切片/机审（DFA+LLM）→ 据 risk 路由 → 发 `moderation.result` 统一回写 → Content CAS 消费改状态 + 通知作者。
 3. **读放大流**：读请求先查 Redis（热点/计数/关注关系），未命中查 DB 回填，布隆过滤器防穿透、随机 TTL 防雪崩、互斥锁防击穿。
 4. **事务一致性流**：积分商城下单 = payment 扣用户币(AT 分支) + shop 创建订单/扣库存(AT 分支) + 生成运单，TC 全局提交/回滚。赞赏改为 payment 单库本地事务，无需 Seata。
 5. **RAG 知识库流**：Content 发 `content.published` → AI 服务接收 → 质量门控（字数/角色/可见性/DFA） → 正文清洗切片 → Embedding 向量化 → 写入 ES dense_vector 索引。文章下线时监听 `content.unpublished` 移除对应向量。
@@ -423,22 +423,21 @@ litisle-content
 │   ├── dto/           # ArticleCreateDTO / DraftSaveDTO
 │   └── vo/            # ArticleDetailVO / BookCardVO
 ├── enums/             # （本服务无私有枚举，使用 api 共享）
-├── constant/          # ContentBizConstant（切片字数上限、推荐流长度等）
-├── mq/                # ContentEventProducer
-├── slicer/            # ContentSlicer（≤2000字切片）
+├── constant/          # ContentBizConstant（推荐流长度等；切片字数上限已归 review 侧 llm.max-text-chars）
+├── mq/                # ContentEventProducer（submitted/published/unpublished）
 └── config/            # ContentConfig
 ```
 
 | 项       | 内容                                                         |
 | -------- | ------------------------------------------------------------ |
-| 主要职责 | 文章/书籍/合集/草稿、分区(普通/作家/推荐流)、图片插入与对齐、大篇幅切片送审 |
-| 核心功能 | 草稿自动保存；图片任意位置插入+5 种对齐；分区互斥；普通→作家升级申请；合集章节目录+阅读进度；切片≤2000字并行送审 |
-| 关键组件 | `ArticleService`、`BookService`、`CollectionService`、`DraftService`、`ZoneRouter`、`ContentSlicer`、`FeedService` |
+| 主要职责 | 文章/书籍/合集/草稿、分区(普通/作家/推荐流)、图片插入与对齐、大篇幅送审（切片/聚合收口 review 消费端） |
+| 核心功能 | 草稿自动保存；图片任意位置插入+5 种对齐；分区互斥；普通→作家升级申请；合集章节目录+阅读进度；送审仅发单条 `content.submitted`（事件体不含正文，切片禁静默截断由 review 侧兑底） |
+| 关键组件 | `ArticleService`、`BookService`、`CollectionService`、`DraftService`、`ZoneRouter`、`ContentEventProducer`、`FeedService` |
 | 数据模型 | `article`、`article_image`、`article_draft`、`book`、`book_chapter`、`reading_progress` |
 | 外部依赖 | MyBatis-Plus、Redis、litisle-file、litisle-api(AI/Review/User Feign)、MQ |
 | API      | `POST /content/article`、`PUT /content/article/{id}`、`POST /content/draft/save`、`POST /content/book`、`GET /content/feed`、`POST /content/upgrade-apply` |
-| 流程     | 发布：落库 → 切片 → 逐片调 review 链路 → 汇总 risk → 状态=PENDING/PUBLISHED/REJECTED → 发 `content.submitted/published` |
-| 错误处理 | 草稿保存幂等；切片失败重试；分区冲突拒绝                     |
+| 流程     | 发布：校验+落库（CAS 0/3→1）→ afterCommit 发单条 `content.submitted`（切片/聚合收口 review 消费端）→ `moderation.result` 事件驱动回写状态 → 已发布/驳回 |
+| 错误处理 | 草稿保存幂等；切片失败重试不静默截断（review 消费端兑底）；分区冲突拒绝                     |
 | 安全     | 作家分区跳 DFA 全量人工；图片走 file 鉴权                    |
 | 性能     | 推荐流预计算+缓存；正文大字段延迟加载；切片并行(线程池)      |
 
@@ -503,7 +502,7 @@ litisle-review
 | 数据模型 | `review_task`、`report`、`appeal`、`violation_score`、`sensitive_word_library`、`author_apply` |
 | 外部依赖 | MyBatis-Plus、Redis、MQ、litisle-api(AI/Content/User Feign)、litisle-common(DFA) |
 | API      | `GET /review/tasks`、`POST /review/task/{id}/decide`、`POST /review/report`、`POST /review/appeal/{id}/judge`、`POST /review/sensitive-word` |
-| 流程     | 收 `content.submitted` → Layer1 DFA → Layer2 调 AI 小审 → 据 risk：低自动通过/中入待审队列/高驳回 → REVIEWER 决策 → 回写 Content + 通知 |
+| 流程     | 收 `content.submitted` → ContentClient 回查正文 → 切片+机审三分态 → 发 `moderation.result` 统一回写（不跨库直写业务表）→ SUSPICIOUS 进人审，人审终态同样经 result 事件回写 → 通知作者 |
 | 错误处理 | 任务超时自动转超时队列；决策幂等(乐观锁)                     |
 | 安全     | 决策记审计不可改；REVIEWER 只看自己认领/未认领；词库改动留痕 |
 | 性能     | 任务池分片；DFA 本地执行免网络；小审异步回调                 |
@@ -700,11 +699,12 @@ litisle-notification
 | `content.published`      | content          | search、notification、ai(RAG 摄入)        |
 | `content.unpublished`    | content          | search、ai(RAG 移除向量)；覆盖删除/转私密/复审驳回下架/封禁连带下架 |
 | `social.liked/commented` | social           | notification、search(热度)                |
-| `review.decided`         | review           | content、notification                     |
+| `moderation.result`      | review           | content(自筛 bizType)、notification、file(仅 bizType=6) |
+| `moderation.appeal.result` | review         | content(自筛 bizType=1)、评论模块(自筛 bizType=2) |
 | `payment.rewarded`       | payment          | notification                              |
 | `shop.order.created`     | shop             | notification（通知用户下单成功）          |
 | `shop.order.shipped`     | shop             | notification（通知用户已发货）            |
-| `user.banned`            | review/user      | content(下架)、social(禁言)、ai(封禁会话) |
+| `user.banned`            | user（review 仅发 punish.result） | content(下架)、social(禁言)、ai(封禁会话) |
 | `sensitiveword.updated`  | review(运营后台) | 全服务(订阅刷新本地 DFA)                  |
 
 ---

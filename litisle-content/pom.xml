@@ -32,6 +32,118 @@
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
+        <!-- Web MVC：Article/Book/Draft/Feed REST 接口 + Jackson 序列化 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- 参数校验（文章/草稿/书籍/标签挂载等入参校验） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- RabbitMQ：ContentEventProducer 发 content.submitted / published / unpublished -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
+        <!-- common-core：Result / BizException / ErrorCode / DictEnum -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-redis：推荐流缓存三防 + 免审直落 last-hash 失效 + @RateLimiter + Redisson 锁 -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-redis</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-security：Sa-Token 鉴权 + owner 归属校验 + @AuditLog 审计 + UGC XSS 过滤 -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-security</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-mq：MQ 事件生产公共组件（ContentEventProducer 底层封装） -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-mq</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- MyBatis-Plus：ArticleMapper/BookMapper 等 extends BaseMapper（yml 已配置） -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        </dependency>
+        <!-- MySQL 驱动（litisle_content 库） -->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+        </dependency>
+
+        <!-- Redis 连接池（yml lettuce pool 配置的前提） -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
+
+        <!-- Feign：回查 UserClient/FileClient/ReviewClient（fallbackFactory fail-fast） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <!-- Feign 负载均衡 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+        <!-- Sentinel：Feign fallbackFactory 生效前提（feign.sentinel.enabled: true） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <!-- Sentinel 规则 Nacos 数据源：dataId=litisle-content-degrade-rules.json -->
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+        </dependency>
+
+        <!-- Nacos 服务注册发现（被网关 lb://litisle-content 路由的前提） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!-- Nacos 配置中心（拉取 litisle-shared.yaml 共享配置） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
+        <!-- api 模块：Feign 接口定义（UserClient/FileClient/ReviewClient）与公共 DTO/事件 -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>litisle-api</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!-- API 文档（knife4j，扫 controller 包） -->
+        <dependency>
+            <groupId>com.github.xiaoymin</groupId>
+            <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+        </dependency>
+
+        <!--lombok-->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

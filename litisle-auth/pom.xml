@@ -100,6 +100,12 @@
             <artifactId>hutool-all</artifactId>
         </dependency>
 
+        <!-- DFA 敏感词同步闸门（零传递依赖，词库版本化热更；版本由父 POM 托管） -->
+        <dependency>
+            <groupId>com.github.houbb</groupId>
+            <artifactId>sensitive-word</artifactId>
+        </dependency>
+
         <!--Feign Starter -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

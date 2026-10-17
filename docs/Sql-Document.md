@@ -398,6 +398,7 @@ create table if not exists `article`
 `view_cnt`      bigint unsigned not null default 0 comment '浏览量',
 `like_cnt`      bigint unsigned not null default 0 comment '点赞数',
 `comment_cnt`   bigint unsigned not null default 0 comment '评论数',
+`content_hash`  char(64)        null comment '内容指纹SHA256（文本=标题+正文，对齐 review §2.1；配图聚合指纹属 ARTICLE_IMG_RE_REVIEW 场景不并入本列；免审直落/转公开不重审校验键）',
 `del_flag`      tinyint         not null default 0 comment '删除标志：0-未删除 1-已删除',
 `version`       int             not null default 0 comment '乐观锁版本号',
 `create_time`   datetime        not null default current_timestamp comment '创建时间',
@@ -413,7 +414,7 @@ default charset = utf8mb4 comment = '文章表';
 create table if not exists `article_image`
 (
 `id`              bigint unsigned not null auto_increment primary key comment '主键ID',
-`article_id`      bigint unsigned not null comment '文章ID（正式文章时有值）',
+`article_id`      bigint unsigned null comment '文章ID（草稿期可空——新草稿插图仅 draft_id 归属，发布归属切换时回填；与 draft_id 二选一）',
 `draft_id`        bigint unsigned null comment '草稿ID（与 article_id 二选一，发布后清空）',
 `file_id`         varchar(64)     not null comment 'SeaweedFS 文件ID',
 `position_order`  int             not null comment '图片在正文中的顺序号',
@@ -494,6 +495,32 @@ unique key `uk_user_book` (`user_id`, `book_id`),
 index `idx_book_id` (`book_id`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '阅读进度表';
+
+# 7. 标签表（全局池，受控新建）
+create table if not exists `tag`
+(
+`id`          bigint unsigned not null auto_increment primary key comment '标签ID',
+`name`        varchar(20)     not null comment '标签名（≤20字符，新建过 DFA 闸门）',
+`use_count`   bigint unsigned not null default 0 comment '引用文章数（冗余计数，异步刷新，支撑热门 TOP N）',
+`status`      tinyint         not null default 0 comment '状态：0-正常 1-封禁（违规标签运营处置，封禁后列表侧不再聚合展示）',
+`del_flag`    tinyint         not null default 0 comment '删除标志：0-未删除 1-已删除',
+`create_time` datetime        not null default current_timestamp comment '创建时间',
+unique key `uk_name` (`name`),
+index `idx_use_count` (`use_count`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '标签表';
+
+# 8. 文章-标签关联表
+create table if not exists `article_tag`
+(
+`id`          bigint unsigned not null auto_increment primary key comment '主键ID',
+`article_id`  bigint unsigned not null comment '文章ID',
+`tag_id`      bigint unsigned not null comment '标签ID',
+`create_time` datetime        not null default current_timestamp comment '创建时间',
+unique key `uk_article_tag` (`article_id`, `tag_id`),
+index `idx_tag_id` (`tag_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = '文章标签关联表（冲突幂等跳过；不参与推荐流排序权重，仅聚合列表页）';
 ```
 
 设计原因：
@@ -511,6 +538,8 @@ access_password：visibility=4（密码访问）时使用，BCrypt 加密存储�
 book_chapter 用 (book_id, chapter_no) 唯一索引：保证章节序号不重复，序号即排序键。
 
 content_html 用 longtext：支持大篇幅切片前的完整正文。
+
+tag + article_tag 独立多对多：标签是开放词汇关键词（区别于 category 单选分类），独立池支撑改名/封禁/热门统计；每篇上限 5 个防堆砌，新建过 DFA，与正文方案B（禁编已发布正文）解耦——标签不影响 content_hash。
 
 ## 三、litisle-social 模块（数据库：litisle_social）
 
@@ -723,6 +752,7 @@ create table if not exists `review_task`
 `update_time`  datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
 unique key `uk_biz_scene` (`biz_type`, `biz_id`, `scene`),
 index `idx_status` (`status`, `create_time`),
+index `idx_claim` (`status`, `claim_time`),
 index `idx_assignee` (`assignee`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '审核任务表';
@@ -849,7 +879,7 @@ index `idx_content` (`biz_type`, `biz_id`),
 index `idx_review_task_id` (`review_task_id`),
 index `idx_report_id` (`report_id`),
 index `idx_punish_id` (`punish_id`),
-index `idx_status` (`status`)
+index `idx_status` (`status`, `create_time`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = '申诉表';
 ​
@@ -890,7 +920,7 @@ default charset = utf8mb4 comment = '处罚流水表（历史行不可删除；�
 # 5. 敏感词库版本表（DFA 热更/缓存失效的版本单一来源：scene 级单调递增）
 create table if not exists `sensitive_word_version`
 (
-`scene`       varchar(20)     not null comment '场景：ARTICLE/COMMENT/USERNAME/MESSAGE',
+`scene`       varchar(20)     not null comment '场景：ARTICLE/COMMENT/USERNAME/MESSAGE/BIO（BIO 为宿主直审场景：bio/创作方向/代表作经 BioModerationGate 同步 DFA 直审，不经 review_task）',
 `version`     bigint          not null default 0 comment '该 scene 词库当前版本：任何变更（单条/批量增删改、启停、黑白切换）在同一事务内 +1；Redis Pub 携带此值，消费端 newVersion > curVersion 才重建（防乱序/重复 Pub 旧覆盖新）；缓存 key/留痕快照均取此单一来源，避免行级取版本不一致',
 `updated_by`  bigint unsigned not null comment '最后变更人ID（审计）',
 `update_time` datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
@@ -903,7 +933,7 @@ create table if not exists `sensitive_word_library`
 (
 `id`           bigint unsigned not null auto_increment primary key comment '词ID',
 `word`         varchar(64)     not null comment '敏感词',
-`scene`        varchar(20)     not null comment '场景：ARTICLE/COMMENT/USERNAME/MESSAGE',
+`scene`        varchar(20)     not null comment '场景：ARTICLE/COMMENT/USERNAME/MESSAGE/BIO',
 `level`        tinyint         not null default 2 comment '级别：1-HIGH 2-MID',
 `is_blacklist` tinyint         not null default 1 comment '是否黑名单：0-白名单 1-黑名单',
 `status`       tinyint         not null default 1 comment '状态：0-禁用 1-启用',
@@ -1416,8 +1446,15 @@ appeal 表补 review_task_id 列：机审驳回（REJECT）场景既无 report �
 idx_review_task_id；@Idempotent 只防请求级重复）。
 
 sensitive_word_library 同时支持黑/白名单与多场景：对应设计文档"评论加载白名单 / 用户名不加载白名单"的差异化策略，按 scene 过滤加载。IMAGE/ARTICLE_IMG_RE_REVIEW 等图片场景不走 DFA：
-WordLibraryLoader 仅加载文本场景（ARTICLE/COMMENT/USERNAME/MESSAGE），图片任务按 scene
-查词库为空属预期，跳过不报错。
+# WordLibraryLoader 仅加载文本场景（ARTICLE/COMMENT/USERNAME/MESSAGE/BIO），图片任务按 scene
+# 查词库为空属预期，跳过不报错。BIO 为宿主直审场景（bio/创作方向/代表作经 BioModerationGate
+# 同步 DFA 直审，不经 review_task）：种子数据与文本场景同口径补入版本基线/测试词/版本 bump，
+# 防 user 侧宿主冷启动报「词库装载失败且无可用本地快照」。
+#
+# 索引与 sweeper 扫描路径对齐：review_task 补 idx_claim(status, claim_time) 覆盖认领超时回池
+# 扫描（status=2 且 claim_time 超阈值——idx_status 的 create_time 后缀帮不上）；appeal 的
+# idx_status 扩为 (status, create_time) 覆盖申诉超时自动维持扫描（status=0 且 create_time
+# 超 7 天，单列索引需回表过滤时间条件）。
 
 DFA 闸门跨服务部署：DFA 门面与 WordLibraryLoader 下沉共享模块（litisle-api），发布链路在
 各业务服务本地执行免网络；词库 SSOT 仍在 sensitive_word_library 表，变更经 Redis Pub +
@@ -1445,13 +1482,15 @@ author_apply 独立于 sys_user：申请记录需保留历史，多次申请形�
 
 use litisle_review;
 
--- 1. 词库版本基线（四文本场景，版本 0 = 空词库；词库本体由 seed-words-article.sql 灌入并 bump 版本）
+-- 1. 词库版本基线（五文本场景，版本 0 = 空词库；词库本体由 seed-words-article.sql 灌入并 bump 版本；
+--    BIO 为宿主直审场景，与文本场景同口径建基线，防 user 侧宿主冷启动装载失败）
 -- insert ignore：seed-words-article.sql 稍后 upsert ARTICLE 时自然 +1，不冲突
 insert ignore into `sensitive_word_version` (`scene`, `version`, `updated_by`) values
 ('ARTICLE',  0, 0),
 ('COMMENT',  0, 0),
 ('USERNAME', 0, 0),
-('MESSAGE',  0, 0);
+('MESSAGE',  0, 0),
+('BIO',      0, 0);
 
 -- 2. 作家申请示例（READER 1001 提交申请，待审——供审核员队列联调）
 INSERT INTO `author_apply` (`id`, `user_id`, `pen_name`, `creation_dir`, `masterpiece`, `status`, `create_time`)
@@ -1511,7 +1550,8 @@ VALUES
 ('测试敏感词_文章',   'ARTICLE',  2, 1, 1, 0, 1),
 ('测试敏感词_评论',   'COMMENT',  2, 1, 1, 0, 1),
 ('测试敏感词_用户名', 'USERNAME', 2, 1, 1, 0, 1),
-('测试敏感词_私信',   'MESSAGE',  2, 1, 1, 0, 1);
+('测试敏感词_私信',   'MESSAGE',  2, 1, 1, 0, 1),
+('测试敏感词_简介',   'BIO',      2, 1, 1, 0, 1);
 
 -- 测试词落库后各场景版本 bump 到 1（基线 insert ignore 已建 version=0 行，此处 upsert +1；
 -- 热更/快照语义要求版本 >0：消费端 newVersion > curVersion 才重建；
@@ -1521,7 +1561,8 @@ VALUES
 ('ARTICLE',  1, 0),
 ('COMMENT',  1, 0),
 ('USERNAME', 1, 0),
-('MESSAGE',  1, 0)
+('MESSAGE',  1, 0),
+('BIO',      1, 0)
 ON DUPLICATE KEY UPDATE `version` = `version` + 1, `updated_by` = VALUES(`updated_by`);
 
 -- 种子联调链路说明：

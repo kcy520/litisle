@@ -32,6 +32,7 @@ public final class PublishTextPrecheck {
     /**
      * 发布前置校验（4-1.1）：标题 trim 非空 + 长度≤100 + 正文去 HTML 标签可见文本非空。
      * 必须在 content_hash 计算与送审之前调用（空内容 hash 恒定，防 PASS 缓存污染全站空内容免审）。
+     * 无需
      *
      * @param title   标题（文章/评论场景必传；私信/用户名场景传 null 仅校验 content）
      * @param content 正文/私信内容/用户名

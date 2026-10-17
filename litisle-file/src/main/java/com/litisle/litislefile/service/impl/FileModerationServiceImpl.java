@@ -180,6 +180,36 @@ public class FileModerationServiceImpl implements FileModerationService {
     }
 
     /**
+     * 批量查询 sha256（file 客户端契约提供方，板块三 3.2）：
+     *
+     * 根据 fileId 列表，从 MySQL 批量查询文件 sha256 指纹
+     *
+     * select 只取两列降 IO；仅查活跃记录（del_flag=0）；任一 fileId 无活跃记录
+     * 抛 FILE_NOT_FOUND fail-fast（调用方为审核链路，缺指纹则聚合指纹无法计算，
+     * 静默降级会致指纹错配被 review 侧丢弃事件 = 漏审，宁严勿松）
+     */
+    @Override
+    public Map<String, String> batchGetSha256(List<String> fileIds) {
+        if (fileIds == null || fileIds.isEmpty()) {
+            return Map.of();
+        }
+        List<FileMeta> metas = fileMetaMapper.selectList(new LambdaQueryWrapper<FileMeta>()
+                .select(FileMeta::getFileId, FileMeta::getSha256)
+                .in(FileMeta::getFileId, fileIds)
+                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED));
+        Map<String, String> result = metas.stream()
+                .filter(m -> m.getSha256() != null)
+                .collect(Collectors.toMap(FileMeta::getFileId, FileMeta::getSha256));
+        // 逐一核验：任一 fileId 无活跃记录/无指纹 → fail-fast（对齐审核链路宁严勿松口径）
+        for (String fileId : fileIds) {
+            if (!result.containsKey(fileId)) {
+                throw new BizException(ErrorCode.FILE_NOT_FOUND);
+            }
+        }
+        return result;
+    }
+
+    /**
      * 机审取图（file 客户端契约提供方）：不过 safe_flag 闸口（申诉复核需重取隔离图
      *
      * 根据fileId，从seaweedfs查询文件数据

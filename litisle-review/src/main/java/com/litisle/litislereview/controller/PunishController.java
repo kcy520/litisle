@@ -25,7 +25,7 @@ import java.util.List;
  * - operatorId 统一 StpUtil.getLoginIdAsLong() 取当前登录人（Sa-Token 会话共享口径，与 file 模块一致）
  * - 所有返回 Result<T>；错误码：70004-任务已被他人认领 等
  */
-@Tag(name = "审核服务-处罚", description = "处罚流水查询")
+@Tag(name = "审核服务-处罚-未实现", description = "处罚流水查询")
 @RestController
 @RequestMapping("/api/review")
 @RequiredArgsConstructor
@@ -37,6 +37,7 @@ public class PunishController {
     @GetMapping("/punish/my")
     @SaCheckLogin
     public Result<List<PunishLogVO>> listMyPunish() {
-        return Result.success(punishService.listMyPunish(StpUtil.getLoginIdAsLong()));
+        List<PunishLogVO> punishLogVOS = punishService.listMyPunish(StpUtil.getLoginIdAsLong());
+        return Result.success(punishLogVOS);
     }
 }

@@ -132,6 +132,16 @@ public class FileFeignProviderController implements FileClient {
     }
 
     /**
+     * 批量查询 sha256（3.2 配图复审聚合指纹计算用）：委托 Service 查活跃元数据，
+     * 任一 fileId 无活跃记录由 Service 抛 FILE_NOT_FOUND fail-fast
+     */
+    @Override
+    public Result<Map<String, String>> batchGetSha256(List<String> fileIds) {
+        log.info("远程api调用batchGetSha256 size:{}", fileIds == null ? 0 : fileIds.size());
+        return Result.success(fileModerationService.batchGetSha256(fileIds));
+    }
+
+    /**
      * 机审取图（字节流，SSRF 防护唯一入口）：委托 Service 读对象原始字节，
      * 不过 safe_flag 闸口（申诉复核需重取隔离图）
      */

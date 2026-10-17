@@ -116,6 +116,16 @@ public class FileClientFallbackFactory implements FallbackFactory<FileClient> {
             }
 
             /**
+             * 审核链路核心读依赖 fail-fast（3.2 配图聚合指纹计算依赖）：取不到 sha256
+             * 则聚合指纹无法计算，静默降级会致指纹错配被 review 侧丢弃事件 = 漏审
+             */
+            @Override
+            public Result<Map<String, String>> batchGetSha256(List<String> fileIds) {
+                log.error("远程调用 file 模块 batchGetSha256 失败！size = {}", fileIds == null ? 0 : fileIds.size(), cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "文件服务暂不可用，配图指纹查询失败，请稍后重试", cause);
+            }
+
+            /**
              * 审核链路核心读依赖 fail-fast：取不到字节流则机审无法进行，静默降级会让
              * review 侧误判「无内容可审」；快速失败由其重试/熔断后转人审
              */

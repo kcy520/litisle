@@ -1,6 +1,7 @@
 package com.litisle.litisleuser.domain.vo;
 
 import com.litisle.litisleuser.enums.AvatarColor;
+import lombok.Data;
 
 import java.time.LocalDateTime;
 
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
  * 2. 不含账号安全/状态类字段（phone/email/status/frozen 在 UserSelfVO）
  * 3. 永远返回完整视图，非 diff
  */
+@Data
 public class UserUpdateProfileVO {
 
     /** 用户名 */

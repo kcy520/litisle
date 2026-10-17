@@ -73,6 +73,21 @@ public class ModerationConstant {
      */
     public static final String TEXT_RESULT_KEY = "review:text-result:%s:%s:%s:%s";
 
+    /**
+     * 文本审核结果缓存 SCAN 匹配模式（content.unpublished 失效用，板块三 [3.4] 方案 A）：
+     * 版本段（wordlibVer/fewShotVer）通配——content 侧不可感知 review 运行时版本，
+     * 按业务段（scene/contentHash）通配收集全部版本键后精确删除；
+     * 旧版本键不构成攻击窗口：免审判定/缓存查重只用当前版本拼 key，通配仅扩大清理面不扩大放行面；
+     * %s 依次为 scene、contentHash
+     */
+    public static final String TEXT_RESULT_SCAN_PATTERN = "review:text-result:*:*:%s:%s";
+
+    /**
+     * 图片审核结果缓存 SCAN 匹配模式（同上方案 A）：provider/modelVersion 段通配，
+     * 按 sha256 收集全部版本键后精确删除；%s 为 sha256
+     */
+    public static final String IMG_RESULT_SCAN_PATTERN = "review:img-result:*:*:%s";
+
     // ==================== Redis Pub/快照契约（词库共享化，§2.5） ====================
 
     /**

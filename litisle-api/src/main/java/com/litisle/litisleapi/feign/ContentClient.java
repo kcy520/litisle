@@ -2,11 +2,14 @@ package com.litisle.litisleapi.feign;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.config.FeignApiConfig;
+import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.fallback.ContentClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
@@ -63,4 +66,20 @@ public interface ContentClient {
      */
     @GetMapping("/api/feign/content/article-images")
     Result<List<ArticleImageRefDTO>> listArticleImages(@RequestParam("articleId") Long articleId);
+
+    /**
+     * 计数回写（social 聚合侧单点回写，§4.6）：view/like/comment_cnt 幂等绝对值 SET
+     *
+     * <p>【设计说明】
+     * 1. 契约先行：提供方端点随板块三 [3.2] 补齐（ContentFeignProviderController）；
+     * 2. 幂等绝对值 SET：并发覆盖由 social 聚合侧单点回写规避（冗余计数缓冲→定时聚合→单点 SET），
+     *    content 不做增量累加（无 CAS、无 version 比对，重复调用结果收敛）；
+     * 3. 仅非空字段更新（MP update-strategy not_null 口径）；文章不存在 fail-fast ARTICLE_NOT_FOUND；
+     * 4. 路径前缀 /api/feign/content 网关未路由，仅服务间可用
+     *
+     * @param dto 计数回写 DTO（articleId 必填，三计数字段按需非空）
+     * @return 成功返回 success；文章不存在返回 Result.fail（调用方判码处理）
+     */
+    @PostMapping("/api/feign/content/counters/update")
+    Result<Void> updateCounters(@RequestBody ArticleCounterUpdateDTO dto);
 }

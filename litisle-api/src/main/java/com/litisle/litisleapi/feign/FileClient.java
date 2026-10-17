@@ -114,6 +114,18 @@ public interface FileClient {
     Result<Map<String, Integer>> batchGetSafeFlags(@RequestBody List<String> fileIds);
 
     /**
+     * 批量查询 fileId → sha256 映射（板块三 3.2 配图复审聚合指纹计算用）
+     * <p>调用方：content 发布链路（免审连带校验 + image.submit 事件体聚合指纹）；
+     * 审核链路核心读依赖，降级 fail-fast（取不到 sha256 则聚合指纹无法计算，
+     * 静默降级会让指纹错配被 review 侧丢弃事件 = 漏审）
+     *
+     * @param fileIds 文件ID列表（空列表提供方直接返回空 Map）
+     * @return fileId → sha256（小写十六进制，file_meta.sha256 口径）
+     */
+    @PostMapping("/api/feign/file/batch-sha256")
+    Result<Map<String, String>> batchGetSha256(@RequestBody List<String> fileIds);
+
+    /**
      * 机审取图契约端点（字节流形态，SSRF 防护唯一入口）
      * <p>机审取图一律按 fileId 走本端点取原始字节流，严禁按用户 URL 抓取（Review-Plan
      * §4.2.2 取图纪律）；云 API 审核同样优先传字节流而非内网 URL。byte[] 经 Jackson

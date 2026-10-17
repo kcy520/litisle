@@ -16,6 +16,7 @@ import java.util.Map;
  * void deleteQuarantined(String fileId) // 隔离图到期删除（review 侧 QuarantineSweeper 保留期收口经 Feign 委派）
  * void updateSafeFlag(String fileId, SafeFlagEnum safeFlag) // 审核结果回写 safe_flag
  * Map<String, Integer> batchGetSafeFlags(List<String> fileIds) // 批量读取 safe_flag
+ * Map<String, String> batchGetSha256(List<String> fileIds)     // 批量查询 sha256（3.2 配图聚合指纹用）
  * FileContentDTO getInternalContent(String fileId) // 机审取图（字节流，SSRF 防护唯一入口）
  */
 public interface FileModerationService {
@@ -56,6 +57,16 @@ public interface FileModerationService {
      * @return fileId → safe_flag code（SafeFlagEnum：0-违规/1-正常/2-待审/3-存疑）
      */
     Map<String, Integer> batchGetSafeFlags(List<String> fileIds);
+
+    /**
+     * 批量查询 sha256（file 客户端契约提供方，板块三 3.2）：仅供 content 发布链路
+     * 计算配图聚合指纹（免审连带校验 + image.submit 事件体）使用，禁止跨库直查 file_meta；
+     * 仅返回活跃记录（del_flag=0），任一 fileId 无活跃记录抛 FILE_NOT_FOUND fail-fast
+     *
+     * @param fileIds 文件ID列表
+     * @return fileId → sha256（小写十六进制）
+     */
+    Map<String, String> batchGetSha256(List<String> fileIds);
 
     /**
      * 机审取图（file 客户端契约提供方）：按 fileId 读对象原始字节流；

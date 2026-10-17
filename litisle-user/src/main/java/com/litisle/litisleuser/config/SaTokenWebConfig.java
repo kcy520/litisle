@@ -49,7 +49,14 @@ public class SaTokenWebConfig implements WebMvcConfigurer {
                         "/favicon.ico",
 
                         // ===== 健康检查 =====
-                        "/actuator/**"
+                        "/actuator/**",
+
+                        // ===== Feign 服务间内部端点（放行）=====
+                        // /api/feign/** 仅供微服务内部调用（auth→user 等），Feign 请求不携带
+                        // 用户登录态，若不排除会被 checkLogin 拦截（NotLoginException→Result.fail），
+                        // 导致调用方把"服务间鉴权失败"误判为业务失败（如误报"用户不存在"）；
+                        // 安全边界：网关不转发 /api/feign/** 前缀到外部，外部流量无法直达
+                        "/api/feign/**"
                 );
     }
 }

@@ -207,6 +207,46 @@ public enum ErrorCode {
      */
     TITLE_TOO_LONG(30006, "标题超过100个字符"),
 
+    /**
+     * 文章参数校验失败（标题>100、去标签可见文本为空、正文/配图同空、方案B 禁改正文/标题）
+     */
+    ARTICLE_PARAM_INVALID(30007, "文章参数校验失败"),
+
+    /**
+     * 分区权限拒绝（zone=2 非 AUTHOR、zone=3 非 ADMIN/运营、一篇仅一分区冲突拒绝）
+     */
+    ARTICLE_ZONE_DENIED(30008, "无该分区发布权限"),
+
+    /**
+     * 插图引用被拒（fileId 非本人上传或 bizType≠ARTICLE_IMG，防引用他人文件/违规图）
+     */
+    ARTICLE_IMG_REFUSED(30009, "插图不可用：非本人上传或非文章配图"),
+
+    /**
+     * 草稿版本冲突（baseVersion 落后 draft_version，拒绝后写覆盖先写）
+     */
+    ARTICLE_DRAFT_CONFLICT(30010, "草稿版本已更新，请刷新后重试"),
+
+    /**
+     * 批量发布超限（单批 > publish.batch-max=20）
+     */
+    ARTICLE_BATCH_EXCEEDED(30011, "批量发布超出单批上限"),
+
+    /**
+     * 非法章节归属（chapter_id 不归属上报的 book_id，拒绝伪造跨书章节）
+     */
+    BOOK_CHAPTER_MISMATCH(30012, "章节与书籍不匹配"),
+
+    /**
+     * 文章访问密码错误（BCrypt 比对失败；失败超限触发 TOO_MANY_REQUESTS 限频）
+     */
+    ARTICLE_PASSWORD_ERROR(30013, "访问密码错误"),
+
+    /**
+     * 文章标签数超限（单篇 > tag.max-per-article=5，防关键词堆砌）
+     */
+    ARTICLE_TAG_EXCEEDED(30014, "标签数量超过上限"),
+
     // ==================== 社交模块 40000-49999 ====================
     /**
      * 评论不存在

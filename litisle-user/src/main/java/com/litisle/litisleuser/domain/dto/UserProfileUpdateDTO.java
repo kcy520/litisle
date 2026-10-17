@@ -1,6 +1,5 @@
 package com.litisle.litisleuser.domain.dto;
 
-import com.litisle.litisleuser.enums.AvatarColor;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -20,10 +19,12 @@ import lombok.Data;
 public class UserProfileUpdateDTO {
 
     /**
-     * 用户名
+     * 用户名（放宽口径：允许中文等任意可见字符，仅保留安全校验 + 非空白约束）
+     * 安全校验：① 长度上限 32；② 禁控制字符与 <>&"' 等注入/XSS 敏感字符；③ 传入时不得为空串/纯空白
+     * （字段整体可空＝不修改；一旦传入则必须满足上述约束）
      */
-    @Size(min = 3, max = 32, message = "用户名长度必须为 3-32 个字符")
-    @Pattern(regexp = "^[a-zA-Z0-9_]+$", message = "用户名只能包含字母、数字和下划线")
+    @Size(max = 32, message = "用户名长度不能超过 32 个字符")
+    @Pattern(regexp = "^(?=.*\\S)[^\\p{Cntrl}<>&\"']*$", message = "用户名不能为空或纯空白，且不能包含控制字符或 <>&\"' 等敏感字符")
     private String username;
 
     /**
@@ -50,9 +51,4 @@ public class UserProfileUpdateDTO {
     @Size(max = 500, message = "代表作简介不能超过 500 个字符")
     private String masterpiece;
 
-    /**
-     * 头像标识（0-无 1-金色 2-白色）
-     * 实际头像 URL 由审核/上传接口单独管理
-     */
-    private AvatarColor avatarColor;
 }

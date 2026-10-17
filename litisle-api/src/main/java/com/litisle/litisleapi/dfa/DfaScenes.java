@@ -24,6 +24,8 @@ public final class DfaScenes {
     public static final String USERNAME = "USERNAME";
     //message 消息
     public static final String MESSAGE = "MESSAGE";
+    //bio 简介类短文本（bio/创作方向/代表作 共用一套词库；宿主直审场景不经 review_task，无需 normalize 映射）
+    public static final String BIO = "BIO";
 
     private static final String RE_REVIEW_SUFFIX = "_RE_REVIEW";
 
@@ -58,7 +60,7 @@ public final class DfaScenes {
      * 全部文本词库场景（WordLibraryLoader 逐场景加载 / DfaFacade.initAll 遍历用）
      */
     public static List<String> textScenes() {
-        // 固定四场景全集（加载侧逐场景遍历构建引擎的依据）
-        return List.of(ARTICLE, COMMENT, USERNAME, MESSAGE);
+        // 固定五场景全集（加载侧逐场景遍历构建引擎的依据；新增场景须同步 review 侧 WordSceneEnum）
+        return List.of(ARTICLE, COMMENT, USERNAME, MESSAGE, BIO);
     }
 }

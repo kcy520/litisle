@@ -60,7 +60,17 @@ public enum AuditOperation {
 
     // ===== 系统补充 =====
     SYS_DICT_UPDATE(AuditModule.SYSTEM, "dict_update", "修改数据字典"),
-    SYS_LOGIN_WHITELIST(AuditModule.SYSTEM, "whitelist_update", "登录白名单变更");
+    SYS_LOGIN_WHITELIST(AuditModule.SYSTEM, "whitelist_update", "登录白名单变更"),
+
+    // ===== 内容管理（板块一 [1.2/1.3] 扩展）=====
+    /**
+     * 删除文章（作者软删或 ADMIN 治理删除，切面记录操作人/articleId）
+     */
+    ARTICLE_DELETE(AuditModule.CONTENT, "delete", "删除文章"),
+    /**
+     * 下架文章（复审驳回 2→4 / 封禁连带，宁严勿松治理动作）
+     */
+    ARTICLE_TAKE_DOWN(AuditModule.CONTENT, "take_down", "下架文章");
 
 
     private final AuditModule module;

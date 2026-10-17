@@ -3,6 +3,7 @@ package com.litisle.litisleapi.fallback;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
+import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.feign.ContentClient;
@@ -45,6 +46,11 @@ public class ContentClientFallbackFactory implements FallbackFactory<ContentClie
                 log.error("远程调用 content 模块 listArticleImages 失败！articleId = {}", articleId, cause);
                 throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);
             }
+
+            @Override
+            public Result<Void> updateCounters(ArticleCounterUpdateDTO dto) {
+                log.error("远程调用 content 模块 updateCounters 失败！articleId = {}", dto, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);            }
         };
     }
 }

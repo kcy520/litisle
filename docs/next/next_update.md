@@ -1,91 +1,197 @@
-## 暂不实现（注释中已声明的预留项）
+# 待办事项汇总
 
-- [ ] common-redis 库模块不引 Sentinel（保持轻量，仍用自研 LocalRateLimiter）——**业务模块已引 Sentinel**（Nacos 数据源规则已落地）；触发条件与落位见归档文档 archive/20260929-implementation-records.md §一·五（库模块当前不动）
-- [ ] 审核模块——板块三 3-5 业务方回写矩阵消费端（content / social）（§4.5.2）（⏸ 已移入 `Temporarily_not_implemented.md`（2026-10-11），含完整步骤与 message→social 口径修正）
+## 目录及文档说明
 
-> 2026-10-11 转移注记：审核模块已实现任务（板块三/板块四契约层、auth 注册链路 A 组、auth 处罚消费端 B 组）及其实现步骤已归档至 `docs/archive/review-implemention-records.md`；板块三/四挂起项与预留项已移入 `docs/next/Temporarily_not_implemented.md`。
+- 目录及文档说明
+- 待办部分
+- 验证部分
 
-## 待实现（按优先级排序）
+### 文档说明:
 
-## 审核模块开发清单（板块化，2026-10-06 梳理自 Review-Architecture-Development-Plan.md）
+- 代办任务的具体实现步骤 参考status.md文档
 
-> 现状基线（已完成，不再列入）：file 侧 safe\_flag 四态闸口/拒传黑名单/quarantine 契约/result·appeal.result 消费回写/getContent/占位图/对账跳隔离前缀；litisle-api 契约层（MqConstant/ModerationConstant/事件体/FileClient）；review 侧人审域（claim/decide CAS、申诉防重三层、双人复核、举报撤回/诬告反制、词库表）。
-> 推进顺序：板块一 → 三 → 四/五；板块二独立可并行先行；板块六依赖三；板块七随三收尾。各条目括号内为计划文档章节号，可回溯细案。
+### 归档与暂不实现（板块完成后的文档迁移规则）
 
-注意**：**\
-**业务代码中LLM审核部分目前留下注释预留占位即可，暂不实现**
+**相关文档职责**：
 
-#
-# 四、待办
+| 文档 | 职责 |
+| --- | --- |
+| `docs/next/next_update.md`（本文档） | 仅收纳「待办 + 待验证」的活跃任务，按 类别（代码/验证）→ 模块 → 板块/任务 组织 |
+| `docs/next/status.md` | 各待办条目的具体实现步骤（细案），本文档不重复 |
+| `docs/next/Temporarily_not_implemented.md` | 收纳暂不实现/暂不做/挂起项，每条必须附触发条件 |
+| `docs/archive/` | 已完成板块的实现记录归档，命名惯例：按日期（如 `20260929-implementation-records.md`）或按主题/模块（如 `review-implemention-records.md`） |
 
-#### 代码修改类
+**板块完成后的迁移动作（按顺序执行）**：
 
-**【生产上线前必做】**
+1. **实现记录归档**：将该板块的实现步骤/完成记录（原散落在 status.md 或本文档条目内）整理移入 `docs/archive/` 对应归档文档（新板块新建归档文件，遵循上方命名惯例；已有同模块归档则追加章节）。
+2. **本文档回填**：将已完成条目从本文档删除（或标注 ✅ 与日期后移除），保持本文档只留活跃待办。
+3. **挂起项转移**：板块中因宿主模块未开发而无法落地的事项（如契约已备但入口未建），移入 `Temporarily_not_implemented.md` 对应模块节，并写明触发条件，供宿主模块开发时迁回本文档。
+4. **预留项登记**：板块规划中明确「暂不实现/暂不做」的事项（含触发条件与决策原因），一并移入 `Temporarily_not_implemented.md`，不在本文档保留。
 
-**【暂不做（防过度工程，附触发条件）】**
-
-- disk 冷热分层（`-disk=ssd/hdd` + `010` 规范）：生产 Volume 多机时一并设计，不单独排期。
-- 存储 TTL：quarantine 保留期（需按 appeal 待裁决态顺延）与对账清理（需 file\_ref 活跃引用前置校验）
-  均为业务条件删除，不适用存储 TTL；二期大文件分片的半途清理走 S3 桶生命周期规则（已定双保险方案）。
-- [ ] Sentinel Dashboard 改规则只推内存、重启丢——操作纪律：规则增删改一律去 Nacos 控制台。
-- [ ] 【生产部署】监控端口网络隔离（监控链路安全前提）：各服务 8xxx 端口的 /actuator/\*\*
-  免登录放行的是「路径」而非「来源 IP」，生产环境必须通过防火墙/安全组确保业务端口
-  仅对内网开放（Prometheus 所在网段可达即可，公网不可达）；或升级为
-  management.server.port 独立管理端口 + 网络层仅放行 Prometheus IP 段（与网关
-  8081 方案同一套纪律）。开发环境单机直连现状合规，无需处理。
-
-***
-
-## 限流故障降级 · 本地兜底限流（已定稿并完成，2026-09-28）
-
-> 设计思路 / 实现细节 / 完成记录已压缩归档至
-> [archive/20260929-implementation-records.md](archive/20260929-implementation-records.md) §一。
-
-- [ ] 【待验证】停 Redis 一次合并验证：受限接口应正常放行且出现「进入降级」日志，
-  第二次起走本地计数；同时观察登录防爆破「本地兜底降级」日志；Redis 恢复后冷却期
-  探测成功，日志出现「恢复」回归 Redis 计数。
-  （可同步用 Prometheus 观察：redis\_guard\_degraded 0→1→0，Alertmanager 告警
-  inactive→pending→firing→resolved，一次演练同时验收告警链路。）
-
-***
-
-## 待办决策定稿-暂不实现（2026-09-28，已定稿并完成）
-
-> 全量决策记录已压缩归档至
-> [archive/20260929-implementation-records.md](archive/20260929-implementation-records.md) §二。
-
-- [ ] 【运维侧验证】在 Dashboard 手动触发降级 / 观察熔断日志；确认 Dashboard 改 Nacos 规则热生效。
-- [ ] 【待验证】停 Redis 一次：同时观察限流降级日志与登录防爆破「本地兜底降级」日志；
-  恢复 Redis 后冷却期探测成功，日志出现「恢复」。
-- [ ] `instance-count` 动态化时机：接 Nacos 服务发现自动计算实例数（扩缩容免人工同步）
-  ——触发条件：file 服务多实例部署上线时。
-  （Micrometer 指标埋点与暴露已于 2026-09-29 落地并验证通过，详见 commom-des.md §3.5，
-  剩余 Prometheus/Alertmanager 为部署侧工作，零代码改动。）
-- [ ] **file模块-replication ≥ 010 + Volume 多机**：用户上传原件不可再生，单副本（replication=001）不达
-  生产标准；⚠️ 副本策略只影响新写入 volume，存量不自动补副本，须在首次生产写入前定稿。
-- [ ] **file模块-Filer 元数据切 MySQL**：当前 leveldb 与数据同盘，盘坏 = 目录全丢（比丢文件更致命）；
-  复用已有 MySQL 实例。开发期 leveldb 无所谓。
-
-## 审核模块剩余待办 · 暂不实现（2026-10-08 定稿，可直接照此写码，无需回查 Review 计划文档）
-
-> **前置阻塞**：litisle-ai chat 端点（POST /api/feign/ai/chat，OpenAI 兼容转发）未实现——板块三 3-1 联调前必须落地（base-url/api-key/model 走 Nacos 外置，禁提交密钥；超时对齐 feign.client.config.litisle-ai.read-timeout）。业务代码中 LLM 审核部分留注释预留占位即可（用户决策）。
-> **通用纪律（所有条目默认适用，后文不再重复）**：
-> ① SQL 全走 MyBatis #{} 绑定禁拼接；排序/筛选列名服务端白名单枚举映射；LIKE 对 %/_/\\ 转义。
-> ② Redis key 各段服务端派生（枚举名/数字 ID/SHA256），禁拼用户原串；value 一律 JSON，禁 Java 原生反序列化。
-> ③ UGC/traceId 落日志前剥离 \r\n（防 CRLF 伪造日志行）。
-> ④ 指标埋点 ObjectProvider<MeterRegistry> optional 注入，未接入不影响核心功能。
-> ⑤ review 不跨库直写业务表，业务态回写一律 result 事件 + 业务方 CAS；跨库回查走 litisle-api 契约，fallbackFactory fail-fast（回查失败不 ACK 进延迟重试，禁静默吞错）。
-> ⑥ 缓存/黑名单/last-hash TTL 一律 ±10% 抖动（防同批内容集体过期雪崩）。
+> 纪律：迁移时条目内容原样搬运（含口径修正、注意事项），不压缩关键细节；归档文档与本文档/Temporarily 清单之间用相对路径互链，保证可回溯。
 
 
-### 完成后动作
-
-- 每条落地后回填本文档上方清单对应 [x] 与日期。
-- 板块六 6-3 落地后：勾选「暂不实现」节 quarantine sweeper 条目。
-- 板块三联调前置：先落 litisle-ai chat 端点（「暂不实现」节条目）。
-- 推进顺序：3-1→3-2→3-3→3-4→3-5→3-6→3-7→3-8 → 板块四（与 3-4/3-5 联调）→ 板块五（复用 result 事件）→ 板块六 → 板块七随三收尾并行埋点。
-
-## 文档设计方案修复清单
 
 
-# 临时清单
+
+
+
+
+--------------------------
+
+## 待办部分
+
+### 代码部分
+
+#### content模块
+
+> 板块划分依据：Content_Function_Develop.md / Content-Architecture.md；推进顺序：板块一 → 二 → 三 → 四/五/六（可并行）→ 七 → 八（依赖 review 板块三 3-5 消费端联调）
+
+##### 板块一：模块基建与文章 CRUD
+
+###### 1.1 实体/Mapper/状态机基建
+
+- [ ] Sql-Document §二 8 表实体与 Mapper；article 状态机（0-草稿/1-待审/2-已发布/3-驳回/4-下架终态）流转与 CAS 铁律（禁 2→1）；方案B（status=2 禁改正文/标题）
+  - ✅ 2026-10-17：实体/Mapper、del_flag 逻辑删除配置、ArticleStateMachine（canTransit 白名单，禁 2→1/4 终态）已落地，细目见 status.md 板块一 [1.1]；CAS 铁律与方案B 随 1.2/3.1 落地，本条保持待办
+
+###### 1.2 文章 CRUD 接口
+
+- [x] 创建/编辑/软删；插图 fileId 归属校验（本人 + bizType=ARTICLE_IMG）；article_image 对齐权威 + `{img:file_id}` 占位符渲染链路
+  - ✅ 2026-10-17：ArticleServiceImpl 7 方法全量实现 + ArticleHtmlSanitizer（utils/）+ ContentEventProducer + 插图归属校验/渲染收口，细目见 status.md 板块一 [1.2]；跨板块遗留：sendSubmitted（已随三3.4 封装收口）/sendPublished（四4.2）、FOLLOWERS 回查（六）、last-hash 失效（已随三3.4 方案A 收口）、标签挂载（三）；编译验证已通过（2026-10-17）
+
+###### 1.3 常量与错误码
+
+- [x] ContentBizConstant、ARTICLE_* 错误码（✅ 2026-10-17：30007~30014 共 8 码扩展入 common-core ErrorCode，细目见 status.md 板块一 [1.3]）；治理动作 @AuditLog 审计留痕随 [1.2/1.3] Controller 项落地
+
+------------
+
+##### 板块二：草稿系统
+
+###### 2.1 草稿快照保存
+
+- [x] baseVersion 乐观锁 + 同版本幂等；归属校验防横向越权
+  - ✅ 2026-10-17：DraftServiceImpl#save 四分支严格按序判定（落后冲突/超前非法/同版本幂等/同版本递增）+ locateDraft 归属校验，细目见 status.md 板块二 [2.1]；编译验证已通过
+
+###### 2.2 快照保留与图片暂存
+
+- [x] keep-versions 滚动清理；draft_id 图片暂存 → 发布归属切换；孤儿图片 file 对账兑底
+  - ✅ 2026-10-17：afterCommit 滚动清理（keep-versions=10 配置化）+ 草稿图片 draft_id 暂存整体重挂（ARTICLE_IMG 归属校验同口径），细目见 status.md 板块二 [2.2]；跨板块遗留：发布归属切换 draft_id→article_id（板块三 3.1）、孤儿图片 file 对账兑底（file 侧）对账兜底
+
+------------
+
+##### 板块三：发布与送审链路
+
+###### 3.1 发布编排
+
+- [x] 同步段 A1→A3（校验/免审直落/落库发事件）；异步段 A4；afterCommit 事件铁律——已落地：createAndPublish 编排 A0 分区权限（ZoneRouter）→ A1 校验（PublishTextPrecheck 契约门面+图文同空拒+插图归属）→ sanitize 三层铁律 → DFA 同步闸门（DfaPublishGate：HIGH 拦 70001 禁回吐命中词/MID 留痕，zone=2 跳 DFA）→ A2 免审三分支（LastHashExemptChecker.decide：EXEMPT_PASS 直落 CAS 1→2 不发事件、REJECT_HINT 前置拒、SUBMIT 照常送审；免文不免图 imgReReviewPassed 门控）→ A3 落库 status=1 + afterCommit 发单条 submitted；驳回重提 3→1 走 /submit 专口（状态机禁 2→1）。注：CAS 口径等价实现为「insert 1 → CAS 1→2」（免审键需 articleId）；content.published 随板块四 [4.2] 契约缺口接通；异步段 A4 为 review 消费端职责（板块八收口）。
+
+###### 3.2 送审事件与配图复审
+
+- [x] 单条 content.submitted（事件体不含正文）；切片/聚合均在 review 消费端（已落地 SSOT，content 不重复切片）；配图发布复审发 image.submit（ARTICLE_IMG_RE_REVIEW 聚合指纹）——已落地：content.submitted afterCommit 单条发送（ContentEventProducer.sendSubmitted）；配图复审 image.submit（ContentEventProducer.sendImageSubmit，scene=ARTICLE_IMG_RE_REVIEW、contentHash=全部配图 sha256 字典序排序拼接后二次 SHA-256 聚合指纹，复用 SubmitTextAssembler.contentHash 口径）；免审图片连带校验经 LastHashExemptChecker.imgReReviewPassed 门控（免文不免图，EXEMPT_PASS 仅在配图复审已 PASS 时可达，不重复发事件）；新增 FileClient.batchGetSha256 契约端点（file 侧实现，审核链路 fail-fast）
+
+###### 3.3 批量发布与分区
+
+- [x] 单批 ≤20 逐篇事务+结果回执；zone 1/2/3 权限路由——已落地：publishBatch（TransactionTemplate 逐篇独立事务+逐篇回执+publish_batch_id 回填，CAS 0→1 未命中幂等跳过）/batchVisibility（逐篇 CAS+转私密 unpublished 事件，转公开 status=2 不重审）/previewCheck（DfaFacade 同快照，仅回 {hit,risk}）/verifyPassword（BCrypt 不回显）四方法收口 ArticlePublishServiceImpl；ZoneRouter 分区权限单点收口（发布 A0+编辑分区变更复用）；ContentProperties.publish.batchMax 配置绑定（application.yml 默认 20，Nacos 可覆盖）。注：批量发布走送审路径不做免审直落；content.published 事件随板块四 [4.2] 契约缺口接通。
+
+###### 3.4 事件生产
+
+- [x] ContentEventProducer：submitted/published/unpublished；下架四路径统一收口——已落地（2026-10-17）：三事件封装收口（基座四字段统一 fillBase）；下架三路径接入 content 侧（软删/单篇转私密/批量转私密：afterCommit 发 unpublished + 事务内同步调 UnpublishedCacheCleaner 失效 last-hash/text/img-result 缓存键，方案 A SCAN 通配版本段，键拼 SSOT 新增 ModerationConstant 两 SCAN 常量，fail-safe 残留键 TTL 兑底）；复审驳回/封禁连带随板块八 [8.1]/[8.2] 复用接入；published 事件随板块四 [4.2] 契约接通；Invalidator 签名澄清项已闭环（Temporarily_not_implemented.md）
+
+> ⚠️ 前置阻塞已解除：content.unpublished 发送仅依赖本地 RabbitMQ，可独立联调；review 送审契约联调随板块八消费端接入时验证（见 Temporarily_not_implemented.md）
+
+------------
+
+##### 板块四：可见性控制与安全
+
+###### 4.1 visibility 判定链
+
+- [ ] 1/2/3/4 四级；仅关注者回查 social 契约；转公开不重审（content_hash 校验）
+
+###### 4.2 密码访问与下架收口
+
+- [ ] BCrypt + 失败限频防爆破；四路径必发 content.unpublished（隐私红线）
+
+###### 4.3 限流矩阵
+
+- [ ] @RateLimiter(USER) 全端点落地（对齐挂起项 3-7.2）
+
+------------
+
+##### 板块五：书籍合集与阅读进度
+
+###### 5.1 书籍/章节管理
+
+- [ ] book / book_chapter（uk_book_id_chapter_no）；挂载校验文章归属本人
+
+###### 5.2 阅读进度
+
+- [ ] 章节归属校验 + ≥30s 节流 + 仅前进不回退 + 续读
+
+------------
+
+##### 板块六：标签系统
+
+###### 6.1 标签挂载
+
+- [ ] tag/article_tag 多对多；≤5 上限；uk 冲突幂等跳过
+
+###### 6.2 标签池与闸门
+
+- [ ] 前缀搜索已有标签池/热门 TOP N；新建过 DFA 闸门；use_count 异步刷新
+
+------------
+
+##### 板块七：推荐流
+
+###### 7.1 zone=3 收录与缓存
+
+- [ ] 仅 ADMIN/运营写；缓存三防（互斥重建/空值短缓存/TTL 抖动）
+
+###### 7.2 展示前回查
+
+- [ ] 渲染前回查 status=2 且 visibility=1，下架/转私密即时剔除
+
+------------
+
+##### 板块八：审核回写与联动消费
+
+###### 8.1 result 回写消费
+
+- [ ] 消费统一单队列 moderation.result（review v1.2 已废弃 review.decided 旧口径；自筛 bizType=1，事件体含 scene：发布场景=文本链路 / ARTICLE_IMG_RE_REVIEW=图片复审链路）回写状态 + 通知作者（对接 review 板块三 3-5 消费端）
+- [ ] 消费 moderation.appeal.result（仅自筛 bizType=1，bizType=2 为评论属评论模块）：allow-list 对称恢复 3→2 / 4→2（挂起项 5-4.4 回收）
+
+###### 8.2 封禁连带与图片复审
+
+- [ ] user.banned 连带下架（发 content.unpublished）；图片复审聚合判定收口 review 消费端（content 仅提供 article_image.idx_file_id 反查契约，不重复实现）
+
+------------
+
+### 验证部分
+
+#### content模块
+
+##### V1 发布链路联调
+
+- [ ] 发布 → review 送审 → result 回写全链路联调（依赖板块三/板块八，前置 litisle-ai chat 端点）
+
+##### V2 可见性与缓存验证
+
+- [ ] visibility 判定链、推荐流展示前回查验证；密码防爆破限频演练
+
+
+
+
+
+-------------------------
+
+## 暂不实现实现汇总
+
+### 代码部分
+
+#### content模块
+
+------------
+
+### 验证部分
+
+#### content模块

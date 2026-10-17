@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.*;
  *   Controller 只做 @SaCheckLogin 登录闸门 + 参数校验（@Valid），与 file 模块口径一致
  * - 所有返回 Result<T>；错误码：70004-任务已被他人认领 等
  */
-@Tag(name = "审核服务-申诉", description = "申诉提交/裁决")
+@Tag(name = "审核服务-申诉-未实现", description = "申诉提交/裁决")
 @RestController
 @RequestMapping("/api/review")
 @RequiredArgsConstructor

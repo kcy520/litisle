@@ -84,14 +84,28 @@ public class DfaFacade {
         // 构建词→敏感级别映射，重复词取更严级别（Math.min）
         Map<String, Integer> wordLevels = entries.stream().filter(WordEntry::blacklist)
                 .collect(Collectors.toMap(WordEntry::word, WordEntry::level, Math::min));
-        // 构建 houbb DFA 引擎，注入黑名单和白名单
+        // 构建 houbb DFA 引擎，注入黑名单和白名单 + 变形词校验配置（对抗异形写法绕过词库，如繁体/全角/字母序号/重复字符）
+        // 【变体命中级别映射语义】变形词开启后 findAll 返回原文异形写法而非词库规范词，
+        // check() 的 wordLevels.getOrDefault(w, HIGH) 查不到变体 key 时兜底 HIGH——属误伤方向（宁严勿松）：
+        // MID 观察词被变体命中按 HIGH 拦截为预期行为，非缺陷（若需精确降级需另行规范词归一映射，暂不做）
         SensitiveWordBs bs = SensitiveWordBs.newInstance()
                 .wordDeny(() -> denyWords)
                 .wordAllow(() -> allowWords)
+                // ===== 变形词校验（格式变换归一化，增强绕过对抗能力）=====
+                .ignoreCase(true)          // 英文大小写互换（默认开，显式声明便于审阅）
+                .ignoreWidth(true)         // 全角半角互换（默认开）
+                .ignoreNumStyle(true)      // 数字写法互换：⓿①⑩ 等（默认开）
+                .ignoreChineseStyle(true)  // 中文繁简体互换（默认开）
+                .ignoreEnglishStyle(true)  // 英文书写格式互换：Ⓕⓤ 等字母序号（默认开）
+                .ignoreRepeat(true)        // 忽略重复词（默认关，显式开启：防 ⒻⒻⒻfⓤu 类重复字符拆写绕过）
+                // 【刻意不开启】enableNumCheck/enableEmailCheck/enableUrlCheck 属联系方式检测
+                // （连续 8 位数字/邮箱/URL 直接判敏感，用于广告过滤），非变形词范畴；
+                // USERNAME 场景会误杀 8 位以上纯数字用户名（如 reader20240101），禁开
                 .init();
-/**
- * 1）取消默认词库 = 一行注入 houbb 的规则是： 不设`wordDeny` 才用内置默认库；一旦你传了自己的词表，默认库就完全不参与 。所以"只读 MySQL、不用 houbb 内置词"这件事， 就是上面两行 ，没有别的代码。这正是防止与你"从 MySQL 读词库"思路打架的地方。
- */
+
+    /**
+     * 1）取消默认词库 = 一行注入 houbb 的规则是： 不设`wordDeny` 才用内置默认库；一旦你传了自己的词表，默认库就完全不参与 。所以"只读 MySQL、不用 houbb 内置词"这件事， 就是上面两行 ，没有别的代码。这正是防止与你"从 MySQL 读词库"思路打架的地方。
+     */
 
 
         // 获取当前已存在的引擎

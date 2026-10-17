@@ -153,6 +153,12 @@ public class ReviewTaskSweeper {
      *定时任务主入口，调度所有清扫动作
      * 作用：定时任务主入口，负责抢锁、按顺序调用四个清扫动作、最后安全释放锁。
      *
+     * 所以正常态下每轮扫描就是：几次索引查询 + 零命中返回，毫秒级。 Sweeper 是补偿型兜底，
+     * 不是主链路 ——任务流转靠 MQ 消费驱动，Sweeper 只捞“消息丢了/审核员离线/申诉没人管”的例外，例外是稀少的。
+     *性能上 1min 完全没问题
+     *扫描只查异常状态任务（`status=0/2` ），走`idx_status` /`idx_claim` 索引，健康数据零扫描——查询本身是微秒到毫秒级，
+     *
+     *
      * <p>互斥锁先行：抢不到说明他实例在扫，本轮直接跳过；finally 中仅当锁仍归属本实例才释放</p>
      */
     @Scheduled(fixedDelayString = "${litisle.moderation.sweeper.interval-seconds:60}",

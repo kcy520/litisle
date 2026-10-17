@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.*;
  *   Controller 只做 @SaCheckLogin 登录闸门 + 参数校验（@Valid），与 file 模块口径一致
  * - 所有返回 Result<T>；错误码：70004-任务已被他人认领 等
  */
-@Tag(name = "审核服务-举报", description = "举报提交/撤回")
+@Tag(name = "审核服务-举报-未实现", description = "举报提交/撤回")
 @RestController
 @RequestMapping("/api/review")
 @RequiredArgsConstructor
@@ -39,7 +39,8 @@ public class ReportController {
     @PostMapping("/report")
     @SaCheckLogin
     public Result<ReportVO> submitReport(@Valid @RequestBody ReportSubmitDTO dto) {
-        return Result.success(reportService.submitReport(dto, StpUtil.getLoginIdAsLong()));
+        ReportVO reportVO = reportService.submitReport(dto, StpUtil.getLoginIdAsLong());
+        return Result.success(reportVO);
     }
 
     @Operation(summary = "撤回举报", description = "仅举报人本人、仅 status<3 可撤回；已建审核任务不撤销")
