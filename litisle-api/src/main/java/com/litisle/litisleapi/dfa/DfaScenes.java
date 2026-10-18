@@ -35,6 +35,10 @@ public final class DfaScenes {
     /**
      * 归一映射：返回该 review 场景对应的词库 scene；null 表示非文本场景（不走 DFA）
      *
+     *`_RE_REVIEW` 后缀 （Step2）——复审与首审共用词库
+     * 文章族三态收敛 （Step3 switch）——`ARTICLE/ARTICLE_FEATURED/ARTICLE_COMMUNITY → ARTICLE`
+     * 图片场景返回 null ——`DfaFacade.check` 拿到 null 直接抛`IllegalArgumentException` ，因为 DFA 只处理文本，图片走 ONNX 模型那条链
+     * 
      * 实际业务里，同一个内容类型在 review 系统里有好几个名字：
      * 但它们共用同一份词库，DFA 引擎只按 ARTICLE / COMMENT / USERNAME / MESSAGE 这四个 key 存引擎。
      */

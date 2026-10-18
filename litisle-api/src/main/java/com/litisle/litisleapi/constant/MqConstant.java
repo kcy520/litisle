@@ -172,9 +172,6 @@ public class MqConstant {
     /** content 侧申诉改判结果死信队列（消费失败重试耗尽兜底） */
     public static final String QUEUE_CONTENT_MODERATION_APPEAL_RESULT_DLQ = "litisle.content.moderation.appeal.result.dlq.queue";
 
-    /** content 侧申诉改判结果死信路由键 */
-    public static final String ROUTING_MODERATION_APPEAL_RESULT_DLQ = "moderation.appeal.result.dlq";
-
     // ==================== 处罚结果分发（板块五 5-2，§4.2.3/§4.5.2）====================
 
     /**

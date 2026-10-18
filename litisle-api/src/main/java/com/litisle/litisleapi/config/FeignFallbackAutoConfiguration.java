@@ -1,12 +1,6 @@
 package com.litisle.litisleapi.config;
 
-import com.litisle.litisleapi.fallback.AiClientFallbackFactory;
-import com.litisle.litisleapi.fallback.AuthClientFallbackFactory;
-import com.litisle.litisleapi.fallback.ContentClientFallbackFactory;
-import com.litisle.litisleapi.fallback.FileClientFallbackFactory;
-import com.litisle.litisleapi.fallback.MessageClientFallbackFactory;
-import com.litisle.litisleapi.fallback.ReviewClientFallbackFactory;
-import com.litisle.litisleapi.fallback.UserClientFallbackFactory;
+import com.litisle.litisleapi.fallback.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.cloud.openfeign.FallbackFactory;
@@ -92,7 +86,7 @@ public class FeignFallbackAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public MessageClientFallbackFactory messageClientFallbackFactory() {
-        return new MessageClientFallbackFactory();
+    public SocialClientFallbackFactory messageClientFallbackFactory() {
+        return new SocialClientFallbackFactory();
     }
 }

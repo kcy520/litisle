@@ -75,6 +75,20 @@ public class DfaFacade {
     public synchronized void rebuild(String scene) {
         // 加载词库版本号（用于后续乐观锁比对）
         long version = loader.loadVersion(scene);
+        // 版本乐观比对前置：旧版本广播直接跳过，省去无谓的全量词条装载与 DFA 引擎构建
+        // （方法 synchronized + version 为本地快照，前置比对与构建后比对结果完全等价）
+        // 获取当前已存在的引擎
+            //  如果是第一次构建（initAll 阶段），current 是 null
+            //  如果是热更阶段，current 指向旧引擎
+        Engine current = engines.get(scene);
+        // 版本号不递增则忽略（防 Redis 广播乱序覆盖新版本）   版本号比对，防止旧广播覆盖新版本s
+        if (current != null && version <= current.version()) {
+            log.warn("词库热更忽略旧版本：scene={}, 广播 version={} ≤ 当前 version={}（乱序防护）",
+                    scene, version, current.version());
+            //return 了，是用原有引擎
+            //初始化阶段 current 是 null，根本走不进这个 if,也就不会return
+            return;
+        }
         // 加载当前场景全量词条目
         List<WordEntry> entries = loader.loadWords(scene);
         // 提取黑名单词（敏感词）
@@ -108,19 +122,7 @@ public class DfaFacade {
      */
 
 
-        // 获取当前已存在的引擎
-            //  如果是第一次构建（initAll 阶段），current 是 null
-            //  如果是热更阶段，current 指向旧引擎
-        Engine current = engines.get(scene);
-        // 版本号不递增则忽略（防 Redis 广播乱序覆盖新版本）   版本号比对，防止旧广播覆盖新版本s
-        if (current != null && version <= current.version()) {
-            log.warn("词库热更忽略旧版本：scene={}, 广播 version={} ≤ 当前 version={}（乱序防护）",
-                    scene, version, current.version());
-            //return 了，是用原有引擎
-            //初始化阶段 current 是 null，根本走不进这个 if,也就不会return
-            return;
-        }
-        // 原子替换引擎引用，旧引擎在途查询不受影响
+        // 原子替换引擎引用，旧引擎在途查询不受影响（版本比对已前置，能走到这里 version 必为新）
         engines.put(scene, new Engine(version, bs, wordLevels));
         log.info("DFA 引擎构建完成：scene={}, version={}, 黑名单词={}, 白名单词={}",
                 scene, version, denyWords.size(), allowWords.size());

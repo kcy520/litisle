@@ -32,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.TimeUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
@@ -148,7 +149,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
         String aggKey = ContentBizConstant.ARTICLE_REVIEW_AGG_KEY_PREFIX + articleId;
         stringRedisTemplate.opsForHash().put(aggKey, field, String.valueOf(verdict));
         stringRedisTemplate.expire(aggKey, ContentBizConstant.ARTICLE_REVIEW_AGG_TTL_SECONDS,
-                java.time.temporal.ChronoUnit.SECONDS);
+                TimeUnit.SECONDS);
         // 步骤7：聚合判定（REJECT 到达即驳回落 CAS；PASS 需文本 PASS 且无图或图片 PASS）
         tryAggregate(article, aggKey);
     }
@@ -360,7 +361,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     public void handleUserBanned(UserBannedEvent event) {
         // 步骤1：查候选（作者全部「已发布/已下架」未删除文章；含已下架=重试补发事件自愈窗口）
         List<Article> candidates = articleMapper.selectList(new LambdaQueryWrapper<Article>()
-                .eq(Article::getOwnerId, event.getUserId())
+                .eq(Article::getAuthorId, event.getUserId())
                 .in(Article::getStatus, ArticleStatusEnum.PUBLISHED, ArticleStatusEnum.TAKEN_DOWN)
                 .eq(Article::getDelFlag, DelFlag.NOT_DELETED));
         if (candidates.isEmpty()) {
@@ -369,7 +370,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
         }
         // 步骤2：批量 CAS 下架（条件含 status=2：仅发布态参与，避免重复置态；并发改态由条件兑底）
         articleMapper.update(null, new LambdaUpdateWrapper<Article>()
-                .eq(Article::getOwnerId, event.getUserId())
+                .eq(Article::getAuthorId, event.getUserId())
                 .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
                 .eq(Article::getDelFlag, DelFlag.NOT_DELETED)
                 .set(Article::getStatus, ArticleStatusEnum.TAKEN_DOWN));
@@ -509,7 +510,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     /**
      * 解析事件体 bizId（String 契约）为文章 ID；非法格式留痕丢弃（防毒丸）
      *
-     * @param event 审核结果/申诉改判事件
+     * @param bizId 事件体携带的业务 ID（String 形态）
      * @return 文章 ID；解析失败返回 null
      */
     private Long parseBizId(String bizId) {

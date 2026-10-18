@@ -231,15 +231,25 @@ public class QuarantineSweeper {
         int deleted = 0;
         for (int i = 0; i < toDelete.size(); i++) {
             Long bizId = toDelete.get(i);
+
+            //Thread.sleep() 是一个「可中断的阻塞方法」——它会在进入阻塞前和阻塞期间主动检查线程的中断标志，
+            // 一旦发现 isInterrupted = true，就立刻唤醒线程、清空中断标志、抛出 InterruptedException。
+              //"(if ... ){...}"这一步是为了当线程在限速 sleep 期间被中断时：
+                //重新设置中断标志（告诉上层“我被中断过”）
+                //立即终止本轮清扫
+                //剩下的候选图 下轮重扫兜底
+            //Thread.sleep() 是你这个循环里唯一阻塞的地方，也是唯一能“及时感知中断”的地方；在这里恢复中断并 break，是对 Spring 调度、线程池、应用优雅关闭最正确的响应方式。
+            //去掉这一步"(if ... ){...}"，你的 sweeper 会从「优雅可中断的补偿任务」退化为「吞中断、难关闭、可能打爆下游的顽固线程」。
             if (i > 0 && intervalMs > 0) {
                 try {
                     Thread.sleep(intervalMs);
                 } catch (InterruptedException ie) {
                     // 中断恢复中断位后终止本轮，剩余候选下轮重扫兜底
-                    Thread.currentThread().interrupt();
+                    Thread.currentThread().interrupt();//告诉当前线程：“你该中断了”，但怎么中断、什么时候中断，由线程自己的代码决定。
                     break;
                 }
             }
+
             try {
                 Result<Void> resp = fileClient.deleteQuarantined(String.valueOf(bizId));
                 if (resp == null || !resp.isSuccess()) {
