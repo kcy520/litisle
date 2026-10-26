@@ -7,8 +7,8 @@ import com.litisle.commoncore.enums.IntDictEnum;
 import lombok.Getter;
 
 /**
- * 文章可见性枚举：PUBLIC(1)/PRIVATE(2)/FOLLOWERS(3)/PASSWORD(4)
- * <p>PASSWORD(4) 时密码存 article.access_password（BCrypt 加密）</p>
+ * 文章可见性枚举：PUBLIC(1)/PRIVATE(2)/FOLLOWERS(3)
+ * <p>阶段9：密码可见（PASSWORD/4）功能已下线，枚举值删除，存量 4 已迁移为 1（公开）</p>
  */
 @Getter
 public enum VisibilityEnum implements IntDictEnum {
@@ -20,10 +20,7 @@ public enum VisibilityEnum implements IntDictEnum {
     PRIVATE(2, "仅自己可见"),
 
     /** 仅关注者可见 */
-    FOLLOWERS(3, "仅关注者可见"),
-
-    /** 密码访问（密码存 access_password） */
-    PASSWORD(4, "密码访问");
+    FOLLOWERS(3, "仅关注者可见");
 
     /** 入库值（tinyint），MybatisEnumTypeHandler 按 @EnumValue 映射 */
     @EnumValue

@@ -1,5 +1,6 @@
 package com.litisle.litislecontent.domain.vo;
 
+import com.litisle.litislecontent.enums.ArticleCategoryEnum;
 import com.litisle.litislecontent.enums.ArticleStatusEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.enums.ZoneEnum;
@@ -12,10 +13,9 @@ import java.util.List;
 
 /**
  * 文章详情 VO（ArticleService#getDetail，visibility 判定链收口后的出参）
- * <p>可见性口径：</p>
+ * <p>可见性口径（阶段9：密码访问 4 已下线）：</p>
  * <p>- 2-仅自己：非本人按不存在处理（不暴露存在性），不会拿到本 VO</p>
  * <p>- 3-仅关注者：非关注者同理；SocialClient 降级时宁严勿松</p>
- * <p>- 4-密码访问：元信息可见，contentHtml 为 null，前端拿到 needPassword=true 引导输密码</p>
  *
  * @author litisle
  */
@@ -43,8 +43,8 @@ public class ArticleDetailVO implements Serializable {
     /** 封面文件ID */
     private String coverFileId;
 
-    /** 分类 */
-    private String category;
+    /** 分类（@JsonValue 序列化输出中文分类名，前端无感） */
+    private ArticleCategoryEnum category;
 
     /** 分区 */
     private ZoneEnum zone;
@@ -54,9 +54,6 @@ public class ArticleDetailVO implements Serializable {
 
     /** 可见性 */
     private VisibilityEnum visibility;
-
-    /** 是否需要密码解锁正文（visibility=4 且正文未带出时 true） */
-    private Boolean needPassword;
 
     /** 浏览量 */
     private Long viewCnt;

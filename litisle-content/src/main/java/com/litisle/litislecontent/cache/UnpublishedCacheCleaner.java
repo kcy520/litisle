@@ -71,19 +71,28 @@ public class UnpublishedCacheCleaner {
     public void invalidateArticle(Long articleId, String contentHash) {
         // 步骤1：整体 fail-safe——失效失败不阻断下架主流程
         try {
+                //查询当前词库版本
             long wordlibVer = dfaFacade.currentVersion(DfaScenes.ARTICLE);
+
             // 步骤2：last-hash 精确删（SSOT 口径：仅删当前 wordlibVer 的 key，热更后旧键发布判定不会命中，等 TTL 过期）
-            LastHashStore.remove(wordlibVer, ModerationConstant.BIZ_TYPE_ARTICLE,
+                //删除 last-hash：content.unpublished
+                //value 里存的是 ：`{"hash":"sha256(标题+正文)","verdict":1}` ——即 这篇文章上一次审核通过时的内容指纹 + 结论 ，跳过整条审核链路，直接发布。
+                //存的是「终局结论」。对比 text-result：那个键 只存机审结论 （review 消费端调模型前后写的，SUSPICIOUS 非终局禁写），人审不碰它。
+                LastHashStore.remove(wordlibVer, ModerationConstant.BIZ_TYPE_ARTICLE,
                     DfaScenes.ARTICLE, articleId, lastHashRedisAdapter);
+
             // 步骤3：汇总待删键（text-result 版本段通配 SCAN + img-result 逐图 SCAN）
+                    //收集到的键里存的是 ： 机审对这段文字的终局结论 （PASS/REJECT，SUSPICIOUS 非终局禁写），TTL 72h。
             List<String> keys = new ArrayList<>();
             if (contentHash != null && !contentHash.isBlank()) {
                 scanCollect(String.format(ModerationConstant.TEXT_RESULT_SCAN_PATTERN,
                         DfaScenes.ARTICLE, contentHash), keys);
             }
+                    //收集到的键里存的是 ： 识别模型对某张图片的机审结论 （配合 OnnxImageModerationAdapter 的 reject/suspicious 概率判定）。
             for (String sha256 : collectImgSha256(articleId)) {
                 scanCollect(String.format(ModerationConstant.IMG_RESULT_SCAN_PATTERN, sha256), keys);
             }
+
             // 步骤4：批量删除收集到的缓存键
             if (!keys.isEmpty()) {
                 stringRedisTemplate.delete(keys);
@@ -96,22 +105,37 @@ public class UnpublishedCacheCleaner {
         }
     }
 
+
     /**
-     * SCAN 收集匹配键（版本段通配，键名唯一收集防重）。
+     * SCAN 收集匹配键（版本段通配，键名唯一收集防重）—— redis。
      *
      * @param pattern SCAN 匹配模式（ModerationConstant *_SCAN_PATTERN 格式化）
      * @param keys    收集容器
      */
     private void scanCollect(String pattern, List<String> keys) {
+        // 使用 Redis 的 SCAN 命令进行增量迭代查询
+        // stringRedisTemplate.scan() 返回 Cursor<String>，底层基于 SCAN，不会一次性加载所有 key
         try (Cursor<String> cursor = stringRedisTemplate.scan(
-                ScanOptions.scanOptions().match(pattern).count(SCAN_COUNT).build())) {
+                // 构建 ScanOptions，指定匹配模式和每次扫描数量
+                ScanOptions.scanOptions()
+                        .match(pattern)   // 匹配模式，如 "fewShotVer:*"、"user:*"
+                        .count(SCAN_COUNT) // 每次迭代建议返回的数量（Redis 仅作为参考）
+                        .build()
+        )) {
+
+            // 循环遍历游标，直到所有匹配的 key 都被扫描完毕
             while (cursor.hasNext()) {
+                // 获取当前扫描到的 key
                 String key = cursor.next();
+                // 去重判断：避免重复 key 被加入结果集
+                // （在生产环境中 Redis 不会重复返回，但防御性编程更安全）
                 if (!keys.contains(key)) {
                     keys.add(key);
                 }
             }
+
         }
+    // try-with-resources 结束，Cursor 自动关闭，释放与 Redis 的连接资源
     }
 
     /**

@@ -27,9 +27,6 @@ public final class ContentLimitConstant {
     /** 发布前预检（60s 10 次） */
     public static final int PREVIEW_CHECK_MAX_COUNT = 10;
 
-    /** 密码访问校验（60s 5 次，防爆破，对齐 auth 登录防爆破） */
-    public static final int VERIFY_PASSWORD_MAX_COUNT = 5;
-
     /** 阅读进度上报（60s 2 次，配合前端 30s 节流；仅前进不回退在业务层校验） */
     public static final int PROGRESS_MAX_COUNT = 2;
 

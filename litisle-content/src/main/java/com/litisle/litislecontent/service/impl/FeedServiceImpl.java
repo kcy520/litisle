@@ -1,6 +1,7 @@
 package com.litisle.litislecontent.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.utils.JsonUtil;
 import com.litisle.commonredis.constant.CacheConstant;
@@ -49,8 +50,32 @@ public class FeedServiceImpl implements FeedService {
     /** 未抢到锁重读缓存前的让渡间隔（毫秒） */
     private static final long LOCK_WAIT_PAUSE_MS = 200;
 
+    /**
+     * 推荐流分页（预计算推荐链路，zone 1/2 聚合视图）：
+     * 互斥重建（单飞锁）防击穿 + 空结果短缓存防穿透 + TTL ±10% 抖动防雪崩；
+     * 展示前回查 status=2 且 visibility=1，已下架/转私密即时剔除（防残留曝光）
+     *
+     * @param userId   当前登录用户ID（个性化排序预留，一期仅缓存维度）
+     * @param pageNo   页码（1 起）
+     * @param pageSize 页大小（默认 feed.page-size=20）
+     * @return 推荐流条目列表
+     */
     @Override
     public List<FeedItemVO> feed(Long userId, int pageNo, int pageSize) {
+
+        /**
+         * 推荐流查询流程（缓存三防）：
+         *
+         * ① 页参兜底：页码至少 1，每页大小封顶（防恶意大分页拖垮缓存与 DB）。
+         * ② 快路径：命中缓存直接进展示前回查（热路径不增加额外开销）。
+         * ③ 缓存未命中 → 互斥重建（防击穿）：
+         *    - 抢到锁：再查一次缓存（可能已被别人回填）；仍无则查库回填；
+         *      空结果存短缓存（防穿透），正常结果 TTL 加抖动（防雪崩）；
+         *    - 未抢到锁：稍等片刻重读缓存；仍无则兑底直查库（不拒绝服务）。
+         * ④ 展示前回查：无论缓存还是直查，都剔除已下架/转私密/已删除的文章
+         *    （缓存过期前的残留曝光封口，隐私红线）。
+         */
+
         // 页参兜底：pageNo ≥1；pageSize 上限收口配置（防恶意大分页拖垮缓存与 DB）
         int safePageNo = Math.max(pageNo, 1);
         int safePageSize = Math.min(Math.max(pageSize, 1),
@@ -80,7 +105,7 @@ public class FeedServiceImpl implements FeedService {
                 distributedLock.unlock(lockKey);
             }
         }
-        // 未抢到锁：让渡片刻重读缓存（重建方大概率已回填），仍 miss 兜底直查库（不拒绝服务）
+        // 步骤4：未抢到锁：稍等片刻重读缓存（重建方大概率已回填），仍没有就兜底直查库（不拒绝服务）
         try {
             Thread.sleep(LOCK_WAIT_PAUSE_MS);
         } catch (InterruptedException e) {
@@ -94,21 +119,23 @@ public class FeedServiceImpl implements FeedService {
     }
 
     /**
-     * 缓存回源查询：zone=3 推荐流候选（status=2 已发布 + visibility=1 公开 + 未软删）发布时间倒序
-     * （一期排序口径=时间倒序；ai 侧算法重排接入后替换为推荐位数据源）
+     * 缓存回源查询：zone 1/2 聚合候选（status=2 已发布 + visibility=1 公开 + 未软删）发布时间倒序
+     * （阶段12：zone=3 分区已取消，推荐流改为 zone 1/2 聚合视图；排序方式另立项评估）
      *
      * @param pageNo   页码（1 起）
      * @param pageSize 页大小
      * @return 推荐流条目列表
      */
     private List<FeedItemVO> loadFromDb(int pageNo, int pageSize) {
-        List<Article> articles = articleMapper.selectList(new LambdaQueryWrapper<Article>()
-                .eq(Article::getZone, ZoneEnum.RECOMMEND)
-                .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
-                .eq(Article::getVisibility, VisibilityEnum.PUBLIC)
-                .eq(Article::getDelFlag, DelFlag.NOT_DELETED)
-                .orderByDesc(Article::getCreateTime)
-                .last("LIMIT " + pageSize + " OFFSET " + (long) (pageNo - 1) * pageSize));
+        // 用 Page 替代手拼 LIMIT/OFFSET：分页插件标准方式（searchCount=false 不触发 COUNT），
+        // 偏移量由插件按 pageNo/pageSize 统一计算，消除字符串拼接与手算偏移的维护风险
+        List<Article> articles = articleMapper.selectList(Page.of(pageNo, pageSize, false),
+                new LambdaQueryWrapper<Article>()
+                        .in(Article::getZone, ZoneEnum.NORMAL, ZoneEnum.WRITER)
+                        .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
+                        .eq(Article::getVisibility, VisibilityEnum.PUBLIC)
+                        .eq(Article::getDelFlag, DelFlag.NOT_DELETED)
+                        .orderByDesc(Article::getCreateTime));
         return articles.stream().map(article -> new FeedItemVO()
                 .setArticleId(article.getId())
                 .setTitle(article.getTitle())

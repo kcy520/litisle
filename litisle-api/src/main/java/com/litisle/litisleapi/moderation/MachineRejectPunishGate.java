@@ -137,6 +137,17 @@ public final class MachineRejectPunishGate {
     /**
      * 处罚落库适配（review 侧注入，契约层零 ORM 依赖；模式同 UsernameRejectGate.RecordAdapter）。
      *
+     * `recordPunish` 要做的事是：写`punish_log` 表 + 累加`violation_score` 表
+     * —— 这两张表是 review 的数据库、MyBatis Mapper、实体类全在 review 模块里 。api 模块根本没有这些类，物理上不可能实现。
+     * 这就是经典的 端口-适配器模式 ：
+     * - api 定义「端口」（接口）：我需要一个「能落处罚行的能力」，口径见 Javadoc（action=3、operator=0、status=1、禁更新 frozen_until……）
+     * - review 提供「适配器」（实现）：`RejectPunishAdapterHost` 用自己的 Mapper 把口径落地
+     * 
+     * 为什么review实现了此接口？litislereview.moderation.service-RejectPunishAdapterHost
+     * 不是「api 使用 review 的实现」，而是 review 自己用，且是 当参数传进去的
+     * 落库需要 punish_log/violation_score 的 Mapper 和实体，全在 review；依赖方向 review→api，api 物理上无法实现
+     * 如果没有实现此接口，SpringBoot会启动失败 —— （构造器注入找不到 Bean）；闸口内的判空异常是防手工调用绕过容器的第二道保险
+     * 
      * @FunctionalInterface 标记这个接口是「函数式接口」——只能有一个抽象方法，可以被 Lambda 表达式或方法引用直接实现。
      */
     @FunctionalInterface
@@ -149,7 +160,7 @@ public final class MachineRejectPunishGate {
          * operator_id=0-系统、score=context.score()（分值快照）、status=1-生效、
          * reason=context.reason()、trace_id=context.traceId()；
          * violation_score：update set score=score+context.score() where user_id=?（原子累加，
-         * 首次插入主键冲突转累加；禁 version 乐观锁，重算依据在 punish_log 流水）。
+         * 首次插入主键冲突转累加；禁  version 乐观锁，重算依据在 punish_log 流水）。
          * 红线（5-1.2）：本方法严禁更新 violation_score.last_punish_action / frozen_until——
          * 阈值判定只重放 action∈{1,2} 的 status=1 生效行，action=3 仅落流水不计入。</p>
          *

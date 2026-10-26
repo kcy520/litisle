@@ -8,14 +8,13 @@
 
 ## 〇、全景图：一篇文章从创作到可见
 
-创作（草稿快照 + 正文图片占位）\
-→ 发布同步段（校验 → 免审直落 → CAS 0→1 发送审事件）\
-→ review 异步机审（切片/聚合在 review 消费端收口，content 不重复实现）\
-→ 结果回写（双链路聚合：文本 + 配图复审）\
-→ PASS 发布 / REJECT 首发驳回 1→3 或复审下架 2→4 → 申诉改判 3/4→2 / 封禁连带下架。\
-**四条下线路径**（软删/转私密/复审驳回/封禁连带）统一发 content.unpublished + 失效三键审核缓存（隐私红线）；发布成功发 content.published 供 search/ai/notification 消费。
+创作（草稿快照 + 正文图片占位）
+→ 发布同步段（校验 → 免审直落 → CAS 0→1 发送审事件）
+→ review 异步机审（切片/聚合在 review 消费端收口，content 不重复实现）
+→ 结果回写（双链路聚合：文本 + 配图复审）
+→ PASS 发布 / REJECT 首发驳回 1→3 或复审下架 2→4 → 申诉改判 3/4→2 / 封禁连带下架。\\
 
-<br />
+**四条下线路径**（软删/转私密/复审驳回/封禁连带）统一发 content.unpublished + 失效三键审核缓存（隐私红线）；发布成功发 content.published 供 search/ai/notification 消费。
 
 ## 架构设计
 
@@ -72,22 +71,22 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 **阶段一 · 创作与草稿（板块三）**
 
-1. 保存草稿：\
-   `DraftServiceImpl` 快照 UPSERT——baseVersion 与 draft\_version 乐观锁比对，落后即拒（ARTICLE\_DRAFT\_CONFLICT 防两个标签页互相覆盖）；\
-   归属校验防横向越权；\
-   超过 draft.keep-versions=10 滚动清理最旧快照
-2. 插入正文图片：校验 fileId 归属本人且 bizType=ARTICLE\_IMG（防引用他人文件/违规图）→ 写 article\_image（position\_order/align）；正文只存 `{img:file_id}` 占位符，图片对齐权威单独存表
+1. 保存草稿：
+   `DraftServiceImpl` 快照 UPSERT——baseVersion 与 draft\_version 乐观锁比对，落后即拒（ARTICLE\_DRAFT\_CONFLICT 防两个标签页互相覆盖）；
+   归属校验防横向越权；
+   超过 draft.keep-versions = 10 滚动清理最旧快照
+2. 插入正文图片：校验 fileId 归属本人且 bizType = ARTICLE\_IMG（防引用他人文件/违规图）→ 写 article\_image（position\_order/align）；正文只存 `{img:file_id}` 占位符，图片对齐权威单独存表
 
 **阶段二 · 发布同步段（板块一，宿主本地执行，不依赖 review 可用性）**
 
-1. 单篇创建并发布（`ArticleServiceImpl`）：`ZoneRouter` 分区权限（zone=2 需 AUTHOR、zone=3 仅 ADMIN）→ `ArticleStateMachine` 状态流转合法性 → `SubmitTextAssembler.assemble` 拼接标题+正文算 content\_hash → `PublishTextPrecheck` 空内容/标题≤100 → 正文 `ArticleHtmlSanitizer.sanitize` 白名单净化后落库
-2. 免审判定 `LastHashExemptChecker.decide`：content\_hash 未变 + 上次 PASS + 非驳回态 → CAS 0→2 直落发 content.published（**免文不免图**——配图仍发 image.submit 复审）；未命中 → CAS 0→1 回填批次ID → afterCommit `ContentEventProducer` 发 content.submitted（事件体不含正文，review 经 ContentClient 回查）→ 即时返回「审核中」，发布 RT 不被审核绑架
+1. 单篇创建并发布（`ArticleServiceImpl`）：`ZoneRouter` 分区权限（zone = 2 需 AUTHOR；阶段12 后仅此一条分区权限）→ `ArticleStateMachine` 状态流转合法性 → `SubmitTextAssembler.assemble` 拼接标题+正文算 content\_hash → `PublishTextPrecheck` 空内容/标题 ≤100 → 正文 `ArticleHtmlSanitizer.sanitize` 白名单净化后落库
+2. 免审判定 `LastHashExemptChecker.decide`：content\_hash 未变 + 上次 PASS + 非驳回态 → CAS 0→2 直落发 content.published（**免文不免图**——配图仍发 image.submit 复审）；未命中 → CAS 0→1 回填批次 ID → afterCommit `ContentEventProducer` 发 content.submitted（事件体不含正文，review 经 ContentClient 回查）→ 即时返回「审核中」，发布 RT 不被审核绑架
 3. 批量发布 `publishBatch`：单批 ≤20，`TransactionTemplate` 逐篇独立事务，失败不回滚已成功篇目，逐篇回执
 
 **阶段三 · review 异步机审（review 模块，此处只列衔接点）**
 
 1. review 消费 content.submitted → 凭定位键经 ContentClient 回查原文（正文 + article\_image 配图）→ 文本切片/双链路聚合均在 review 消费端收口，content 不重复实现
-2. 结论经 moderation.result 事件回流 content 侧结果队列：文本路 scene=ARTICLE 与配图复审路 ARTICLE\_IMG\_RE\_REVIEW 同队列混收
+2. 结论经 moderation.result 事件回流 content 侧结果队列：文本路 scene = ARTICLE 与配图复审路 ARTICLE\_IMG\_RE\_REVIEW 同队列混收
 
 **阶段四 · 结果回写与双链路聚合（板块七）**
 
@@ -98,22 +97,21 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 **阶段五 · 可见与消费（板块二/六）**
 
 1. 读者浏览：`FeedServiceImpl` 缓存三防（互斥重建/空值短缓存/TTL±10% 抖动）+ 展示前批量回查权威态，已下线即时剔除
-2. 读者访问详情：getDetail 可见性判定链（1-公开直放 / 2-仅自己按不存在处理 / 3-仅关注者回查 `FollowRelationCache` / 4-密码走 `verifyPassword`：LoginRetryLimiter 防爆破 + BCrypt + 10min 凭证标记）
+2. 读者访问详情：getDetail 可见性判定链（1-公开直放 / 2-仅自己按不存在处理 / 3-仅关注者回查 `FollowRelationCache`；阶段9：原 4-密码访问已下线）
 
 **阶段六 · 异议与连带（板块八）**
 
 1. 作者申诉 → review 改判裁决 → appeal.result 回流 → `ModerationAppealResultConsumer.handleAppeal`：删 last-hash 免审键 → 回查处罚权威态 `ReviewClient.getPunishStatus`（封禁中不放行）→ CAS 对称恢复 3→2 首发 / 4→2 下架（仅此两向、仅申诉来源）→ 连带逐张 `FileClient.unquarantine` 恢复隔离配图 → 发 content.published 恢复索引对称性
-2. 用户被封 → `UserBannedConsumer.handleUserBanned`：查作者全部已发布+已下架未删文章 → 批量 CAS 2→4 → 逐篇发 content.unpublished + 三键失效 + 审计留痕 operator=system(mq)
+2. 用户被封 → `UserBannedConsumer.handleUserBanned`：查作者全部已发布+已下架未删文章 → 批量 CAS 2→4 → 逐篇发 content.unpublished + 三键失效 + 审计留痕 operator = system(mq)
 3. 全程兜底约束：下架四路径（软删/转私密/复审驳回/封禁连带）统一收口同一套动作；`TagCountReconcileJob` 定时校正标签计数漂移
 
-## 一、发布编排（ArticlePublishServiceImpl，同步段口径B）
+## 一、发布编排（ArticlePublishServiceImpl，同步段口径 B）
 
 **功能描述：**
 
 > - 单篇创建并发布：按免审/送审分流，即时返回发布结果或「审核中」
 > - 批量发布与批量改可见性：逐篇独立事务、逐篇回执，单篇失败不影响其他
 > - 发布前风险预检：只回 hit/risk 不回吐命中词
-> - 密码访问校验：防爆破锁定 + BCrypt 比对 + 短时凭证标记
 
 **功能描述——详细版：**
 
@@ -130,40 +128,32 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >
 > - 与发布闸门同源判定，仅返回是否命中与风险级别，不回吐命中词，防词库试探
 >
-> **密码访问校验**
->
-> - 连续错 5 次锁定 60s；BCrypt 比对、不回显；未设密码与密码错误统一报错；通过后 10 分钟内免重复输入
->
 > **批量改可见性**
 >
 > - 转公开要求文章已过审；已发布转私密触发下架收口（事件+缓存失效）
 
 **链路位置**：完整链路阶段二 · 发布同步段（宿主本地执行，不依赖 review 可用性）
 
-> 1. 单篇创建并发布（`ArticleServiceImpl`）：`ZoneRouter` 分区权限（zone=2 需 AUTHOR、zone=3 仅 ADMIN）→ `ArticleStateMachine` 状态流转合法性 → `SubmitTextAssembler.assemble` 拼接标题+正文算 content\_hash → `PublishTextPrecheck` 空内容/标题≤100 → 正文 `ArticleHtmlSanitizer.sanitize` 白名单净化后落库
-> 2. 免审判定 `LastHashExemptChecker.decide`：content\_hash 未变 + 上次 PASS + 非驳回态 → CAS 0→2 直落发 content.published（**免文不免图**——配图仍发 image.submit 复审）；未命中 → CAS 0→1 回填批次ID → afterCommit `ContentEventProducer` 发 content.submitted（事件体不含正文，review 经 ContentClient 回查）→ 即时返回「审核中」，发布 RT 不被审核绑架
+> 1. 单篇创建并发布（`ArticleServiceImpl`）：`ZoneRouter` 分区权限（zone = 2 需 AUTHOR；阶段12 后仅此一条分区权限）→ `ArticleStateMachine` 状态流转合法性 → `SubmitTextAssembler.assemble` 拼接标题+正文算 content\_hash → `PublishTextPrecheck` 空内容/标题 ≤100 → 正文 `ArticleHtmlSanitizer.sanitize` 白名单净化后落库
+> 2. 免审判定 `LastHashExemptChecker.decide`：content\_hash 未变 + 上次 PASS + 非驳回态 → CAS 0→2 直落发 content.published（**免文不免图**——配图仍发 image.submit 复审）；未命中 → CAS 0→1 回填批次 ID → afterCommit `ContentEventProducer` 发 content.submitted（事件体不含正文，review 经 ContentClient 回查）→ 即时返回「审核中」，发布 RT 不被审核绑架
 > 3. 批量发布 `publishBatch`：单批 ≤20，`TransactionTemplate` 逐篇独立事务，失败不回滚已成功篇目，逐篇回执
 
 <br />
 
 **详细版**：
 
-- A1 校验：trim+去标签可见文本非空、标题≤100、正文/配图不同空
+- A1 校验：trim+去标签可见文本非空、标题 ≤100、正文/配图不同空
 - A2 免审直落：last-hash 命中（hash 未变+PASS+非驳回态）→ CAS 0→2 直落发 content.published；\
-  **免文不免图**——配图仍发 image.submit 复审（scene=ARTICLE\_IMG\_RE\_REVIEW）
+  **免文不免图**——配图仍发 image.submit 复审（scene = ARTICLE\_IMG\_RE\_REVIEW）
 - A3 未命中：\
-  CAS 0→1 回填批次ID → afterCommit 发 content.submitted（事件体不含正文，review 经 ContentClient 回查）→ 即时返回「审核中」，发布 RT 不被审核绑架
+  CAS 0→1 回填批次 ID → afterCommit 发 content.submitted（事件体不含正文，review 经 ContentClient 回查）→ 即时返回「审核中」，发布 RT 不被审核绑架
 - 批量发布 `publishBatch`：\
   单批 ≤ batch-max(20) 防批量刷审；\
   `TransactionTemplate` 逐篇独立事务（规避同类自调用 @Transactional 失效），失败不回滚已成功篇目，逐篇回执 {articleId, success, errorCode}；\
   已发布/并发流转 CAS 不满足幂等跳过
 - 预检 `previewCheck`：同源 DfaFacade + SubmitTextAssembler 判定，仅回 {hit, risk} **不回吐命中词**（防词库 oracle 试探）；\
   不替代发布闸门
-- 密码访问 `verifyPassword`：\
-  `LoginRetryLimiter` 防爆破（5 次锁 60s，对齐 auth 口径）+ Controller @RateLimiter 双层；\
-  BCrypt 比对不回显；未设密码与密码错误统一报错（不暴露配置状态）；\
-  通过后写 10min 凭证标记，正文判定仍收口 getDetail
-- 改可见性：转公开限定 status=2（未过审内容禁公开）且不重审；\
+- 改可见性：转公开限定 status = 2（未过审内容禁公开）且不重审；\
   已发布转私密必发 content.unpublished + 失效缓存（fail-safe 不阻断批量主流程）
 
 <br />
@@ -172,58 +162,53 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 发布接口只做三件事——校验、判断能否免审、落库待审并通知审核服务，**绝不原地等审核结果**。\
 相同内容上次过审且未改动就直接发布，但配图仍要复审。\
 批量发布一篇一个独立事务，失败不影响其他篇目，逐篇给出成功/失败回执。\
-发布前预检只告诉你「有没有风险」，不告诉你命中了哪个词，防试探词库。\
-密码访问文章连续错 5 次锁一分钟，密码不回显、未设密码和密码错误表现一致。
+发布前预检只告诉你「有没有风险」，不告诉你命中了哪个词，防试探词库。
 
 <br />
 
 代码部分:
 
-> - ArticlePublishService.java：\
->   litisle\_content\service\ArticlePublishService.java：\
->   作用：\
->   发布编排接口，声明批量发布、批量改可见性、发布前预检、密码访问校验等入口契约
-> - ArticlePublishServiceImpl.java：\
->   litisle\_content\service\impl\ArticlePublishServiceImpl.java：\
->   作用：\
->   发布编排实现——批量发布（单批上限/逐篇独立事务/逐篇回执）、批量改可见性（转公开限已发布、转私密发下架事件）、预检（DFA 只回 hit/risk）、密码校验（防爆破+BCrypt+凭证标记）
-> - ArticleServiceImpl.java：\
->   litisle\_content\service\impl\ArticleServiceImpl.java：\
->   作用：\
+> - ArticlePublishService.java：
+>   litisle\_content\service\ArticlePublishService.java：
+>   作用：
+>   发布编排接口，声明批量发布、批量改可见性、发布前预检等入口契约
+> - ArticlePublishServiceImpl.java：
+>   litisle\_content\service\impl\ArticlePublishServiceImpl.java：
+>   作用：
+>   发布编排实现——批量发布（单批上限/逐篇独立事务/逐篇回执）、批量改可见性（转公开限已发布、转私密发下架事件）、预检（DFA 只回 hit/risk）
+> - ArticleServiceImpl.java：
+>   litisle\_content\service\impl\ArticleServiceImpl.java：
+>   作用：
 >   单篇「创建并发布」所在类——A1 前置校验与 A2 免审直落判定在这里执行，批量入口不重复实现
-> - ArticleStateMachine.java：\
->   litisle\_content\domain\statemachine\ArticleStateMachine.java：\
->   作用：\
+> - ArticleStateMachine.java：
+>   litisle\_content\domain\statemachine\ArticleStateMachine.java：
+>   作用：
 >   文章状态机，维护 status 流转白名单（禁 2→1；4 为终态，4→2 仅申诉链路可调），所有状态变更入口的前置合法性校验
-> - ZoneRouter.java：\
->   litisle\_content\domain\router\ZoneRouter.java：\
->   作用：\
->   分区权限校验收口——zone=2 需 AUTHOR、zone=3 仅 ADMIN/运营、zone=1 放行；发布与编辑变更分区统一调用，防各入口内联 if 口径漂移
-> - PublishTextPrecheck.java：\
->   litisle\_api\moderation\PublishTextPrecheck.java：\
->   作用：\
->   契约层前置校验工具——空内容（trim+去标签可见文本）与标题≤100 校验，发布侧统一口径
-> - LastHashExemptChecker.java：\
->   litisle\_api\moderation\LastHashExemptChecker.java：\
->   作用：\
+> - ZoneRouter.java：
+>   litisle\_content\domain\router\ZoneRouter.java：
+>   作用：
+>   分区权限校验收口——zone = 2 需 AUTHOR、zone = 1 放行（阶段12：原 zone = 3 仅 ADMIN/运营 口径随分区取消删除）；发布与编辑变更分区统一调用，防各入口内联 if 口径漂移
+> - PublishTextPrecheck.java：
+>   litisle\_api\moderation\PublishTextPrecheck.java：
+>   作用：
+>   契约层前置校验工具——空内容（trim+去标签可见文本）与标题 ≤100 校验，发布侧统一口径
+> - LastHashExemptChecker.java：
+>   litisle\_api\moderation\LastHashExemptChecker.java：
+>   作用：
 >   契约层免审判定器——按 content\_hash+上次结论+当前状态+配图复审结论判定「免审直落 / 送审」
-> - SubmitTextAssembler.java：\
->   litisle\_api\moderation\SubmitTextAssembler.java：\
->   作用：\
+> - SubmitTextAssembler.java：
+>   litisle\_api\moderation\SubmitTextAssembler.java：
+>   作用：
 >   契约层送审文本组装器——统一拼接标题与正文并计算 content\_hash，发布/消费两侧共用防口径漂移
-> - DfaFacade.java：\
->   litisle\_api\dfa\DfaFacade.java：\
->   作用：\
+> - DfaFacade.java：
+>   litisle\_api\dfa\DfaFacade.java：
+>   作用：
 >   DFA 同步闸门门面，基于本地词库快照判定命中级别（预检与发布闸门同源同快照）
-> - LoginRetryLimiter.java：\
->   litisle\_common\commonredis\login\LoginRetryLimiter.java：\
->   作用：\
->   通用失败限频器——失败计数/锁定/重置，密码访问防爆破与 auth 登录同口径
-> - ContentEventProducer.java：\
->   litisle\_content\mq\ContentEventProducer.java：\
->   作用：\
+> - ContentEventProducer.java：
+>   litisle\_content\mq\ContentEventProducer.java：
+>   作用：
 >   content 域事件发布统一收口，补齐事件 base 字段后发 MQ
-> - ContentProperties.java：\
+> - ContentProperties.java：
 >   litisle\_content\config\ContentProperties.java：\
 >   作用：\
 >   运营可调参数载体（batch-max、last-hash TTL、重试参数等外置 yml）
@@ -237,7 +222,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 **功能描述：**
 
 > - 文章编辑（仅元数据，正文改动须软删重发）与软删除（必连带下架收口）
-> - 详情可见性判定（公开/仅自己/仅关注者/密码四档）与公开列表查询
+> - 详情可见性判定（公开/仅自己/仅关注者三档；阶段9：原密码访问已下线）与公开列表查询
 > - UGC 安全防线：HTML 白名单净化、日志脱敏、审核缓存失效
 
 **功能描述——详细版：**
@@ -252,7 +237,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >
 > **详情可见性**
 >
-> - 四档判定：公开直放；仅自己对非本人按不存在处理；仅关注者回查关注关系（降级从严）；密码访问需校验
+> - 三档判定：公开直放；仅自己对非本人按不存在处理；仅关注者回查关注关系（降级从严）
 >
 > **转公开不重审**
 >
@@ -263,8 +248,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > 1. 读者访问详情：getDetail 可见性判定链\
 >    1-公开直放\
 >    2-仅自己：非本人按不存在处理（不暴露存在性）\
->    3-仅关注者：回查 `FollowRelationCache` 关注关系缓存\
->    4-密码访问：`verifyPassword`（LoginRetryLimiter 防爆破 + BCrypt + 10min 凭证标记）
+>    3-仅关注者：回查 `FollowRelationCache` 关注关系缓存
 
 <br />
 
@@ -273,8 +257,8 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 - sanitize 三层铁律：\
   标题/摘要剥标签纯文本落库；正文入库前白名单净化（`ArticleHtmlSanitizer.sanitize`，天然保留 `{img:file_id}` 占位符）；\
   **审核只判定不净化、净化禁仅做出库**（存储型 XSS 红线）
-- 编辑方案B：\
-  status=2 传入标题/正文/配图即拒（防借编辑绕过复审），改正文须软删重发；\
+- 编辑方案 B：\
+  status = 2 传入标题/正文/配图即拒（防借编辑绕过复审），改正文须软删重发；\
   仅封面/摘要/分类/visibility/书籍挂载等元数据可改；\
   非 null 字段 sanitize 后增量更新
 - 软删红线：\
@@ -283,10 +267,9 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 - 可见性判定链 getDetail 收口：\
   1-公开直放；\
   2-仅自己非本人按不存在处理（不暴露存在性）；\
-  3-仅关注者回查 social 关注关系（降级=按非关注者处理宁严勿松，短 TTL 缓存±10% 抖动）；\
-  4-密码走凭证标记
+  3-仅关注者回查 social 关注关系（降级 = 按非关注者处理宁严勿松，短 TTL 缓存 ±10% 抖动）
 - 转公开不重审：\
-  方案B 禁改正文 + content\_hash 未变 → 原审核结论仍有效，发 content.published（不重建审核缓存，原键仍有效）
+  方案 B 禁改正文 + content\_hash 未变 → 原审核结论仍有效，发 content.published（不重建审核缓存，原键仍有效）
 
 <br />
 
@@ -304,7 +287,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > - ArticleService.java / ArticleServiceImpl.java：\
 >   litisle\_content\service\ArticleService.java、service\impl\ArticleServiceImpl.java：\
 >   作用：\
->   文章域接口与实现——创建并发布（分区权限/校验/sanitize/免审判定）、编辑（方案B 拒改正文）、软删（必发下架事件+缓存失效）、详情可见性判定链、公开列表查询
+>   文章域接口与实现——创建并发布（分区权限/校验/sanitize/免审判定）、编辑（方案 B 拒改正文）、软删（必发下架事件+缓存失效）、详情可见性判定链、公开列表查询
 > - ArticleController.java：\
 >   litisle\_content\controller\ArticleController.java：\
 >   作用：\
@@ -312,7 +295,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > - ArticleHtmlSanitizer.java：\
 >   litisle\_content\utils\ArticleHtmlSanitizer.java：\
 >   作用：\
->   正文 HTML 白名单净化器，入库前剔除危险标签/属性，保留 {img:file\_id} 占位符（存储型 XSS 防线）
+>   正文 HTML 白名单净化器，入库前剔除危险标签/属性，保留 {img: file\_id} 占位符（存储型 XSS 防线）
 > - LogSanitizeUtil.java：\
 >   litisle\_content\utils\LogSanitizeUtil.java：\
 >   作用：\
@@ -329,7 +312,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > **草稿自动保存**
 >
 > - **归属校验**：按 draft/article 的 author\_id 与当前登录用户比对，非本人拒绝——防横向越权改写他人草稿
-> - **并发冲突**：请求携带 baseVersion 与 draft\_version 比对：相等→UPSERT 递增；落后→返回冲突提示刷新（乐观锁拒绝后写覆盖先写，防丢更新）；同版本重复提交幂等跳过
+> - **并发冲突**：请求携带 baseVersion 与 draft\_version 比对：相等 →UPSERT 递增；落后 → 返回冲突提示刷新（乐观锁拒绝后写覆盖先写，防丢更新）；同版本重复提交幂等跳过
 > - **快照保留**：同一草稿仅保留最近 N 版（litisle.content.draft.keep-versions，默认 10），超限滚动清理最旧快照，防 longtext 快照无限膨胀
 > - 草稿图片暂存 article\_image.draft\_id；发布时切换归属，废弃草稿的孤儿图片由 file 对账链路兑底
 
@@ -343,9 +326,9 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 > 1. 保存草稿（`DraftServiceImpl` 快照 UPSERT）：\
 >    baseVersion 与 draft\_version 乐观锁比对，落后即拒（ARTICLE\_DRAFT\_CONFLICT 防两个标签页互相覆盖）\
->    归属校验防横向越权；超过 draft.keep-versions=10 滚动清理最旧快照
+>    归属校验防横向越权；超过 draft.keep-versions = 10 滚动清理最旧快照
 > 2. 插入正文图片：\
->    校验 fileId 归属本人且 bizType=ARTICLE\_IMG（防引用他人文件/违规图）\
+>    校验 fileId 归属本人且 bizType = ARTICLE\_IMG（防引用他人文件/违规图）\
 >    写 article\_image（position\_order/align）；正文只存 `{img:file_id}` 占位符，图片对齐权威单独存表
 
 <br />
@@ -354,9 +337,9 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 - 草稿快照 UPSERT：\
   baseVersion 与 draft\_version 乐观锁比对，落后即拒（ARTICLE\_DRAFT\_CONFLICT 防后写覆盖先写）；归属校验防横向越权；\
-  draft.keep-versions=10 滚动清理最旧快照；草稿独立表隔离高频写低频读
+  draft.keep-versions = 10 滚动清理最旧快照；草稿独立表隔离高频写低频读
 - 正文只存 `{img:file_id}` 占位符，对齐权威在 article\_image（align 5 种）；\
-  插图校验 fileId 归属本人且 bizType=ARTICLE\_IMG（防引用他人文件/违规图，ARTICLE\_IMG\_REFUSED）；\
+  插图校验 fileId 归属本人且 bizType = ARTICLE\_IMG（防引用他人文件/违规图，ARTICLE\_IMG\_REFUSED）；\
   发布时归属切换 draft\_id→article\_id
 - 渲染期：\
   批量查 article\_image → fileId → URL + align 映射，按 position\_order 将占位符替换为带对齐样式的 `<img>` 标签；\
@@ -459,9 +442,9 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 - tag 全局池（uk\_name 唯一）+ article\_tag 多对多（`uk(article_id, tag_id)` 冲突幂等跳过）；\
   单篇 ≤ tag.max-per-article(5) 防关键词堆砌；\
-  **新建标签走 DFA 闸门**后才可挂载
+  **新建标签走 DFA 闸门** 后才可挂载
 - use\_count 冗余计数异步刷新，列表侧零 join；\
-  封禁标签（status=1）列表侧不再聚合展示；\
+  封禁标签（status = 1）列表侧不再聚合展示；\
   `TagCountReconcileJob` 定时对账计数漂移；一期标签不参与推荐流排序权重
 
 **通俗版**：\
@@ -516,8 +499,8 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
   空结果短缓存防穿透（恶意翻页/冷页不再持续打库）；\
   正常 TTL ±10% 抖动防雪崩（last-hash TTL 同口径）
 - 展示前回查：\
-  缓存 TTL 内文章可能已下架/转私密/软删——渲染前批量回查权威态 status=2 且 visibility=1，已下线即时剔除；\
-  feed.cache-ttl-seconds=300 / feed.page-size=20，@RateLimiter 60/60s
+  缓存 TTL 内文章可能已下架/转私密/软删——渲染前批量回查权威态 status = 2 且 visibility = 1，已下线即时剔除；\
+  feed.cache-ttl-seconds = 300 / feed.page-size = 20，@RateLimiter 60/60s
 - 仅关注者内容回查 `FollowRelationCache`，降级宁严勿松
 
 **通俗版**：\
@@ -534,7 +517,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > - FollowRelationCache.java：\
 >   litisle\_content\cache\FollowRelationCache.java：\
 >   作用：\
->   仅关注者可见性的关注关系缓存，social 回查结果短 TTL 缓存±10% 抖动，降级按非关注者处理（宁严勿松）
+>   仅关注者可见性的关注关系缓存，social 回查结果短 TTL 缓存 ±10% 抖动，降级按非关注者处理（宁严勿松）
 > - FeedController.java：\
 >   litisle\_content\controller\FeedController.java：\
 >   作用：\
@@ -553,7 +536,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > 1. review 消费 content.submitted，凭定位键经 ContentClient 回查原文（正文 + article\_image 配图）\
 >    文本切片/双链路聚合均在 review 消费端收口，content 不重复实现
 > 2. 结论经 moderation.result 事件回流 content 侧结果队列\
->    文本路 scene=ARTICLE 与配图复审路 ARTICLE\_IMG\_RE\_REVIEW 同队列混收
+>    文本路 scene = ARTICLE 与配图复审路 ARTICLE\_IMG\_RE\_REVIEW 同队列混收
 > 3. `ModerationResultConsumer` 消费（`MqTraceSupport` 恢复 traceId、`MqAckHelper` ACK 纪律），业务进入 `ArticleReviewWriteBackServiceImpl` 五防线：\
 >    bizType 自筛 → SUSPICIOUS 非终局忽略 → scene 分流定位聚合槽\
 >    陈旧性防线：事件 contentHash 与落库指纹比对，编辑后旧结论迟到即丢弃\
@@ -568,7 +551,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 **详细版**：
 
 - 消费编排：\
-  监听 content 侧结果队列（同队列混收 scene=ARTICLE 文本路 + ARTICLE\_IMG\_RE\_REVIEW 配图复审路）；\
+  监听 content 侧结果队列（同队列混收 scene = ARTICLE 文本路 + ARTICLE\_IMG\_RE\_REVIEW 配图复审路）；\
   `MqTraceSupport` 恢复 traceId；\
   `MqAckHelper` 统一 ACK 纪律（成功 ack / 业务性失败 warn 后 ack 防毒丸 / 非预期异常指数退避经延迟交换机重投，耗尽 nack 入 DLQ **绝不自动放行**）
 - 回写五防线：\
@@ -580,8 +563,8 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
   PASS 需文本 PASS 且（无图或图片 PASS），**有无配图以 article\_image 表现状为准**防竞态；终局删槽
 - 终局配套：\
   PASS → 发 content.published；首发驳回 1→3；复审下架 2→4 → 发 content.unpublished + 三键失效 + 显式结构化审计日志（@AuditLog 切面不覆盖 MQ 消费线程）；\
-  affected=0 且现态已 TAKEN\_DOWN 属重试自愈补发事件
-- last-hash 写入跟随事件到达（fail-safe 不阻断，写失败**宁多审不漏审**）；\
+  affected = 0 且现态已 TAKEN\_DOWN 属重试自愈补发事件
+- last-hash 写入跟随事件到达（fail-safe 不阻断，写失败 **宁多审不漏审**）；\
   文本主键取落库指纹、图片连带键取配图聚合指纹；TTL ±10% 抖动
 
 **通俗版**：\
@@ -656,26 +639,26 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >    连带逐张 `FileClient.unquarantine` 恢复隔离配图 → 发 content.published 恢复索引对称性
 > 2. 用户被封 → `UserBannedConsumer.handleUserBanned`\
 >    查作者全部已发布+已下架未删文章 → 批量 CAS 2→4\
->    逐篇发 content.unpublished + 三键失效 + 审计留痕 operator=system(mq)
+>    逐篇发 content.unpublished + 三键失效 + 审计留痕 operator = system(mq)
 
 <br />
 
 **详细版**：
 
 - 申诉改判 `handleAppeal`：\
-  bizType 分流 → appealPass=false 维持原判 ack；\
+  bizType 分流 → appealPass = false 维持原判 ack；\
   **删 last-hash 免审键**（键里可能存 REJECT 结论，不清则发布侧误提示；fail-safe 不阻断）；\
   改判前回查处罚权威态 `reviewClient.getPunishStatus`（封禁中拒绝放行，防晚到申诉翻转封禁连带结果；回查异常穿透交延迟重试，禁静默吞错）；\
   CAS allow-list 对称恢复 **3→2 首发 / 4→2 下架（仅此两向、仅申诉来源）**；\
   4→2 连带逐张 `fileClient.unquarantine` 恢复隔离配图（幂等，单张失败留痕不阻断）；\
   发 content.published 恢复 search/ai(RAG) 索引对称性
 - 封禁连带 `handleUserBanned`：\
-  查作者全部已发布+已下架未删文章（含已下架=重试补发自愈窗口）→ 批量 CAS 2→4；\
+  查作者全部已发布+已下架未删文章（含已下架 = 重试补发自愈窗口）→ 批量 CAS 2→4；\
   逐篇发 content.unpublished + `UnpublishedCacheCleaner` 三键失效；\
-  显式审计日志 operator=system(mq)
+  显式审计日志 operator = system(mq)
 - **下架四路径统一收口**：\
   软删/转私密/复审驳回/封禁连带，全部发 content.unpublished + 失效 last-hash 与 text/img-result 缓存键；\
-  写入→失效对称铁律——content 侧新增任何 review 域缓存键写入必须同步核对失效收口，禁只写不失效
+  写入 → 失效对称铁律——content 侧新增任何 review 域缓存键写入必须同步核对失效收口，禁只写不失效
 
 **通俗版**：\
 作者申诉成功后，平台「以最新结论为准」恢复文章——但恢复前先确认作者本人没被封禁（防止晚到的申诉把被封用户的违规内容翻回来）；\

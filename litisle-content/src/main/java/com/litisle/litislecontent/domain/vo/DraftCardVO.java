@@ -1,5 +1,6 @@
 package com.litisle.litislecontent.domain.vo;
 
+import com.litisle.litislecontent.enums.ArticleCategoryEnum;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
@@ -32,8 +33,8 @@ public class DraftCardVO implements Serializable {
     /** 封面文件ID */
     private String coverFileId;
 
-    /** 分类 */
-    private String category;
+    /** 分类（@JsonValue 序列化输出中文分类名，前端无感） */
+    private ArticleCategoryEnum category;
 
     /** 最新草稿版本号 */
     private Integer draftVersion;

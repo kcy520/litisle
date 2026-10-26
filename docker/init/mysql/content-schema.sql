@@ -29,15 +29,14 @@ create table if not exists `article`
 (
     `id`            bigint unsigned not null auto_increment primary key comment '文章ID',
     `author_id`     bigint unsigned not null comment '作者用户ID',
-    `zone`          tinyint         not null default 1 comment '分区：1-普通分区 2-作家分区 3-推荐流（运营/算法推荐内容）',
+    `zone`          tinyint         not null default 1 comment '分区：1-普通分区 2-作家分区（推荐流为 zone 1/2 聚合视图，非分区）',
     `title`         varchar(100)    not null comment '标题',
     `summary`       varchar(500)    null comment '摘要',
     `content_html`  longtext        not null comment '正文HTML',
     `cover_file_id`  varchar(64)    null comment '封面文件ID（SeaweedFS）',
     `category`      varchar(20)     not null default '散文' comment '分类：小说/散文/现代诗/随笔等',
     `status`        tinyint         not null default 0 comment '状态：0-草稿 1-待审核 2-已发布 3-驳回 4-下架',
-    `visibility`    tinyint         not null default 1 comment '可见性：1-公开 2-仅自己可见 3-仅关注者可见 4-密码访问（密码存 access_password）',
-    `access_password` varchar(128)  null comment '访问密码（visibility=4 时必填，BCrypt 加密存储，与用户密码同级别保护）',
+    `visibility`    tinyint         not null default 1 comment '可见性：1-公开 2-仅自己可见 3-仅关注者可见（阶段9：原 4-密码访问已下线，存量 4 迁移为 1）',
     `publish_batch_id` bigint unsigned null comment '批量发布批次ID（同批次发布的多篇文章/章节共享，便于按批次展示与批量操作）',
     `view_cnt`      bigint unsigned not null default 0 comment '浏览量',
     `like_cnt`      bigint unsigned not null default 0 comment '点赞数',
@@ -54,6 +53,7 @@ create table if not exists `article`
     index `idx_create_time` (`create_time`)
     ) engine = InnoDB
     default charset = utf8mb4 comment = '文章表';
+
 # 2. 文章图片表（记录插入位置与对齐方式）
 create table if not exists `article_image`
 (
@@ -86,14 +86,14 @@ create table if not exists `article_draft`
     `cover_file_id`   varchar(64)     null comment '封面文件ID（SeaweedFS）',
     `category`        varchar(20)     not null default '散文' comment '分类',
     `visibility`      tinyint         not null default 1 comment '可见性（与 article 一致，发布时继承）',
-    `draft_version`   int             not null default 1 comment '草稿版本号（递增）',
+    `draft_version`   int             not null default 1 comment '草稿版本号（乐观锁计数器：内容变更+1，多端并发比对 baseVersion）',
     `create_time`     datetime        not null default current_timestamp comment '创建时间',
     `update_time`     datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
     index `idx_article_id` (`article_id`),
     index `idx_author_id` (`author_id`),
     index `idx_create_time` (`create_time`)
     ) engine = InnoDB
-    default charset = utf8mb4 comment = '草稿自动保存表（多次编辑历史，发布后清空或标记）';
+    default charset = utf8mb4 comment = '草稿自动保存表（单行 UPSERT：每草稿仅一行、只存最新内容；发布后 article_id 回填）';
 
 # 4. 书籍/合集表
 create table if not exists `book`
@@ -169,9 +169,8 @@ create table if not exists `article_tag`
 # 设计原因：
 # article 计数字段冗余（view_cnt/like_cnt）：避免每次列表查询都 join 聚合，配合 Redis 异步刷新。
 # article_image 独立表：设计文档要求图片在任意位置插入 + 5 种对齐，落表后支持"图片管理"与重新排版。
-# article_draft 与 article 分离：草稿是高频写、低频读，独立表避免污染主表查询缓存。article_draft 记录每次编辑的快照，draft_version 递增；发布后 article_id 回填，关联到正式文章。
+# article_draft 与 article 分离：草稿是高频写、低频读，独立表避免污染主表查询缓存。article_draft 单行 UPSERT（每草稿仅一行、只存最新内容，历史版本不留存），draft_version 作多端并发编辑的乐观锁计数器；发布后 article_id 回填，关联到正式文章。
 # publish_batch_id：批量发布时同一批次文章共享一个 batch_id，便于前端"按批次展示"和"批量操作"。
-# access_password：visibility=4（密码访问）时使用，BCrypt 加密存储，与用户密码同级别安全保护。
 # book_chapter 用 (book_id, chapter_no) 唯一索引：保证章节序号不重复，序号即排序键。
 # content_html 用 longtext：支持大篇幅切片前的完整正文。
 # tag + article_tag 独立多对多：标签是开放词汇关键词（区别于 category 单选分类），独立池支撑改名/封禁/热门统计；每篇上限 5 个防堆砌，新建过 DFA，与正文方案B（禁编已发布正文）解耦——标签不影响 content_hash。

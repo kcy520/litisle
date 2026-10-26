@@ -44,6 +44,17 @@ public class FileClientFallbackFactory implements FallbackFactory<FileClient> {
             }
 
             /**
+             * 批量归属校验闸口读依赖 fail-fast：静默降级返回空列表会让调用方误判
+             * 「校验失败」或被误写成「全部通过」绕过校验，异常必须穿透到调用方
+             */
+            @Override
+            public Result<List<FileOwnerDTO>> batchGetOwners(List<String> fileIds) {
+                log.error("远程调用 file 模块 batchGetOwners 失败！size = {}",
+                        fileIds == null ? 0 : fileIds.size(), cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "文件服务暂不可用，归属校验失败，请稍后重试", cause);
+            }
+
+            /**
              * 核心写操作 fail-fast：降级返回成功会导致引用漏登记（P0 场景的根因），禁止静默降级
              */
             @Override

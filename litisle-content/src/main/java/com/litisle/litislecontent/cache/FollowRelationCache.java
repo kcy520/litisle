@@ -1,5 +1,6 @@
 package com.litisle.litislecontent.cache;
 
+import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.feign.SocialClient;
 import com.litisle.litislecontent.constant.ContentBizConstant;
@@ -36,12 +37,18 @@ public class FollowRelationCache {
     /**
      * 判定 viewer 是否关注 owner（visibility=3 仅关注者判定链收口）
      *
+     * 作用：
+     * 从redis缓存 查询 用户1 是否被用户2关注 ，如果不存在缓存，调用Social模块查询，
+     * 然后将查询结果写入缓存，并返回查询结果。
+     *
      * @param ownerId  被关注者（文章作者）ID
      * @param viewerId 关注者（查看者）ID（非空，匿名已在 getDetail 判定链前拦截）
      * @return true-已关注放行；false-非关注者（调用方按不存在处理，不暴露存在性）
      * @throws BizException REMOTE_SERVICE_ERROR social 不可用（fail-fast，不静默放行）
      */
     public boolean isFollowing(Long ownerId, Long viewerId) {
+
+        //step1: 从redis查询缓存
         String key = ContentBizConstant.FOLLOW_RELATION_CACHE_KEY_PREFIX + ownerId + ":" + viewerId;
         try {
             String cached = stringRedisTemplate.opsForValue().get(key);
@@ -53,9 +60,13 @@ public class FollowRelationCache {
             // Redis 读失败降级直查 social（不阻断判定链；fail-fast 语义由 social 回查侧保证）
             log.warn("关注关系缓存读失败，降级直查 social，ownerId={}，viewerId={}", ownerId, viewerId, e);
         }
+
+        // step2: 缓存结果为null，回查Social模块
         // miss：回查 social（业务 fail/数据缺失一律按非关注者处理，宁严勿松）
         Result<Boolean> result = socialClient.isFollowing(ownerId, viewerId);
         boolean following = result != null && result.isSuccess() && Boolean.TRUE.equals(result.getData());
+
+        //step3: 写入缓存 并返回结果
         // 结果写缓存：TTL 基准 60s ±10% 抖动（55~66s），防同批键同刻失效雪崩；写失败仅留痕不阻断
         try {
             long base = ContentBizConstant.FOLLOW_RELATION_CACHE_TTL_SECONDS;
@@ -64,6 +75,8 @@ public class FollowRelationCache {
         } catch (Exception e) {
             log.warn("关注关系缓存写失败（下次回查直查 social），ownerId={}，viewerId={}", ownerId, viewerId, e);
         }
+
+
         return following;
     }
 }

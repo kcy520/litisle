@@ -1,5 +1,7 @@
 package com.litisle.commoncore.constant;
 
+import java.util.Set;
+
 /**
  * 分页公共常量
  * <p>
@@ -27,4 +29,7 @@ public final class PageConstant {
 
     /** 通用排序列：创建时间 */
     public static final String CREATE_TIME = "create_time";
+
+    /** 默认可排序白名单（仅通用时间列；业务子类覆写 PageQuery#sortableColumns() 扩展，如 view_cnt/like_cnt） */
+    public static final Set<String> DEFAULT_SORTABLE_COLUMNS = Set.of(UPDATE_TIME, CREATE_TIME);
 }

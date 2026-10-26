@@ -55,9 +55,9 @@ litisle-content
 | 文章 CRUD | 富文本 HTML：标题≤100 + 摘要≤500 + 封面(fileId) + 分类 + 分区 | 软删 del_flag；删除/转非公开必发 content.unpublished（隐私红线） |
 | 图片插入与对齐 | 正文只存 `{img:file_id}` 占位符，对齐权威在 article_image（5 种对齐） | 插图校验 fileId 归属本人且 bizType=ARTICLE_IMG（防引用他人文件/违规图） |
 | 草稿自动保存 | 快照 UPSERT，draft_version 乐观锁，仅保留最近 N 版 | 归属校验防横向越权；同版本幂等跳过 |
-| 分区管理 | 1-普通 / 2-作家（跳 DFA 全量人工审）/ 3-推荐流（仅 ADMIN/运营写） | 一篇文章仅一个分区，冲突拒绝 |
+| 分区管理 | 1-普通 / 2-作家（跳 DFA 全量人工审）；**阶段12：原 3-推荐流（仅 ADMIN/运营写）分区已取消，推荐流为 zone 1/2 聚合视图** | 一篇文章仅一个分区，冲突拒绝 |
 | 批量发布 | 单批 ≤20，逐篇独立事务 + 逐篇结果回执 `{articleId, success, errorCode}` | 已发布篇目 CAS 不满足自动跳过（幂等） |
-| 发布可见性 | 1-公开 / 2-仅自己 / 3-仅关注者 / 4-密码访问 | 密码 BCrypt + 失败限频防爆破；转非公开必发事件 |
+| 发布可见性 | 1-公开 / 2-仅自己 / 3-仅关注者 | 转非公开必发事件；**阶段9：原 4-密码访问（BCrypt + 失败限频防爆破）已下线，存量 visibility=4 迁移为 1** |
 | 书籍/合集 | book + book_chapter，章节序号即排序键 | `uk(book_id, chapter_no)`；章节挂载校验文章归属本人 |
 | 阅读进度 | 记录最后阅读章节，续读 | 章节归属校验 + ≥30s 节流 + 仅前进不回退 |
 | 大篇幅切片 | 切片与聚合判定收口 review 消费端（SSOT）；content 仅发单条 content.submitted（事件体不含正文） | 禁止静默截断（review 侧兜底）；任一片段 REJECT→整体驳回 |
@@ -68,8 +68,8 @@ litisle-content
 
 ```
 status       // 0-草稿 / 1-待审核 / 2-已发布 / 3-驳回 / 4-下架（终态）
-visibility   // 1-公开 / 2-仅自己 / 3-仅关注者 / 4-密码访问
-zone         // 1-普通 / 2-作家 / 3-推荐流
+visibility   // 1-公开 / 2-仅自己 / 3-仅关注者（阶段9：原 4-密码访问已下线，存量 4 迁移为 1）
+zone         // 1-普通 / 2-作家（阶段12：原 3-推荐流分区已取消，推荐流为 zone 1/2 聚合视图）
 book.status  // 0-连载中 / 1-已完结 / 2-下架
 ```
 
@@ -128,7 +128,7 @@ A4 review 收到 content.submitted（事件体不含正文，经 ContentClient �
 
 | 表 | 关键字段 | 设计原因 |
 | --- | --- | --- |
-| `article` | zone / title / content_html / cover_file_id / status / visibility / access_password / publish_batch_id / view_cnt·like_cnt·comment_cnt（冗余计数）/ content_hash / version | 计数冗余避免列表页 join 聚合，配合 Redis 异步刷新；`idx_zone_status` 支撑分区+状态过滤 |
+| `article` | zone / title / content_html / cover_file_id / status / visibility / publish_batch_id / view_cnt·like_cnt·comment_cnt（冗余计数）/ content_hash / version | 计数冗余避免列表页 join 聚合，配合 Redis 异步刷新；`idx_zone_status` 支撑分区+状态过滤；**阶段9：access_password 列已删除** |
 | `article_image` | article_id / draft_id（二选一，发布后清空 draft_id）/ file_id / position_order / align / width / height | 对齐信息与正文解耦；`idx_file_id` 支撑图片复审再聚合 |
 | `article_draft` | article_id（新草稿 null，发布回填）/ draft_version 递增 | 草稿高频写低频读，独立表避免污染主表缓存 |
 | `book` | status：0-连载中 / 1-已完结 / 2-下架 | 合集容器 |
@@ -154,7 +154,6 @@ A4 review 收到 content.submitted（事件体不含正文，经 ContentClient �
 | `litisle.content.feed.cache-ttl-seconds / feed.page-size` | 300 / 20 | 推荐流缓存 TTL 与分页大小 |
 | `litisle.content.draft.keep-versions` | 10 | 草稿快照保留版数，超限滚动清理最旧快照 |
 | `litisle.content.publish.batch-max` | 20 | 批量发布单批上限，防批量刷审 |
-| `litisle.content.password.attempt-limit` | 5 | 密码校验失败限频（60s 窗口） |
 | `litisle.content.tag.max-per-article` | 5 | 单篇文章标签数上限，防关键词堆砌 |
 
 ------
@@ -170,8 +169,7 @@ A4 review 收到 content.submitted（事件体不含正文，经 ContentClient �
 | POST | `/draft/save` | 登录（仅本人草稿） | 草稿保存（幂等，baseVersion 乐观锁） |
 | POST | `/article/publish-batch` | 登录 | 批量发布（单批 ≤20，逐篇结果回执） |
 | POST | `/preview-check` | 登录·限频 | 仅返回 `{hit,risk}` 不回吐命中词 |
-| POST | `/article/{id}/verify-password` | 登录·限频 | 密码访问校验（BCrypt，不回显） |
-| GET | `/article/{id}` | 按 visibility | 详情/正文按可见性判定链收口 |
+| GET | `/article/{id}` | 按 visibility | 详情/正文按可见性判定链收口（三档） |
 | GET | `/feed` | 登录 | 推荐流（缓存 + 展示前回查） |
 | POST/PUT/DELETE | `/book`·`/book/{id}`·`/book/{id}/chapter` | owner | 书籍/章节管理 |
 | PUT/GET | `/reading-progress` | 登录 | 进度上报（限频）/ 续读 |
@@ -186,7 +184,6 @@ A4 review 收到 content.submitted（事件体不含正文，经 ContentClient �
 | POST `/draft/save` | 10 | 自动保存高频写，防刷库 |
 | POST `/article/publish-batch` | 3 | 批量重操作 |
 | POST `/preview-check` | 10 | 预检 |
-| POST `/article/{id}/verify-password` | 5 | 密码防爆破（对齐 auth 登录防爆破机制） |
 | PUT `/reading-progress` | 2 | 配合前端 30s 节流 |
 | GET `/feed` | 60 | 读多 |
 
@@ -212,12 +209,11 @@ A4 review 收到 content.submitted（事件体不含正文，经 ContentClient �
 | 场景 | 错误码 | 说明 |
 | --- | --- | --- |
 | 标题/正文校验失败 | ARTICLE_PARAM_INVALID | 标题>100、去标签可见文本为空、正文/配图同空 |
-| 分区冲突/无权限 | ARTICLE_ZONE_DENIED | zone=2 非 AUTHOR、zone=3 非ADMIN/运营、一篇仅一分区冲突拒绝 |
+| 分区冲突/无权限 | ARTICLE_ZONE_DENIED | zone=2 非 AUTHOR；一篇仅一分区冲突拒绝（阶段12：原 zone=3 非 ADMIN/运营 口径随分区取消删除） |
 | fileId 归属校验失败 | ARTICLE_IMG_REFUSED | 插图非本人上传或 bizType≠ARTICLE_IMG |
 | 草稿版本冲突 | ARTICLE_DRAFT_CONFLICT | baseVersion 落后 draft_version，拒绝后写覆盖先写 |
 | 批量超限 | ARTICLE_BATCH_EXCEEDED | 单批 > publish.batch-max（20） |
 | 非法章节归属 | BOOK_CHAPTER_MISMATCH | chapter_id 不归属上报的 book_id，拒绝伪造跨书章节 |
-| 密码错误/限频 | ARTICLE_PASSWORD_ERROR / TOO_MANY_REQUESTS(10005) | BCrypt 比对失败；失败超 attempt-limit 触发限频 |
 | 标签数超限 | ARTICLE_TAG_EXCEEDED | 单篇 > tag.max-per-article（5） |
 | 非本人操作 | NO_PERMISSION | 非 owner 且非 ADMIN（草稿/文章/书籍/标签挂载） |
 | 请求过频 | TOO_MANY_REQUESTS(10005) | @RateLimiter 触发 |
@@ -235,4 +231,4 @@ A4 review 收到 content.submitted（事件体不含正文，经 ContentClient �
 7. **送审收口**：切片/聚合收口 review 消费端（SSOT，content 不重复实现）；切片失败重试不静默截断由 review 侧兜底；content 仅发单条 submitted 事件
 8. **计数异步**：view/like/comment_cnt、tag.use_count 异步刷新，不阻塞主链路
 9. **审计留痕**：ADMIN 下架、封禁连带下架等治理动作落 @AuditLog（操作人/时间/articleId/原因）；作者侧软删记操作日志
-10. **密码安全**：visibility=4 BCrypt 加密存储、不回显，校验失败限频防爆破
+10. **密码安全（阶段9 已下线）**：原 visibility=4 密码访问功能（BCrypt 加密存储、校验失败限频防爆破）已整体下线；错误码 ARTICLE_PASSWORD_ERROR 为 common-core 公共契约保留不删

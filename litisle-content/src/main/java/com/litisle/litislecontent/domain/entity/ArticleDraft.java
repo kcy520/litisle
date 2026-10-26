@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.litisle.litislecontent.enums.ArticleCategoryEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -16,7 +17,8 @@ import java.time.LocalDateTime;
 /**
  * article_draft 实体（litisle_content 库草稿自动保存表，多次编辑历史）
  * <p>设计原因：草稿高频写、低频读，与 article 分离避免污染主表查询缓存；
- * 本表记录每次编辑的快照，draft_version 递增；发布后 article_id 回填关联正式文章</p>
+ * 本表每个草稿（按 draft_id/article_id 维度）永远只有一行：保存即原地覆盖、只存最新内容（历史版本不留存），
+ * draft_version 作多端并发编辑的乐观锁计数器；发布后 article_id 回填关联正式文章</p>
  */
 @Data
 @Accessors(chain = true)
@@ -79,21 +81,20 @@ public class ArticleDraft implements Serializable {
 
     /**
      * 分类（单选）
-     * <p>varchar(20)，默认"散文"</p>
+     * <p>varchar(20) 直存中文分类名，@EnumValue 映射，默认"散文"</p>
      */
-    @Size(max = 20, message = "分类长度不能超过 20 个字符")
     @TableField("category")
-    private String category;
+    private ArticleCategoryEnum category;
 
     /**
      * 可见性（与 article 一致，发布时继承）
-     * <p>PUBLIC(1)-公开 / PRIVATE(2)-仅自己可见 / FOLLOWERS(3)-仅关注者可见 / PASSWORD(4)-密码访问</p>
+     * <p>PUBLIC(1)-公开 / PRIVATE(2)-仅自己可见 / FOLLOWERS(3)-仅关注者可见；阶段9：密码可见 4 已下线</p>
      */
     @TableField("visibility")
     private VisibilityEnum visibility;
 
     /**
-     * 草稿版本号（递增）
+     * 草稿版本号（多端并发编辑的乐观锁计数器：内容变更时 +1，客户端 baseVersion 落后则拒绝保存）
      */
     @TableField("draft_version")
     private Integer draftVersion;

@@ -8,8 +8,8 @@ import org.springframework.stereotype.Component;
 /**
  * 分区路由权限校验（板块三 [3.3] 支撑组件，权限口径单点收口）：
  *
- * 【口径】zone=2 作家分区需 AUTHOR 角色；zone=3 推荐流仅 ADMIN/运营（§6.5 写权限，
- * 接口不暴露给普通作者）；zone=1/null 普通分区放行。
+ * 【口径】zone=2 作家分区需 AUTHOR 角色；zone=1/null 普通分区放行。
+ * （阶段12：原 zone=3 推荐流仅 ADMIN/运营 口径已随 RECOMMEND 枚举删除，推荐流为 zone 1/2 聚合视图）
  * 「一篇仅一分区」由 Article.zone 单值字段天然保证，不存在多分区冲突入口；
  * 编辑变更分区沿用发布同款权限（同口径复用）。
  *
@@ -29,9 +29,6 @@ public class ZoneRouter {
     public void checkPublishPermission(ZoneEnum zone) {
         if (zone == ZoneEnum.WRITER) {
             SaRoleHelper.checkAuthor();
-        }
-        if (zone == ZoneEnum.RECOMMEND) {
-            SaRoleHelper.checkAdmin();
         }
     }
 }

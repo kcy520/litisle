@@ -42,6 +42,11 @@ public interface TagService {
 
     /**
      * 取消挂载标签（owner）
+     *
+     * @param articleId  文章ID
+     * @param tagIds     待摘除标签ID列表
+     * @param operatorId 操作人ID
+     * @return 实际摘除的标签数量
      */
-    void detachTags(Long articleId, List<Long> tagIds, Long operatorId);
+    int detachTags(Long articleId, List<Long> tagIds, Long operatorId);
 }

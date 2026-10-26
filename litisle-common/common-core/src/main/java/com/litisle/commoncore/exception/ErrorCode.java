@@ -213,7 +213,7 @@ public enum ErrorCode {
     ARTICLE_PARAM_INVALID(30007, "文章参数校验失败"),
 
     /**
-     * 分区权限拒绝（zone=2 非 AUTHOR、zone=3 非 ADMIN/运营、一篇仅一分区冲突拒绝）
+     * 分区权限拒绝（zone=2 非 AUTHOR；阶段12：原 zone=3 仅 ADMIN/运营 口径已随分区取消删除）
      */
     ARTICLE_ZONE_DENIED(30008, "无该分区发布权限"),
 

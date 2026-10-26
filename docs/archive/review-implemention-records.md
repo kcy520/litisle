@@ -442,3 +442,6 @@
 **注意事项**：既有暂不生效的 yml 配置保留并加注释说明（用户规则，不删）。
 
 **落地注记（2026-10-12，7-4 已完成）**：①7-4.1 四项已落 docs/nacos-yaml.md 的 litisle-shared.yaml 模板（litisle.moderation 段，含归共享原因注释：last-hash 双侧读同一 TTL 防漂移、cache 与 last-hash 严格对齐），Nacos 实际导入按模板执行；②7-4.2 绑定收口：盘点发现 retry/qps/prefetch/sweeper/dedup/llm/model-version/alert.* 八组早已绑定生效，真实缺口为 reject-blacklist/claim/report 无绑定类——本次在 ModerationProperties 新增 RejectBlacklist/Claim/Report 三组完成全量绑定（yml 默认值不变）；③口径收敛决策：appeal.timeout-days 与 claim.timeout-minutes 分别与 sweeper.appeal-timeout-days / sweeper.claim-timeout-minutes 重复，统一收敛读 sweeper 组（yml 两项标注永不生效保留备查，防双源漂移）；④消费点接线归属：claim.max-active-per-reviewer（认领配额校验）与 report.abuse-threshold（诬告反制）随板块五 claimTask/decideTask 实现接线，reject-blacklist.ttl-days 写入点（REJECT 落黑名单 TTL）随图片拒绝链路接线，last-hash.ttl-hours 写入在 content 服务随模块建设消费；⑤review application.yml 的 cache/reject-blacklist 本地值标注「共享默认值+环境特定覆盖」双源语义。
+
+
+## 后续修改

@@ -1,5 +1,6 @@
 package com.litisle.litislecontent.domain.dto;
 
+import com.litisle.litislecontent.enums.ArticleCategoryEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -23,7 +24,10 @@ public class DraftSaveDTO implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    /** 关联文章ID（null=纯新草稿；已有草稿传 article_id 定位归属） */
+    /** 草稿ID（编辑已有纯草稿时回传，定位具体草稿行支持多草稿并存；新建为 null） */
+    private Long draftId;
+
+    /** 关联文章ID（null=纯新草稿；已有草稿传 article_id 定位归属；与 draftId 同时传时以 draftId 为准） */
     private Long articleId;
 
     /** 标题（≤100） */
@@ -41,9 +45,8 @@ public class DraftSaveDTO implements Serializable {
     @Size(max = 64, message = "封面文件ID长度不能超过 64 个字符")
     private String coverFileId;
 
-    /** 分类（默认"散文"） */
-    @Size(max = 20, message = "分类长度不能超过 20 个字符")
-    private String category;
+    /** 分类（默认"散文"；枚举反序列化即白名单校验，可空） */
+    private ArticleCategoryEnum category;
 
     /** 可见性（与 article 一致，发布时继承；可空=沿用草稿已有值） */
     private VisibilityEnum visibility;

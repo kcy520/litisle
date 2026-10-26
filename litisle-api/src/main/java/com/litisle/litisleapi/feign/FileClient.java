@@ -47,6 +47,17 @@ public interface FileClient {
     Result<FileOwnerDTO> getFileInfo(@PathVariable("fileId") String fileId);
 
     /**
+     * 批量查询文件归属信息（不脱敏，仅服务间；一次往返替代逐图 getFileInfo，收口 N+1）
+     * <p>调用方做批量归属校验：file_meta.owner_id == 当前登录人 且 bizType 符合预期（防挂他人文件）。
+     * 任一 fileId 无活跃记录由提供方抛 FILE_NOT_FOUND fail-fast（对齐 batchGetSha256 口径）
+     *
+     * @param fileIds 文件ID列表（空列表提供方直接返回空列表）
+     * @return 归属信息列表（顺序与入参无对应关系，调用方按 fileId 索引）
+     */
+    @PostMapping("/api/feign/file/batch-owners")
+    Result<List<FileOwnerDTO>> batchGetOwners(@RequestBody List<String> fileIds);
+
+    /**
      * 登记引用（幂等）：同四元组已存在则跳过
      * <p>调用方需与业务表同事务（Seata AT 接入后 @GlobalTransactional 保证跨服务回滚）
      */

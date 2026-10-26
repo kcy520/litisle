@@ -5,6 +5,7 @@ import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commonsecurity.utils.SaRoleHelper;
+import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litislefile.client.SeaweedFsClient;
 import com.litisle.litislefile.config.FileProperties;
 import com.litisle.litislefile.domain.dto.FileDownloadResource;
@@ -24,8 +25,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -115,6 +118,51 @@ public class FileAccessServiceImpl implements FileAccessService {
             return seaweedFsClient.presign(meta.getBucket(), meta.getPath(),
                     Duration.ofMinutes(fileProperties.getSeaweedfs().getPresignExpireMinutes()));
         }));
+    }
+
+    /**
+     * 批量查询文件归属信息（仅服务间；一次 in 查询收口 N+1，对齐 batchGetUrls 范式）：
+     * 查活跃元数据 → 任一 fileId 缺失抛 FILE_NOT_FOUND fail-fast（对齐 batchGetSha256 口径，
+     * 静默缺失会让调用方归属校验口径不完整）
+     * @param fileIds 调用方“想要查”的文件列表
+     * @return 所有 fileId 对应的「文件归属信息列表」，
+     */
+    @Override
+    public List<FileOwnerDTO> batchGetOwners(List<String> fileIds) {
+        // 空列表直接返回空列表（防 Feign 调用方传空）
+        if (fileIds == null || fileIds.isEmpty()) {
+            return List.of();
+        }
+        // 请求 fileId 去重保序（in 查询不保序，返回后按 fileId 索引，重复项只查一次）
+
+//        系统“必须全部存在”的文件集合
+        Set<String> requiredIds = new HashSet<>(fileIds);
+
+        //查询ifled列表中的活跃文件
+        // 一次 in 查询仅查活跃记录（del_flag=0，对齐 batchGetUrls 过滤口径）
+        List<FileMeta> metas = fileMetaMapper.selectList(new LambdaQueryWrapper<FileMeta>()
+                .in(FileMeta::getFileId, fileIds)
+                .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED));
+        // 缺一不可：用「查询结果 fileId 集合是否包含所有请求 fileId」判定，
+        // 比 size 比较更稳健——防 file_meta 重复行撑大 size 导致漏检（fail-fast）
+        Set<String> foundIds = new HashSet<>();
+        for (FileMeta meta : metas) {
+            foundIds.add(meta.getFileId());
+        }
+
+        //只要有一个 fileId 不存在或已删除，就直接失败（fail-fast）
+        if (!foundIds.containsAll(requiredIds)) {
+            throw new BizException(ErrorCode.FILE_NOT_FOUND);
+        }
+        List<FileOwnerDTO> collect = metas.stream().map(meta -> {
+            FileOwnerDTO dto = new FileOwnerDTO();
+            dto.setFileId(meta.getFileId());
+            dto.setOwnerId(meta.getOwnerId());
+            // bizType null 防御：上传时必填，但防御性避免边缘 NPE 拖垮批量校验
+            dto.setBizType(meta.getBizType() == null ? null : meta.getBizType().getName());
+            return dto;
+        }).collect(Collectors.toList());
+        return collect;
     }
 
     /**

@@ -82,10 +82,6 @@ spring:
 
 litisle:
   content:
-    draft:
-      # 草稿快照保留版数：同维度仅留最近 N 版，超出滚动清理最旧快照（防 longtext 膨胀；
-      # DraftServiceImpl @Value 引用，缺省兑底 10）
-      keep-versions: 10
     publish:
       # 批量发布单批上限（§6.3，ContentProperties.publish.batchMax 绑定；超限抛 ARTICLE_BATCH_EXCEEDED——防批量刷审）
       batch-max: 20

@@ -1,5 +1,6 @@
 package com.litisle.litislecontent.domain.dto;
 
+import com.litisle.litislecontent.enums.ArticleCategoryEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.enums.ZoneEnum;
 import jakarta.validation.constraints.Size;
@@ -38,19 +39,14 @@ public class ArticleUpdateDTO implements Serializable {
     @Size(max = 64, message = "封面文件ID长度不能超过 64 个字符")
     private String coverFileId;
 
-    /** 分类（元数据，任意状态可改） */
-    @Size(max = 20, message = "分类长度不能超过 20 个字符")
-    private String category;
+    /** 分类（元数据，任意状态可改；null=不修改，枚举反序列化即白名单校验） */
+    private ArticleCategoryEnum category;
 
     /** 分区（可空=不修改） */
     private ZoneEnum zone;
 
     /** 可见性（可空=不修改；转非公开必发 content.unpublished，隐私红线） */
     private VisibilityEnum visibility;
-
-    /** 访问密码明文（visibility=4 时必填；BCrypt 加密落库） */
-    @Size(max = 128, message = "访问密码长度不能超过 128 个字符")
-    private String accessPassword;
 
     /** 正文配图（status=2 时禁改；null=不修改，非 null=整体重挂） */
     private List<ArticleImageDTO> images;

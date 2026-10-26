@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.litisle.commoncore.enums.DelFlag;
 
+import com.litisle.litislecontent.enums.ArticleCategoryEnum;
 import com.litisle.litislecontent.enums.ArticleStatusEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.enums.ZoneEnum;
@@ -45,7 +46,7 @@ public class Article implements Serializable {
 
     /**
      * 分区
-     * <p>NORMAL(1)-普通分区 / WRITER(2)-作家分区 / RECOMMEND(3)-推荐流（运营/算法推荐内容）</p>
+     * <p>NORMAL(1)-普通分区 / WRITER(2)-作家分区（阶段12：原 RECOMMEND(3)-推荐流已删除，推荐流为 zone 1/2 聚合视图）</p>
      */
     @TableField("zone")
     private ZoneEnum zone;
@@ -66,6 +67,9 @@ public class Article implements Serializable {
     @TableField("summary")
     private String summary;
 
+    /** 列名常量：正文 HTML（列表查询排除大字段用，与下方 @TableField 保持一致，改列名需同步） */
+    public static final String COLUMN_CONTENT_HTML = "content_html";
+
     /**
      * 正文HTML
      * <p>longtext，支持大篇幅切片前的完整正文；图片只存 {img:file_id} 占位符</p>
@@ -83,11 +87,10 @@ public class Article implements Serializable {
 
     /**
      * 分类（单选）
-     * <p>varchar(20)：小说/散文/现代诗/随笔等，默认"散文"</p>
+     * <p>varchar(20) 直存中文分类名：小说/散文/现代诗/随笔，@EnumValue 映射，默认"散文"</p>
      */
-    @Size(max = 20, message = "分类长度不能超过 20 个字符")
     @TableField("category")
-    private String category;
+    private ArticleCategoryEnum category;
 
     /**
      * 状态
@@ -98,19 +101,11 @@ public class Article implements Serializable {
 
     /**
      * 可见性
-     * <p>PUBLIC(1)-公开 / PRIVATE(2)-仅自己可见 / FOLLOWERS(3)-仅关注者可见 / PASSWORD(4)-密码访问</p>
-     * <p>PASSWORD(4) 时密码存 access_password；发布时可选是否公开，后续可多选修改公开状态（批量发布）</p>
+     * <p>PUBLIC(1)-公开 / PRIVATE(2)-仅自己可见 / FOLLOWERS(3)-仅关注者可见</p>
+     * <p>阶段9：密码可见 PASSWORD(4) 已下线（枚举值删除，存量 4 已迁移为 1）；发布时可选是否公开，后续可多选修改公开状态（批量发布）</p>
      */
     @TableField("visibility")
     private VisibilityEnum visibility;
-
-    /**
-     * 访问密码（visibility=4 时必填）
-     * <p>varchar(128)，BCrypt 加密存储，与用户密码同级别保护</p>
-     */
-    @Size(max = 128, message = "访问密码长度不能超过 128 个字符")
-    @TableField("access_password")
-    private String accessPassword;
 
     /**
      * 批量发布批次ID

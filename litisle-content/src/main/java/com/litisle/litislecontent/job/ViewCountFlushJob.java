@@ -1,0 +1,121 @@
+package com.litisle.litislecontent.job;
+
+
+import com.litisle.litislecontent.constant.ContentBizConstant;
+import com.litisle.litislecontent.mapper.ArticleMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+/**
+ * 浏览计数定时刷回任务（阶段8①：view_cnt 异步回刷兑现，§8-①）。
+ *
+ * 作用：
+ * SCAN 遍历 view:pending:* 待刷回键 → GETDEL 原子取出增量（防刷回期间新增计数丢失）→
+ * ArticleMapper#incrViewCnt SQL 层原子自增回写（禁先查后写，并发丢更新）。
+ * 定位对齐 TagCountReconcileJob：主链路正确性来自 INCR 累计，本任务仅合并回写；
+ * 刷回失败增量已在 GETDEL 时取出会丢——无补偿回写（阶段10 决策：接受丢弃，不做 INCR 回退）：
+ * 回写失败/rows=0 直接 continue（丢弃留痕）；不做 GET 前读+SET 回写补偿的原因：
+ * GET 与回写间 ViewCounterSupport 可能又 INCR 新增量，回写覆盖反而多丢，加锁/Lua 过度复杂化
+ * ——浏览量是非账务热度信号（PV+去重窗口本就近似值），丢一轮窗口可容忍，与「rows=0
+ * 软删文增量丢弃」同一 fail-safe 口径。
+ *
+ * @author litisle
+ */
+@Component
+@EnableScheduling
+@Slf4j
+@RequiredArgsConstructor
+public class ViewCountFlushJob {
+
+    /** 字符串 Redis 模板（SCAN/GETDEL 载体） */
+    private final StringRedisTemplate stringRedisTemplate;
+
+    /** 文章 Mapper（view_cnt 原子自增回写） */
+    private final ArticleMapper articleMapper;
+
+    /** 刷回开关（默认开；多实例部署时建议只开一台或改用分布式锁，对齐 TagCountReconcileJob） */
+    @Value("${litisle.content.view.flush.enabled:true}")
+    private boolean enabled;
+
+    /**
+     * 定时刷回浏览计数。
+     *
+     * 作用：按配置周期（默认 5min，启动延迟 1min）SCAN pending 键逐个 GETDEL → 原子自增回写；
+     * 受 view.flush.enabled 开关控制；回写 rows=0（文章已删）直接丢弃增量（软删文计数无语义）。
+     */
+    @Scheduled(fixedDelayString = "${litisle.content.view.flush.interval-ms:300000}",
+            initialDelayString = "${litisle.content.view.flush.initial-delay-ms:60000}")
+    public void flush() {
+        // 步骤1：开关判断（多实例部署单点开启）
+        if (!enabled) {
+            return;
+        }
+        // 步骤2：SCAN 遍历待刷回键（禁 KEYS 阻塞；COUNT 适度摊薄单轮扫描压力）
+        long totalDelta = 0;
+        int articleCount = 0;
+        try (Cursor<String> cursor = stringRedisTemplate.scan(
+                ScanOptions.scanOptions().match(ContentBizConstant.VIEW_CNT_PENDING_KEY_PREFIX + "*").count(500).build())) {
+            while (cursor.hasNext()) {
+                String key = cursor.next();
+                // 步骤3：GETDEL 原子取出（防取出与刷回间隙新增计数丢失）
+                String deltaStr = stringRedisTemplate.opsForValue().getAndDelete(key);
+                if (deltaStr == null) {
+                    continue;
+                }
+                long delta;
+                try {
+                    delta = Long.parseLong(deltaStr);
+                } catch (NumberFormatException e) {
+                    log.warn("浏览计数键值非法（丢弃留痕）：key={}, value={}", key, deltaStr);
+                    continue;
+                }
+                if (delta <= 0) {
+                    continue;
+                }
+                // 步骤4：解析 articleId 并原子回写（rows=0=文章不存在/已软删，增量直接丢弃）
+                Long articleId = parseArticleId(key);
+                if (articleId == null) {
+                    continue;
+                }
+                int rows = articleMapper.incrViewCnt(articleId, delta);
+                if (rows == 0) {
+                    log.info("浏览计数刷回跳过（文章不存在或已软删，增量丢弃）：articleId={}, delta={}", articleId, delta);
+                    continue;
+                }
+                totalDelta += delta;
+                articleCount++;
+            }
+        } catch (Exception e) {
+            // SCAN/GETDEL 异常 fail-safe：本轮终止，增量仍在键中（未 GETDEL 的部分下轮重试）
+            log.warn("浏览计数刷回任务异常（fail-safe 下轮重试）", e);
+            return;
+        }
+        // 步骤5：结果留痕（有刷回才记日志，正常空轮静默）
+        if (articleCount > 0) {
+            log.info("浏览计数刷回完成：articles={}, totalDelta={}", articleCount, totalDelta);
+        }
+    }
+
+    /**
+     * 从 pending 键解析 articleId（键形如 content:article:view:pending:{articleId}）。
+     *
+     * @param key Redis 键名
+     * @return 文章ID（格式非法返回 null 并由调用方丢弃）
+     */
+    private Long parseArticleId(String key) {
+        try {
+            return Long.parseLong(
+                    key.substring(ContentBizConstant.VIEW_CNT_PENDING_KEY_PREFIX.length()));
+        } catch (NumberFormatException e) {
+            log.warn("浏览计数键名非法（丢弃留痕）：key={}", key);
+            return null;
+        }
+    }
+}

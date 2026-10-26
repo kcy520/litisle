@@ -15,7 +15,7 @@ import java.util.List;
 public interface FeedService {
 
     /**
-     * 推荐流分页（zone=3 预计算链路）：
+     * 推荐流分页（预计算推荐链路，zone 1/2 聚合视图）：
      * 互斥重建（单飞锁）防击穿 + 空结果短缓存防穿透 + TTL ±10% 抖动防雪崩；
      * 展示前回查 status=2 且 visibility=1，已下架/转私密即时剔除（防残留曝光）
      *

@@ -24,6 +24,19 @@ public final class ContentBizConstant {
     public static final String FILE_BIZ_TYPE_ARTICLE_IMG = "ARTICLE_IMG";
 
     /**
+     * file 侧草稿图引用维度（DictEnum name 口径，对齐 StorageBizTypeEnum.DRAFT_IMAGE）
+     * <p>草稿期引用以 DRAFT_IMAGE+bizId=draftId 隔离登记，发布归属切换后
+     * unbind 本维度并转 ARTICLE_IMG+bizId=articleId，防 bind/unbind 维度错配</p>
+     */
+    public static final String FILE_BIZ_TYPE_DRAFT_IMG = "DRAFT_IMAGE";
+
+    /**
+     * file 侧封面图引用维度（DictEnum name 口径，对齐 StorageBizTypeEnum.COVER）：
+     * 文章封面以 COVER+bizId=articleId、草稿封面以 COVER+bizId=draftId 登记引用
+     */
+    public static final String FILE_BIZ_TYPE_COVER = "COVER";
+
+    /**
      * 正文图片占位符匹配模式（{img:file_id}，编辑器插入、渲染期替换）
      * <p>占位符为纯文本节点：HTML 白名单 sanitize 必须原样保留，禁净化破坏（板块一 1.2 红线）</p>
      */
@@ -58,27 +71,6 @@ public final class ContentBizConstant {
     /** 关注关系缓存 TTL 基准秒数（实际写入 ±10% 抖动，防同批键同刻失效雪崩） */
     public static final long FOLLOW_RELATION_CACHE_TTL_SECONDS = 60L;
 
-    // ==================== 密码访问防爆破与验证凭证（[4.2]） ====================
-
-    /**
-     * 密码尝试防爆破 identifier 前缀（拼接 operatorId）
-     * <p>与 auth 登录失败计数共用 LoginRetryLimiter（key=login:fail:{identifier}），
-     * 前缀隔离命名空间，防与纯数字用户名互相污染计数</p>
-     */
-    public static final String PASSWORD_RETRY_IDENTIFIER_PREFIX = "article-pwd:";
-
-    /** 密码最大连续失败次数（达到后锁定，对齐 auth 登录防爆破口径） */
-    public static final int PASSWORD_RETRY_MAX_ATTEMPTS = 5;
-
-    /** 密码连续失败锁定时长（秒；60s 窗口对齐 §八限流矩阵） */
-    public static final long PASSWORD_LOCK_SECONDS = 60L;
-
-    /** 密码验证通过标记键前缀（拼接 operatorId:articleId，值固定 1） */
-    public static final String PWD_PASS_MARK_KEY_PREFIX = "content:pwd-pass:";
-
-    /** 密码验证通过标记 TTL（秒；窗口内 getDetail PASSWORD 分支放行正文，过期重验） */
-    public static final long PWD_PASS_MARK_TTL_SECONDS = 600L;
-
     // ==================== 文章双链路审核聚合暂存（板块三 3-5） ====================
 
     /**
@@ -97,4 +89,19 @@ public final class ContentBizConstant {
 
     /** 聚合暂存 TTL（秒）：短暂暂存等待双链路齐备，超时残留等 TTL 过期（终态 CAS 幂等兑底） */
     public static final long ARTICLE_REVIEW_AGG_TTL_SECONDS = 7200L;
+
+    /**
+     * 浏览计数待刷回键前缀（拼接 articleId，String 存增量）——
+     * 详情命中后 INCR 累计，定时任务 GETDEL 原子取出后刷回 article.view_cnt
+     */
+    public static final String VIEW_CNT_PENDING_KEY_PREFIX = "content:article:view:pending:";
+
+    /**
+     * 浏览防刷去重键前缀（拼接 articleId:visitorHash，SETNX+EXPIRE）——
+     * 键存在=去重窗口期内重复进入不计数（匿名用 ip+UA 哈希归一）
+     */
+    public static final String VIEW_DEDUP_KEY_PREFIX = "content:article:view:dedup:";
+
+    /** 浏览去重窗口 TTL（秒，默认 24h；口径：PV+去重窗口，非纯 UV） */
+    public static final long VIEW_DEDUP_TTL_SECONDS = 86400L;
 }

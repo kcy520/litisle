@@ -1,5 +1,6 @@
 package com.litisle.litislefile.service;
 
+import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litislefile.domain.dto.FileDownloadResource;
 import com.litisle.litislefile.domain.vo.FileMetaVO;
 import com.litisle.litislefile.domain.vo.PresignVO;
@@ -34,6 +35,15 @@ public interface FileAccessService {
      * 批量获取 fileId→URL 映射（避免列表页 N+1；PUBLIC→直链，PRIVATE→预签名）
      */
     Map<String, String> batchGetUrls(List<String> fileIds);
+
+    /**
+     * 批量查询文件归属信息（仅服务间 Feign 提供，不走登录态/脱敏；一次 in 查询收口 N+1）
+     * <p>任一 fileId 无活跃记录（del_flag=0）抛 FILE_NOT_FOUND fail-fast（对齐 batchGetSha256 口径）
+     *
+     * @param fileIds 文件ID列表
+     * @return 归属信息列表（fileId/ownerId/bizType，调用方按 fileId 索引）
+     */
+    List<FileOwnerDTO> batchGetOwners(List<String> fileIds);
 
     /**
      * 服务端流式代理下载（支持 HTTP Range 断点续传）

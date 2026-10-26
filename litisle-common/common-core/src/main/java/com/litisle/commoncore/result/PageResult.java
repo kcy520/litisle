@@ -5,8 +5,12 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+
 import java.io.Serializable;
 import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 分页响应结果封装类
@@ -38,6 +42,8 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PageResult<T> implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     /**
      * 当前页码（从 1 开始）
@@ -71,6 +77,23 @@ public class PageResult<T> implements Serializable {
      */
     public static <T> PageResult<T> of(long pageNum, long pageSize, long total, List<T> list) {
         return new PageResult<>(pageNum, pageSize, total, list);
+    }
+
+    /**
+     * 静态工厂方法：由 MyBatis-Plus 分页结果直接构建（含记录转换）
+     * <p>
+     * 替代调用处的四参样板：{@code PageResult.of(page.getCurrent(), page.getSize(),
+     * page.getTotal(), records.stream().map(this::toVo).toList())}
+     *
+     * @param page   MP 分页查询结果（分页信息取自它）
+     * @param mapper 单条记录转 VO 的映射函数
+     * @param <T>    实体类型
+     * @param <R>    VO 类型
+     * @return PageResult 对象（list 为转换后的 VO 列表）
+     */
+    public static <T, R> PageResult<R> of(IPage<T> page, Function<T, R> mapper) {
+        return new PageResult<>(page.getCurrent(), page.getSize(), page.getTotal(),
+                page.getRecords().stream().map(mapper).collect(Collectors.toList()));
     }
 
     /**

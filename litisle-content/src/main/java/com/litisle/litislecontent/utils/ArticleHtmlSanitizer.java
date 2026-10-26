@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
  *
  * 实现说明：一期最小正则白名单（项目无 jsoup/owasp 依赖，不为此单引重依赖）；
  * 二期若富文本规则复杂化可平滑替换为 OWASP java-html-sanitizer，方法签名不变
-*/
+ */
 public final class ArticleHtmlSanitizer {
 
     /** 私有构造：工具类禁止实例化 */
@@ -45,7 +45,22 @@ public final class ArticleHtmlSanitizer {
     private static final Pattern TAG = Pattern.compile("(?is)<\\s*(/?)\\s*([a-zA-Z0-9]+)[^>]*>");
 
     /**
+     * 标签边界哨兵字符：剥壳时先以该字符标记"标签原位置"，再仅在边界处折叠空白；
+     * 修复：原全局 \\s+ 折叠会把标题/摘要中用户原本的连续空格/缩进误压为单空格
+     */
+    private static final String TAG_BOUNDARY = "\u0000";
+
+    /**
+     * 标签边界空白折叠：仅匹配"哨兵字符两侧"的空白并折叠为单空格（防剥壳后单词粘连），
+     * 不触碰未与标签相邻的正文/标题原有空白
+     */
+    private static final Pattern TAG_BOUNDARY_FOLD =
+            Pattern.compile("\\s*" + TAG_BOUNDARY + "+\\s*");
+
+    /**
      * 标签白名单（纯排版语义；不含 img/a/form/iframe/input——图片走 {img:file_id} 占位符，外链一期不放行）
+     * 
+     * 段落与换行、标题层级、列表、引用、代码、行内文字样式、容器
      */
     private static final Set<String> ALLOWED_TAGS = Set.of(
             "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -55,7 +70,7 @@ public final class ArticleHtmlSanitizer {
 
     /**
      * 剥除全部 HTML 标签，输出纯文本（标题/摘要落库口径——sanitize 三层之①）
-     * <p>标签之间的空白折叠为单空格，防剥壳后单词粘连</p>
+     * <p>仅在标签边界处折叠为单空格（防剥壳后单词粘连）；用户原本的空格/缩进原样保留</p>
      *
      * @param raw 原始输入（可 null）
      * @return 纯文本（trim 后；null 输入返回 null）
@@ -64,13 +79,14 @@ public final class ArticleHtmlSanitizer {
         if (raw == null || raw.isEmpty()) {
             return raw;
         }
-        // 步骤1：script/style 块连内容整删（防 JS 体残留为文本）
-        String stripped = SCRIPT_STYLE_BLOCK.matcher(raw).replaceAll(" ");
-        // 步骤2：逐标签剥壳（仅删标签 token，保留标签间文本）
-        stripped = TAG.matcher(stripped).replaceAll(" ");
-        // 步骤3：空白折叠 + trim
-        return stripped.replaceAll("\\s+", " ").trim();
+        // 步骤1：script/style 块连内容整删（防 JS 体残留为文本），以哨兵标记边界
+        String stripped = SCRIPT_STYLE_BLOCK.matcher(raw).replaceAll(TAG_BOUNDARY);
+        // 步骤2：逐标签剥壳（仅删标签 token，保留标签间文本），以哨兵标记边界
+        stripped = TAG.matcher(stripped).replaceAll(TAG_BOUNDARY);
+        // 步骤3：仅在标签边界处折叠为单空格（正文原有空白原样保留，不全局折叠）+ trim
+        return TAG_BOUNDARY_FOLD.matcher(stripped).replaceAll(" ").trim();
     }
+
 
     /**
      * HTML 白名单净化（正文落库口径——sanitize 三层之②）

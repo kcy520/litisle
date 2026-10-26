@@ -7,7 +7,7 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 推荐流条目 VO（zone=3 预计算链路出参；展示前已回查剔除下架/转私密内容）
+ * 推荐流条目 VO（预计算推荐链路出参，zone 1/2 聚合视图；展示前已回查剔除下架/转私密内容）
  * <p>不带 content_html——点击进详情页才拉正文（缓存体积与 RT 考量）</p>
  *
  * @author litisle
@@ -38,6 +38,9 @@ public class FeedItemVO implements Serializable {
 
     /** 点赞数 */
     private Long likeCnt;
+
+    /** 评论数（对齐 Card/Detail VO 三计数口径） */
+    private Long commentCnt;
 
     /** 发布时间 */
     private LocalDateTime publishTime;

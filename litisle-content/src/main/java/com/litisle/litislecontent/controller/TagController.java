@@ -64,12 +64,12 @@ public class TagController {
         return Result.success();
     }
 
-    /** 取消挂载（owner） */
-    @Operation(summary = "取消标签", description = "owner")
+    /** 取消挂载（owner），返回实际摘除的标签数量 */
+    @Operation(summary = "取消标签", description = "owner；返回实际摘除的标签数量")
     @SaCheckLogin
     @DeleteMapping("/article/{id}/tags")
-    public Result<Void> detach(@PathVariable("id") Long id, @RequestBody List<Long> tagIds) {
-        tagService.detachTags(id, tagIds, StpUtil.getLoginIdAsLong());
-        return Result.success();
+    public Result<Integer> detach(@PathVariable("id") Long id, @RequestBody List<Long> tagIds) {
+        int detachedCount = tagService.detachTags(id, tagIds, StpUtil.getLoginIdAsLong());
+        return Result.success(detachedCount);
     }
 }

@@ -28,9 +28,9 @@
 | 文章 CRUD | 富文本（HTML）：标题≤100 字符 + 正文 + 摘要≤500 + 封面(fileId) + 分类 + 分区；软删（del\_flag）仅 owner/ADMIN，删除必发 content.unpublished（见 §4.1 红线） |
 | 图片插入与对齐 | 正文任意位置插入，正文只存 `{img:file_id}` 占位符；对齐信息独立落 `article_image`（5 种对齐），渲染时替换（见 §5.3）；**插图须校验 fileId 归属本人且 bizType=ARTICLE_IMG**（防引用他人文件/违规图） |
 | 草稿自动保存  | `article_draft` 每次编辑存快照，`draft_version` 递增（乐观锁 + 仅保留最近 N 版，见 §6.2）；草稿图片可暂存（`draft_id` 关联，发布后清空）；保存幂等 |
-| 分区管理    | `zone`：1-普通（所有用户可发）/ 2-作家（仅 AUTHOR 角色，跳 DFA 全量人工审）/ 3-推荐流（**仅 ADMIN/运营可写**，作者不可自选）；一篇文章仅一个分区，冲突拒绝 |
+| 分区管理    | `zone`：1-普通（所有用户可发）/ 2-作家（仅 AUTHOR 角色，跳 DFA 全量人工审）；一篇文章仅一个分区，冲突拒绝；**阶段12：原 3-推荐流（仅 ADMIN/运营可写）分区已取消，推荐流为 zone 1/2 聚合视图** |
 | 批量发布    | 同批次文章/章节共享 `publish_batch_id`；**单批 ≤20 篇**，逐篇独立事务 + 逐篇结果回执（见 §6.3）；支持多选批量改可见性（逐篇 CAS + 逐篇发事件） |
-| 发布可见性   | 1-公开 / 2-仅自己 / 3-仅关注者（**依赖 social 关注关系回查，跨服务契约**）/ 4-密码访问（BCrypt 加密 + 校验限频防爆破）；发布后仅 owner 可改；转非公开必发 content.unpublished |
+| 发布可见性   | 1-公开 / 2-仅自己 / 3-仅关注者（**依赖 social 关注关系回查，跨服务契约**）；发布后仅 owner 可改；转非公开必发 content.unpublished；<br>**阶段9：原 4-密码访问（BCrypt + 校验限频防爆破）已下线，存量 visibility=4 迁移为 1** |
 | 书籍/合集   | `book` + `book_chapter`（`uk_book_id_chapter_no` 唯一索引，序号即排序键）；仅 owner 可管理；章节挂载需校验文章归属本人 |
 | 阅读进度    | `reading_progress`（`uk_user_book`），记录最后阅读章节；**chapter_id 须归属 book_id + ≥30s 节流 + 仅前进不回退**（见 §6.6）；续读 |
 | 大篇幅切片   | 切片与聚合判定均在 review 消费端（已落地 SSOT：llm.max-text-chars 阈值分片硬切，禁静默截断）；content 发布仅发单条 content.submitted 事件（事件体不含正文），任一片段 REJECT→整体 REJECT、含 SUSPICIOUS→转人审 |
@@ -43,7 +43,7 @@
 
 | 表                  | 关键字段                                                                                                                                                           | 设计原因                                                                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `article`          | zone / title / content\_html / cover\_file\_id / status / visibility / access\_password / publish\_batch\_id / view\_cnt·like\_cnt·comment\_cnt（冗余计数）/ content\_hash / version | 计数冗余避免列表页 join 聚合，配合 Redis 异步刷新；`idx_zone_status` 支撑分区+状态过滤                           |
+| `article`          | zone / title / content\_html / cover\_file\_id / status / visibility / publish\_batch\_id / view\_cnt·like\_cnt·comment\_cnt（冗余计数）/ content\_hash / version | 计数冗余避免列表页 join 聚合，配合 Redis 异步刷新；`idx_zone_status` 支撑分区+状态过滤；**阶段9：access\_password 列已删除** |
 | `article_image`    | article\_id / draft\_id（二选一，发布后清空 draft\_id）/ file\_id / position\_order / align / width / height                                                              | 对齐信息与正文解耦；`idx_file_id` 支撑图片复审再聚合（按 file\_id 反查引用文章，重算 ARTICLE\_IMG\_RE\_REVIEW 聚合结论） |
 | `article_draft`    | article\_id（新草稿 null，发布回填）/ draft\_version 递增                                                                                                                  | 草稿高频写低频读，独立表避免污染主表缓存                                                                  |
 | `book`             | status：0-连载中 / 1-已完结 / 2-下架                                                                                                                                    | 合集容器                                                                                  |
@@ -69,7 +69,7 @@
 - 发布 CAS：`status in (0,3) and del_flag=0`；**禁止 2→1**（改判只认申诉来源）
 - 4-下架为**终态**：作者不可重提（复审驳回/封禁连带属治理动作）；对判定有异议走 review 申诉链路，不提供直接重提入口
 - **已发布（status=2）禁止编辑正文/标题（方案B）**：仅封面/摘要/分类/visibility/书籍挂载等元数据可改；要改正文 → 软删旧文重新创作发布（防借编辑绕过复审）
-- **转公开不重审**：visibility 2/3/4 → 1 直接恢复——content_hash 校验内容未变 + 方案B 禁改正文，原审核结论仍有效；发 content.published
+- **转公开不重审**：visibility 2/3 → 1 直接恢复（阶段9：原 4-密码访问已下线）——content_hash 校验内容未变 + 方案B 禁改正文，原审核结论仍有效；发 content.published
 - 免审直落：last-hash + content\_hash 命中且内容未变且 del\_flag=0 → 0→2 直落
 - 转非公开/删除 → **必须同发** **`content.unpublished`**（否则向量库/索引残留，隐私红线）
 
@@ -150,14 +150,13 @@ A4 异步段（发布编排本地收尾）：组装 submit 事件体（{modType,
 
 ### 6.4 可见性控制
 
-- **判定链**：详情/正文接口按 visibility 收口——1 公开放行；2 仅自己（owner 校验，非本人按不存在处理，不暴露存在性）；3 仅关注者（**回查 social 关注关系契约** SocialClient.isFollowing，跨服务依赖；降级=按非关注者处理——宁严勿松，回查失败不静默放行，回查结果加短 TTL 缓存 ±10% 抖动）；4 密码访问（元信息可见，正文需密码）
-- **密码防爆破**：visibility=4 密码校验失败限频（对齐 auth 登录防爆破机制），BCrypt 比对、不回显
+- **判定链**：详情/正文接口按 visibility 收口——1 公开放行；2 仅自己（owner 校验，非本人按不存在处理，不暴露存在性）；3 仅关注者（**回查 social 关注关系契约** SocialClient.isFollowing，跨服务依赖；降级=按非关注者处理——宁严勿松，回查失败不静默放行，回查结果加短 TTL 缓存 ±10% 抖动）；<br>**阶段9：原 4-密码访问（元信息可见、正文需密码）已下线**
 - **变更权限**：仅 owner 可改 visibility；每次转非公开变更即发 content.unpublished（见 4.1 红线）
-- **转公开**（visibility 2/3/4 → 1，status 不变——数字与 status 字典同值易误读，CAS 限定 `status=2 and del_flag=0`）：不重审——content_hash 校验内容未变 + 方案B 禁改已发布正文，原审核结论仍有效；发 content.published 恢复曝光
+- **转公开**（visibility 2/3 → 1，status 不变——数字与 status 字典同值易误读，CAS 限定 `status=2 and del_flag=0`）：不重审——content_hash 校验内容未变 + 方案B 禁改已发布正文，原审核结论仍有效；发 content.published 恢复曝光
 
 ### 6.5 推荐流
 
-- **写权限**：zone=3 收录仅 ADMIN/运营角色，接口不暴露给普通作者
+- **视图口径（阶段12）**：推荐流不是分区，是 zone 1/2 已发布公开文章的聚合视图；原 zone=3 仅 ADMIN/运营收录口径已随分区取消删除
 - **缓存防护**：互斥重建（单飞锁）防击穿 + 空结果短缓存防穿透；TTL ±10% 抖动防雪崩
 - **展示前回查**：推荐位文章渲染前回查 status=2 且 visibility=1，已下架/转私密即时剔除——防残留曝光
 
@@ -174,7 +173,7 @@ A4 异步段（发布编排本地收尾）：组装 submit 事件体（{modType,
 - **数量上限**：每篇 ≤5 个（`litisle.content.tag.max-per-article`）——防关键词堆砌式刷标签
 - **use_count**：冗余计数异步刷新（与 view\_cnt 同机制），不阻塞主链路；支撑热门标签 TOP N
 - **方案B 关系**：status=2 允许增删标签（标签不参与审核聚合、不影响 content_hash）——仅 owner，新增仍过 DFA
-- **不参与推荐流排序权重**（一期定死）：推荐流已有 zone=3 预计算链路，标签权重留二期；一期仅做标签聚合列表页 + 热门标签 TOP N
+- **不参与推荐流排序权重**（一期定死）：推荐流为 zone 1/2 聚合视图（预计算排序，阶段12 取消 zone=3 分区），标签权重留二期；一期仅做标签聚合列表页 + 热门标签 TOP N
 - **联动**：search 索引标签字段；下架/转私密文章即时剔除出标签聚合列表（复用 §6.5 展示前回查口径）；RAG 入库 metadata 可带标签提升召回
 
 ***
@@ -205,11 +204,10 @@ A4 异步段（发布编排本地收尾）：组装 submit 事件体（{modType,
 | POST            | /article/{id}/submit                | owner               | 驳回后修改重提（CAS 3→1）       |
 | DELETE          | /article/{id}                       | owner/ADMIN         | 软删 + 必发 content.unpublished |
 | POST            | /article/batch-visibility           | owner               | 批量改可见性（逐篇 CAS + 逐篇发事件，§6.3） |
-| POST            | /article/{id}/verify-password       | 登录·限频            | 密码访问校验（BCrypt，不回显） |
 | POST            | /draft/save                         | 登录（仅本人草稿）      | 草稿保存（幂等）              |
 | POST            | /article/publish-batch              | 登录                  | 批量发布                  |
 | POST            | /preview-check                      | 登录·限频               | 仅返回 {hit,risk} 不回吐命中词 |
-| GET             | /article/{id}                       | 按 visibility        | 密码访问需校验               |
+| GET             | /article/{id}                       | 按 visibility        | 按可见性判定链放行（三档） |
 | GET             | /feed                               | 登录                  | 推荐流                   |
 | POST/PUT/DELETE | /book·/book/{id}·/book/{id}/chapter | owner               | 书籍/章节                 |
 | PUT/GET         | /reading-progress                   | 登录                  | 进度/续读                 |
@@ -224,7 +222,6 @@ A4 异步段（发布编排本地收尾）：组装 submit 事件体（{modType,
 | POST /draft/save | 10 | 自动保存高频写，防刷库 |
 | POST /article/publish-batch | 3 | 批量重操作 |
 | POST /preview-check | 10 | 预检 |
-| POST /article/{id}/verify-password | 5 | 密码防爆破 |
 | PUT /reading-progress | 2 | 配合前端 30s 节流 |
 | GET /feed | 60 | 读多 |
 
@@ -249,6 +246,5 @@ A4 异步段（发布编排本地收尾）：组装 submit 事件体（{modType,
 | feed.cache-ttl-seconds / feed.page-size | 300 / 20 | 推荐流缓存 TTL 与分页大小 |
 | draft.keep-versions | 10 | 草稿快照保留版数（§6.2） |
 | publish.batch-max | 20 | 批量发布单批上限（§6.3） |
-| password.attempt-limit | 5 | 密码校验失败限频（§6.4） |
 | tag.max-per-article | 5 | 单篇文章标签数上限（§6.7） |
 

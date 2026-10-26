@@ -385,7 +385,7 @@ create table if not exists `article`
 (
 `id`            bigint unsigned not null auto_increment primary key comment '文章ID',
 `author_id`     bigint unsigned not null comment '作者用户ID',
-`zone`          tinyint         not null default 1 comment '分区：1-普通分区 2-作家分区 3-推荐流（运营/算法推荐内容）',
+`zone`          tinyint         not null default 1 comment '分区：1-普通分区 2-作家分区（推荐流为 zone 1/2 聚合视图，非分区）',
 `title`         varchar(100)    not null comment '标题',
 `summary`       varchar(500)    null comment '摘要',
 `content_html`  longtext        not null comment '正文HTML',

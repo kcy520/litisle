@@ -24,7 +24,7 @@ import static com.litisle.litislecontent.constant.ContentLimitConstant.*;
  * |------|------|----------------------------------------|------|
  * | GET  | /feed | 推荐流（缓存三防 + 展示前回查剔除）    | 登录 |
  */
-@Tag(name = "内容服务-推荐流", description = "推荐流分页（zone=3 预计算链路）")
+@Tag(name = "内容服务-推荐流", description = "推荐流分页（预计算推荐链路，zone 1/2 聚合视图）")
 @RestController
 @RequestMapping("/api/content/feed")
 @RequiredArgsConstructor

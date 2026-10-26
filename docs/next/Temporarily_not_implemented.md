@@ -220,6 +220,30 @@ Sentinel Dashboard 改规则只推内存、重启丢——操作纪律：规则�
 
 ### content 内容模块
 
+#### 文章分类：Book 链路枚举改造待确认（迁自 docs/temp/temp.md，2026-10-23 归档）
+
+Book 分类集合是否与文章一致（DB default '小说'）？一致 → 复用 ArticleCategoryEnum；不一致 → 新建 BookCategoryEnum 后再改 BookSaveDTO/Book/BookDetailVO/BookServiceImpl。阻塞 Book 链路，不阻塞文章链路（已枚举化落地，见归档板块九）。触发条件：Book 链路改造时。
+
+#### 方案B 软删重发互动数据悬空兑底（迁自 temp.md 阶段7）
+
+已发布文章改正文=软删旧文+重发新文（新 articleId），点赞/评论挂旧 articleId → 重发后旧互动悬空。默认口径「接受丢失」（正文已变，旧互动语义失效）；若产品要求元数据级编辑保留互动，再启用 social 侧迁移（旧→新 articleId 批量改绑）。触发条件：方案B 重发事件（如 content.replaced）落地 / social 立项时。
+
+#### social 点赞/评论随文隐藏与悬空兑底（迁自 temp.md 阶段7，设计意图固化）
+
+①social 订阅 content.unpublished（reason=1），文章维度点赞/评论树置「随文隐藏」（软删标记不物理删，法务取证对齐），列表按隐藏状态过滤；②点赞列表/评论入口反查 content 详情，ARTICLE_NOT_FOUND 时静默过滤（双保险：即使事件丢失/乱序也不感知悬空）；③ContentUnpublishedEvent.bizType=2 评论扩展位复用同一事件口径，评论软删时其下点赞连带隐藏。触发条件：social 模块立项随设计文档固化。
+
+#### social 回写计数对已删文章吞 ARTICLE_NOT_FOUND（迁自 temp.md 阶段8④）
+
+updateCounters 带 del_flag=0 条件 rows=0 抛错；约定 social 回写失败时对 ErrorCode=ARTICLE_NOT_FOUND 记 info 后视为成功（文章已软删计数无意义），其余错误走重试/DLQ。触发条件：social 回写落地时。
+
+#### FeedItemVO.commentCnt 填充（迁自 temp.md 阶段8③）
+
+字段已补（对齐 Card/Detail 三计数口径），填充值未接。触发条件：social 点赞/评论落地后 feed 聚合链路补充。
+
+#### Book.coverFileId 封面引用管理同病（迁自 temp.md 阶段8②）
+
+文章封面已并入阶段6方案C 引用管理（COVER bizType，发布/编辑/软删/草稿清理全链路 bind/unbind），Book.coverFileId 未接入。触发条件：随「Book 分类确认」一并处理。
+
 
 
 #### visibility=3 取关失效联动（方向四 P1-B）

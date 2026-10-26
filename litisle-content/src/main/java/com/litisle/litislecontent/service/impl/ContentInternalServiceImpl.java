@@ -20,12 +20,13 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * content 内部契约实现（机审回查/配图反查/计数回写，板块三 [3.2]）。
+ * content 内部服务实现（机审回查/配图反查/计数回写，板块三 [3.2]）。
  *
- * 【回查同源口径】body 返回入库 sanitize 后 contentHtml（发布侧 assemble(title, contentHtml)
- * 同源），title 返回入库剥标签标题——review 重算 hash 与事件 contentHash 必然一致；
- * 【fail-fast】回查/反查/回写均文章不存在即抛（机审核心读依赖，静默降级=误判无内容可审）；
- * 【del_flag】三方法均显式补 del_flag=0（同 id 复活场景，4-4.2 纪律）
+ * 【同源保证】正文返回入库净化后的 contentHtml（与发布送审时用的同一份）、标题返回剥标签后的
+ * 入库标题——这样 review 端重算的指纹和事件里的指纹一定一致；
+ * 【不静默降级】回查/反查/回写遇到文章不存在就直接报错（机审靠这些数据才能审，
+ * 静默返回空会导致误判"无内容可审"）；
+ * 【软删过滤】三个方法都显式带 del_flag=0 条件，防止已删文章被查出来（同 id 复活场景，4-4.2 纪律）
  *
  * @author litisle
  */
@@ -34,20 +35,41 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ContentInternalServiceImpl implements ContentInternalService {
 
+    /** 文章 Mapper（机审回查/计数回写数据源） */
     private final ArticleMapper articleMapper;
 
+    /** 文章配图 Mapper（配图引用反查数据源） */
     private final ArticleImageMapper articleImageMapper;
 
     /**
-     * 机审回查内容正文：bizType 分派，文章查库组装 ContentDTO（回查同源口径）
+     * 机审回查内容正文。
+     *
+     * 作用：
+     * review 机审前按 bizType+bizId 回查待审内容原文，用于重算文本指纹与送审比对。
+     * 仅支持文章域；文章不存在（含已软删）fail-fast 抛 ARTICLE_NOT_FOUND。
+     * body 返回入库 sanitize 后 contentHtml，保证 review 重算 hash 与事件 contentHash 一致。
+     *
+     * @param bizType 内容业务类型（1-文章）
+     * @param bizId   内容业务ID（文章ID）
+     * @return 内容 DTO（标题/正文/归属人/状态/可见性/指纹）
      */
     @Override
     public ContentDTO getContent(Integer bizType, Long bizId) {
-        // 步骤1：bizType 分派（评论模块未落地，按契约口径返回 COMMENT_NOT_FOUND 由消费端 ack 丢弃）
+
+        /**
+         * 机审回查流程：
+         *
+         * ① 域分派：仅支持文章域（评论模块未落地，按契约码返回由消费端丢弃）。
+         * ② 查文章：不存在/已软删直接报错（机审核心读依赖，不静默降级）。
+         * ③ 组装返回：正文=入库后净化版，与发布送审同源——
+         *    保证审核端重算指纹与事件指纹一致；归属人供处罚/申诉用。
+         */
+
+        // 步骤1：bizType 分派（评论模块未落地，按约定返回 COMMENT_NOT_FOUND 由消费端丢弃）
         if (ModerationConstant.BIZ_TYPE_ARTICLE != bizType) {
             throw new BizException(ErrorCode.COMMENT_NOT_FOUND);
         }
-        // 步骤2：查活跃文章（del_flag=0 显式补齐，CAS/回查纪律）
+        // 步骤2：查活跃文章（显式带 del_flag=0 条件，只查未删除的）
         Article article = articleMapper.selectOne(new LambdaQueryWrapper<Article>()
                 .eq(Article::getId, bizId)
                 .eq(Article::getDelFlag, 0));
@@ -69,11 +91,27 @@ public class ContentInternalServiceImpl implements ContentInternalService {
     }
 
     /**
-     * 反查文章配图引用列表：文章存在性 fail-fast + article_image 按登记顺序返回
+     * 反查文章配图引用列表。
+     *
+     * 作用：
+     * 图片复审链路按文章ID反查其全部配图引用，review 逐张取图重算 sha256 后聚合。
+     * 文章不存在（含已软删）fail-fast 抛 ARTICLE_NOT_FOUND；无活跃配图返回空列表。
+     *
+     * @param articleId 文章ID
+     * @return 配图引用 DTO 列表（仅 fileId，按 position_order 升序）
      */
     @Override
     public List<ArticleImageRefDTO> listArticleImages(Long articleId) {
-        // 步骤1：文章存在性 fail-fast（回查文章不存在=脏复审请求，消费端 ack 丢弃）
+
+        /**
+         * 配图反查流程：
+         *
+         * ① 文章存在性校验：不存在/已软删直接报错（脏复审请求）。
+         * ② 查配图：按登记顺序（position_order）升序返回。
+         * ③ 组装返回：仅回 fileId（review 端自行取图重算指纹聚合）。
+         */
+
+        // 步骤1：文章存在性校验（文章不存在说明是脏的复审请求，直接报错，消费端丢弃）
         Long count = articleMapper.selectCount(new LambdaQueryWrapper<Article>()
                 .eq(Article::getId, articleId)
                 .eq(Article::getDelFlag, 0));
@@ -95,12 +133,24 @@ public class ContentInternalServiceImpl implements ContentInternalService {
 
     /**
      * 按配图 fileId 反查引用该图的未删除文章 ID 列表（图片复审再聚合用，板块八 [8.2]）
-     * 聚合判定收口 review 消费端，本方法仅提供反查数据；无引用返回空列表（非 fail-fast，
-     * 空列表=真实无引用，与降级失败语义区分：降级走降级工厂异常穿透）
+     * 聚合判定由 review 消费端负责，本方法只提供反查数据；无引用返回空列表
+     * （空列表=真的没有文章引用它，不是出错；真正的调用失败会直接抛异常，两者含义不同）
+     *
+     * @param fileId 配图文件ID
+     * @return 引用该图的未删除文章 ID 列表（无引用返回空列表）
      */
     @Override
     public List<Long> listArticleIdsByFileId(String fileId) {
-        // 步骤1：fileId 必填校验（服务间契约 fail-fast）
+
+        /**
+         * 按图反查引用流程（图片复审再聚合用）：
+         *
+         * ① 入参校验：fileId 必填。
+         * ② 反查引用：按索引查出引用该图的文章 ID（同文多位置登记去重）。
+         * ③ 过滤已删文章：只保留未删除的，已删文章不参与复审聚合。
+         */
+
+        // 步骤1：fileId 必填校验（服务间调用，参数不合法直接报错）
         if (fileId == null || fileId.isBlank()) {
             throw new BizException(ErrorCode.PARAM_ERROR);
         }
@@ -120,16 +170,38 @@ public class ContentInternalServiceImpl implements ContentInternalService {
     }
 
     /**
-     * 计数回写：幂等绝对值 SET（仅非空字段更新），CAS 补 del_flag=0
+     * 计数回写。
+     *
+     * 作用：
+     * social 侧互动（浏览/点赞/评论）发生后，回写文章计数的绝对值。
+     * 仅更新非空字段（null 字段不进 SET 子句）；文章不存在（含已软删）抛 ARTICLE_NOT_FOUND。
+     *
+     * 【跨服务契约（阶段10 留档）】viewCnt 当前禁用，social 侧必须永远传 null：
+     * PV 归属 content 内部闭环（ViewCounterSupport INCR pending 键 + ViewCountFlushJob
+     * SQL 原子自增刷回），本方法对 viewCnt 是绝对值 SET，social 若传值会覆盖丢增量；
+     * social 仅允许回写 likeCnt/commentCnt（互动计数 social 侧权威）。
+     *
+     * @param dto 计数回写入参（articleId + 可空的 viewCnt/likeCnt/commentCnt 绝对值；viewCnt 禁用传 null）
      */
     @Override
     public void updateCounters(ArticleCounterUpdateDTO dto) {
+
+        /**
+         * 计数回写流程（social 互动数据同步）：
+         *
+         * ① 入参校验：文章 ID 必填。
+         * ② 绝对值回写：只更新传了的字段（null 不更新）；
+         *    注意：浏览量(viewCnt)当前禁用——它由内部定时任务自增刷回，
+         *    social 若传值会覆盖丢增量，只能传点赞/评论数。
+         * ③ 兑底校验：文章不存在/已软删时更新不生效，报错。
+         */
+
         // 步骤1：articleId 必填校验（服务间契约 fail-fast）
         if (dto == null || dto.getArticleId() == null) {
             throw new BizException(ErrorCode.PARAM_ERROR);
         }
-        // 步骤2：绝对值 SET（MP update-strategy not_null：null 字段不进 SET 子句）；
-        // rows=0=文章不存在 → ARTICLE_NOT_FOUND（幂等 SET 无并发分支，social 单点回写规避覆盖）
+        // 步骤2：按传了哪些字段更新哪些（MyBatis-Plus not_null 策略：null 字段不进 SET 子句）；
+        // 更新行数=0 说明文章不存在 → 报 ARTICLE_NOT_FOUND（纯绝对值覆盖写，由 social 单点回写避免互相覆盖）
         LambdaUpdateWrapper<Article> wrapper = new LambdaUpdateWrapper<Article>()
                 .eq(Article::getId, dto.getArticleId())
                 .eq(Article::getDelFlag, 0)

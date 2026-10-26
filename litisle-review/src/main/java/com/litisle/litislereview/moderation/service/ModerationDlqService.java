@@ -151,6 +151,7 @@ public class ModerationDlqService {
         evt.setVerdict(VerdictEnum.SUSPICIOUS.getCode());
         // wordlibVer 可空：死信未跑机审无词库版本（事件契约「重投补发场景可空，宁多审不漏审」）
         try {
+            //发布机审结果事件
             moderationResultPublisher.publish(evt);
             log.info("单图死信已发布 SUSPICIOUS 存疑事件，等待 file 侧置 safe_flag=3，fileId={}", fileId);
         } catch (Exception e) {

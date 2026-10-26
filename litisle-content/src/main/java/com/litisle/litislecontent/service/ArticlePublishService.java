@@ -19,7 +19,6 @@ import java.util.List;
  * List<ArticleBatchResultVO> publishBatch(List<Long> articleIds, Long operatorId) // 批量发布（≤20，逐篇独立事务+逐篇回执）
  * void batchVisibility(List<Long> articleIds, VisibilityEnum target, Long operatorId) // 批量改可见性（逐篇CAS+逐篇发事件）
  * ContentPreviewCheckVO previewCheck(ContentPreviewCheckDTO dto, Long userId) // 发布前预检（仅 {hit,risk} 不回吐命中词）
- * void verifyPassword(Long articleId, String password, Long operatorId) // 密码访问校验（BCrypt+限频防爆破）
  */
 public interface ArticlePublishService {
 
@@ -51,13 +50,4 @@ public interface ArticlePublishService {
      * @return 预检结果 {hit, risk}
      */
     ContentPreviewCheckVO previewCheck(ContentPreviewCheckDTO dto, Long userId);
-
-    /**
-     * 密码访问校验（BCrypt 比对、不回显；失败限频防爆破，超 attempt-limit 触发 TOO_MANY_REQUESTS）
-     *
-     * @param articleId  文章ID
-     * @param password   明文密码
-     * @param operatorId 当前登录用户ID
-     */
-    void verifyPassword(Long articleId, String password, Long operatorId);
 }

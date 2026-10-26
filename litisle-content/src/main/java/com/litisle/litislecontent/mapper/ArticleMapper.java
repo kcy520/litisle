@@ -3,6 +3,8 @@ package com.litisle.litislecontent.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.litisle.litislecontent.domain.entity.Article;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 /**
  * @Mapper + extends BaseMapper<Article>（MyBatis-Plus）
@@ -21,4 +23,17 @@ import org.apache.ibatis.annotations.Mapper;
 @Mapper
 public interface ArticleMapper extends BaseMapper<Article> {
 
+    /**
+     * 浏览计数原子自增（阶段8①：Redis 待刷回增量合并回写）。
+     *
+     * 作用：view_cnt = view_cnt + delta 原子自增（SQL 层单语句，无先查后写并发丢更新）；
+     * 仅刷回活跃文章（del_flag=0，软删文章行保留但计数无对外语义，不刷避免复活漂移）。
+     *
+     * @param articleId 文章ID
+     * @param delta     待累加增量（>=1，由定时任务 GETDEL 聚合而来）
+     * @return affected rows（0=文章不存在或已软删，调用方仅留痕不报错）
+     */
+    @Update("UPDATE article SET view_cnt = view_cnt + #{delta} "
+            + "WHERE id = #{articleId} AND del_flag = 0")
+    int incrViewCnt(@Param("articleId") Long articleId, @Param("delta") long delta);
 }

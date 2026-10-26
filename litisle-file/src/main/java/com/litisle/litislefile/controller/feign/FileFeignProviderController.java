@@ -92,6 +92,16 @@ public class FileFeignProviderController implements FileClient {
     }
 
     /**
+     * 批量查询文件归属信息（不脱敏，仅服务间）：委托 Service 一次 in 查询，
+     * 任一 fileId 无活跃记录由 Service 抛 FILE_NOT_FOUND fail-fast
+     */
+    @Override
+    public Result<List<FileOwnerDTO>> batchGetOwners(List<String> fileIds) {
+        log.info("远程api调用batchGetOwners size:{}", fileIds == null ? 0 : fileIds.size());
+        return Result.success(fileAccessService.batchGetOwners(fileIds));
+    }
+
+    /**
      * 违规图隔离（审核 REJECT）：委托 Service 移入 quarantine/ 前缀 + safe_flag=0（幂等）
      */
     @Override

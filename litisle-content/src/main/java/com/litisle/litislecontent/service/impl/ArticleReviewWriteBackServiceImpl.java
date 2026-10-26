@@ -40,30 +40,33 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * 文章审核结果回写服务实现（板块三 3-5，§4.5.2）。
  *
- * 【回写防线】
- * - 陈旧性防线：文本路事件体 contentHash 与文章表落库指纹比对，不一致（编辑后旧结果迟到）丢弃
- * - CAS 条件更新：状态白名单互斥（1→2 / 1→3 / 2→4 / 3→2 仅申诉），并发竞态 affected=0 静默
- * - 终态仅申诉可改：机审/人审 REJECT 禁 3→2；恢复发布只走申诉改判消费（5-4.5）
- * - 聚合判定：Redis Hash 槽暂存两路 verdict，REJECT 到达即驳回、PASS 需双路齐备（配图以
- *   article_image 表现状为准，防事件与落库竞态误判无图直放）
+ * 作用：消费审核系统发回的结果事件，把结论写回文章状态（发布/驳回/下架）。
  *
- * 【幂等】CAS + 槽重写 + last-hash 重写 + 事件重发全部幂等，依赖业务幂等免 SETNX
+ * 【安全防线】
+ * - 防旧结果污染：事件里带的内容指纹与文章表当前指纹比对，不一致（编辑后旧结果迟到）直接丢弃
+ * - 防并发改乱：改状态都带"当前必须是什么状态"的条件（1→2 / 1→3 / 2→4 / 3→2 仅申诉），
+ *   条件不满足说明状态已被别的请求改走，本次静默放弃
+ * - 终态只能申诉翻案：机审/人审驳回都不能把驳回改成发布；恢复发布只走申诉改判（5-4.5）
+ * - 双链路聚合：文本审核和图片审核两路结论先暂存在 Redis 里，任一路驳回整文驳回、
+ *   两路都通过才发布（有无配图以 article_image 表现状为准，防事件与落库竞态误判"无图直放"）
+ *
+ * 【重复消费安全】条件更新 + 槽重写 + 免审键重写 + 事件重发，重复执行都无副作用，不额外加去重锁
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBackService {
 
-    /** 文章聚合 Mapper（状态 CAS 回写 + 回查落库指纹） */
+    /** 文章 Mapper（带条件的状态回写 + 回查落库内容指纹） */
     private final ArticleMapper articleMapper;
 
     /** 文章配图 Mapper（聚合判定按表现状判有无配图） */
     private final ArticleImageMapper articleImageMapper;
 
-    /** 聚合槽读写（双链路 verdict 暂存） */
+    /** 聚合槽读写（Redis，暂存文本/图片两路审核结论） */
     private final StringRedisTemplate stringRedisTemplate;
 
-    /** last-hash 免审键 Redis 读写适配器（契约层 LastHashStore 宿主注入实现） */
+    /** 免审键（last-hash）的 Redis 读写适配器（LastHashStore 接口的实现宿主） */
     private final ContentLastHashRedisAdapter lastHashRedisAdapter;
 
     /** DFA 词库版本查询（事件体 wordlibVer 缺省时的兜底快照） */
@@ -78,19 +81,39 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     /** 消费参数（last-hash TTL / 抖动比例，外置 yml/Nacos 运营可调） */
     private final ContentProperties contentProperties;
 
-    /** 处罚权威态回查（申诉改判前 fail-fast 校验作者封禁态，防晚到申诉翻转封禁连带结果） */
+    /** 处罚状态回查（申诉改判前先查作者是否还在封禁中，防晚到的申诉把封禁连带下架的文章翻回发布） */
     private final ReviewClient reviewClient;
 
     /** 文件域客户端（4→2 申诉平反后连带恢复被隔离配图，file 侧不消费文章域申诉事件） */
     private final FileClient fileClient;
 
     /**
-     * 处理审核结果事件（双链路聚合回写主流程，§4.5.2）
+     * 处理审核结果事件（双链路聚合回写主流程，§4.5.2）。
      *
-     * @param event 审核结果事件
+     * 作用：
+     * 消费 moderation.result 事件，按 bizType/verdict/scene 逐层过滤后：
+     * 回查文章执行陈旧性校验 → 写 last-hash 免审键 → 写聚合槽（文本/图片两路结论暂存）
+     * → 聚合判定（任一路 REJECT 整文驳回；PASS 需文本 PASS 且无图或图片 PASS）。
+     * 全程幂等，重复消费无副作用。
+     *
+     * @param event 审核结果事件（含 bizType/verdict/scene/contentHash 等字段）
      */
     @Override
     public void handleResult(ModerationResultEvent event) {
+
+        /**
+         * 审核结果回写流程（双链路聚合）：
+         *
+         * ① 过滤分发：只处理“文章域”的终局结论（PASS/REJECT）；
+         *    评论模块未开发挂起留痕；非终局（已转人审）和非法值直接丢弃（防毒丸）。
+         * ② 场景分流：文本审核结果 / 图片复审结果分别定位聚合槽的不同字段。
+         * ③ 陈旧性防线：文本结果的内容指纹与数据库当前指纹不一致
+         *    （文章被编辑过，旧结果迟到）→ 作废丢弃。
+         * ④ 写免审键：终局结论写入 last-hash（下次发同样内容时用于免审判定），失败不阻断。
+         * ⑤ 写聚合槽：结论暂存 Redis（文本/图片两路各一个字段，重复消费重写同值幂等）。
+         * ⑥ 聚合判定：任一路驳回 → 整文驳回；放行需“文本通过 且（无配图 或 图片也通过）”。
+         */
+
         // 步骤1：bizType 分发（1-文章本侧消费；2-评论挂起留痕；其他留痕丢弃防串域）
         Integer bizType = event.getBizType();
         if (bizType == null) {
@@ -143,24 +166,44 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
             log.warn("[3-5] 文本 result 陈旧（contentHash 与落库指纹错配）丢弃：articleId={}", articleId);
             return;
         }
-        // 步骤5：终局结论写 last-hash 免审键（4-3.1，跟随事件到达而非聚合判定，fail-safe 不阻断）
+        // 步骤5：终局结论写 last-hash 免审键（4-3.1，结论随事件到达就写、不等聚合判定；写失败不阻断主流程）
         writeLastHash(event, article, field, verdict);
-        // 步骤6：写聚合槽（HSET + 刷新 TTL；同路重复消费重写同值幂等）
+        // 步骤6：写聚合槽（写入结论 + 刷新过期时间；同一路重复消费重写同值，无副作用）
         String aggKey = ContentBizConstant.ARTICLE_REVIEW_AGG_KEY_PREFIX + articleId;
         stringRedisTemplate.opsForHash().put(aggKey, field, String.valueOf(verdict));
         stringRedisTemplate.expire(aggKey, ContentBizConstant.ARTICLE_REVIEW_AGG_TTL_SECONDS,
                 TimeUnit.SECONDS);
-        // 步骤7：聚合判定（REJECT 到达即驳回落 CAS；PASS 需文本 PASS 且无图或图片 PASS）
+        // 步骤7：聚合判定（任一路驳回就立即驳回落库；放行需文本通过且无配图，或配图复审也通过）
         tryAggregate(article, aggKey);
     }
 
     /**
-     * 处理申诉改判结果事件（5-4.5：平台结论反转以最新为准）
+     * 处理申诉改判结果事件（5-4.5：平台结论反转以最新为准）。
      *
-     * @param event 申诉改判事件
+     * 作用：
+     * 消费申诉改判事件，仅处理"申诉通过"的文章域事件：删 last-hash 免审键 →
+     * 回查文章行与作者封禁态（fail-fast）→ CAS 两向恢复发布（首发驳回 3→2 /
+     * 复审下架 4→2）→ 下架场景连带恢复被隔离配图并发 content.published 事件。
+     * 改判不通过维持原判，直接 ack。
+     *
+     * @param event 申诉改判事件（含 bizType/appealPass 等字段）
      */
     @Override
     public void handleAppeal(ModerationAppealResultEvent event) {
+
+        /**
+         * 申诉改判流程（平台结论反转以最新为准）：
+         *
+         * ① 过滤分发：只处理文章域事件；改判不通过维持原判，直接结束。
+         * ② 删免审键：键里可能存“驳回”结论，不清则下次发布会误提示“改了也会被驳回”。
+         * ③ 回查文章：不存在/已删除按正常终局丢弃。
+         * ④ 封禁态校验：作者正被封禁时不放行（防晚到申诉翻转封禁连带结果）；
+         *    回查失败也不放行，交延迟重试。
+         * ⑤ CAS 两向恢复：首发驳回(3)→发布 或 复审下架(4)→发布（终态只有申诉能改）。
+         * ⑥ 连带处理：复审下架恢复时，连带解除配图隔离；发 content.published 恢复搜索/AI 收录。
+         * ⑦ 未生效分流：已是发布态（重复消费）静默；其他状态留痕。
+         */
+
         // 步骤1：bizType 分发（同 result 事件口径；评论挂起/图片归 file 侧）
         Integer bizType = event.getBizType();
         if (bizType == null) {
@@ -200,9 +243,9 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
             log.info("[3-5] 申诉改判文章不存在或已删除，正常终局丢弃：articleId={}", articleId);
             return;
         }
-        // 步骤4.5：改判前回查处罚权威态（[8.1] fail-fast：回查失败不放行）——防申诉链路晚到翻转
-        // 封禁连带结果（封禁后 4→2 恢复曝光属治理漏洞；review 裁决端源头校验为双保险）。
-        // 回查异常穿透交 consumer 延迟重试（对齐 Temporarily 通用纪律⑤禁静默吞错）
+        // 步骤4.5：改判前先回查作者的处罚状态（[8.1] 查不到/查失败不放行）——防止晚到的申诉
+        // 把"封禁连带下架"的文章翻回发布（封禁后还恢复曝光属于治理漏洞；review 裁决端已有源头校验，这里是双保险）。
+        // 回查出错时把异常往外抛，交给 MQ 延迟重试（不允许静默吞错）
         try {
             Result<PunishStatusDTO> punishResult = reviewClient.getPunishStatus(article.getAuthorId());
             if (punishResult != null && punishResult.isSuccess() && punishResult.getData() != null
@@ -215,7 +258,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
             log.error("[3-5] 封禁态回查失败（不放行，交延迟重试），articleId={}", articleId, e);
             throw e;
         }
-        // 步骤5：CAS 两向对称恢复（[8.1] allow-list：3→2 首发 / 4→2 下架，仅申诉来源，对齐 §2.3 状态机）
+        // 步骤5：带条件的两向恢复（[8.1] 只允许两种：3→2 首发驳回恢复 / 4→2 下架恢复，仅申诉触发，对齐 §2.3 状态机）
         // 5.1 首发 3→2
         long affected = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
                 .eq(Article::getId, articleId)
@@ -234,12 +277,11 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
         }
         if (affected > 0) {
             // 步骤6：4→2 场景连带恢复被隔离配图（[8.1]：file 侧不消费文章域申诉事件，
-            // 不连带则申诉平反后配图永久隔离；unquarantine 幂等，失败仅留痕不阻断改判主体）
+            // 不连带恢复的话申诉平反后配图会永久隔离；恢复操作重复执行无副作用，失败只留日志不阻断改判主体）
             if (fromTakenDown) {
                 unquarantineImages(articleId);
             }
-            // 步骤7：发 content.published（恢复 search/ai(RAG) 索引对称性——与下架必发 unpublished 对偶；
-            // RAG 门控回查 visibility 兕底）
+            // 步骤7：发 content.published（让搜索/AI 索引恢复收录——和下架时必发 unpublished 成对；RAG 侧还有可见性回查兑底）兕底）
             ContentPublishedEvent published = new ContentPublishedEvent();
             published.setBizType(ModerationConstant.BIZ_TYPE_ARTICLE);
             published.setBizId(articleId);
@@ -249,7 +291,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
                     fromTakenDown ? "4" : "3", articleId);
             return;
         }
-        // 步骤8：affected=0 现态分流——已是 PUBLISHED（重复消费幂等）静默；他态（编辑重提 3→1 等）留痕
+        // 步骤8：两次都没改成说明状态已被别人改走——已是发布态（重复消费）静默；其他状态（如编辑重提 3→1）留日志
         Article latest = articleMapper.selectById(articleId);
         if (latest != null && latest.getStatus() == ArticleStatusEnum.PUBLISHED) {
             log.info("[3-5] 文章已处发布态（重复消费幂等），静默：articleId={}", articleId);
@@ -260,16 +302,18 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     }
 
     /**
-     * 连带恢复被隔离配图（4→2 申诉平反专用）：逐张调 file unquarantine（幂等），
-     * 单张失败仅 error 留痕不阻断（改判主体已完成，可由运营人工补偿或 TTL 对账兑底）
+     * 连带恢复被隔离配图（4→2 申诉平反专用）：逐张调 file 解除隔离（重复调用无副作用），
+     * 单张失败只记 error 日志不中断（改判主体已完成，剩余可由运营人工补偿或对账任务兑底）
      *
      * @param articleId 文章 ID（反查 article_image 现存配图）
      */
     private void unquarantineImages(Long articleId) {
+        // 步骤1：反查文章现存配图文件ID列表
         List<String> fileIds = articleImageMapper.selectList(new LambdaQueryWrapper<ArticleImage>()
                         .eq(ArticleImage::getArticleId, articleId)).stream()
                 .map(ArticleImage::getFileId)
                 .toList();
+        // 步骤2：逐张调 file 解除隔离（重复调用无副作用），单张失败只留日志不中断
         for (String fileId : fileIds) {
             try {
                 fileClient.unquarantine(fileId);
@@ -286,23 +330,24 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
      * @param aggKey  聚合槽键（含 articleId）
      */
     private void tryAggregate(Article article, String aggKey) {
+        // 步骤1：读取聚合槽两路结论（文本/图片暂存值）
         Map<Object, Object> slots = stringRedisTemplate.opsForHash().entries(aggKey);
         String textVerdict = (String) slots.get(ContentBizConstant.ARTICLE_REVIEW_AGG_FIELD_TEXT);
         if (textVerdict == null) {
             // 文本路未终局：无论图片路结论如何都不聚合（文本是主线），等待 ack 返回
             return;
         }
-        // 有无配图以 article_image 表现状为准（防发布竞态：事件声明有图但配图行已删等）
+        // 步骤2：有无配图以 article_image 表现状为准（防发布竞态：事件声明有图但配图行已删等）
         boolean hasImg = articleImageMapper.selectCount(new LambdaQueryWrapper<ArticleImage>()
                 .eq(ArticleImage::getArticleId, article.getId())) > 0;
         String imgVerdict = (String) slots.get(ContentBizConstant.ARTICLE_REVIEW_AGG_FIELD_IMG);
-        // 任一链路 REJECT → 整文驳回（立即聚合，不等另一路终局）
+        // 步骤3：任一链路 REJECT → 整文驳回（立即聚合，不等另一路终局）
         if (String.valueOf(ModerationConstant.VERDICT_REJECT).equals(textVerdict)
                 || String.valueOf(ModerationConstant.VERDICT_REJECT).equals(imgVerdict)) {
             finishReject(article, aggKey);
             return;
         }
-        // 文本 PASS：无配图 → 文本 PASS 即整文 PASS；有配图等图片复审终局
+        // 步骤4：文本 PASS：无配图 → 文本 PASS 即整文 PASS；有配图等图片复审终局
         if (!hasImg) {
             finishPass(article, aggKey);
             return;
@@ -318,26 +363,26 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     }
 
     /**
-     * 聚合放行终局：CAS 1→2 发布 + 发 content.published
+     * 聚合放行终局：带条件地把状态 1→2 改为发布 + 发 content.published
      *
      * @param article 文章行
      * @param aggKey  聚合槽键（终局后删除）
      */
     private void finishPass(Article article, String aggKey) {
-        // CAS 1→2（白名单 PENDING_REVIEW；del_flag=0 防复审期间作者自删误改）
+        // 步骤1：条件更新 1→2（只有"待审核"状态才改；且未删除，防复审期间作者自删被误改）
         long affected = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
                 .eq(Article::getId, article.getId())
                 .eq(Article::getStatus, ArticleStatusEnum.PENDING_REVIEW)
                 .eq(Article::getDelFlag, DelFlag.NOT_DELETED)
                 .set(Article::getStatus, ArticleStatusEnum.PUBLISHED));
-        // 终局完成即删槽（防残留槽影响后续同文章编辑重发轮次）
+        // 步骤2：终局完成即删槽（防残留槽影响后续同文章编辑重发轮次）
         stringRedisTemplate.delete(aggKey);
         if (affected == 0) {
-            // 并发终局/状态已被申诉等路径流转，静默幂等丢弃
+            // 并发终局/状态已被申诉等路径流转，静默丢弃（重复消费无副作用）
             log.info("[3-5] 聚合放行 CAS 1→2 未生效（并发终局），静默：articleId={}", article.getId());
             return;
         }
-        // 发 content.published（search 收录/ai 向量化/notification 通知，消费方幂等）
+        // 步骤3：发 content.published（搜索收录/AI 向量化/通知，消费方重复消费无副作用）
         ContentPublishedEvent published = new ContentPublishedEvent();
         published.setBizType(ModerationConstant.BIZ_TYPE_ARTICLE);
         published.setBizId(article.getId());
@@ -347,18 +392,30 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     }
 
     /**
-     * 封禁连带下架（板块八 [8.2]，user.banned 联动消费）：该作者全部已发布文章批量置 4-下架，
-     * 逐篇发 content.unpublished（search 移除索引/ai 移除向量）+ 本地缓存三键失效（防旧 PASS
-     * 缓存绕过下架决定，口径同 ContentUnpublishedInvalidator 铁律）
+     * 封禁连带下架（板块八 [8.2]，消费 user.banned 事件联动）：把该作者全部已发布文章批量改为 4-下架，
+     * 逐篇发 content.unpublished（搜索移除索引/AI 移除向量）+ 本地缓存三键失效
+     * （防止旧的"审核通过"缓存绕过下架决定，与 ContentUnpublishedInvalidator 同规则）
      *
-     * 【幂等设计】批量 CAS（ownerId+status=2+del_flag=0 → 4）与事件/失效均幂等；重试场景下
-     * 候选改为「已发布+已下架」双态查询——CAS 已生效但事件未发的残留由重跑补发自愈
-     * （对齐 finishReject 重试自愈口径）；已删除文章不参与（del_flag=0 过滤）
+     * 【重复消费安全】批量条件更新与事件/缓存失效重复执行都无副作用；重试场景下
+     * 候选改为「已发布+已下架」双态都查——上次已改成下架但事件没发出去的，这次重跑补发，自愈
+     * （与 finishReject 的重试自愈同做法）；已删除文章不参与（del_flag=0 过滤）
      *
      * @param event 用户封禁事件（user 侧封禁事务提交后发布，本方法无外部回查，失败均可安全重试）
      */
     @Override
     public void handleUserBanned(UserBannedEvent event) {
+
+        /**
+         * 封禁连带下架流程（用户被封禁 → 全部已发布文章下架）：
+         *
+         * ① 查候选：该作者所有“已发布/已下架”且未删除的文章
+         *    （含已下架是为了重试时补发漏发的事件，自愈窗口）。
+         * ② 批量 CAS 下架：发布态文章统一改为“已下架”（条件并发兑底）。
+         * ③ 逐篇善后：发 content.unpublished（搜索/AI 移除索引与向量）
+         *    + 清理审核缓存三键（防旧“通过”缓存绕过下架决定）。
+         * ④ 审计留痕：显式落结构化日志（MQ 消费线程无登录态，审计切面拦不到）。
+         */
+
         // 步骤1：查候选（作者全部「已发布/已下架」未删除文章；含已下架=重试补发事件自愈窗口）
         List<Article> candidates = articleMapper.selectList(new LambdaQueryWrapper<Article>()
                 .eq(Article::getAuthorId, event.getUserId())
@@ -368,18 +425,18 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
             log.info("[8.2] 封禁连带：作者无可下架文章（或已全部处理），userId={}", event.getUserId());
             return;
         }
-        // 步骤2：批量 CAS 下架（条件含 status=2：仅发布态参与，避免重复置态；并发改态由条件兑底）
+        // 步骤2：批量条件更新下架（条件含 status=2：只有发布态才改，避免重复置态；并发改态由条件保证安全）
         articleMapper.update(null, new LambdaUpdateWrapper<Article>()
                 .eq(Article::getAuthorId, event.getUserId())
                 .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
                 .eq(Article::getDelFlag, DelFlag.NOT_DELETED)
                 .set(Article::getStatus, ArticleStatusEnum.TAKEN_DOWN));
-        // 步骤3：逐篇发 unpublished + 缓存三键失效（事件与 cleaner 均幂等，重复执行收敛）
+        // 步骤3：逐篇发 unpublished + 缓存三键失效（事件与缓存清理重复执行无副作用）
         for (Article article : candidates) {
             publishUnpublished(article);
             unpublishedCacheCleaner.invalidateArticle(article.getId(), article.getContentHash());
         }
-        // 步骤4：审计留痕（@AuditLog 切面不覆盖 MQ 消费线程，同 [8.1] 口径显式落结构化日志）
+        // 步骤4：审计留痕（@AuditLog 切面拦不到 MQ 消费线程，与 [8.1] 一致显式落结构化日志）
         log.info("【审计日志】{{\"module\":\"CONTENT\",\"operation\":\"take_down\",\"operator\":\"system(mq)\",\"userId\":{},\"articleIds\":{},\"reason\":\"封禁连带下架（user.banned 联动消费）\"}}",
                 event.getUserId(), candidates.stream().map(Article::getId).toList());
         log.info("[8.2] 封禁连带下架完成：userId={}，涉及文章={}", event.getUserId(), candidates.size());
@@ -392,7 +449,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
      * @param aggKey  聚合槽键（终局后删除）
      */
     private void finishReject(Article article, String aggKey) {
-        // 分流①：首发驳回 1→3（待审 → 驳回，作者改后 CAS 3→1 重提）
+        // 步骤1 分流①：首发驳回 1→3（待审 → 驳回；作者修改后重提时再由发布链路 3→1）
         long affected = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
                 .eq(Article::getId, article.getId())
                 .eq(Article::getStatus, ArticleStatusEnum.PENDING_REVIEW)
@@ -404,7 +461,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
             log.info("[3-5] 聚合驳回回写完成（首发 1→3）：articleId={}", article.getId());
             return;
         }
-        // 分流②：已发布被复审下架 2→4（配套 punish_log action=3 由 review 侧 5-1 落）
+        // 步骤2 分流②：已发布被复审下架 2→4（配套 punish_log action=3 由 review 侧 5-1 落）
         affected = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
                 .eq(Article::getId, article.getId())
                 .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
@@ -418,9 +475,9 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
             log.info("[3-5] 聚合驳回回写完成（复审下架 2→4）：articleId={}", article.getId());
             return;
         }
-        // affected=0：回查现态自愈——TAKEN_DOWN 属延迟重投重试（事件未发/缓存未清）或并发下架，
-        // 补发 unpublished + 重跑失效（事件与 cleaner 均幂等，多发无害）；审计留痕去重：仅首次落 CAS
-        // 成功路径，重试自愈不重复落痕（幂等事件已补发）
+        // 步骤3：两次都没改成（affected=0）→ 回查现态自愈：已是下架态说明是延迟重投的重试
+        // （上次事件没发/缓存没清）或并发下架，补发 unpublished + 重跑缓存失效（重复执行无副作用，多发无害）；
+        // 审计留痕去重：只有首次真正改态成功才落审计，重试自愈不重复落痕
         Article latest = articleMapper.selectById(article.getId());
         if (latest != null && latest.getStatus() == ArticleStatusEnum.TAKEN_DOWN) {
             publishUnpublished(article);
@@ -433,7 +490,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     }
 
     /**
-     * 终局结论写 last-hash 免审键（4-3.1，跟随 result 事件到达写入，fail-safe 不阻断回写主流程）
+     * 终局结论写 last-hash 免审键（4-3.1，结论随事件到达就写入；写失败不阻断回写主流程）
      *
      * @param event   审核结果事件（取 contentHash/wordlibVer 快照）
      * @param article 文章行
@@ -442,9 +499,10 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
      */
     private void writeLastHash(ModerationResultEvent event, Article article, String field, Integer verdict) {
         try {
+            // 步骤1：计算 TTL（±10% 抖动，防同批键同刻过期雪崩）
             long ttl = lastHashTtlWithJitter();
             if (ContentBizConstant.ARTICLE_REVIEW_AGG_FIELD_TEXT.equals(field)) {
-                // 文本主键：指纹取落库指纹（与事件体已比对一致）；版本快照优先事件体（判定时版本）
+                // 步骤2：文本主键——指纹取落库指纹（与事件体已比对一致）；版本快照优先事件体（判定时版本）
                 long wordlibVer = event.getWordlibVer() != null
                         ? event.getWordlibVer()
                         : dfaFacade.currentVersion(DfaScenes.ARTICLE);
@@ -452,7 +510,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
                         article.getId(), article.getContentHash(), verdict, ttl, lastHashRedisAdapter);
                 return;
             }
-            // 图片连带键（4-3.4）：scene=ARTICLE_IMG_RE_REVIEW，指纹=配图聚合指纹（事件体 contentHash）
+            // 步骤3：图片连带键（4-3.4）——scene=ARTICLE_IMG_RE_REVIEW，指纹=配图聚合指纹（事件体 contentHash）
             if (event.getContentHash() == null || event.getContentHash().isBlank()) {
                 log.warn("[3-5] 图片复审 result 缺聚合指纹，跳过连带免审键写入：articleId={}", article.getId());
                 return;
@@ -484,9 +542,10 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     }
 
     /**
-     * 复审下架审计留痕（[8.1] 2→4 治理动作）：与 @AuditLog 切面同格式 JSON 结构化输出（落点一致：
-     * 切面本质 log.info("【审计日志】{}")）——切面 @annotation 拦截不覆盖同类内部私有调用与无登录态的
-     * MQ 消费线程，故消费端治理动作显式落痕；操作人固定 system(mq)，责任链路由 review 侧 punish_log 对接
+     * 复审下架审计留痕（[8.1] 2→4 治理动作）：按 @AuditLog 切面同款 JSON 格式输出（落点一致，
+     * 切面本质也是打一条 log.info("【审计日志】")）——切面拦不到同类内部私有调用和没有登录态的
+     * MQ 消费线程，所以消费端的治理动作在这里显式打日志；操作人固定记 system(mq)，
+     * 后续追责链路由 review 侧 punish_log 对接
      *
      * @param articleId 文章 ID
      * @param reason    下架原因（结构化字段，随日志落盘）
@@ -497,7 +556,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     }
 
     /**
-     * last-hash TTL 附 ±抖动（±10%，防同批键同刻过期雪崩；7-1 缓存三防同口径）
+     * 免审键 TTL 加 ±抖动（±10%，防止同一批键同一时刻集中过期引发缓存雪崩；7-1 缓存三防同规则）
      *
      * @return 抖动后的 TTL（秒）
      */
