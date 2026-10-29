@@ -85,6 +85,16 @@ litisle:
     publish:
       # 批量发布单批上限（§6.3，ContentProperties.publish.batchMax 绑定；超限抛 ARTICLE_BATCH_EXCEEDED——防批量刷审）
       batch-max: 20
+    feed:
+      # 推荐流热度榜（阶段14 切流；social 未落地期间 like/comment 恒 0，榜=浏览量+时间衰减排序）
+      hot:
+        enabled: true                  # 总开关（false 则 /feed 退回时间倒序直查）
+        top-n: 200                     # 榜容量上限（灌榜裁剪保留 top N，防 ZSet 无界增长）
+        refill-enabled: true           # 灌榜任务开关（多实例部署时只开一台，对齐 view.flush 纪律）
+        refill-interval-ms: 300000     # 灌榜周期（5min 全量重算+影子键 rename 原子换榜）
+        refill-initial-delay-ms: 60000 # 启动延迟
+        # 权重/衰减参数走 ContentProperties 默认值（like=3/comment=2/view=0.2/decay=1.5/offset=2），
+        # social 落地后按真实互动效果在此热调（无需发版）
     moderation:
       # 审核结果回写消费参数（板块三 3-5，ContentProperties.moderation 绑定）
       last-hash-ttl-hours: 72        # last-hash 免审键 TTL（小时，与 review 结果缓存同窗防口径漂移）

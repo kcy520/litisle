@@ -259,7 +259,7 @@ public interface ContentModerationService {
 | --- | --- | --- |
 | 板块一 | 机审 SPI 域：门面/适配器/配置自检 | ★ 已落地 |
 | 板块二 | DFA 共享化 + 词库运营（版本推进/快照/Pub 热更/误报上报） | ★ 已落地 |
-| 板块三 | MQ 异步机审链路：consumer / cache / 统一建任务 / result 事件 / DLQ | ★ 已落地（ModerationDlqConsumer 兑底已补；条目归档 review-implemention-records.md） |
+| 板块三 | MQ 异步机审链路：consumer / cache / 统一建任务 / result 事件 / DLQ | ★ 已落地（ModerationDlqConsumer 兑底已补；条目归档 docs/archive/review/review-03-mq-moderation.md） |
 | 板块四 | 发布侧文本链路接入（免审/DFA 埋点/preview-check） | ★ 主体已落地（门面组件 SSOT 收口 litisle-api moderation 包；content 侧接线进度以 status.md 为准） |
 | 板块五 | 申诉与处罚联动（appeal.result / punish.result / 双向对账） | ★ 已落地（改判七步编排 / MachineRejectPunishGate 收口 / PunishReconcileSweeper 对账） |
 | 板块六 | sweeper 基础设施（认领超时/申诉超时/隔离清理） | ★ 已落地（sweeper 包四任务，含 6-2 stuck 分频重投 / 6-4 留痕归档） |

@@ -77,13 +77,15 @@ public class ArticleImageRefSupport {
         // 按 fileId 索引后逐条判定（归属人 + bizType 白名单双条件）
         Map<String, FileOwnerDTO> ownerMap = owners.stream()
                 .collect(Collectors.toMap(FileOwnerDTO::getFileId, Function.identity(), (a, b) -> a));
-        //逐一校验文件归属，fail-fast
-        for (String fileId : fileIds) {
-            FileOwnerDTO ownerInfo = ownerMap.get(fileId);
+        // 逐一校验文件归属（按入参原列表遍历，保留 positionOrder 供失败定位），fail-fast
+        for (ArticleImageDTO image : images) {
+            FileOwnerDTO ownerInfo = ownerMap.get(image.getFileId());
             if (ownerInfo == null
                     || !ownerId.equals(ownerInfo.getOwnerId())
                     || !ContentBizConstant.FILE_BIZ_TYPE_ARTICLE_IMG.equals(ownerInfo.getBizType())) {
-                throw new BizException(ErrorCode.ARTICLE_IMG_REFUSED);
+                // 失败文案携带「第 N 张图片(file_id=xxx)」：前端可定位编辑器中对应图片（P1 发布异常保稿 2026-10-28）
+                throw new BizException(ErrorCode.ARTICLE_IMG_REFUSED,
+                        String.format(ContentBizConstant.IMG_CHECK_FAIL_MSG, image.getPositionOrder(), image.getFileId()));
             }
         }
     }
@@ -133,7 +135,9 @@ public class ArticleImageRefSupport {
         if (ownerInfo == null
                 || !ownerId.equals(ownerInfo.getOwnerId())
                 || !ContentBizConstant.FILE_BIZ_TYPE_ARTICLE_IMG.equals(ownerInfo.getBizType())) {
-            throw new BizException(ErrorCode.ARTICLE_IMG_REFUSED);
+            // 失败文案携带封面 fileId 定位（封面无 position_order，仅带文件ID；P1 发布异常保稿 2026-10-28）
+            throw new BizException(ErrorCode.ARTICLE_IMG_REFUSED,
+                    String.format(ContentBizConstant.COVER_CHECK_FAIL_MSG, coverFileId));
         }
     }
 

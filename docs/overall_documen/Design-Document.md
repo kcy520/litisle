@@ -431,9 +431,10 @@ litisle-content
 | 项       | 内容                                                         |
 | -------- | ------------------------------------------------------------ |
 | 主要职责 | 文章/书籍/合集/草稿、分区(普通/作家/推荐流)、图片插入与对齐、大篇幅送审（切片/聚合收口 review 消费端） |
-| 核心功能 | 草稿自动保存；图片任意位置插入+5 种对齐；分区互斥；普通→作家升级申请；合集章节目录+阅读进度；送审仅发单条 `content.submitted`（事件体不含正文，切片禁静默截断由 review 侧兑底） |
-| 关键组件 | `ArticleService`、`BookService`、`CollectionService`、`DraftService`、`ZoneRouter`、`ContentEventProducer`、`FeedService` |
-| 数据模型 | `article`、`article_image`、`article_draft`、`book`、`book_chapter`、`reading_progress` |
+| 核心功能 | 草稿自动保存；图片任意位置插入+5 种对齐；分区互斥；普通→作家升级申请；合集章节目录+阅读历史；送审仅发单条 `content.submitted`（事件体不含正文，切片禁静默截断由 review 侧兑底） |
+| 关键组件 | `ArticleService`、`BookService`、`CollectionService`、`DraftService`、`ZoneRouter`、`ContentEventProducer`、`FeedService`、`FavoriteService` |
+| 数据模型 | `article`、`article_image`、`article_draft`、`book`、`book_chapter`、`reading_history`、`favorite`（一期收藏临时承载） |
+| 章节阅读编排（阶段17） | BookService 三读方法（getDetail/pageChapters/getChapterDetail）：visibilities 按查看者计算（作者全可见/匿名仅公开/关注者回查降级），章节正文复用文章判定链，BookReadSupport 承接浏览计数+书籍历史（fail-safe）；出参 BookDetailVO（首尾章+lastRead*+favorited）/ BookChapterDetailVO（prev/next 导航） |
 | 外部依赖 | MyBatis-Plus、Redis、litisle-file、litisle-api(AI/Review/User Feign)、MQ |
 | API      | `POST /content/article`、`PUT /content/article/{id}`、`POST /content/draft/save`、`POST /content/book`、`GET /content/feed`、`POST /content/upgrade-apply` |
 | 流程     | 发布：校验+落库（CAS 0/3→1）→ afterCommit 发单条 `content.submitted`（切片/聚合收口 review 消费端）→ `moderation.result` 事件驱动回写状态 → 已发布/驳回 |
@@ -465,7 +466,7 @@ litisle-social
 
 | 项       | 内容                                                         |
 | -------- | ------------------------------------------------------------ |
-| 主要职责 | 关注/点赞/评论(三级折叠)/收藏夹/佳句佳段收藏/私信(陌生人3条限制+确认机制) |
+| 主要职责 | 关注/点赞/评论(三级折叠)/收藏夹(一期 content favorite 临时承载单层收藏，立项后迁移/合并)/佳句佳段收藏/私信(陌生人3条限制+确认机制) |
 | 核心功能 | 关注上限(500/2000)；点赞防重+计数；评论三级；收藏分组；佳句带出处+备注；私信关系策略(互关/单向/陌生人/关闭) |
 | 关键组件 | `FollowService`、`LikeService`、`CommentService`、`FavoriteService`、`QuoteFavoriteService`、`MessageService`、`StrangerQuotaService`、`MessageConfirmService` |
 | 数据模型 | `follow`、`like_record`、`comment`、`favorite_folder`、`favorite_item`、`quote_favorite`、`conversation`、`message`、`message_blacklist`、`message_setting` |

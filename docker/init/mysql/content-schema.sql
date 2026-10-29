@@ -9,13 +9,7 @@
 # ============================================================
 # 模块：litisle-content
 # 数据库：litisle_content
-# 说明：文章 / 草稿 / 书籍 / 章节 / 图片 / 阅读进度
-# ============================================================
-
-# ============================================================
-# 模块：litisle-content
-# 数据库：litisle_content
-# 说明：文章 / 草稿 / 书籍 / 章节 / 图片 / 阅读进度
+# 说明：文章 / 草稿 / 书籍 / 章节 / 图片 / 阅读历史 / 收藏
 # ============================================================
 
 create database if not exists litisle_content
@@ -127,18 +121,21 @@ create table if not exists `book_chapter`
     ) engine = InnoDB
     default charset = utf8mb4 comment = '书籍章节表';
 
-# 6. 阅读进度表
-create table if not exists `reading_progress`
+
+# 6. 阅读历史表（单表承载书籍+独立文章两类阅读历史，每人每类型每对象一行=上次阅读记录）
+create table if not exists `reading_history`
 (
     `id`         bigint unsigned not null auto_increment primary key comment '主键ID',
     `user_id`    bigint unsigned not null comment '读者ID',
-    `book_id`    bigint unsigned not null comment '书籍ID',
-    `chapter_id` bigint unsigned not null comment '最后阅读章节ID',
+    `biz_type`   tinyint         not null default 1 comment '阅读对象类型：1-书籍 2-独立文章',
+    `biz_id`     bigint unsigned not null comment '阅读对象ID（biz_type=1→book.id，biz_type=2→article.id）',
+    `chapter_id` bigint unsigned null comment '最后阅读章节ID（仅 biz_type=1 有值，指向 book_chapter.id；即上次阅读记录，update_time 即最后阅读时间）',
     `update_time` datetime       not null default current_timestamp on update current_timestamp comment '更新时间',
-    unique key `uk_user_book` (`user_id`, `book_id`),
-    index `idx_book_id` (`book_id`)
+    unique key `uk_user_biz` (`user_id`, `biz_type`, `biz_id`),
+    index `idx_user_time` (`user_id`, `biz_type`, `update_time`),
+    index `idx_user_time_all` (`user_id`, `update_time`)
     ) engine = InnoDB
-    default charset = utf8mb4 comment = '阅读进度表';
+    default charset = utf8mb4 comment = '阅读历史表（单表承载书籍+独立文章两类阅读历史，每人每类型每对象一行=上次阅读记录；idx_user_time 支撑书籍/文章单类型 tab 倒序分页，idx_user_time_all 支撑「全部」混合时间线倒序分页）';
 
 # 7. 标签表（全局池，受控新建）
 create table if not exists `tag`
@@ -166,6 +163,20 @@ create table if not exists `article_tag`
     ) engine = InnoDB
     default charset = utf8mb4 comment = '文章标签关联表（冲突幂等跳过；不参与推荐流排序权重，仅聚合列表页）';
 
+# 9. 收藏表（一期 content 临时承载，单层收藏；social 收藏夹后续迁移）
+create table if not exists `favorite`
+(
+    `id`          bigint unsigned not null auto_increment primary key comment '主键ID',
+    `user_id`     bigint unsigned not null comment '收藏用户ID',
+    `target_type` tinyint         not null comment '收藏目标类型：1-文章 2-书籍',
+    `target_id`   bigint unsigned not null comment '收藏目标ID（target_type=1→article.id，target_type=2→book.id）',
+    `create_time` datetime        not null default current_timestamp comment '创建时间',
+    unique key `uk_user_target` (`user_id`, `target_type`, `target_id`),
+    index `idx_target` (`target_type`, `target_id`),
+    index `idx_user_time` (`user_id`, `create_time`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '收藏表（一期 content 临时承载，单层收藏无分组；social 收藏夹立项后迁移 favorite_item 或另定合并方案）';
+
 # 设计原因：
 # article 计数字段冗余（view_cnt/like_cnt）：避免每次列表查询都 join 聚合，配合 Redis 异步刷新。
 # article_image 独立表：设计文档要求图片在任意位置插入 + 5 种对齐，落表后支持"图片管理"与重新排版。
@@ -174,3 +185,4 @@ create table if not exists `article_tag`
 # book_chapter 用 (book_id, chapter_no) 唯一索引：保证章节序号不重复，序号即排序键。
 # content_html 用 longtext：支持大篇幅切片前的完整正文。
 # tag + article_tag 独立多对多：标签是开放词汇关键词（区别于 category 单选分类），独立池支撑改名/封禁/热门统计；每篇上限 5 个防堆砌，新建过 DFA，与正文方案B（禁编已发布正文）解耦——标签不影响 content_hash。
+# favorite 单层收藏（一期 content 临时承载）：uk_user_target 防重复收藏，idx_target 支撑按目标反查，idx_user_time 支撑我的收藏倒序分页；social 收藏夹立项后迁移 favorite_item 或另定合并方案。

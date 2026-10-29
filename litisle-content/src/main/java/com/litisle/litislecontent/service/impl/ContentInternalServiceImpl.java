@@ -214,5 +214,9 @@ public class ContentInternalServiceImpl implements ContentInternalService {
         }
         log.info("计数回写完成，articleId={}，view={}，like={}，comment={}",
                 dto.getArticleId(), dto.getViewCnt(), dto.getLikeCnt(), dto.getCommentCnt());
+        // TODO（social 落地后接线，阶段14 D10 预留）：likeCnt/commentCnt 回写成功后，
+        //  触发该文章热度分增量重算（ZADD 单成员更新，复用 FeedHotRankSupport#computeScore），
+        //  消除 5min 全量灌榜造成的榜单滞后；
+        //  回收项已登记 docs/next/Temporarily_not_implemented.md「推荐流热度榜 social 信号补齐与调参」
     }
 }

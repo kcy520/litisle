@@ -49,6 +49,21 @@ public final class ContentBizConstant {
      */
     public static final String RENDERED_IMG_CLASS_PREFIX = "content-img align-";
 
+    // ==================== 发布保稿：图片校验失败定位文案（P1 2026-10-28，错误信息携带位置供前端定位） ====================
+
+    /**
+     * 正文配图校验失败文案模板（%1$s=position_order 顺序号，%2$s=file_id）
+     * <p>图片归属校验/指纹校验失败时，错误信息按此模板携带「第 N 张图片(file_id=xxx)」，
+     * 前端可据此定位编辑器中对应的图片位置（P1 发布异常保稿）</p>
+     */
+    public static final String IMG_CHECK_FAIL_MSG = "第 %s 张图片(file_id=%s) 校验失败";
+
+    /** 封面图校验失败文案模板（%s=file_id；封面无 position_order，仅带文件ID定位） */
+    public static final String COVER_CHECK_FAIL_MSG = "封面图片(file_id=%s) 校验失败";
+
+    /** 配图聚合指纹缺失文案模板（%s=缺失的 fileId 逗号串；指纹缺图时定位脏数据文件） */
+    public static final String IMG_HASH_MISSING_MSG = "配图聚合指纹缺失(file_id=%s)：文件元数据为脏数据或文件已删除";
+
     // ==================== content.unpublished 下架原因（ContentUnpublishedEvent.reason 字典） ====================
 
     /** 下架原因：1-作者删除 */

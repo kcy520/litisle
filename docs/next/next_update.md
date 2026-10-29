@@ -118,15 +118,15 @@
 | --- | --- |
 | `docs/next/next_update.md`（本文档） | 仅收纳「待办 + 待验证」的活跃任务，按 类别（代码/验证）→ 模块 → 板块/任务 组织 |
 | `docs/next/status.md` | 各待办条目的具体实现步骤（细案），本文档不重复 |
-| `docs/next/Temporarily_not_implemented.md` | 收纳暂不实现/暂不做/挂起项，每条必须附触发条件 |
-| `docs/archive/` | 已完成板块的实现记录归档，命名惯例：按日期（如 `20260929-implementation-records.md`）或按主题/模块（如 `review-implemention-records.md`） |
+| `docs/next/temporarily/` | 收纳暂不实现/暂不做/挂起项（索引 Temporarily_not_implemented.md + temporarily-01~04 正文文件，2026-10-28 拆分），每条必须附触发条件 |
+| `docs/archive/` | 已完成板块的实现记录归档：按模块分子目录（如 `content/`、`review/`），每目录一个同名索引页 + 按板块拆分的板块文件（如 `content/content-09-temp-checklist.md`）；日期型归档（如 `20260929-implementation-records.md`）放 archive/ 根 |
 
 **板块完成后的迁移动作（按顺序执行）**：
 
-1. **实现记录归档**：将该板块的实现步骤/完成记录（原散落在 status.md 或本文档条目内）整理移入 `docs/archive/` 对应归档文档（新板块新建归档文件，遵循上方命名惯例；已有同模块归档则追加章节）。
+1. **实现记录归档**：将该板块的实现步骤/完成记录（原散落在 status.md 或本文档条目内）整理移入 `docs/archive/` 对应归档文档（新模块新建归档子目录 + 同名索引页，遵循上方命名惯例；已有同模块归档则追加进对应板块文件，如临时清单批次追加进 content-09-temp-checklist.md）。
 2. **本文档回填**：将已完成条目从本文档删除（或标注 ✅ 与日期后移除），保持本文档只留活跃待办。
-3. **挂起项转移**：板块中因宿主模块未开发而无法落地的事项（如契约已备但入口未建），移入 `Temporarily_not_implemented.md` 对应模块节，并写明触发条件，供宿主模块开发时迁回本文档。
-4. **预留项登记**：板块规划中明确「暂不实现/暂不做」的事项（含触发条件与决策原因），一并移入 `Temporarily_not_implemented.md`，不在本文档保留。
+3. **挂起项转移**：板块中因宿主模块未开发而无法落地的事项（如契约已备但入口未建），移入 `docs/next/temporarily/` 对应部分文件（代码类挂起进 temporarily-01-code.md，预留/暂不实现进 temporarily-04-deferred.md），并写明触发条件，供宿主模块开发时迁回本文档。
+4. **预留项登记**：板块规划中明确「暂不实现/暂不做」的事项（含触发条件与决策原因），一并移入 temporarily-04-deferred.md，不在本文档保留。
 
 > 纪律：迁移时条目内容原样搬运（含口径修正、注意事项），不压缩关键细节；归档文档与本文档/Temporarily 清单之间用相对路径互链，保证可回溯。
 
@@ -147,7 +147,7 @@
 
 > 板块划分依据：Content_Function_Develop.md / Content-Architecture.md；推进顺序：板块一 → 二 → 三 → 四/五/六（可并行）→ 七 → 八（依赖 review 板块三 3-5 消费端联调）
 
-> **板块一~八已全部完成并归档**（2026-10-20）：实现记录见 [content-implemention-records.md](../archive/content-implemention-records.md)（含 next_update 条目摘要与 status.md 细案，原样搬运）
+> **板块一~八已全部完成并归档**（2026-10-20）：实现记录见 [content-implemention-records.md](../archive/content/content-implemention-records.md)（含 next_update 条目摘要与 status.md 细案，原样搬运；2026-10-28 拆分为九板块文件，本页为索引）
 
 ------------
 

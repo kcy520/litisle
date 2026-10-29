@@ -75,4 +75,10 @@ public class ArticleDetailVO implements Serializable {
 
     /** 最后更新时间 */
     private LocalDateTime updateTime;
+
+    /**
+     * 当前查看者是否已收藏该文章
+     * <p>true-已收藏 false-未收藏；匿名查看恒为 false；由 getDetail 末尾回填（详情单条查询无 N+1）</p>
+     */
+    private Boolean favorited;
 }

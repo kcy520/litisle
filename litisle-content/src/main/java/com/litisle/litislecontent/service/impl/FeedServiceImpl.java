@@ -15,18 +15,22 @@ import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.enums.ZoneEnum;
 import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.service.FeedService;
+import com.litisle.litislecontent.service.support.FeedHotRankSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
- * 推荐流域实现（缓存三防 + 展示前回查，[7.1]/[7.2]）。
+ * 推荐流域实现（缓存三防 + 展示前回查 + 热度榜切流，[7.1]/[7.2]）。
  */
 @Service
 @Slf4j
@@ -40,6 +44,9 @@ public class FeedServiceImpl implements FeedService {
     private final RedisUtil redisUtil;
 
     private final ContentProperties contentProperties;
+
+    /** 热度榜支撑（阶段14：榜序取数/灌榜，榜空降级时间倒序兑底） */
+    private final FeedHotRankSupport feedHotRankSupport;
 
     /** 空结果短缓存 TTL（秒）：防穿透专用，远短于正常 TTL（[7.1] 缓存三防之二） */
     private static final long EMPTY_CACHE_TTL_SECONDS = 60;
@@ -119,14 +126,33 @@ public class FeedServiceImpl implements FeedService {
     }
 
     /**
-     * 缓存回源查询：zone 1/2 聚合候选（status=2 已发布 + visibility=1 公开 + 未软删）发布时间倒序
-     * （阶段12：zone=3 分区已取消，推荐流改为 zone 1/2 聚合视图；排序方式另立项评估）
+     * 缓存回源查询（阶段14 已切流）：hot.enabled 且榜非空时优先读热度榜
+     * （FeedHotRankSupport#topArticleIds），榜空（灌榜任务未跑/已过期）或开关关闭时
+     * 降级时间倒序直查兑底（兑底契约，防榜异常空流）
      *
      * @param pageNo   页码（1 起）
      * @param pageSize 页大小
      * @return 推荐流条目列表
      */
     private List<FeedItemVO> loadFromDb(int pageNo, int pageSize) {
+        // 热度榜优先：开关开启且榜非空走榜序；榜空/开关关闭降级时间倒序（兑底契约，防榜异常空流）
+        if (contentProperties.getFeed().getHot().isEnabled()) {
+            List<Long> hotIds = feedHotRankSupport.topArticleIds(pageNo, pageSize);
+            if (!hotIds.isEmpty()) {
+                return loadByHotRank(hotIds);
+            }
+        }
+        return loadByTimeDesc(pageNo, pageSize);
+    }
+
+    /**
+     * 时间倒序直查兑底：zone 1/2 聚合候选（status=2 已发布 + visibility=1 公开 + 未软删）发布时间倒序
+     *
+     * @param pageNo   页码（1 起）
+     * @param pageSize 页大小
+     * @return 推荐流条目列表
+     */
+    private List<FeedItemVO> loadByTimeDesc(int pageNo, int pageSize) {
         // 用 Page 替代手拼 LIMIT/OFFSET：分页插件标准方式（searchCount=false 不触发 COUNT），
         // 偏移量由插件按 pageNo/pageSize 统一计算，消除字符串拼接与手算偏移的维护风险
         List<Article> articles = articleMapper.selectList(Page.of(pageNo, pageSize, false),
@@ -136,7 +162,38 @@ public class FeedServiceImpl implements FeedService {
                         .eq(Article::getVisibility, VisibilityEnum.PUBLIC)
                         .eq(Article::getDelFlag, DelFlag.NOT_DELETED)
                         .orderByDesc(Article::getCreateTime));
-        return articles.stream().map(article -> new FeedItemVO()
+        return articles.stream().map(this::toFeedItem).toList();
+    }
+
+    /**
+     * 按热度榜组装推荐流条目。
+     *
+     * 作用：
+     * 依据榜上文章 ID 批量回查明细，按 ZSet 返回的名次顺序组装（in 查询不保序，必须重排）；
+     * 榜内文章若在灌榜间隙被物理删除则缺失跳过（正常下架走软删不会缺失）。
+     *
+     * @param hotIds 榜上文章 ID（按热度分倒序）
+     * @return 按榜序排列的推荐流条目
+     */
+    private List<FeedItemVO> loadByHotRank(List<Long> hotIds) {
+        // 批量回查明细（勿逐条查，防 N+1），转 Map 供榜序重排
+        Map<Long, FeedItemVO> voMap = articleMapper.selectList(new LambdaQueryWrapper<Article>()
+                        .in(Article::getId, hotIds))
+                .stream()
+                .map(this::toFeedItem)
+                .collect(Collectors.toMap(FeedItemVO::getArticleId, Function.identity()));
+        // 按榜序重排（in 查询不保序，榜单名次即展示顺序）；缺失文章跳过
+        return hotIds.stream()
+                .map(voMap::get)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    /**
+     * Article 转 FeedItemVO（时间倒序/热度榜两条回源链路共用装配）
+     */
+    private FeedItemVO toFeedItem(Article article) {
+        return new FeedItemVO()
                 .setArticleId(article.getId())
                 .setTitle(article.getTitle())
                 .setSummary(article.getSummary())
@@ -144,8 +201,7 @@ public class FeedServiceImpl implements FeedService {
                 .setAuthorId(article.getAuthorId())
                 .setViewCnt(article.getViewCnt())
                 .setLikeCnt(article.getLikeCnt())
-                .setPublishTime(article.getCreateTime()))
-                .toList();
+                .setPublishTime(article.getCreateTime());
     }
 
     /**

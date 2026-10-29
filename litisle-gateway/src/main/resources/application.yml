@@ -163,6 +163,14 @@ litisle:
         - /api/content/article/*     # 公开文章详情（Sa-Token 匹配器不支持 Spring 的 {id} 语法，改用 * 通配）
         - /api/content/article/hot   # 热门文章
         - /api/content/category/**   # 文章分类列表
+        # 书籍阅读三读端点（阶段17；Sa-Token 用 * 单段通配，不支持 Spring {id} 语法）
+        - /api/content/book/*          # 书籍详情（匿名可读公开书籍）
+        - /api/content/book/*/chapters # 章节列表
+        - /api/content/book/*/chapter/* # 章节详情
+        # 【安全项】白名单只跳过网关 JWT 校验；书籍写端点（PUT/DELETE/POST chapter）
+        # 仍由 Controller @SaCheckLogin + Service owner 校验保护，通配不放宽写权限
+        # 注意：/api/content/book/* 会覆盖 /api/content/book/xxx 一层路径，
+        # 但不会覆盖 /api/content/book/xxx/chapters 等多层路径（各条目已单独列出）
 
         # ---------- 用户服务（公开信息） ----------
         - /api/user/public/**        # 公开用户信息（作者主页等）

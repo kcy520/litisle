@@ -27,8 +27,11 @@ public final class ContentLimitConstant {
     /** 发布前预检（60s 10 次） */
     public static final int PREVIEW_CHECK_MAX_COUNT = 10;
 
-    /** 阅读进度上报（60s 2 次，配合前端 30s 节流；仅前进不回退在业务层校验） */
-    public static final int PROGRESS_MAX_COUNT = 2;
+    /** 阅读历史上报（60s 2 次，配合前端 30s 节流；仅前进不回退在业务层校验） */
+    public static final int HISTORY_MAX_COUNT = 2;
+
+    /** 收藏/取消收藏（60s 20 次，防刷收藏写库；取消收藏同限频） */
+    public static final int FAVORITE_MAX_COUNT = 20;
 
     /** 推荐流（60s 60 次，读多） */
     public static final int FEED_MAX_COUNT = 60;

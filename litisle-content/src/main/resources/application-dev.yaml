@@ -17,7 +17,7 @@ litisle:
   db:
     host: litisle-mysql
     port: 3306
-    # content 业务库（article/article_draft/article_image/article_tag/book/book_chapter/reading_progress/tag）
+    # content 业务库（article/article_draft/article_image/article_tag/book/book_chapter/reading_history/tag）
     database: litisle_content
     username: test_k.1
     password: ${COMPOSE_MYSQL_PASSWORD:123}

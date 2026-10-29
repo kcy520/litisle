@@ -6,8 +6,10 @@ import lombok.experimental.Accessors;
 import java.io.Serializable;
 
 /**
- * 书籍章节 VO（BookDetailVO.chapters 列表项；章节正文即文章）
- * <p>title 为章节对应文章的标题（落地时与 ArticleMapper 批量 in 查询聚合，防 N+1）</p>
+ * 书籍章节 VO（阶段17：章节列表接口 GET /book/{id}/chapters 出参项；章节正文即文章）
+ * <p>title 为章节对应文章的标题（SQL join article 投影）；
+ * 「上次读到」标记不由列表逐项回填——前端用书籍详情的 lastReadChapterId 与本列表 chapterId 对比高亮，
+ * 避免额外字段与查询</p>
  *
  * @author litisle
  */

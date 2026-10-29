@@ -1,10 +1,4 @@
-# 待办与暂不实现清单（合并版）
-
-> 用途：收纳全项目待办事项，按「类别 → 模块 → 任务」三级组织。
-
-> 合并来源：`docs/temp/temp.md`（原审核模块暂不实现清单）+ `docs/next/next_update.md` 全部待办，已去重整理。
-
-> 整理日期：2026-10-17；已实现部分归档见 `docs/archive/review-implemention-records.md`、`docs/archive/20260929-implementation-records.md`。
+> **拆分归档**：本文件拆分自同目录索引页 [Temporarily_not_implemented.md](Temporarily_not_implemented.md)，原单文件对应部分原样搬运（2026-10-28 拆分，内容零修改），各部分入口见索引页。
 
 ## 代码部分
 
@@ -148,132 +142,10 @@ MessageRecallGate.recall / StrangerQuotaGate.tryAcquire 契约已备；发送链
 
 ⏳ 下游消费侧职责：review 侧仅发 appeal.result 触发信号已落地；file 侧 safe_flag 0→1+unquarantine 已随基线落地，content/message 随对应模块开发回接。触发条件：content / social 正式开发时。
 
-> 板块三/四挂起项说明：契约层已全部落地 litisle-api；以上仅剩入口嵌入，触发条件同 3-5；细案步骤见 `docs/archive/review-implemention-records.md` 板块四实施细案。
+> 板块三/四挂起项说明：契约层已全部落地 litisle-api；以上仅剩入口嵌入，触发条件同 3-5；细案步骤见 `docs/archive/review/review-04-publish-auth.md` 板块四实施细案。
 
 ### litisle-ai 模块
 
 #### chat 端点（POST /api/feign/ai/chat，OpenAI 兼容转发）
 
 契约层已就绪（AiClient + AiChatRequestDTO/AiChatResponseDTO + AiClientFallbackFactory fail-fast + 自动装配注册，2026-10-06）；本端点暂不实现（用户决策：LLM 审核留注释占位，AiClient Javadoc 已标 TODO）。base-url/api-key/model 走 Nacos 外置，禁提交密钥；超时对齐 feign.client.config.litisle-ai.read-timeout。触发条件：板块三 3-1 联调前，或 AI 侧 RAG 建设启动时一并落地。
-
-## 验证部分
-
-### 网关 / 认证模块（限流故障降级本地兜底，已实现 2026-09-28）
-
-#### 停 Redis 一次合并验证
-
-受限接口应正常放行且出现「进入降级」日志，第二次起走本地计数；同时观察登录防爆破「本地兜底降级」日志；Redis 恢复后冷却期探测成功，日志出现「恢复」回归 Redis 计数。（可同步用 Prometheus 观察：redis_guard_degraded 0→1→0，Alertmanager 告警 inactive→pending→firing→resolved，一次演练同时验收告警链路。）
-
-> 设计思路 / 实现细节 / 完成记录见 `docs/archive/20260929-implementation-records.md` §一。
-
-### Sentinel（业务模块限流熔断）
-
-#### Dashboard 手动触发降级 / 熔断日志观察 + Nacos 规则热生效确认
-
-在 Dashboard 手动触发降级 / 观察熔断日志；确认 Dashboard 改 Nacos 规则热生效。
-
-## 部署部分（生产上线前必做）
-
-### 通用（全服务）
-
-#### 监控端口网络隔离（监控链路安全前提）
-
-各服务 8xxx 端口的 /actuator/** 免登录放行的是「路径」而非「来源 IP」，生产环境必须通过防火墙/安全组确保业务端口仅对内网开放（Prometheus 所在网段可达即可，公网不可达）；或升级为 management.server.port 独立管理端口 + 网络层仅放行 Prometheus IP 段（与网关 8081 方案同一套纪律）。开发环境单机直连现状合规，无需处理。
-
-#### Sentinel 规则操作纪律
-
-Sentinel Dashboard 改规则只推内存、重启丢——操作纪律：规则增删改一律去 Nacos 控制台。
-
-### file 文件模块
-
-#### replication ≥ 010 + Volume 多机
-
-用户上传原件不可再生，单副本（replication=001）不达生产标准；⚠️ 副本策略只影响新写入 volume，存量不自动补副本，须在首次生产写入前定稿。
-
-#### Filer 元数据切 MySQL
-
-当前 leveldb 与数据同盘，盘坏 = 目录全丢（比丢文件更致命）；复用已有 MySQL 实例。开发期 leveldb 无所谓。
-
-#### instance-count 动态化（触发条件：file 服务多实例部署上线时）
-
-接 Nacos 服务发现自动计算实例数（扩缩容免人工同步）。Micrometer 指标埋点与暴露已于 2026-09-29 落地并验证通过（详见 commom-des.md §3.5），剩余 Prometheus/Alertmanager 为部署侧工作，零代码改动。
-
-## 暂不实现（预留项，附触发条件）
-
-### review 审核模块
-
-#### 云 API 生产适配器
-
-生产切换时落地（pom runtime scope + Nacos 配置 AK/SK 走环境变量）。
-
-#### 图文组合审核 / OCR 多模态盲区（§2.9）
-
-二期；此前由人审详情页「图文并排核对」兜底。
-
-#### 撤销改判公示（§4.2.3）
-
-二期，仅公示脱敏摘要，严禁回显 appeal.content/appellant_id/reporter_id。
-
-#### 视频 / 音频审核
-
-一期显式不支持，业务出现前须先补 SPI 方法与适配器。
-
-### content 内容模块
-
-#### 文章分类：Book 链路枚举改造待确认（迁自 docs/temp/temp.md，2026-10-23 归档）
-
-Book 分类集合是否与文章一致（DB default '小说'）？一致 → 复用 ArticleCategoryEnum；不一致 → 新建 BookCategoryEnum 后再改 BookSaveDTO/Book/BookDetailVO/BookServiceImpl。阻塞 Book 链路，不阻塞文章链路（已枚举化落地，见归档板块九）。触发条件：Book 链路改造时。
-
-#### 方案B 软删重发互动数据悬空兑底（迁自 temp.md 阶段7）
-
-已发布文章改正文=软删旧文+重发新文（新 articleId），点赞/评论挂旧 articleId → 重发后旧互动悬空。默认口径「接受丢失」（正文已变，旧互动语义失效）；若产品要求元数据级编辑保留互动，再启用 social 侧迁移（旧→新 articleId 批量改绑）。触发条件：方案B 重发事件（如 content.replaced）落地 / social 立项时。
-
-#### social 点赞/评论随文隐藏与悬空兑底（迁自 temp.md 阶段7，设计意图固化）
-
-①social 订阅 content.unpublished（reason=1），文章维度点赞/评论树置「随文隐藏」（软删标记不物理删，法务取证对齐），列表按隐藏状态过滤；②点赞列表/评论入口反查 content 详情，ARTICLE_NOT_FOUND 时静默过滤（双保险：即使事件丢失/乱序也不感知悬空）；③ContentUnpublishedEvent.bizType=2 评论扩展位复用同一事件口径，评论软删时其下点赞连带隐藏。触发条件：social 模块立项随设计文档固化。
-
-#### social 回写计数对已删文章吞 ARTICLE_NOT_FOUND（迁自 temp.md 阶段8④）
-
-updateCounters 带 del_flag=0 条件 rows=0 抛错；约定 social 回写失败时对 ErrorCode=ARTICLE_NOT_FOUND 记 info 后视为成功（文章已软删计数无意义），其余错误走重试/DLQ。触发条件：social 回写落地时。
-
-#### FeedItemVO.commentCnt 填充（迁自 temp.md 阶段8③）
-
-字段已补（对齐 Card/Detail 三计数口径），填充值未接。触发条件：social 点赞/评论落地后 feed 聚合链路补充。
-
-#### Book.coverFileId 封面引用管理同病（迁自 temp.md 阶段8②）
-
-文章封面已并入阶段6方案C 引用管理（COVER bizType，发布/编辑/软删/草稿清理全链路 bind/unbind），Book.coverFileId 未接入。触发条件：随「Book 分类确认」一并处理。
-
-
-
-#### visibility=3 取关失效联动（方向四 P1-B）
-
-social 取关后 content 侧关注回查短 TTL 缓存（≤60s）内仍判关注者放行正文，属可接受弱一致性（status.md 4.1 已定口径）；follow.changed 失效事件联动留二期。触发条件：social 模块开发时评估事件联动收益与成本。
-
-#### 生产端事件发送失败重投载体（方向六 P2-B）
-
-afterCommit 发事件失败时通用纪律仅定"失败重投"口径，实现载体未定（本地消息表 vs 定时补偿扫描卡 status=1 超时文章重发 submitted）——不定则 MQ 抖动窗口内文章永久卡待审无人消费（review sweeper 只管 status=0 任务，不管 article 已落 1 但事件丢失的场景）。触发条件：板块三 3.5 事件收口实现时定夺。
-
-#### search 建索引数据源契约（ES 检索联动缺口）
-
-search 消费 content.published 建 article_idx/book_idx（Sql-Document §九：标题^4/标签^3/摘要^2/正文/dense_vector）需回查标题/摘要/正文/标签/作者聚合数据——published 事件体字段未定义、ContentClient 现有三端点（getContent/listArticleImages/updateCounters）分别服务 review/social，search 侧复用 getContent 还是新增带标签聚合的 detail 回查端点未定；content 文档按职责边界只保证"有契约可回查"，索引字段映射属 search 模块设计决策，不提前替其定死。触发条件：litisle-search 模块开发时定夺（与 search 索引 mapping 设计同步收口）。
-
-### file 文件模块
-
-#### CDN 接入
-
-public-url-base 已分离，届时仅改配置；随审核图片外链需求一并评估。
-
-#### disk 冷热分层（`-disk=ssd/hdd` + `010` 规范）
-
-生产 Volume 多机时一并设计，不单独排期。
-
-#### 存储 TTL
-
-quarantine 保留期（需按 appeal 待裁决态顺延）与对账清理（需 file_ref 活跃引用前置校验）均为业务条件删除，不适用存储 TTL；二期大文件分片的半途清理走 S3 桶生命周期规则（已定双保险方案）。
-
-### 公共库模块
-
-#### common-redis 不引 Sentinel（保持轻量，仍用自研 LocalRateLimiter）
-
-业务模块已引 Sentinel（Nacos 数据源规则已落地）；触发条件与落位见 `docs/archive/20260929-implementation-records.md` §一·五（库模块当前不动）。

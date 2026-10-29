@@ -10,7 +10,7 @@ import java.io.Serializable;
 /**
  * 章节挂载入参（BookService#addChapter）
  * <p>(book_id, chapter_no) 唯一键防重：序号冲突由业务层拒绝；文章归属本人校验防挂他人文章；
- * 阅读进度指向被移除章节时按最新章容错（BusinessService 侧兜底）</p>
+ * 阅读历史指向被移除章节时 chapter_id 悬空，由阅读历史列表容错展示（章节信息留空）</p>
  *
  * @author litisle
  */

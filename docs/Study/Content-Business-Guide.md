@@ -372,7 +372,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >   作用：\
 >   两表持久层 Mapper，图片按文章反查供聚合判定与配图恢复使用
 
-## 四、书籍合集与阅读进度（BookServiceImpl + ReadingProgressServiceImpl）
+## 四、书籍合集与阅读历史（BookServiceImpl + ReadingHistoryServiceImpl）
 
 **功能描述——详细版：**
 
@@ -384,7 +384,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 **功能描述：**
 
 > - 建书、章节挂载/卸载（仅本人文章、序号唯一）、书籍状态流转（连载中/完结/下架）
-> - 阅读进度上报：按书按人唯一、节流限频、仅前进不回退
+> - 阅读历史上报：单表双类型按人按对象唯一、节流限频、PUT 仅前进不回退；阅读文章详情即自动落历史
 
 **详细版**：
 
@@ -392,14 +392,14 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
   `uk(book_id, chapter_no)` 章节序号不重复、序号即排序键；\
   章节挂载校验文章归属本人（BOOK\_CHAPTER\_MISMATCH 防伪造跨书章节）；\
   book.status 0-连载中/1-已完结/2-下架
-- reading\_progress：\
-  `uk(user_id, book_id)` UPSERT 冲突转 update；\
-  章节归属校验 + ≥30s 节流（@RateLimiter 2/60s 配合前端）；\
-  **仅前进不回退**
+- reading\_history（单表双类型）：\
+  书籍历史 biz\_type=1（含最后章节）/ 独立文章历史 biz\_type=2，`uk_user_biz(user_id, biz_type, biz_id)` 每人每类型每对象一行；\
+  PUT 上报：章节归属校验 + @RateLimiter 2/60s 配合前端 + **仅前进不回退**；\
+  阅读即落历史：文章详情命中自动落（归属判定：无挂载→文章历史 / 唯一挂载→书籍历史 / 多书歧义不自动落），自动路径按「最后一次阅读」刷新可回退
 
 **通俗版**：\
 书籍是文章的「目录容器」，同本书章节号不能重复、序号就是排序，挂进书的章节必须是自己写的文章。\
-阅读进度只记「看到哪一章」，30 秒最多上报一次，且只能往后翻不能往回退。
+阅读历史分书籍历史（记住你看到哪一章，30 秒最多上报一次、只能往后翻不能往回退）和文章历史（读过的文章详情就自动记下），同一本书/文章只记最新一次。
 
 代码部分:
 
@@ -407,18 +407,74 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >   litisle\_content\service\BookService.java、service\impl\BookServiceImpl.java：\
 >   作用：\
 >   书籍/章节管理——建书、章节挂载（校验文章归属本人+序号唯一）、书籍状态流转（连载中/完结/下架）
-> - ReadingProgressService.java / ReadingProgressServiceImpl.java：\
->   litisle\_content\service\ReadingProgressService.java、service\impl\ReadingProgressServiceImpl.java：\
+> - ReadingHistoryService.java / ReadingHistoryServiceImpl.java：\
+>   litisle\_content\service\ReadingHistoryService.java、service\impl\ReadingHistoryServiceImpl.java：\
 >   作用：\
->   阅读进度——UPSERT 冲突转更新、章节归属校验、仅前进不回退
-> - Book.java / BookChapter.java / ReadingProgress.java：\
->   litisle\_content\domain\entity\Book.java、entity\BookChapter.java、entity\ReadingProgress.java：\
+>   阅读历史——单表双类型 UPSERT、章节归属校验、PUT 仅前进不回退、阅读即落历史、历史列表分页装配
+> - Book.java / BookChapter.java / ReadingHistory.java：\
+>   litisle\_content\domain\entity\Book.java、entity\BookChapter.java、entity\ReadingHistory.java：\
 >   作用：\
->   书籍容器、章节关联（book\_id+chapter\_no 唯一）、阅读进度（user\_id+book\_id 唯一）三表实体
-> - BookController.java / ReadingProgressController.java：\
->   litisle\_content\controller\BookController.java、controller\ReadingProgressController.java：\
+>   书籍容器、章节关联（book\_id+chapter\_no 唯一）、阅读历史（user\_id+biz\_type+biz\_id 唯一）三表实体
+> - ReadingHistoryItemVO.java / ReadingHistorySupport.java：\
+>   litisle\_content\domain\vo\ReadingHistoryItemVO.java、service\support\ReadingHistorySupport.java：\
+>   作用：\
+>   历史列表项出参（对象+章节信息装配）、文章详情命中自动落历史（fail-safe）
+> - BookController.java / ReadingHistoryController.java：\
+>   litisle\_content\controller\BookController.java、controller\ReadingHistoryController.java：\
 >   作用：\
 >   对应 HTTP 入口
+
+### 收藏（一期 content 临时承载，阶段16）
+
+**功能描述——详细版：**
+
+- 收藏/取消收藏：文章与书籍两类目标，`uk_user_target(user_id, target_type, target_id)` 幂等——重复收藏/未收藏取消均按成功处理
+- 写入前目标校验：文章对齐详情可见性口径（未删 + 非本人须发布态 + PUBLIC 放行/PRIVATE 拒/FOLLOWERS 回查关注缓存，social 不可用 fail-fast）；书籍未删 + 下架仅作者可收藏——不允许收藏自己看不到的内容
+- 我的收藏：create\_time 倒序分页，targetType 三态（全部/文章/书籍），多态 join SQL 层装配标题/封面/摘要/作者
+- 收藏状态：GET /check 登录查询；文章详情 VO 直接回填 favorited（列表不逐条回填防 N+1）
+
+**功能描述——通俗版：**
+
+看到喜欢的文章或书点个「收藏」，再点一次取消；「我的收藏」里能翻到自己收藏过的全部内容（被删的不显示，转私密的还留着但点开要过详情那关）。
+
+> 代码清单：
+> - FavoriteService.java / FavoriteServiceImpl.java / FavoriteStateSupport.java：\
+>   litisle\_content\service\FavoriteService.java、service\impl\FavoriteServiceImpl.java、service\support\FavoriteStateSupport.java：\
+>   作用：\
+>   收藏——幂等收藏/取消、目标可见性校验、我的收藏分页、状态查询单点收口
+> - Favorite.java / FavoriteMapper.java / FavoriteTargetTypeEnum.java：\
+>   litisle\_content\domain\entity\Favorite.java、mapper\FavoriteMapper.java、enums\FavoriteTargetTypeEnum.java：\
+>   作用：\
+>   收藏实体（uk\_user\_target）、多态 join 分页 SQL、目标类型白名单
+> - FavoriteController.java：\
+>   litisle\_content\controller\FavoriteController.java：\
+>   作用：\
+>   对应 HTTP 入口（收藏/取消/列表/状态，登录 + 20/60s 写限频）
+
+与 social 收藏夹的关系：本节是单层收藏（无分组），收藏夹分组/佳句收藏归 social；social 立项后 favorite 迁移 favorite\_item 或另定合并方案。
+
+### 书籍阅读闭环（阶段17）
+
+**功能描述——详细版：**
+
+- 书籍详情（GET /book/{id}）：元数据 + 可见章节数 + 首章/最新章定位 + 上次阅读信息（登录且历史章节当前可见才回填）+ 收藏状态；匿名可读公开书籍
+- 章节列表（GET /book/{id}/chapters）：chapter\_no 升序分页（默认 50/页上限 100），SQL 层过滤「已发布+未删+查看者可见」；「上次读到」高亮由前端用详情 lastReadChapterId 对比
+- 章节详情（GET /book/{id}/chapter/{chapterId}）：正文复用文章可见性判定链 + 相邻章导航（prev/next 随详情返回，SQL 按 visibilities 过滤自动跳过不可见章）；成功后触发浏览计数（所有访问者，按文章维度）+ 书籍阅读历史（登录非作者，uk\_user\_biz 幂等，fail-safe）
+- 可见性范围：作者 [1,2,3] 全可见 / 匿名 [1] / 登录非作者按书内是否有关注者章节决定是否回查关注关系，social 不可用降级仅公开
+
+**功能描述——通俗版：**
+
+进书页能看到「继续阅读 第N章」（上次读到哪从第几章继续）；目录按章节号排好分页给；读某章直接看正文，页底「上一章/下一章」直接点（被删的或你没权限看的章节自动跳过）；你看过的每一章都默默记进阅读历史。
+
+> 代码清单：
+> - BookChapterDetailVO.java / BookReadSupport.java：\
+>   litisle\_content\domain\vo\BookChapterDetailVO.java、service\support\BookReadSupport.java：\
+>   作用：\
+>   章节详情出参（书籍上下文+正文+相邻章导航）与阅读副作用收口（计数+历史，fail-safe）
+> - BookChapterMapper 新方法（selectVisibleChapterPage 等 8 个）：\
+>   litisle\_content\mapper\BookChapterMapper.java：\
+>   作用：\
+>   统一 join article 过滤「已发布+未删+visibility IN」的章节分页/首尾章/相邻章/关注章节存在性查询
 
 ## 五、标签域（TagServiceImpl + TagCountReconcileJob）
 

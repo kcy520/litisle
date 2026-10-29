@@ -71,8 +71,8 @@ Spring Cloud版本：2025.0.0.0
 |------|------|
 | Architecture/ | 各模块架构文档：Api-Architecture.md（契约库）· Auth-Architecture.md（认证）· User-Architecture.md（用户）· Gateway-Architecture.md（网关）· File-Architecture.md（文件）· Review-Architecture.md（审核：漏斗/状态机/机审人审）· commom-des.md（common 子模块说明） |
 | index/ | 各模块速查表（写码/联调前先查，免逐个 Read）：api-index · auth-index · common-index · file-index · gateway-index · review-index · user-index |
-| next/ | 任务清单与进度看板：next_update.md（开发清单细案，只读勿改）· status.md（进度看板）· Temporarily_not_implemented.md（暂不实现项） |
-| archive/ | 已实现清单归档：review-implemention-records.md（审核板块五/六/七落地记录）· 20260929-implementation-records.md（限流降级等决策回溯） |
+| next/ | 任务清单与进度看板：next_update.md（开发清单细案，只读勿改）· status.md（进度看板）· temporarily/（暂不实现项：索引 Temporarily_not_implemented.md + temporarily-01~04 正文文件，2026-10-28 拆分） |
+| archive/ | 已实现清单归档（按模块子目录，每目录一个索引页 + 按板块拆分的文件）：content/（索引 content-implemention-records.md + content-01~09 板块文件，板块九= temp.md 清单阶段1~17）· review/（索引 review-implemention-records.md + review-03~07 板块文件）· 20260929-implementation-records.md（限流降级等决策回溯） |
 | overall_documen/ | 总体文档：Design-Document.md（总体+分模块架构，文本量大按需查阅）· Function-Document.md（功能设计）· System-architecture-design.md（common 子模块拆分） |
 | temp/ | 临时文件存储（Review-Business-Guide.md） |
 | cmd_index/ | 自用命令速查（cmd_cod.md，不重要） |
@@ -101,3 +101,4 @@ mvn -pl litisle-common -am clean compile
 5. 涉及功能边界 → 查 `overall_documen/Function-Document.md`
 6. 总体或某模块完整架构 → 按需查 `overall_documen/Design-Document.md`（量大，避免全量读取）
 7. 写码 / 联调前先查 `index/` 速查表（api / auth / common / file / gateway / review / user），免逐个 Read；审核进度看 `next/status.md`，网关路由与匿名白名单看 `Architecture/Gateway-Architecture.md`
+8. 涉及暂不实现/挂起项/预留项（每条附触发条件）→ 查 `next/temporarily/`（索引 Temporarily_not_implemented.md + temporarily-01~04 正文文件；temp 清单历批迁入项在 temporarily-04-deferred.md content 节）

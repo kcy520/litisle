@@ -42,7 +42,7 @@ litisle:
   db:
     host: localhost
     port: 3307
-    # content 业务库（article/article_draft/article_image/article_tag/book/book_chapter/reading_progress/tag）
+    # content 业务库（article/article_draft/article_image/article_tag/book/book_chapter/reading_history/tag）
     database: litisle_content
     username: test_k.1
     # 本地环境字面值（与 compose .env 中 COMPOSE_MYSQL_PASSWORD 保持一致，改 .env 时需同步此处）

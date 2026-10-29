@@ -481,6 +481,84 @@ public class RedisUtil {
     }
 
     /**
+     * 批量写入 ZSet 成员（排行榜全量灌榜场景）
+     *
+     * @param key    ZSet 的 Key
+     * @param scores 成员→分数映射
+     * @return 写入成员数（-1=Redis 异常，调用方按本轮失败处理）
+     */
+    public long zAddBatch(String key, Map<Object, Double> scores) {
+        try {
+            Set<ZSetOperations.TypedTuple<Object>> tuples = new HashSet<>();
+            scores.forEach((member, score) -> tuples.add(ZSetOperations.TypedTuple.of(member, score)));
+            Long count = redisTemplate.opsForZSet().add(key, tuples);
+            return count == null ? 0 : count;
+        } catch (Exception e) {
+            log.error("Redis zAddBatch 失败: key={}", key, e);
+            return -1;
+        }
+    }
+
+    /**
+     * 移除 ZSet 中指定排名区间的成员（按分数升序排名；排行榜增量灌榜后榜尾裁剪场景）
+     *
+     * @param key   ZSet 的 Key
+     * @param start 起始排名（0 开始，含）
+     * @param end   结束排名（含；-1 表示到末尾）
+     * @return 移除的成员数（-1=Redis 异常，调用方按失败处理）
+     */
+    public long zRemoveRangeByRank(String key, long start, long end) {
+        try {
+            Long count = redisTemplate.opsForZSet().removeRange(key, start, end);
+            return count == null ? 0 : count;
+        } catch (Exception e) {
+            log.error("Redis zRemoveRangeByRank 失败: key={}", key, e);
+            return -1;
+        }
+    }
+
+    /**
+     * 按分数降序分页取 ZSet 成员（排行榜翻页；保持榜单顺序返回）
+     *
+     * @param key    ZSet 的 Key
+     * @param offset 起始偏移（从 0 开始）
+     * @param count  取多少个
+     * @param <T>    元素类型
+     * @return 成员列表（异常返回空列表）
+     */
+    @SuppressWarnings("unchecked")
+    public <T> List<T> zReverseRangePage(String key, long offset, long count) {
+        try {
+            Set<Object> range = redisTemplate.opsForZSet().reverseRange(key, offset, offset + count - 1);
+            List<T> result = new ArrayList<>();
+            if (range != null) {
+                range.forEach(m -> result.add((T) m));
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("Redis zReverseRangePage 失败: key={}", key, e);
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * 将源键重命名为目标键（原子换榜：灌榜先写影子键，成功后 rename 顶替在线榜，无空榜窗口）
+     *
+     * @param sourceKey 源键
+     * @param targetKey 目标键
+     * @return true=重命名成功
+     */
+    public boolean rename(String sourceKey, String targetKey) {
+        try {
+            redisTemplate.rename(sourceKey, targetKey);
+            return true;
+        } catch (Exception e) {
+            log.error("Redis rename 失败: {} -> {}", sourceKey, targetKey, e);
+            return false;
+        }
+    }
+
+    /**
      * 获取元素的分数
      * 
      * @param key   ZSet 的 Key

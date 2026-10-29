@@ -39,6 +39,8 @@ import com.litisle.litislecontent.domain.entity.ArticleDraft;
 import com.litisle.litislecontent.domain.entity.ArticleImage;
 import com.litisle.litislecontent.domain.router.ZoneRouter;
 import com.litisle.litislecontent.domain.statemachine.ArticleStateMachine;
+import com.litisle.litislecontent.enums.FavoriteTargetTypeEnum;
+import com.litisle.litislecontent.service.support.FavoriteStateSupport;
 import com.litisle.litislecontent.domain.vo.ArticleCardVO;
 import com.litisle.litislecontent.domain.vo.ArticleDetailVO;
 import com.litisle.litislecontent.domain.vo.ArticleImageVO;
@@ -53,6 +55,7 @@ import com.litisle.litislecontent.mq.ContentEventProducer;
 import com.litisle.litislecontent.service.ArticleService;
 import com.litisle.litislecontent.service.support.ArticleImageRefSupport;
 import com.litisle.litislecontent.service.support.ArticleImageRenderSupport;
+import com.litisle.litislecontent.service.support.PublishDraftSnapshotSupport;
 import com.litisle.litislecontent.utils.LogSanitizeUtil;
 import com.litisle.litislecontent.utils.ArticleHtmlSanitizer;
 import lombok.RequiredArgsConstructor;
@@ -126,6 +129,12 @@ public class ArticleServiceImpl implements ArticleService {
     /** 关注关系回查缓存（[4.1] visibility=3：短 TTL 缓存 + miss 回查 SocialClient，fail-fast） */
     private final FollowRelationCache followRelationCache;
 
+    /** 收藏状态查询组件（getDetail 末尾回填 favorited 字段，阶段16） */
+    private final FavoriteStateSupport favoriteStateSupport;
+
+    /** 发布入口草稿快照组件（P1 发布异常保稿：校验前 UPSERT 快照进 article_draft，REQUIRES_NEW 独立事务） */
+    private final PublishDraftSnapshotSupport publishDraftSnapshotSupport;
+
     /**
      * 创建并发布（§2.4 发布编排）：A0 分区权限 → A1 图文同空校验+参数校验 → 内容清洗 →
      * 敏感词同步扫描（严重词拦 70001 / 观察词仅留痕）→ 内容指纹落库（status=1 待审）→ 配图挂到文章下 →
@@ -190,6 +199,18 @@ public class ArticleServiceImpl implements ArticleService {
          */
 
 
+        // 步骤A-（P1 发布异常保稿，方案B）：发布请求携带正文 → 所有校验前先把内容快照进 article_draft 单行表，
+        // 后续任何一步失败（图文校验/图片归属/敏感词/CAS）本次内容必已在草稿，用户不丢稿；
+        // REQUIRES_NEW 独立事务保证主链路失败回滚不连带快照回滚；fail-safe：快照失败仅 warn 不阻断发布主链路；
+        // snapshotDraftId=本次快照实际写入的草稿行ID（null=快照失败），发布建档成功后用于回填 article_id
+        Long snapshotDraftId = null;
+        try {
+            snapshotDraftId = publishDraftSnapshotSupport.snapshotForPublish(dto, authorId);
+        } catch (Exception e) {
+            log.warn("发布入口草稿快照失败（不阻断发布主链路）：authorId={}，draftId={}",
+                    authorId, dto.getDraftId(), e);
+        }
+
         // 步骤A0：分区权限（ZoneRouter 单点收口 [3.3]：zone=2 需 AUTHOR；默认普通分区）
         ZoneEnum zone = dto.getZone() == null ? ZoneEnum.NORMAL : dto.getZone();
         zoneRouter.checkPublishPermission(zone);
@@ -248,6 +269,15 @@ public class ArticleServiceImpl implements ArticleService {
                 .setViewCnt(0L).setLikeCnt(0L).setCommentCnt(0L)
                 .setContentHash(SubmitTextAssembler.contentHash(assembledText));
         articleMapper.insert(article);
+        // 步骤A+（P1 发布回填）：快照草稿行存在 → 回填 article_id，建立草稿与已发布文章的关联标识
+        // （草稿行保留；前端可据 article_id 展示「已发布」或过滤；直发场景快照新建的兜底行不再游离）。
+        // 回填在主事务内：后续任一步失败（免审提示/配图登记/CAS 并发）事务回滚连带回填回滚，
+        // 草稿行回到未关联状态——保证「仅发布成功才带已发布标识」，与 REQUIRES_NEW 已提交的快照内容互不影响
+        if (snapshotDraftId != null) {
+            articleDraftMapper.updateById(new ArticleDraft()
+                    .setId(snapshotDraftId)
+                    .setArticleId(article.getId()));
+        }
         //  发布归属切换（阶段6，决策 D2）：dto.draftId 非空时删草稿维度的旧图行，事务提交后解绑草稿引用
         // （旧列表减新列表：还在沿用的图不解绑；须在 saveArticleImages 前执行，避免误伤同事务新插的文章图行）
         if (hasImg) {
@@ -818,6 +848,9 @@ public class ArticleServiceImpl implements ArticleService {
         if (contentHtml != null && !contentHtml.isEmpty() && !images.isEmpty()) {
             contentHtml = articleImageRenderSupport.renderImages(contentHtml, images);
         }
+        // 收藏状态回填（阶段16）：匿名 false；登录用户 uk 等值查询（详情单条查询，无 N+1 问题）
+        boolean favorited = viewerId != null && favoriteStateSupport.isFavorited(
+                viewerId, FavoriteTargetTypeEnum.ARTICLE.getCode(), articleId);
         return new ArticleDetailVO()
                 .setId(article.getId())
                 .setAuthorId(article.getAuthorId())
@@ -835,7 +868,8 @@ public class ArticleServiceImpl implements ArticleService {
                 .setTagNames(Collections.emptyList())
                 .setImages(images.stream().map(this::toImageVO).collect(Collectors.toList()))
                 .setCreateTime(article.getCreateTime())
-                .setUpdateTime(article.getUpdateTime());
+                .setUpdateTime(article.getUpdateTime())
+                .setFavorited(favorited);
     }
 
     /**
@@ -1062,8 +1096,14 @@ public class ArticleServiceImpl implements ArticleService {
         List<String> fileIds = images.stream().map(ArticleImageDTO::getFileId).toList();
         Map<String, String> shaMap = fileClient.batchGetSha256(fileIds).getData();
         if (shaMap == null || shaMap.size() < fileIds.stream().distinct().count()) {
-            // 指纹缺一不可（缺失说明文件元数据是脏数据或文件已删，聚合结果不完整），有问题立刻报错拒绝发布
-            throw new BizException(ErrorCode.ARTICLE_IMG_REFUSED);
+            // 指纹缺一不可（缺失说明文件元数据是脏数据或文件已删，聚合结果不完整），有问题立刻报错拒绝发布；
+            // 报错携带缺失的 fileId 列表供前端定位（P1 发布异常保稿 2026-10-28）
+            List<String> missingFileIds = fileIds.stream()
+                    .filter(id -> shaMap == null || !shaMap.containsKey(id))
+                    .distinct()
+                    .toList();
+            throw new BizException(ErrorCode.ARTICLE_IMG_REFUSED,
+                    String.format(ContentBizConstant.IMG_HASH_MISSING_MSG, String.join(",", missingFileIds)));
         }
         // sha256 排序拼接后整体再做一次 SHA-256（与 LastHashExemptChecker/review 侧用同一套聚合规则）
         String concatenated = shaMap.values().stream().sorted().collect(Collectors.joining());

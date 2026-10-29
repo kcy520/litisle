@@ -22,9 +22,6 @@ public enum StorageBizTypeEnum implements DictEnum {
     /** 头像，默认 PUBLIC（直链，CDN 友好） */
     AVATAR("avatar", "头像"),
 
-    /** 封面，默认 PUBLIC */
-    COVER("cover", "封面"),
-
     /** 正文图，默认 PUBLIC（高曝光，safe_flag 闸口仅 1 放行） */
     ARTICLE_IMG("article", "正文图"),
 

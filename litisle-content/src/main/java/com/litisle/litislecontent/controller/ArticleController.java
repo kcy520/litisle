@@ -17,6 +17,8 @@ import com.litisle.litislecontent.domain.dto.ArticleUpdateDTO;
 import com.litisle.litislecontent.domain.vo.ArticleCardVO;
 import com.litisle.litislecontent.domain.vo.ArticleDetailVO;
 import com.litisle.litislecontent.service.ArticleService;
+import com.litisle.litislecontent.service.support.ClientIpSupport;
+import com.litisle.litislecontent.service.support.ReadingHistorySupport;
 import com.litisle.litislecontent.service.support.ViewCounterSupport;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -60,6 +62,12 @@ public class ArticleController {
 
     /** 浏览计数支撑组件（阶段8①：详情命中后 INCR+去重窗口，fail-safe） */
     private final ViewCounterSupport viewCounterSupport;
+
+    /** 阅读历史支撑组件（阶段15：详情命中后自动落历史，匿名/自读过滤 + fail-safe） */
+    private final ReadingHistorySupport readingHistorySupport;
+
+    /** 客户端 IP 解析组件（阶段17：原 resolveClientIp 私有逻辑收口，与章节详情共用） */
+    private final ClientIpSupport clientIpSupport;
 
     /**
      * 创建/发布（zone=2 需 AUTHOR；发布状态流转由 ArticlePublishService 编排）
@@ -135,12 +143,18 @@ public class ArticleController {
      */
     @Operation(summary = "文章详情", description = "匿名仅可见公开文；仅自己/关注者/密码可见性由 Service 判定链收口")
     @GetMapping("/{id}")
-    public Result<ArticleDetailVO> detail(@PathVariable("id") Long id, HttpServletRequest request) {
+    public Result<ArticleDetailVO> detail(@PathVariable("articleId") Long articleId, HttpServletRequest request) {
         // 未登录（匿名）viewerId 传 null；登录取当前人
         Long viewerId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
-        ArticleDetailVO detail = articleService.getDetail(id, viewerId);
+        ArticleDetailVO detail = articleService.getDetail(articleId, viewerId);
         // 阶段8①：详情命中（可见性判定通过）后记录浏览（PV+去重窗口；fail-safe 不影响响应）
-        viewCounterSupport.recordView(id, viewerId, resolveClientIp(request), request.getHeader("User-Agent"));
+        viewCounterSupport.recordView(articleId, viewerId, clientIpSupport.resolveClientIp(request), request.getHeader("User-Agent"));
+        // 阶段15：阅读即落历史——走到此处详情已可见性判定通过（异常/不可见/软删不会到这里）；
+        // 匿名/自读过滤、归属判定（独立文章/章节文章/多书歧义）与 UPSERT 收口在 Support/Service；
+        // detail 为 null 时防御性跳过；落库异常由 Support fail-safe 吞掉，不阻断详情返回
+        if (detail != null) {
+            readingHistorySupport.recordArticleHistory(viewerId, articleId, detail.getAuthorId());
+        }
         return Result.success(detail);
     }
 
@@ -158,19 +172,9 @@ public class ArticleController {
     }
 
     /**
-     * 解析客户端真实 IP（X-Forwarded-For 首段优先，兼容网关/反向代理链；空退化 remoteAddr）。
-     *
-     * @param request HTTP 请求
-     * @return 客户端 IP（匿名浏览去重基准之一）
+     * 解析客户端真实 IP 的私有实现已上收至 ClientIpSupport（阶段17），
+     * 与章节详情共用同一份 X-Forwarded-For 首段解析，避免两份实现漂移
      */
-    private String resolveClientIp(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            // 多级代理链取首段（最原始客户端 IP）
-            return xff.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
-    }
 
     /**
      * 公开列表（匿名；仅 status=2 且 visibility=1；不带 content_html）

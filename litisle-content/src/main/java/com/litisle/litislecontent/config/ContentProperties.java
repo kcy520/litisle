@@ -75,5 +75,42 @@ public class ContentProperties {
 
         /** 分页大小上限（入参超过按本值收口，防恶意大分页拖垮缓存与 DB） */
         private int pageSize = 20;
+
+        /** 热度榜配置（阶段13 预留：social 落地前不启用） */
+        private Hot hot = new Hot();
+    }
+
+    /**
+     * 热度榜嵌套配置（阶段13 预留：like/comment 恒 0 期间不启用，enabled=false 时零影响）
+     */
+    @Data
+    public static class Hot {
+
+        /** 热度榜总开关（social 落地 + 灌榜任务上线后置 true 切流） */
+        private boolean enabled = false;
+
+        /** 点赞权重（热度分分子：互动信号最高） */
+        private double likeWeight = 3;
+
+        /** 评论权重（热度分分子：次高） */
+        private double commentWeight = 2;
+
+        /** 浏览权重（热度分分子：防刷 PV，远低于互动信号） */
+        private double viewWeight = 0.2;
+
+        /** 时间衰减指数（Hacker News 同款 1.5：越大旧文沉底越快） */
+        private double decayExponent = 1.5;
+
+        /** 小时偏移（分母基数，防新文章分母趋 0 分数爆炸） */
+        private double hourOffset = 2;
+
+        /** 榜容量上限（灌榜内存裁剪保留 top N，防 ZSet 无界增长） */
+        private int topN = 200;
+
+        /**
+         * 全量重灌间隔（毫秒，默认 3600000=1h）：增量轮只升不降（不重算存量成员分数），
+         * 时间衰减靠低频全量轮覆盖校正收敛；灌榜任务每轮判「距上次全量 ≥ 本值」决定走全量或增量
+         */
+        private long fullRefillIntervalMs = 3600000L;
     }
 }

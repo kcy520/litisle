@@ -90,8 +90,11 @@ public class CacheConstant {
     /** 热门标签 TOP N 缓存（值：TagVO 列表 JSON；TTL 短缓存 + 抖动，防穿透/雪崩） */
     public static final String CONTENT_TAG_HOT = "content:tag:hot:";
 
-    /** 推荐流分页缓存（key 追加 {pageNo}:{pageSize}；值：FeedItemVO 列表 JSON；空结果短缓存防穿透） */
-    public static final String CONTENT_FEED = "content:feed:page:";
+    /** 推荐流分页缓存（key 追加 {pageNo}:{pageSize}；值：FeedItemVO 列表 JSON；空结果短缓存防穿透）；v2=阶段14 热度榜切流，防换排序口径后新旧缓存混存 */
+    public static final String CONTENT_FEED = "content:feed:page:v2:";
+
+    /** 推荐流热度榜 ZSet（成员=articleId，score=热度分；阶段13 预留，social 落地后由灌榜任务写入） */
+    public static final String CONTENT_FEED_HOT_ZSET = "content:feed:hot:zset";
 
     // ==================== 社交模块 ====================
 
