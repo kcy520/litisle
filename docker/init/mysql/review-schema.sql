@@ -292,6 +292,58 @@ VALUES (1, 1, 2, 1, 1, 'COMMENT',
         '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 0, 3, 'abuse', '赌博', 'DFA命中赌博类敏感词',
         0, 'system', 3, NOW());
 
+
+-- # 5.2 词库变更审计表（批次1 ②：词库治理基建——与词表变更同事务插入，审计不同事务=不可信）
+create table if not exists `wordlib_change_audit`
+(
+    `id`          bigint unsigned not null auto_increment primary key comment '审计ID',
+    `scene`       varchar(20)     not null comment '场景：ARTICLE/COMMENT/USERNAME/MESSAGE/BIO',
+    `op_type`     varchar(32)     not null comment '操作类型：ADD-新增 UPDATE-修改 DELETE-删除 BATCH_IMPORT-批量导入',
+    `word`        varchar(64)     null comment '变更词（单条变更逐词审计；批量导入为空——词清单在备份文件里不重复落库）',
+    `detail`      varchar(512)    null comment '变更摘要（如 level: MID→HIGH；单字段 变更前→变更后 分号拼接；批量导入为空）',
+    `word_count`  int             null comment '批量导入净新增词数（仅 BATCH_IMPORT 有值）',
+    `backup_file` varchar(128)    null comment '本次变更对应词库冷备文件名（{scene}-v{version}.csv.gz，与 WordlibBackupStore 落盘文件一一对应；词全量在备份文件内）',
+    `version`     bigint          not null comment '变更后 scene 词库版本（=sensitive_word_version.version，同事务推进值）',
+    `operator_id` bigint unsigned null comment '操作人ID（审计；系统触发为空）',
+    `create_time` datetime        not null default current_timestamp comment '审计时间',
+    index `idx_scene_version` (`scene`, `version`),
+    index `idx_word` (`word`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '词库变更审计表（收口=WordlibVersionService.bumpAndBroadcast 变更事务内插入；误报灰度转正等词级治理动作经本表闭环追溯）';
+
+-- # 5.3 词库误报上报记录表（词级误报明细落库：与场景级 Counter 互补——指标管趋势、本表管明细）
+create table if not exists `wordlib_misreport`
+(
+    `id`               bigint unsigned not null auto_increment primary key comment '误报上报ID',
+    `word`             varchar(64)     not null comment '误报词（上报时校验须为该 scene 黑名单词，防瞎编词名刷计数）',
+    `scene`            varchar(20)     not null comment '场景：ARTICLE/COMMENT/USERNAME/MESSAGE/BIO',
+    `level_snapshot`   tinyint         not null comment '上报时词级别快照：1-HIGH 2-MID（词级别后续变更不影响历史行裁决口径）',
+    `reason`           varchar(200)    null comment '误报说明（用户填写；CRLF 剥离 + 超长截断，应用层防护）',
+    `reporter_id`      bigint unsigned not null comment '上报人ID',
+    `report_count`     int             not null default 1 comment '该上报人对此词的累计上报次数（重复上报原子累加不新增行，防刷计数）',
+    `first_time`       datetime        not null default current_timestamp comment '首次上报时间',
+    `last_report_time` datetime        not null default current_timestamp on update current_timestamp comment '最近上报时间（重复上报刷新；误报频度与 TTL 清理以此列计算）',
+    unique key `uk_reporter_word` (`reporter_id`, `scene`, `word`),
+    index `idx_scene_word` (`scene`, `word`),
+    index `idx_last_report_time` (`last_report_time`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '词库误报上报记录表（词级误报明细：转正裁决按 scene+word 聚合 report_count 算误报率，与 wordlib_change_audit 打通「变更→误报→转正」闭环；场景级趋势仍由 wordlib_misreport_total{scene} 承载；TTL 清理由 sweeper 按外置保留期执行，误报属运营数据非合规硬凭证可删）';
+
+-- # 5.4 词级命中统计表（词库治理建议清单数据源：转正/降级建议的「命中观察量」证据分母）
+create table if not exists `wordlib_hit_stat`
+(
+    `id`            bigint unsigned not null auto_increment primary key comment '统计ID',
+    `scene`         varchar(20)     not null comment '场景：ARTICLE/COMMENT/USERNAME/MESSAGE/BIO',
+    `word`          varchar(64)     not null comment '命中词（词库规范词，AC 引擎 hitWords 留痕语义）',
+    `hit_count`     int             not null default 1 comment '累计命中次数（异步机审建任务时原子累加；HIGH/MID 命中均统计）',
+    `first_time`    datetime        not null default current_timestamp comment '首次命中时间',
+    `last_hit_time` datetime        not null default current_timestamp on update current_timestamp comment '最近命中时间',
+    unique key `uk_scene_word` (`scene`, `word`),
+    index `idx_last_hit_time` (`last_hit_time`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '词级命中统计表（口径=review 进程内异步机审建任务处累加，所有送审内容过 review 数据完整；同步闸门 HIGH 拦截发生在宿主本地不统计——同步拦截分母缺失为已知局限，HIGH 词降级建议以误报绝对量为主、比率仅作参考标注异步口径）';
+
+
 -- 6. 处罚流水示例（ADMIN 1005 对用户 1003 落一次警告，生效中）
 -- biz_type 走 ModerationBizTypeEnum（同 review_task.biz_type）：2=评论，挂任务 4——勿用 TargetTypeEnum 的 3=用户（两套枚举错位）
 -- action=4-警告：仅落流水不改 violation_score.last_punish_action（枚举不对齐系有意设计）
@@ -335,6 +387,8 @@ VALUES
 ('MESSAGE',  1, 0),
 ('BIO',      1, 0)
 ON DUPLICATE KEY UPDATE `version` = `version` + 1, `updated_by` = VALUES(`updated_by`);
+
+
 
 # 设计原因：
 #

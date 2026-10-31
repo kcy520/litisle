@@ -16,6 +16,7 @@ import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litisleapi.feign.SocialClient;
 import com.litisle.litisleapi.moderation.MachineRejectPunishGate;
+import com.litisle.litislereview.dfa.WordlibHitStatRecorder;
 import com.litisle.litislereview.domain.entity.ModerationRecord;
 import com.litisle.litislereview.domain.entity.ReviewTask;
 import com.litisle.litislereview.enums.Layer2RiskEnum;
@@ -112,6 +113,8 @@ public class ModerationTextService {
     private final PunishResultPublisher punishResultPublisher;
     /** 机审观测埋点组件（7-1：moderation_total/cost/cache_hit 计数计时，ObjectProvider optional 模式静默跳过） */
     private final ModerationMetrics moderationMetrics;
+    /** 词级命中统计记录器（§5.4：异步机审处理成功后按任务快照 hitWords 逐词累加，词库治理建议清单数据源；内部整体不抛异常不阻断审核） */
+    private final WordlibHitStatRecorder wordlibHitStatRecorder;
 
     /**
      * 文本审核编排主入口（Consumer 委托）
@@ -455,6 +458,12 @@ public class ModerationTextService {
         if (recordId == null) {
             return;
         }
+
+        // 词级命中统计（§5.4 词库治理建议清单数据源）：任务 CAS 流转成功后按快照 hitWords 逐词累加，
+        // 仅异步机审口径（HIGH/MID 命中均统计；同步闸门拦截发生在宿主本地不建任务故不在此口径内）；
+        // 复用 requireWordScene 归一映射场景（ARTICLE_FEATURED 等审核场景 → ARTICLE 词库场景）；
+        // recorder 内部单词失败仅 error 继续、整体不抛——统计属运营证据，绝不影响审核主链路
+        wordlibHitStatRecorder.recordFromSnapshot(requireWordScene(task.getScene()), task.getHitWords());
 
         String sceneCode = task.getScene().getCode();
         // 步骤3：注册事务提交后回调——写缓存 + 发 result 事件（均在事务成功提交后执行，防脏缓存/脏事件）

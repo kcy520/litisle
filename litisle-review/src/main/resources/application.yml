@@ -102,6 +102,11 @@ litisle:
     # 适配器激活（生产切 aliyun 零代码）
     text-provider: llm
     image-provider: onnx
+    # NLM 语义机审提供方（批次1 ⑦ 预留键）：默认空=未激活，激活前无任何链路消费此键（纯占位）；
+    #   二期接线位置=异步层（moderation.spi 适配器，与 LLM 并列/级联），走同一 @ConditionalOnProperty
+    #   + 启动自检 fail-fast 三件套激活；⚠️ 禁进同步闸门（同步层本地毫秒级执行是硬约束，
+    #   NLM 语义模型必然远程调用，只允许出现在异步机审链路）
+    nlm-provider: ""
     retry:
       max-count: 5
       base-delay-ms: 30000
@@ -121,10 +126,33 @@ litisle:
     consumer:
       prefetch: 10
     wordlib:
+      # 灰度误报率阈值（MID→HIGH 转正量化门槛，误报率=误报上报次数/命中观察量）：已绑定
+      #   ModerationProperties.Wordlib.grayMisreportRate；消费点=词库列表建议标记（§5.4 治理建议清单，
+      #   HIGH 词样本足够且误报率低于该值出「转正确认」标记）；仅证据参考、禁自动动作
       gray-misreport-rate: 0.01
+      # 建议标记最小命中样本量（ModerationProperties.Wordlib.minHitSample）：命中观察量达到该值
+      #   才参与「转正确认/建议转正」标记计算（样本不足不标记）；HIGH 降级建议以误报绝对量为主不走本门槛
+      min-hit-sample: 50
       # DFA 词库本地持久化快照目录（表加载失败/为空时回退上次成功词库，§4.4.4 宁严勿松）
       snapshot-dir: ${user.home}/.litisle/review/dfa-snapshot
-    appeal:
+      backup:
+        # 词库冷备（批次1 ①）：LocalGzipBackupStore 激活开关——显式置 true 才注册 Bean
+        #   （@ConditionalOnProperty，代码默认关=纯新增不改变现网行为）；与快照角色互补：
+        #   Redis 快照=热备（仅最新版，冷启动兜底），备份文件=冷备（版本化全保留、可人工恢复）
+        enabled: true
+        # ⚠️ 备份根目录：必须是挂载持久卷（容器化部署下容器本地盘随实例销毁，备份会丢）；
+        #   文件布局 {dir}/{scene}/{scene}-v{version}.csv.gz；恢复走人工 runbook（禁自动回滚），
+        #   回灌必须经既有词库导入入口（validateWord 限长+字符校验链自动生效，防污染备份绕过校验回灌）
+        dir: ${user.home}/.litisle/review/wordlib-backup
+        # 每 scene 保留最近 N 个版本备份，落盘后自动清理更旧版本文件（非正数=保留全版本）
+        retention-versions: 50
+      misreport:
+        # 词库误报记录保留天数（wordlib_misreport 误报明细表）：超过保留期未再上报的行由
+        #   WordlibMisreportCleanupSweeper 天级 05:00 清理；非正数=保留全量（清理关闭）。
+        #   误报属运营数据非合规硬凭证（区别于 moderation_record ≥6 月留痕），聚合结论已沉淀
+        #   在灰度转正裁决里，过期可删
+        retention-days: 180
+    appeal: 
       # ⚠️ 本组不绑定（7-4.2 口径收敛决策）：timeout-days 与 sweeper.appeal-timeout-days
       #   （6-1.2 已落地消费）口径重复，统一读 sweeper 组防双源漂移，本项永远不生效保留备查；
       #   window-days（申诉窗口期）消费点随申诉创建链路（板块五）实现，届时确需可调再绑定

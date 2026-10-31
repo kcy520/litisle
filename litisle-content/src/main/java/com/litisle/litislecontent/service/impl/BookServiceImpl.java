@@ -26,6 +26,7 @@ import com.litisle.litislecontent.enums.ArticleStatusEnum;
 import com.litisle.litislecontent.enums.BookStatusEnum;
 import com.litisle.litislecontent.enums.FavoriteTargetTypeEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
+import com.litisle.litislecontent.service.support.ArticleImageRefSupport;
 import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.mapper.BookChapterMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
@@ -75,6 +76,9 @@ public class BookServiceImpl implements BookService {
     /** 关注关系缓存（章节可见性范围计算时回查关注者权限，social 不可用降级，阶段17） */
     private final FollowRelationCache followRelationCache;
 
+    /** 文件引用支撑组件（Q3：书籍封面复用文章侧 checkCoverOwnership 归属+bizType 校验） */
+    private final ArticleImageRefSupport articleImageRefSupport;
+
     /** 分类缺省值（BookSaveDTO.category 可空，落库默认「小说」） */
     private static final String DEFAULT_CATEGORY = "小说";
 
@@ -95,6 +99,9 @@ public class BookServiceImpl implements BookService {
          * ② 落库：插入数据库拿到书籍ID返回。
          */
 
+        // 步骤0（Q3）：封面归属校验（与文章封面同口径：归属本人 + bizType=ARTICLE_IMG，
+        // 防盗图/引用被拒违规图 fileId）；无封面（null/空）直接放行
+        articleImageRefSupport.checkCoverOwnership(dto.getCoverFileId(), userId);
         // 步骤1：组装实体（归属作者；分类缺省「小说」；状态默认连载中；未软删）
         Book book = new Book()
                 .setAuthorId(userId)
@@ -129,6 +136,12 @@ public class BookServiceImpl implements BookService {
 
         // 步骤1：owner 校验：非本人拒绝（软删书按不存在处理，不暴露存在性）
         Book book = requireOwnedBook(id, userId);
+        // 步骤1+（Q4）：下架书拒改元数据（状态一致性收口，与 Q2 addChapter 拒挂同构）：
+        // 下架=对外终止态，owner 在下架期间不可替换 title/intro/cover/category，
+        // 防未来恢复路径上元数据已被调包
+        if (book.getStatus() == BookStatusEnum.TAKEN_DOWN) {
+            throw new BizException(ErrorCode.BOOK_STATUS_INVALID);
+        }
         // 步骤2：非 null 字段更新（BookSaveDTO 全字段可空，null=不修改）
         Book upd = new Book();
         upd.setId(id);
@@ -139,6 +152,8 @@ public class BookServiceImpl implements BookService {
             upd.setIntro(dto.getIntro());
         }
         if (dto.getCoverFileId() != null) {
+            // Q3：封面归属校验（与文章封面同口径：归属本人 + bizType=ARTICLE_IMG，防盗图/违规图绕审展示面）
+            articleImageRefSupport.checkCoverOwnership(dto.getCoverFileId(), userId);
             upd.setCoverFileId(dto.getCoverFileId());
         }
         if (dto.getCategory() != null) {
@@ -199,8 +214,13 @@ public class BookServiceImpl implements BookService {
          * ④ 落挂载行：并发下两人同时挂同一序号时，由数据库唯一索引兜底转冲突报错。
          */
 
-        // 步骤1：书籍归属校验
-        requireOwnedBook(bookId, userId);
+        // 步骤1：书籍归属校验（复用返回值，避免二次查询）
+        Book book = requireOwnedBook(bookId, userId);
+        // 步骤1+（Q2）：书籍状态校验——下架书（TAKEN_DOWN）拒挂新章节（状态一致性收口：
+        // 下架=对外终止态，禁止继续扩章节；软删书已在 requireOwnedBook 按 BOOK_NOT_FOUND 拒绝，不重复校验）
+        if (book.getStatus() == BookStatusEnum.TAKEN_DOWN) {
+            throw new BizException(ErrorCode.BOOK_STATUS_INVALID);
+        }
         // 步骤2：文章归属本人校验（防挂他人文章）：须为本人已发布未软删文章
         Article article = articleMapper.selectById(dto.getArticleId());
         if (article == null || article.getDelFlag() == DelFlag.DELETED) {

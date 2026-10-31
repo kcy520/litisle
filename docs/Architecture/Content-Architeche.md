@@ -92,7 +92,8 @@ book.status  // 0-连载中 / 1-已完结 / 2-下架
 
 - 发布 CAS：`status in (0,3) and del_flag=0`；**禁止 2→1**（改判只认申诉来源）
 - 4-下架为**终态**：作者不可重提（终态 = 无业务重提入口；申诉改判 4→2 为唯一外部恢复路径，仅 moderation.appeal.result 来源，见上图），异议走 review 申诉链路
-- **方案B**：status=2 禁改正文/标题，仅封面/摘要/分类/visibility/书籍挂载等元数据可改；改正文 → 软删旧文重新发布（防借编辑绕过复审）
+- **方案B**：status=2 禁改正文/标题/配图（Q1 已落地：摘要不在拒改列表，但改前须过 DFA 同步闸门），仅封面/分类/visibility 等元数据可改；改正文 → 软删旧文重新发布（防借编辑绕过复审）
+- ✅ Q1 摘要同步闸门（2026-10-30 落地）：发布 createAndPublish / 建档 saveDraftRow / 编辑 update 三处对摘要（stripTags 后）独立过 DFA 同步闸门——黑名单词 70001 拦截、观察词仅留痕（复用 DfaPublishGate 裁决口径），走 DfaFacade 门面（引擎=自研 AC 自动机），与正文闸门同一调用方式；场景码外置（SUMMARY_DFA_SCENE，当前共用 ARTICLE 词库，升级 2b 独立送审单元仅改常量）；摘要不进 assemble 口径、content_hash 零影响（存量免审缓存不失配）
 - 免审直落：last-hash + content_hash 命中且内容未变 → 0→2 直落（免文不免图：发布时对配图发 image.submit 复审，scene=ARTICLE_IMG_RE_REVIEW）
 - 转公开不重审：content_hash 校验内容未变，原审核结论仍有效；发 content.published
 - 转非公开/删除 → **必须同发 content.unpublished**（否则向量库/索引残留，隐私红线）

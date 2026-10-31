@@ -2,7 +2,6 @@ package com.litisle.litisleapi.dfa;
 
 
 
-import com.github.houbb.sensitive.word.bs.SensitiveWordBs;
 import com.litisle.litisleapi.constant.ModerationConstant;
 import lombok.extern.slf4j.Slf4j;
 
@@ -16,9 +15,9 @@ import java.util.stream.Collectors;
  * DFA 同步闸门门面（每场景独立引擎，热更原子换引用，发布链路本地执行零网络）
  *
  * 阶段	方法	        干什么
- * 启动	initAll()	按场景逐个构建 DFA 引擎，加载失败直接让应用起不来（宁严勿松）
+ * 启动	initAll()	按场景逐个构建 AC 引擎，加载失败直接让应用起不来（宁严勿松）
  * 热更	rebuild()	词库变了 → 加载新词 → 建新引擎 → 原子替换旧引擎，线上请求不受影响
- * 查词	check()	    拿到文本 → 归一场景 → DFA 匹配 → 返回命中词 + 最高敏感级别
+ * 查词	check()	    拿到文本 → 归一场景 → 引擎匹配 → 返回命中规范词 + 最高敏感级别
  *
  * <p>【使用场景示例】宿主服务启动装配（SmartInitializingSingleton）：</p>
  * <pre>{@code
@@ -33,24 +32,26 @@ import java.util.stream.Collectors;
  * <p>热更（Redis Pub 订阅端）：收到广播后调 {@link #rebuild}，内部 version 乐观比对
  * （新版本号 ≤ 当前版本则忽略，防乱序旧覆盖新）+ 原子换引擎，在途查询不受影响</p>
  *
- * <p>【词库源纪律】houbb 仅提供算法与变体识别（繁简/拼音/跳词/全半角），词库完全来自
- * {@link WordLibraryLoader}（不链 WordDenys.defaults()，避免与内置双词库源不一致，§4.4.4）</p>
+ * <p>【词库源纪律】引擎仅提供算法与变体对抗（归一化/重复变体展开，见 {@link TextScanEngine} 契约），
+ * 词库完全来自 {@link WordLibraryLoader}（不用任何内置默认词库，避免与词库 SSOT 不一致，§4.4.4）。
+ * 【批次2 ③】底层由 houbb SensitiveWordBs 替换为自研 AC 自动机 {@link AcTextScanEngine}，
+ * 对外签名零变化；houbb 依赖保留至批次3 影子比对通过后移除</p>
  *
  * <p>【宁严勿松】引擎未初始化时 {@link #check} 抛 IllegalStateException，绝不按无命中放行；
- * 命中词未在级别映射中（理论不可达）按 HIGH 兜底</p>
+ * 命中词未在级别映射中（防御分支，正常情况 scan 返回规范词必命中映射）按 HIGH 兜底</p>
  */
 @Slf4j
 public class DfaFacade {
 
     /** 词库加载器，负责读取词表和版本号 */
     private final WordLibraryLoader loader;
-    /** 场景 → 引擎快照（版本 + houbb引擎 + 词级别映射） */
+    /** 场景 → 引擎快照（版本 + AC 扫描引擎 + 词级别映射） */
     private final ConcurrentHashMap<String, Engine> engines = new ConcurrentHashMap<>();
 
     /**
-     * 不可变引擎快照：版本 + 构建好的 houbb 引擎 + 词→级别映射（命中后分类用）
+     * 不可变引擎快照：版本 + 构建好的扫描引擎 + 词→级别映射（命中后分类用）
      */
-    private record Engine(long version, SensitiveWordBs bs, Map<String, Integer> wordLevels) {
+    private record Engine(long version, TextScanEngine scanEngine, Map<String, Integer> wordLevels) {
     }
 
     public DfaFacade(WordLibraryLoader loader) {
@@ -70,12 +71,12 @@ public class DfaFacade {
 
     /**
      * 构建/重建单场景引擎（热更入口）：version 乐观比对防乱序，原子换引用不中断在途查询
-     * 引擎 = 一份已经构建好的敏感词 DFA 匹配器 + 它的词库版本 + 每个词对应的敏感级别映射
+     * 引擎 = 一份已经构建好的敏感词扫描器 + 它的词库版本 + 每个词对应的敏感级别映射
      */
     public synchronized void rebuild(String scene) {
         // 加载词库版本号（用于后续乐观锁比对）
         long version = loader.loadVersion(scene);
-        // 版本乐观比对前置：旧版本广播直接跳过，省去无谓的全量词条装载与 DFA 引擎构建
+        // 版本乐观比对前置：旧版本广播直接跳过，省去无谓的全量词条装载与引擎构建
         // （方法 synchronized + version 为本地快照，前置比对与构建后比对结果完全等价）
         // 获取当前已存在的引擎
             //  如果是第一次构建（initAll 阶段），current 是 null
@@ -98,32 +99,14 @@ public class DfaFacade {
         // 构建词→敏感级别映射，重复词取更严级别（Math.min）
         Map<String, Integer> wordLevels = entries.stream().filter(WordEntry::blacklist)
                 .collect(Collectors.toMap(WordEntry::word, WordEntry::level, Math::min));
-        // 构建 houbb DFA 引擎，注入黑名单和白名单 + 变形词校验配置（对抗异形写法绕过词库，如繁体/全角/字母序号/重复字符）
-        // 【变体命中级别映射语义】变形词开启后 findAll 返回原文异形写法而非词库规范词，
-        // check() 的 wordLevels.getOrDefault(w, HIGH) 查不到变体 key 时兜底 HIGH——属误伤方向（宁严勿松）：
-        // MID 观察词被变体命中按 HIGH 拦截为预期行为，非缺陷（若需精确降级需另行规范词归一映射，暂不做）
-        SensitiveWordBs bs = SensitiveWordBs.newInstance()
-                .wordDeny(() -> denyWords)
-                .wordAllow(() -> allowWords)
-                // ===== 变形词校验（格式变换归一化，增强绕过对抗能力）=====
-                .ignoreCase(true)          // 英文大小写互换（默认开，显式声明便于审阅）
-                .ignoreWidth(true)         // 全角半角互换（默认开）
-                .ignoreNumStyle(true)      // 数字写法互换：⓿①⑩ 等（默认开）
-                .ignoreChineseStyle(true)  // 中文繁简体互换（默认开）
-                .ignoreEnglishStyle(true)  // 英文书写格式互换：Ⓕⓤ 等字母序号（默认开）
-                .ignoreRepeat(true)        // 忽略重复词（默认关，显式开启：防 ⒻⒻⒻfⓤu 类重复字符拆写绕过）
-                // 【刻意不开启】enableNumCheck/enableEmailCheck/enableUrlCheck 属联系方式检测
-                // （连续 8 位数字/邮箱/URL 直接判敏感，用于广告过滤），非变形词范畴；
-                // USERNAME 场景会误杀 8 位以上纯数字用户名（如 reader20240101），禁开
-                .init();
-
-    /**
-     * 1）取消默认词库 = 一行注入 houbb 的规则是： 不设`wordDeny` 才用内置默认库；一旦你传了自己的词表，默认库就完全不参与 。所以"只读 MySQL、不用 houbb 内置词"这件事， 就是上面两行 ，没有别的代码。这正是防止与你"从 MySQL 读词库"思路打架的地方。
-     */
-
+        // 构建 AC 扫描引擎（TextScanEngine.build 内部完成归一化 + deny 变体展开 + 自动机构建）
+        // 【变体命中级别映射语义】scan 返回词库规范词（变体 pattern 命中已在引擎内回映），
+        // wordLevels.getOrDefault(w, HIGH) 常规情况必命中；HIGH 兜底仅作防御分支保留
+        // （宁严勿松：MID 观察词被兜底 HIGH 拦截为误伤方向，可接受）
+        TextScanEngine scanEngine = TextScanEngine.build(denyWords, allowWords);
 
         // 原子替换引擎引用，旧引擎在途查询不受影响（版本比对已前置，能走到这里 version 必为新）
-        engines.put(scene, new Engine(version, bs, wordLevels));
+        engines.put(scene, new Engine(version, scanEngine, wordLevels));
         log.info("DFA 引擎构建完成：scene={}, version={}, 黑名单词={}, 白名单词={}",
                 scene, version, denyWords.size(), allowWords.size());
     }
@@ -148,10 +131,9 @@ public class DfaFacade {
             throw new IllegalStateException("DFA 引擎未初始化：scene=" + normalized
                     + "（未 initAll / 词库加载失败被跳过），禁止 default-allow 放行");
         }
-        // DFA 全量匹配，去重
-            //这行代码 = 拿当前场景的 DFA 引擎对文本做全量敏感词匹配，把结果去重后变成一份干净的命中词列表，供后续判断级别和返回给调用方。
-        /// houbb 自带 DFA 审核算法 + 变体识别能力，但词库、级别分类、拦截策略全是你的。它只回答"文本里有没有词库里的词"，不回答"该不该拦截"。
-        List<String> hits = engine.bs().findAll(text).stream().distinct().toList();
+        // 引擎全量匹配：返回词库规范词命中（allow 过滤/最长优先去重/变体回映已在引擎内完成）
+        // 引擎只回答"文本里有没有词库里的词"，不回答"该不该拦截"（拦截策略归 DfaPublishGate）
+        List<String> hits = engine.scanEngine().scan(text).stream().distinct().toList();
         // 未命中直接返回
         if (hits.isEmpty()) {
             return DfaHitResult.noHit(engine.version());

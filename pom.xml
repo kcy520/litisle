@@ -84,8 +84,9 @@
         <!-- AWS SDK v2（litisle-file 对接 SeaweedFS S3 网关） -->
         <aws-sdk.version>2.32.6</aws-sdk.version>
 
-        <!-- DFA 敏感词（litisle-review 同步闸门，零传递依赖；0.27.2 不存在于中央仓库，0.27.x 最高为 0.27.1） -->
-        <sensitive-word.version>0.27.1</sensitive-word.version>
+        <!-- 中文繁简转换（批次2 ③：CharNormalizer 繁简归一口径，与 houbb ignoreChineseStyle 同源引擎；
+             批次3 删 houbb 后本依赖独立承载繁简转换） -->
+        <opencc4j.version>1.8.1</opencc4j.version>
         <!-- ONNX Runtime（litisle-review 本地鉴黄，JDK 25 兼容） -->
         <onnxruntime.version>1.20.0</onnxruntime.version>
 
@@ -178,11 +179,11 @@
                 <scope>import</scope>
             </dependency>
 
-            <!-- DFA 敏感词（litisle-review 同步闸门） -->
+            <!-- 中文繁简转换（批次2 ③ CharNormalizer：与 houbb ignoreChineseStyle 同源口径） -->
             <dependency>
                 <groupId>com.github.houbb</groupId>
-                <artifactId>sensitive-word</artifactId>
-                <version>${sensitive-word.version}</version>
+                <artifactId>opencc4j</artifactId>
+                <version>${opencc4j.version}</version>
             </dependency>
             <!-- ONNX Runtime（litisle-review 本地鉴黄） -->
             <dependency>

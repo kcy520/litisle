@@ -47,8 +47,9 @@ public interface WordlibService {
 
     /**
      * 词库误报上报（§2.5）：HIGH 同步拒发的内容未发布无法走 appeal，独立入口回流；
-     * 仅校验黑名单词存在（白/灰名单词不参与 DFA 拦截，无"误报"可言，上报即污染灰度转正唯一数据源）
-     * + Counter 埋点（wordlib_misreport_total{scene}）+ warn 日志，不落库
+     * 仅校验黑名单词存在（白/灰名单词不参与 DFA 拦截，无"误报"可言，上报即污染灰度转正数据源）
+     * + Counter 场景级埋点（wordlib_misreport_total{scene}）+ 词级明细落库
+     * （wordlib_misreport：reporter_id+scene+word 去重累加，转正裁决按 scene+word 聚合算误报率）+ warn 日志
      */
     void reportMisreport(String word, WordSceneEnum scene, String reason, Long reporterId);
 
@@ -70,6 +71,16 @@ public interface WordlibService {
      * 词库列表：ADMIN；支持 scene/keyword/级别/黑白筛选，keyword 模糊查询对 %/_/\ 转义
      * （ESCAPE '\\' 声明转义符），防通配符放大全表扫（§2.12）；
      * 出参 SensitiveWordVO 不回吐 updatedBy/version 等服务端审计字段
+     *
+     * <p>§5.4 治理建议清单：出参附「建议标记 + 证据字段」（当前页词批量 IN 查询 hit_stat/misreport
+     * 聚合后内存计算），三类口径（仅黑名单词参与）：</p>
+     * <ul>
+     *   <li>建议降级 = HIGH + 误报上报次数 > 0（以误报绝对量为主，比率虚高仅参考）</li>
+     *   <li>转正确认 = HIGH + 命中样本 ≥ min-hit-sample 且误报率 &lt; gray-misreport-rate</li>
+     *   <li>建议转正 = MID + 命中样本 ≥ min-hit-sample</li>
+     * </ul>
+     * <p>已知局限：命中分母仅含 review 进程异步机审（同步闸门 HIGH 拦截发生在宿主本地不建任务），
+     * HIGH 词误报率虚高——降级裁决看误报绝对量；标记只是证据，禁自动动作，转正/降级运营手动</p>
      */
     List<SensitiveWordVO> listWords(WordSceneEnum scene, String keyword, WordLevelEnum level,
                                     WordListTypeEnum isBlacklist, Long operatorId);

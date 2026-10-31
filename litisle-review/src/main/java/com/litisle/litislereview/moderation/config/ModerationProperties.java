@@ -23,6 +23,28 @@ public class ModerationProperties {
     /** 图片机审提供方（onnx / 二期 aliyun；显式禁用配 none），错配由启动自检拦截 */
     private String imageProvider = "onnx";
 
+    /**
+     * NLM 语义机审提供方（批次1 ⑦ 预留键）：默认空=未激活——激活前无任何链路消费此键，
+     * 纯占位不影响现网行为。二期接线位置=异步层（moderation.spi 适配器，与 LLM 并列/级联），
+     * 走与 text/image-provider 同一套激活模式：@ConditionalOnProperty 精确匹配 +
+     * 启动自检 fail-fast 三件套（配置与 Bean 不匹配即启动失败）。
+     * ⚠️ 红线：禁进同步闸门——DFA/AC 同步层「本地毫秒级执行」是硬约束，
+     * NLM 语义模型必然远程调用，只允许出现在异步机审链路
+     *
+     * <p>【激活 checklist（2026-10-30 登记，激活前必须逐项拍板）】</p>
+     * <ul>
+     *   <li>① 编排语义拍板：与 LLM「并列」（双源各审一遍合成结论）or「级联」（LLM 存疑再送
+     *       NLM 复核）二选一——两者对缓存 key 与费用模型影响不同，激活时第一个要回答的问题</li>
+     *   <li>② 缓存 key 加 provider 维度：现有文本结果缓存
+     *       review:text-result:{wordlibVer}:{fewShotVer}:{scene}:{hash} 的 fewShotVer 是 LLM
+     *       专属概念；若走并列编排，NLM 复用此 key 会直接读到 LLM 终局结论（双源退化单源，
+     *       NLM 白花钱）——须在 key 中加 provider 段；级联编排可复用 key 但需扩展版本段语义</li>
+     *   <li>③ ModerationProperties 补 Nlm 参数内部类（timeout/model-path 等按真实部署形态定：
+     *       本地推理 or API），选型前预埋必是猜测，故本预留期不加</li>
+     * </ul>
+     */
+    private String nlmProvider = "";
+
     /** 文本 LLM 机审参数 */
     private Llm llm = new Llm();
 
@@ -206,6 +228,56 @@ public class ModerationProperties {
 
         /** DFA 词库本地持久化快照目录：表加载失败/为空时回退上次成功词库（§4.4.4 宁严勿松兜底） */
         private String snapshotDir = System.getProperty("user.home") + "/.litisle/review/dfa-snapshot";
+
+        /**
+         * 灰度误报率阈值（MID→HIGH 转正量化门槛）：误报率 = 误报上报次数 / 命中观察量，
+         * 低于该值视为观察合格。消费点=词库列表建议标记（§5.4 治理建议清单）：
+         * HIGH 词命中样本足够且误报率低于该值 → 出「转正确认」标记。
+         * 仅是证据参考、禁触发自动动作——转正/降级一律运营手动（复用既有 updateWord）；
+         * 代码默认 0.01 与 application.yml 既有键绑定（此前该键悬空未绑定，本字段补齐绑定关系）
+         */
+        private double grayMisreportRate = 0.01;
+
+        /**
+         * 建议标记最小命中样本量：命中观察量达到该值才参与「转正确认/建议转正」标记计算
+         * （样本不足=证据不可信，宁可不标记不误导）；HIGH 降级建议不走本门槛
+         * （以误报绝对量为主，误报次数>0 即标记）。消费点同 grayMisreportRate
+         */
+        private int minHitSample = 50;
+
+        /** 词库冷备参数（批次1 ①）：LocalGzipBackupStore 激活与存储位置（快照=热备，备份文件=冷备，角色互补） */
+        private Backup backup = new Backup();
+
+        /** 词库误报记录参数：TTL 清理保留期（sweeper 天级清理过期上报行） */
+        private Misreport misreport = new Misreport();
+    }
+
+    /**
+     * 词库误报记录配置组（litisle.moderation.wordlib.misreport.*）
+     */
+    @Data
+    public static class Misreport {
+
+        /** 误报记录保留天数：超过保留期未再上报的行由 sweeper 天级清理
+         *  （误报属运营数据非合规硬凭证，聚合结论已沉淀在灰度转正裁决里，过期可删；非正数=保留全量） */
+        private int retentionDays = 180;
+    }
+
+    /**
+     * 词库冷备配置组（litisle.moderation.wordlib.backup.*，批次1 ①）
+     */
+    @Data
+    public static class Backup {
+
+        /** 备份开关：显式置 true 才注册 LocalGzipBackupStore（@ConditionalOnProperty 激活；默认关=纯新增不改变现网行为） */
+        private boolean enabled = false;
+
+        /** 备份根目录：⚠️ 必须是挂载持久卷（容器化部署下容器本地盘随实例销毁，备份会丢）；
+         *  文件布局 {dir}/{scene}/{scene}-v{version}.csv.gz */
+        private String dir = System.getProperty("user.home") + "/.litisle/review/wordlib-backup";
+
+        /** 每 scene 保留最近 N 个版本备份：落盘后自动清理更旧版本文件（防磁盘无限增长；非正数=保留全版本） */
+        private int retentionVersions = 50;
     }
 
     @Data

@@ -13,7 +13,7 @@
 | 项目     | 说明                                                         |
 | -------- | ------------------------------------------------------------ |
 | 定位     | 独立微服务，内容安全统一收口方：**同步关键词闸门 + 异步机审（三分态）+ 人审工作流** |
-| 技术选型 | sensitive-word 0.27.2（DFA）· LLM 文本审核（经 litisle-ai 通道）· ONNX（开发期图片）/ 云 API（生产期）· RabbitMQ 延迟插件 · Redis 结果缓存 |
+| 技术选型 | 自研 AC 自动机（AcTextScanEngine，dfa 批次3 ⑤b 已删 houbb sensitive-word 依赖）· LLM 文本审核（经 litisle-ai 通道）· ONNX（开发期图片）/ 云 API（生产期）· RabbitMQ 延迟插件 · Redis 结果缓存 |
 | 依赖方   | content / file / social 经 litisle-api 契约（Feign + MQ 事件）接入（私信归属 social，无独立 message 模块）；notification 消费结果事件做通知 |
 | 硬边界   | review **不跨库直写业务表**（回写一律 result 事件 + 业务方 CAS 回写）；业务方**不跨库直查** review 库（唯一特例：DFA 冷启动只读词库表兜底） |
 
@@ -21,7 +21,7 @@
 
 | 能力 | 载体 | 说明 |
 | --- | --- | --- |
-| 同步闸门 | DfaFacade（下沉 litisle-api 共享） | 发布/注册/私信链路内**本地执行**（免网络、不依赖 review 可用性）；HIGH 黑名单词直接拒绝 70001，MID 只标记不拦截 |
+| 同步闸门 | DfaFacade（下沉 litisle-api 共享）+ AcTextScanEngine（自研 AC 自动机，零第三方依赖） | 发布/注册/私信链路内**本地执行**（免网络、不依赖 review 可用性）；构建期归一化展开变体 pattern（繁简/全半角/叠词只长不短，文本侧永不折叠），扫描后 allow 区间过滤 + 最长优先裁决；HIGH 黑名单词直接拒绝 70001，MID 只标记不拦截 |
 | 异步机审 | moderation 包 consumer + SPI 适配器 | MQ 消费驱动 LLM/图片模型，输出 PASS / REJECT / SUSPICIOUS 三分态 |
 | 人审工作流 | ReviewService（workflow 域） | SUSPICIOUS 终审、举报处理、申诉裁决、违规分与处罚 |
 
@@ -187,6 +187,9 @@ public interface ContentModerationService {
 | review_task | 存量补列 | mod_verdict（机审三分态冗余）/ retry_count / content_hash / scene varchar(32)（存量迁移：加可空列→回填→not null） |
 | file_meta.safe_flag | 三态扩四态 | 0-违规/1-正常/2-待检测/3-存疑人审；default-deny 不变：公开面仅 1 放行，2/3 展示占位图 |
 | sensitive_word_library / _version | 存量 | 表为词库 SSOT；版本单一来源 = sensitive_word_version（scene 级），任何变更同事务 +1 再广播；启动加载失败用本地快照兑底，绝不空词库放行 |
+| wordlib_change_audit | 新增（dfa 批次1 ②） | 词库变更审计：与词表变更**同事务**插入（审计不同事务=不可信）；单条变更逐词审计（op_type=ADD/UPDATE/DELETE，word+detail 变更前后），BATCH_IMPORT 记净增词数 + backup_file 引用冷备文件（词清单不重复落库）；DDL 见 Sql-Document §5.2 |
+| wordlib_misreport | 新增 | 词级误报明细落库（reporter_id+scene+word 唯一键去重，重复上报原子累加 report_count 不新增行；level 快照固化上报时词级别）；与 wordlib_change_audit 打通「变更→误报→转正」闭环，转正裁决按 scene+word 聚合算单词误报率；TTL 清理由 sweeper 按外置保留期执行（误报属运营数据非合规硬凭证可删）；DDL 见 Sql-Document §5.3 |
+| wordlib_hit_stat | 新增（§5.4 治理建议清单） | 词级命中统计：异步机审任务 CAS 流转成功后按快照 hitWords 逐词原子累加（scene+word 唯一键去重，HIGH/MID 命中均统计；WordlibHitStatRecorder 单词失败仅 error 不阻断审核）；词库列表按当前页词批量取证据算「建议标记」（降级/转正确认/建议转正），标记只是证据、禁自动动作；⚠️ 口径局限：仅异步机审累加，同步闸门 HIGH 拦截在宿主本地不建任务不统计——HIGH 词误报率分母缺失虚高，降级建议以误报绝对量为主；DDL 见 Sql-Document §5.4 |
 | report / appeal / punish_log / violation_score | 复用 | report/appeal/punish_log 补关联列；punish_log 补 score 快照列（重放口径确定可算） |
 
 ------
@@ -213,6 +216,10 @@ public interface ContentModerationService {
 | litisle.moderation.api.timeout-ms / image.model-version | 8000 / v1 | 云 API 超时与图片判定口径版本 |
 | litisle.moderation.dedup.lock-seconds | 60 | 在途去重短锁 TTL（防并发穿透烧费用） |
 | litisle.moderation.alert.* | — | 告警阈值（积压/DLQ/失败率/通过率跌幅/缓存命中率跌幅） |
+| litisle.moderation.wordlib.backup.* | enabled=true / dir=~/.litisle/review/wordlib-backup / retention-versions=50 | 词库冷备（dfa 批次1 ①）：LocalGzipBackupStore 落盘 {dir}/{scene}/{scene}-v{version}.csv.gz，afterCommit 备份 + 落盘后自动清理超期版本；恢复走人工 runbook（禁自动回滚），回灌必须经既有词库导入入口 |
+| litisle.moderation.wordlib.misreport.retention-days | 180 | 误报明细表（wordlib_misreport）保留期：超期未再上报的行由 WordlibMisreportCleanupSweeper 天级 05:00 清理（非正数=保留全量） |
+| litisle.moderation.wordlib.gray-misreport-rate / min-hit-sample | 0.01 / 50 | 治理建议清单口径阈值（§5.4）：误报率门槛（MID→HIGH 转正量化依据）与建议标记最小命中样本量；仅证据参考、禁自动动作，HIGH 降级建议以误报绝对量为主不走样本门槛 |
+| litisle.moderation.nlm-provider | ""（空=未激活） | NLM 语义机审提供方（dfa 批次1 ⑦ 预留键，激活前无任何链路消费）；二期接线位置=异步机审层（moderation.spi 适配器），禁进同步闸门（同步层本地毫秒级执行是硬约束） |
 
 ------
 
@@ -246,7 +253,12 @@ public interface ContentModerationService {
 | moderation_dlq_backlog | Gauge | 死信兑底链路观测 |
 | moderation_punish_total{action} | Counter | 处罚趋势 |
 | moderation_cache_hit{layer=result\|blacklist} | Counter | 缓存命中验证省钱效果 |
-| wordlib_misreport_total{scene} | Counter | 灰度转正唯一数据源（仅 scene 标签，禁按 word 打标签防基数爆炸） |
+| wordlib_misreport_total{scene} | Counter | 场景级趋势告警源（仅 scene 标签，禁按 word 打标签防基数爆炸）；词级明细落 wordlib_misreport 表，转正裁决按 scene+word 聚合表内 report_count 算误报率 |
+
+词级证据口径注记（§5.4 治理建议清单）：词级命中观察量落 wordlib_hit_stat 表（listWords 批量查询展示，
+Prometheus 词级标签路线已否决——TSDB 基数膨胀 + /metrics 端点泄密词库 oracle）；命中统计仅覆盖
+review 进程异步机审（同步闸门 HIGH 拦截在宿主本地，不建任务不分母）——HIGH 词误报率虚高，
+降级建议以误报绝对量为主、比率仅作参考，标记只是证据、禁触发自动动作。
 
 告警规则（Alertmanager，阈值全部外置 §五）：存疑积压超阈 / 在办超时 / DLQ 堆积 / 机审失败率 /
 通过率骤变 / 缓存命中率跌落。traceId 全链路贯穿（网关→MQ→消费端→moderation_record.trace_id）。

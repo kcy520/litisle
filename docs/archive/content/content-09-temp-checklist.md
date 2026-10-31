@@ -1,7 +1,7 @@
 > **拆分归档**：本文件拆分自同目录索引页 [content-implemention-records.md](content-implemention-records.md)，原单文件对应板块正文原样搬运（2026-10-28 拆分，内容零修改），各板块入口见索引页。
-> **板块九说明**：迁自 docs/temp/temp.md（临时任务清单）；批次1~3（阶段1~14）已于 2026-10-28 归档，批次4（阶段15~17）、批次5（后续另立项）归档追加至本文件。
+> **板块九说明**：迁自 docs/temp/temp.md（临时任务清单）；批次1~3（阶段1~14）已于 2026-10-28 归档，批次4（阶段15~17）、批次5（后续另立项）归档追加至本文件，content 模块缺口修复批次 Q1~Q5（2026-10-30）归档追加至本文件（dfa 批次记录仍留 docs/temp/temp.md 未归档）。
 
-## 板块九：临时清单（docs/temp/temp.md）——分类枚举化与 content 模块补链（2026-10-20 ~ 2026-10-28；批次3 阶段10~14、批次4 阶段15~17、批次5 后续另立项 于 2026-10-28 归档）
+## 板块九：临时清单（docs/temp/temp.md）——分类枚举化与 content 模块补链（2026-10-20 ~ 2026-10-30；批次3 阶段10~14、批次4 阶段15~17、批次5 后续另立项 于 2026-10-28 归档；content 模块缺口修复批次 Q1~Q5 于 2026-10-30 归档）
 
 > **来源**：迁自 docs/temp/temp.md（阶段1~17 全量 + 后续另立项批次5 原样搬运，含落地注记与决策留档；批次3 阶段10~14、批次4 阶段15~17、批次5 后续另立项 于 2026-10-28 追加）
 > **背景**：以「文章分类枚举化改造」立项（方案A：@EnumValue 中文入库，DB 零迁移），执行中滚动扩入图片引用闭环（阶段6）、软删连带盘点（阶段7）、计数/封面/展示缺口盘点（阶段8）、密码可见功能下线（阶段9）、content 模块全量审查修复（阶段10）、草稿域单行化收尾（阶段11）、zone 分区语义修复（阶段12）、推荐流热度榜骨架与切流（阶段13~14）、阅读历史语义升级单表双类型（阶段15）、文章/书籍收藏一期 content 临时承载（阶段16）、书籍阅读闭环三读端点（阶段17）、后续另立项批次5（发布异常保稿/热度榜增量优化/书籍发现入口落地；阅读足迹与 social 依赖项核实关闭）
@@ -1477,3 +1477,51 @@ mulu
         触发的 UPDATE 会自动进下一轮增量灌榜，content 消费端仅剩 D10 即时重算增强项——
         待 social 联调落地
 - [ ]（预留位，无内容）
+
+### content 模块缺口修复批次 Q1~Q5（2026-10-30 归档；迁自 docs/temp/temp.md「内容域缺口修复批次·content模块」节，原样搬运）
+
+> **来源**：迁自 docs/temp/temp.md content 模块节（2026-10-30 全部完成后归档；含来源说明/口径修正/dfa 方案影响核查与逐项完成登记，内容零修改）
+> **背景**：dfa 同步闸门批次2/批次3 完成后启动 content 适配（Q1 依赖 DfaFacade 门面=AC 引擎产物，dfa 批次记录暂留 docs/temp/temp.md 未归档）；Q2~Q5 与 DFA 无关可独立执行
+> **挂起/预留项**：无（Q1~Q5 全部落地，无挂起项迁入 Temporarily 清单）
+
+#### content模块，待dfa批次2（③）+批次3（⑥）完成后修改（暂不考虑；Q2 类与 DFA 无关可随时并行）
+
+> 来源：Content_Function_Develop.md 文档核查发现两个缺口（用户确认修复口径）。
+> 口径修正说明：用户先选「摘要纳入机审」，后经方案对比（A1 新摘要立即生效有暴露窗口 / A2 待生效回写需新基建 / 完整异步机审须跨 content+review 契约改造）修正为下述方案1——已发布可单独改摘要 + 同步 DFA 闸门，风险面与摘要（≤500 字已过审正文的派生文本）匹配，留 2b 独立送审单元升级路径。
+> dfa 方案影响核查（2026-10-29）：content 审核 4 个接触点（发布/重提、preview-check、标签闸门、currentVersion×4 处）全部引擎无关、无 hitWords 消费——dfa 四批次对 content **零代码改动、零编排重排**；Q1 实现时直接调用改造后 DfaFacade 门面（届时=AC 引擎），零额外适配。
+
+- [x] **Q1 摘要 DFA 同步闸门（已发布可单独改摘要，2026-10-30 完成）**——现状缺口：送审文本=标题+正文
+  （SubmitTextAssembler SSOT 口径），DFA/LLM/content_hash 均不含摘要；编辑接口已发布态
+  拒改标题/正文/配图但放行摘要——摘要=「从不审核+已发布可随意改」的内容域
+  （≤500 字富文本，展示于列表/详情卡片）。修复方案（已发布可单独改摘要 + 方式1 同步 DFA 闸门）：
+  - 理由：①风险面匹配——摘要 stripTags 后纯文本、且是已过审正文的派生文本（正文合规则
+    摘要违规概率低），违规主风险=敏感词，DFA 覆盖大头，LLM 语义审在 500 字摘要上边际收益很低；
+    ②同步拦截=零暴露窗口（不产生「新摘要先展示后驳回」的合规硬伤，也省掉待生效回写基建）；
+    ③留升级路径——摘要扫描收口成独立方法（场景码外置），未来升级 2b 独立送审单元不必推倒重来
+  - 落地要点：①发布 createAndPublish / 建档 saveDraftRow / 编辑 update 三处对摘要
+    （stripTags 后）单独跑 DFA check（调用 DfaFacade 门面，dfa 批次2 后=AC 引擎，调用方式不变）——黑名单命中拦截、观察词仅留痕，不动
+    assemble(title, body) 口径、content_hash 零影响（存量文章免审缓存不失配）；
+    ②已发布态方案B拒改列表维持标题/正文/配图，摘要放行但过 DFA 同步闸门
+    （改摘要唯一出路口径=同步扫描通过即可改，无需软删重发）；
+    ③文档同步修正「仅封面/摘要/分类/visibility/书籍挂载等元数据可改」表述
+    （摘要移出元数据白名单描述 + 「书籍挂载」实际不在编辑接口的失真描述一并修正）
+  - ✅ **完成登记（2026-10-30）**：[ArticleServiceImpl.checkSummarySensitiveWords] 收口方法（场景码外置 SUMMARY_DFA_SCENE=DfaScenes.ARTICLE，升级 2b 独立送审单元仅改常量）+ 三处接线（createAndPublish 内容清洗后 / saveDraftRow 步骤④后 / update 摘要分支内——已发布态放行但改前必过闸门）；黑名单 70001 拦截、观察词仅留痕（复用 DfaPublishGate 裁决口径）；摘要不进 assemble、content_hash 零影响（存量免审缓存不失配）；空/空白摘要直接放行。litisle-content 编译 ✅。Content-Architeche 方案B 表述已同步修正（禁改列表=标题/正文/配图，摘要移出白名单 + 删「书籍挂载」失真描述）
+- [x] **Q2 挂载书籍状态校验（下架书拒挂，2026-10-30 完成；与 DFA 无关）**——现状缺口：addChapter 仅校验书籍归属+未软删
+  （requireOwnedBook）+ 文章本人已发布未软删 + 章节序号冲突，未校验书籍自身 status——
+  下架书（TAKEN_DOWN）可继续挂新章节（状态一致性缺口；内容安全无虞因文章须已过审）。
+  修复方案（用户确认）：addChapter 补 book.status 校验——下架书拒挂新章节，
+  新增错误码 30016 BOOK_STATUS_INVALID；软删书已有校验（BOOK_NOT_FOUND）不重复
+  - ✅ **完成登记（2026-10-30）**：[ErrorCode.BOOK_STATUS_INVALID(30016)]（common-core，content 章节码段 30015 后顺延）+ [BookServiceImpl.addChapter] 步骤1 归属校验后补 book.status==TAKEN_DOWN 拒挂（复用 requireOwnedBook 返回值零二次查询；软删书仍按 BOOK_NOT_FOUND 拒绝，不复用本码）。litisle-content/common-core 编译 ✅
+
+- [x] 检查Q2类似的书籍状态校验缺口（已排查 2026-10-29）
+
+> 排查结论（扫描范围：Book/Tag/ReadingHistory/Favorite 四个 ServiceImpl 的状态校验路径）：
+> **无缺口确认**：读路径三端点（getDetail/pageChapters/getChapterDetail）统一走 requireReadableBook（下架书仅作者可读，BookServiceImpl L503）；delete/removeChapter 是收窄暴露面的治理方向不立项；attachTags 对封禁/已删标签拒挂（L207）已收口；submit 走状态机白名单；create/update 无 status 入参（owner 不能自改书状态）；favorite/listPublic 已挡下架。**不立项记录**：attachTags 不校验文章状态（下架/驳回文可挂标签致 use_count 虚增，文章不可见无暴露面，微小）。
+> **发现 3 项缺口**：
+
+- [x] **Q3 书籍封面 fileId 归属校验缺失（2026-10-30 完成；实质缺口，content 侧优先级最高）**——BookServiceImpl create（L103）/update（L141-142）直接 setCoverFileId 落库，无任何 fileId 校验；对比文章侧封面/插图有归属+bizType 校验（ARTICLE_IMG_REFUSED）——不对称缺口。风险：①任意引用他人文件（盗图）；②引用 file 侧被拒/隔离的违规图 fileId（若封面出图链路不按 safe_flag 过滤，即为绕过图片审核的展示面——修复时顺带核实 file 出图口径）。修复：create/update 对 coverFileId 补与文章封面同口径校验（归属本人+bizType=COVER，复用文章侧校验逻辑，错误码 BOOK_COVER_REFUSED）；与 DFA 无关可随时执行
+  - ✅ **完成登记（2026-10-30）**：[ErrorCode.BOOK_COVER_REFUSED(30017)]（content 码段 30016 后顺延）+ [BookServiceImpl] 注入 ArticleImageRefSupport，create 步骤0 / update coverFileId 分支各补 checkCoverOwnership（与文章封面完全同口径：归属本人 + bizType=ARTICLE_IMG；null/空封面放行）。**file 出图口径核实（清单顺带项）**：file 出图不按 safe_flag 过滤（FileAccessService 预留注释「审核启用后：返回前校验」未实现），但 REJECT 违规图走**物理隔离**（ModerationResultListener 移入 quarantine/ 前缀 → 原 URL 404），绕审展示面已被物理封堵——safe_flag 闸口属预留增强非缺口；SUSPICIOUS(3)/待检测(2) 占位图由 content 展示侧处理（Review-Architecture §四 file_meta.safe_flag 行口径）。litisle-content 编译 ✅
+- [x] **Q4 updateBook 不校验书籍状态（2026-10-30 完成；下架书元数据可编辑）**——update 仅 requireOwnedBook（归属+软删），下架书 owner 仍可改 title/intro/cover/category（对外不可见，暴露面弱；但与 Q2 同构=状态一致性缺口，且若未来有恢复路径，下架期间元数据可被替换）；修复：补 status!=TAKEN_DOWN 校验（复用 30016 BOOK_STATUS_INVALID），或明确「下架书允许编辑」口径并留痕；与 DFA 无关可随时执行
+  - ✅ **完成登记（2026-10-30）**：[BookServiceImpl.update] 步骤1 归属校验后补 `status==TAKEN_DOWN` 拒改（采用清单第一选项=补校验，与 Q2 addChapter 拒挂同构收口；复用 30016 BOOK_STATUS_INVALID 零新码）。litisle-content 编译 ✅
+- [x] **Q5 阅读历史上报不校验书籍状态（2026-10-30 完成）**——ReadingHistoryServiceImpl.report 仅校验章节归属（L78-81），下架书手动 PUT 上报仍成功（读路径已挡→「读不了但能报进度」不一致）；修复：report 书籍维度补书状态校验（下架书非作者拒绝）；低优先级；与 DFA 无关可随时执行
+  - ✅ **完成登记（2026-10-30）**：[ReadingHistoryServiceImpl.report] 步骤1 章节归属校验后补 bookMapper 查书状态——`TAKEN_DOWN 且非作者` 拒报（复用 30016 BOOK_STATUS_INVALID；作者本人放行=与读路径「下架书仅作者可读」requireReadableBook 同口径；book 为 null 跳过校验不阻塞上报，防章节校验后书被软删的极窄窗口 NPE）。litisle-content 编译 ✅

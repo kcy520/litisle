@@ -135,6 +135,40 @@ public class ArticleServiceImpl implements ArticleService {
     /** 发布入口草稿快照组件（P1 发布异常保稿：校验前 UPSERT 快照进 article_draft，REQUIRES_NEW 独立事务） */
     private final PublishDraftSnapshotSupport publishDraftSnapshotSupport;
 
+    /** 摘要 DFA 扫描场景码（Q1 场景码外置：当前与正文共用 ARTICLE 词库；未来升级 2b 独立送审单元时仅调整本常量，调用方零改动） */
+    private static final String SUMMARY_DFA_SCENE = DfaScenes.ARTICLE;
+
+    /**
+     * 摘要敏感词同步扫描（Q1：摘要此前「从不审核+已发布可随意改」，补 DFA 同步闸门实现零暴露窗口）
+     *
+     * 作用：
+     * 对 stripTags 后的纯文本摘要独立跑 DFA 检查：命中黑名单词（HIGH）抛 70001 拦截，
+     * 命中观察词（MID）仅记日志留痕不拦截（与正文闸门同口径）。
+     * 摘要不进 SubmitTextAssembler.assemble 口径、不参与 content_hash——
+     * 存量文章免审缓存不受影响（摘要变更不会导致免审缓存失配）。
+     *
+     * @param summary  stripTags 后的摘要纯文本（null/空白直接跳过）
+     * @param authorId 作者用户ID（观察词留痕日志用）
+     * @throws BizException SENSITIVE_WORD_DETECTED 摘要命中黑名单词
+     */
+    private void checkSummarySensitiveWords(String summary, Long authorId) {
+        // 空/空白摘要无扫描意义，直接放行
+        if (summary == null || summary.isBlank()) {
+            return;
+        }
+        // 摘要独立扫描（场景码外置）：与正文闸门共用 DfaPublishGate 裁决口径（HIGH 拦/MID 标记）
+        DfaHitResult hitResult = dfaFacade.check(SUMMARY_DFA_SCENE, summary);
+        DfaPublishGate.DfaGateDecision gate = DfaPublishGate.decide(SUMMARY_DFA_SCENE, hitResult);
+        if (gate.blocked()) {
+            // 黑名单词同步拦截：改摘要唯一出路口径=同步扫描通过即可改（无需软删重发）
+            throw new BizException(ErrorCode.SENSITIVE_WORD_DETECTED);
+        }
+        if (gate.midMark()) {
+            // 观察词仅留痕：送审后最终处理由 review 审核端决定
+            log.info("摘要 DFA MID 命中仅标记不拦截：authorId={}，wordlibVer={}", authorId, hitResult.wordlibVer());
+        }
+    }
+
     /**
      * 创建并发布（§2.4 发布编排）：A0 分区权限 → A1 图文同空校验+参数校验 → 内容清洗 →
      * 敏感词同步扫描（严重词拦 70001 / 观察词仅留痕）→ 内容指纹落库（status=1 待审）→ 配图挂到文章下 →
@@ -238,6 +272,10 @@ public class ArticleServiceImpl implements ArticleService {
         String title = ArticleHtmlSanitizer.stripTags(dto.getTitle());
         String summary = ArticleHtmlSanitizer.stripTags(dto.getSummary());
         String contentHtml = hasText ? ArticleHtmlSanitizer.sanitize(dto.getContentHtml()) : dto.getContentHtml();
+
+        // Q1 摘要同步闸门：stripTags 后纯文本摘要独立过 DFA（黑名单拦截/观察词留痕）；
+        // 不受 hasText 限制（纯图文章同样有摘要）；不进 assemble 口径、不影响 content_hash
+        checkSummarySensitiveWords(summary, authorId);
 
         // 敏感词同步扫描（§4.2.1 ①，所有分区统一走机审）：命中黑名单词拦截、命中观察词只记日志
         String assembledText = SubmitTextAssembler.assemble(title, contentHtml == null ? "" : contentHtml);
@@ -424,6 +462,9 @@ public class ArticleServiceImpl implements ArticleService {
         String summary = ArticleHtmlSanitizer.stripTags(dto.getSummary());
         String contentHtml = hasText ? ArticleHtmlSanitizer.sanitize(dto.getContentHtml()) : dto.getContentHtml();
 
+        // 步骤④+（Q1）：摘要过 DFA 同步闸门（黑名单建档即拦/观察词留痕——与发布摘要闸门同口径）
+        checkSummarySensitiveWords(summary, authorId);
+
         // 步骤⑤：敏感词同步扫描（黑名单词建档即拦，观察词仅留痕——与发布闸门同口径）
         String assembledText = SubmitTextAssembler.assemble(title, contentHtml == null ? "" : contentHtml);
         if (hasText) {
@@ -580,7 +621,10 @@ public class ArticleServiceImpl implements ArticleService {
             upd.setTitle(ArticleHtmlSanitizer.stripTags(dto.getTitle()));
         }
         if (dto.getSummary() != null) {
-            upd.setSummary(ArticleHtmlSanitizer.stripTags(dto.getSummary()));
+            // Q1 摘要同步闸门：已发布态摘要放行可改，但改前必须过 DFA（黑名单拦截——改摘要唯一出路口径=扫描通过即可改）
+            String summary = ArticleHtmlSanitizer.stripTags(dto.getSummary());
+            checkSummarySensitiveWords(summary, article.getAuthorId());
+            upd.setSummary(summary);
         }
         if (dto.getContentHtml() != null) {
             upd.setContentHtml(ArticleHtmlSanitizer.sanitize(dto.getContentHtml()));

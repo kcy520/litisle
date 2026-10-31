@@ -15,6 +15,7 @@ import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.mapper.BookChapterMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.ReadingHistoryMapper;
+import com.litisle.litislecontent.enums.BookStatusEnum;
 import com.litisle.litislecontent.service.ReadingHistoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -78,6 +79,14 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
         BookChapter chapter = bookChapterMapper.selectById(chapterId);
         if (chapter == null || !chapter.getBookId().equals(bookId)) {
             throw new BizException(ErrorCode.BOOK_CHAPTER_MISMATCH);
+        }
+        // 步骤1+（Q5）：书状态校验——下架书非作者拒上报（读路径 requireReadableBook 已挡下架书，
+        // 收口「读不了但能报进度」的不一致；作者本人放行=与读路径「下架书仅作者可读」同口径）。
+        // book 为 null（章节校验后书被软删的极窄窗口）跳过校验不阻塞上报
+        Book book = bookMapper.selectById(bookId);
+        if (book != null && book.getStatus() == BookStatusEnum.TAKEN_DOWN
+                && !book.getAuthorId().equals(userId)) {
+            throw new BizException(ErrorCode.BOOK_STATUS_INVALID);
         }
         // 步骤2：共用 UPSERT（仅前进不回退，防多端乱序上报把进度拖回去）
         upsertHistory(userId, BIZ_TYPE_BOOK, bookId, chapterId, chapter, true);

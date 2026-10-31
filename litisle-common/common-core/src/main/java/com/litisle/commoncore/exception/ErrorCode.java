@@ -253,6 +253,18 @@ public enum ErrorCode {
      */
     BOOK_CHAPTER_NO_CONFLICT(30015, "章节序号已被占用"),
 
+    /**
+     * 书籍状态不允许该操作（Q2：下架书 TAKEN_DOWN 拒挂新章节——下架=对外终止态禁止扩章节；
+     * addChapter 落挂载前校验；软删书仍按 BOOK_NOT_FOUND 拒绝，不复用本码）
+     */
+    BOOK_STATUS_INVALID(30016, "书籍状态不允许该操作"),
+
+    /**
+     * 书籍封面引用被拒（Q3：fileId 归属校验与文章封面同口径——非本人上传或 bizType≠ARTICLE_IMG，
+     * 防盗图/引用被拒违规图；复用文章侧 checkCoverOwnership 校验逻辑，仅错误码区分书籍场景）
+     */
+    BOOK_COVER_REFUSED(30017, "封面不可用：非本人上传或非文章配图"),
+
     // ==================== 社交模块 40000-49999 ====================
     /**
      * 评论不存在
