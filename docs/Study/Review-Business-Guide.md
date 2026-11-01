@@ -62,7 +62,7 @@ litisle-review
 
 litisle-api（契约层，宿主服务与 review 共用）
 └─ com.litisle.litisleapi
-   ├─ dfa                     # 同步闸门全套：DfaFacade 门面 / AcTextScanEngine 自研 AC 自动机
+   ├─ dfa                     # 同步闸门全套：DfaFacade 门面 / AcdatTextScanEngine hankcs ACDAT 双数组 trie 引擎
    │                          #   / CharNormalizer 归一化 / TextScanEngine SPI / WordlibSnapshot 快照
    │                          #   / WordLibraryLoader 装载 SPI / WordlibChangedMessage 广播消息体
    ├─ moderation              # MachineRejectPunishGate（机审处罚记账收口）等发布侧门面
@@ -83,11 +83,11 @@ litisle-api（契约层，宿主服务与 review 共用）
 > - dfa：同步闸门是「宿主本地执行」的硬约束（发布/注册/私信链路不依赖 review 可用性），所以引擎与快照结构必须下沉共享包——宿主预检与 review 消费端同源同快照，防两侧口径漂移
 > - moderation / event.moderation：机审处罚记账门面与事件体契约；事件体只带定位键，正文一律回查（防事件体膨胀 + 防敏感内容散落 MQ）
 
-## 一、同步词闸门：自研 AC 自动机（litisle-api dfa 包）
+## 一、同步词闸门：hankcs ACDAT 引擎（litisle-api dfa 包）
 
 **功能描述：**
 
-> - 发布/注册/私信等链路的**本地毫秒级**关键词闸门，零第三方依赖、不依赖 review 可用性
+> - 发布/注册/私信等链路的**本地毫秒级**关键词闸门，内核零传递依赖（hankcs ACDAT 单 jar）、不依赖 review 可用性
 > - 命中 HIGH 黑名单词直接拒绝（错误码 70001）；MID 词只标记不拦截（灰度观察）
 > - 构建期归一化展开变体（繁简/全半角），扫描期 allow 区间过滤 + 最长优先裁决
 
@@ -95,7 +95,7 @@ litisle-api（契约层，宿主服务与 review 共用）
 
 > **引擎与 SPI**
 >
-> - `TextScanEngine` 是引擎 SPI，`AcTextScanEngine` 是唯一生产实现（自研 Aho-Corasick，批次3 ⑤b 已删 houbb sensitive-word 依赖）；换引擎加实现类即可
+> - `TextScanEngine` 是引擎 SPI，`AcdatTextScanEngine` 是唯一生产实现（hankcs AhoCorasickDoubleArrayTrie 双数组 trie 内核；演进：houbb → 自研 AC 自动机（review-08 批次3 ⑤b 删 houbb 依赖）→ hankcs ACDAT（2026-11-01 DFA 引擎切换批次，影子比对归因归零后收口））；换引擎加实现类即可
 > - `CharNormalizer` 构建期归一化：繁简/全半角展开变体 pattern（叠词只长不短，文本侧永不折叠）——防「ｆｕｃｋ」「ｆúｃｋ」类变体绕过
 > - `DfaFacade` 是宿主调用的统一门面：扫描后按 allow 区间过滤命中、最长优先裁决，输出 `DfaHitResult`（命中级别+命中词，供业务侧只回 hit/risk 不回吐词）
 >
@@ -115,10 +115,10 @@ litisle-api（契约层，宿主服务与 review 共用）
 >   litisle\_api\dfa\DfaFacade.java：\
 >   作用：\
 >   同步闸门统一门面（预检与发布闸门同源同快照），扫描 + allow 区间过滤 + 最长优先裁决
-> - TextScanEngine.java / AcTextScanEngine.java：\
->   litisle\_api\dfa\TextScanEngine.java、AcTextScanEngine.java：\
+> - TextScanEngine.java / AcdatTextScanEngine.java：\
+>   litisle\_api\dfa\TextScanEngine.java、AcdatTextScanEngine.java：\
 >   作用：\
->   引擎 SPI 与自研 AC 自动机实现（零第三方依赖；新增引擎实现类即可切换）
+>   引擎 SPI 与 hankcs ACDAT 双数组 trie 内核实现（内核零传递依赖；新增引擎实现类即可切换）
 > - CharNormalizer.java：\
 >   litisle\_api\dfa\CharNormalizer.java：\
 >   作用：\
@@ -153,7 +153,7 @@ litisle-api（契约层，宿主服务与 review 共用）
 > **热更新链路**
 >
 > - `WordlibVersionService`：事务收口 + 推版本 + 审计落库（板块三）+ 触发备份（板块四）+ 写快照 + 发布 `WordlibChangedMessage`
-> - `WordlibChangeSubscriber`：各实例订阅广播 → `WordlibRebuildExecutor` 重建本地 AC 自动机（重建期间旧引擎继续服务，原子切换）
+> - `WordlibChangeSubscriber`：各实例订阅广播 → `WordlibRebuildExecutor` 重建本地 DFA 引擎（hankcs ACDAT 内核；重建期间旧引擎继续服务，原子切换）
 
 **通俗版**：\
 管理员对敏感词做的任何增删改，都严格遵守「改词表和升版本号必须同一个事务、提交后通知所有机器换词库」——保证全站每台机器的词库永远一致。\
@@ -186,37 +186,37 @@ litisle-api（契约层，宿主服务与 review 共用）
 >   作用：\
 >   词表实体（level：1-HIGH 2-MID；isBlacklist 黑白名单；status 启停）与版本表实体
 
-## 三、词库灰度治理与误报闭环（MID 观察 + wordlib_misreport + wordlib_hit_stat 建议清单）
+## 三、词库灰度治理与误报闭环（MID 观察 + wordlib\_misreport + wordlib\_hit\_stat 建议清单）
 
 **功能描述：**
 
 > - 新词默认 MID（只标记不拦截）观察，误报率达标后人工转正 HIGH；HIGH 误报可降级回 MID
 > - 误报上报：HIGH 同步拒发的内容未发布走不了 appeal，独立入口回流
-> - 词级命中统计：异步机审建任务处按快照 hitWords 逐词原子累加（wordlib_hit_stat，HIGH/MID 均统计）
+> - 词级命中统计：异步机审建任务处按快照 hitWords 逐词原子累加（wordlib\_hit\_stat，HIGH/MID 均统计）
 > - 治理建议清单：词库列表出参附「建议标记+证据字段」（建议降级/转正确认/建议转正），运营只看清单不翻全量词库——标记只是证据，禁自动动作
-> - 双数据源互补：Prometheus Counter 管场景级趋势告警（禁词级标签），wordlib_misreport + wordlib_hit_stat 表管词级明细（转正/降级裁决证据）
+> - 双数据源互补：Prometheus Counter 管场景级趋势告警（禁词级标签），wordlib\_misreport + wordlib\_hit\_stat 表管词级明细（转正/降级裁决证据）
 
 **功能描述——详细版：**
 
 > **灰度纪律（§2.5）**
 >
 > - `WordLevelEnum`：HIGH(1)=同步拦截（70001）/ MID(2)=只留痕不拦截；`addWord` 未显式传 level 默认 MID，`importWords` 必须显式传
-> - MID 词依然被 AC 自动机持续命中（快照落 `review_task.layer1_hit=2` + hit_words 留痕），只是裁决层不放杀权——用户无感知，所以 MID 阶段不存在「误报」
+> - MID 词依然被 AC 自动机持续命中（快照落 `review_task.layer1_hit=2` + hit\_words 留痕），只是裁决层不放杀权——用户无感知，所以 MID 阶段不存在「误报」
 >
 > **误报上报（reportMisreport）**
 >
-> - 校验：词必须存在于该场景**黑名单**（白/灰名单词不参与拦截，上报即污染数据），不存在抛 WORD_NOT_FOUND
+> - 校验：词必须存在于该场景**黑名单**（白/灰名单词不参与拦截，上报即污染数据），不存在抛 WORD\_NOT\_FOUND
 > - 计数：`WordlibMetrics.incrementMisreport(scene)` —— 场景级 Counter `wordlib_misreport_total{scene}`，**标签只带 scene 不带 word**（防基数爆炸 + 防词库 oracle 泄密）
 > - 落库：写 `wordlib_misreport` 明细行，失败仅 error 日志不阻断用户反馈动作（Counter 已计数 + warn 日志兜底）
 >
-> **明细表防刷设计（wordlib_misreport）**
+> **明细表防刷设计（wordlib\_misreport）**
 >
 > - 唯一键 `(reporter_id, scene, word)`：同一人重复上报不新增行；Mapper 注解 SQL 原子 `report_count+1`（先累加→无行首插→并发撞唯一键降级再累加，防读-改-写竞态）
 > - `level_snapshot` 固化上报时词级别：后续级别变更/删词不污染历史行裁决口径
 > - reason 应用层防护：剥 CRLF（防日志注入）+ 截断 200
 > - TTL：sweeper 每日 05:00 按 `last_report_time` 清理过期行（活跃误报不被误删；保留期 `retention-days` 默认 180，非正数=保留全量）
 >
-> **词级命中统计（wordlib_hit_stat，§5.4）**
+> **词级命中统计（wordlib\_hit\_stat，§5.4）**
 >
 > - 接线点：`ModerationTextService.persistAndPublish` 任务 CAS 流转成功后（recordId 非空=本次消费真实处理），`WordlibHitStatRecorder` 解析任务快照 hitWords（逗号 CSV）→ 去重（同任务同词只计一次，防 DFA 多次命中虚高）→ 逐词 upsert（先累加→无行首插→并发撞唯一键降级累加，与 misreport 同模板）
 > - HIGH/MID 命中均累加：MID 转正建议的唯一量化依据就是异步命中观察量；图片场景不走 DFA 无 hitWords，结构性不接线
@@ -225,14 +225,14 @@ litisle-api（契约层，宿主服务与 review 共用）
 >
 > **治理建议清单（listWords 出参，标记只是证据）**
 >
-> - 三类口径（仅黑名单且启用中的词参与）：`SUGGEST_DEMOTE` 建议降级 = HIGH + 误报次数>0（绝对量为主）；`PROMOTE_CONFIRM` 转正确认 = HIGH + 样本≥min-hit-sample 且误报率<gray-misreport-rate；`SUGGEST_PROMOTE` 建议转正 = MID + 样本≥min-hit-sample
-> - 证据字段同 VO 回吐：hitCount（hit_stat）/ reportCount+reporterCount（misreport 聚合，按人去重）/ misreportRate = report/hit（hit=0 或 report=0 时置 null，防 0/0 与误导性 0.0）
+> - 三类口径（仅黑名单且启用中的词参与）：`SUGGEST_DEMOTE` 建议降级 = HIGH + 误报次数>0（绝对量为主）；`PROMOTE_CONFIRM` 转正确认 = HIGH + 样本≥min-hit-sample 且误报率\<gray-misreport-rate；`SUGGEST_PROMOTE` 建议转正 = MID + 样本≥min-hit-sample
+> - 证据字段同 VO 回吐：hitCount（hit\_stat）/ reportCount+reporterCount（misreport 聚合，按人去重）/ misreportRate = report/hit（hit=0 或 report=0 时置 null，防 0/0 与误导性 0.0）
 > - 实现：当前页词批量两次 IN 查询 + 内存按 (scene, word) 匹配（分隔符 '\n' 为词校验禁止的控制字符，防拼接歧义），禁逐词查询；`WordSuggestionMarkEnum` 纯展示不入库（无 @EnumValue）
 > - Prometheus 词级标签路线已否决：序列基数膨胀 + /metrics 端点泄词库 oracle
 >
 > **转正/降级人工闭环**
 >
-> - 转正 MID→HIGH：ADMIN 调 updateWord；导航入口 = 建议清单「建议转正/转正确认」标记 + Counter 趋势（误报率低于 `gray-misreport-rate` 阈值）+ 明细表按 scene+word 聚合 report_count 算词级误报率——**决策始终是人，标记/Counter/明细只提供证据，不触发自动动作**
+> - 转正 MID→HIGH：ADMIN 调 updateWord；导航入口 = 建议清单「建议转正/转正确认」标记 + Counter 趋势（误报率低于 `gray-misreport-rate` 阈值）+ 明细表按 scene+word 聚合 report\_count 算词级误报率——**决策始终是人，标记/Counter/明细只提供证据，不触发自动动作**
 > - 降级 HIGH→MID：确认误报后同一端点收回杀权（清单「建议降级」标记按误报绝对量>0 推荐）
 > - 全部变更走板块二铁律：审计落 `wordlib_change_audit`（摘要形如 level: MID→HIGH）+ version+1 + 广播重建
 
@@ -336,7 +336,7 @@ litisle-api（契约层，宿主服务与 review 共用）
 > **建任务幂等（ReviewTaskUpsertService，唯一入口）**
 >
 > - 定位键 = bizType + bizId + scene（复审与文本任务同 biz 同 id 并存，scene 必带）；唯一键 `uk_biz_scene`
-> - content_hash 变化或旧任务已终态 → 追加 superseded 留痕后重置（清 assignee/机审证据列，retry_count 归零）；hash 未变且在审 → 只复用回填，**不打断已认领任务**
+> - content\_hash 变化或旧任务已终态 → 追加 superseded 留痕后重置（清 assignee/机审证据列，retry\_count 归零）；hash 未变且在审 → 只复用回填，**不打断已认领任务**
 > - 重置目标态：待机审场景置 0；举报复审场景（除图片复审外）置 2 直进人审
 >
 > **SPI 与适配器**
@@ -348,7 +348,7 @@ litisle-api（契约层，宿主服务与 review 共用）
 > **三分态落库与联动**
 >
 > - `ModerationTextService` / `ModerationImageService`：三分态落 `moderation_record`（append-only 留痕）+ `ModerationResultPublisher` 发 result 事件（业务方 CAS 回写，review 不跨库直写业务表）
-> - REJECT 联动处罚：`RejectPunishAdapterHost` 经 litisle-api `MachineRejectPunishGate` 适配收口（同事务 punish_log(action=3) + violation_score 累计；事件 afterCommit 发）
+> - REJECT 联动处罚：`RejectPunishAdapterHost` 经 litisle-api `MachineRejectPunishGate` 适配收口（同事务 punish\_log(action=3) + violation\_score 累计；事件 afterCommit 发）
 > - 用户名场景特殊：USERNAME 同步 DFA 拒绝不建任务，只落 record + `UsernameRejectRecordService` 留痕
 
 **通俗版**：\
@@ -402,7 +402,7 @@ litisle-api（契约层，宿主服务与 review 共用）
 
 **功能描述——详细版：**
 
-> - 文本结果 `review:text-result:{wordlibVer}:{fewShotVer}:{scene}:{hash}`：词库或 prompt 换版自动失效旧结论；命中仍追加 moderation_record（留痕不省）
+> - 文本结果 `review:text-result:{wordlibVer}:{fewShotVer}:{scene}:{hash}`：词库或 prompt 换版自动失效旧结论；命中仍追加 moderation\_record（留痕不省）
 > - 图片结果 `review:img-result:{provider}:{modelVersion}:{sha256}`：换模型不复用旧结论
 > - 拒传黑名单 `review:img-blacklist:{sha256}`：REJECT 图片 TTL 30 天不随版本失效；申诉平反时移除
 > - 免审键 `review:last-hash:{wordlibVer}:{bizType}:{scene}:{bizId}`：hash 未变 + PASS + 非驳回态才免审（宿主侧 `LastHashExemptChecker` 消费，**免文不免图**——配图仍发复审）
@@ -429,16 +429,16 @@ litisle-api（契约层，宿主服务与 review 共用）
 
 **功能描述：**
 
-> - SUSPICIOUS/举报复审/DLQ 兜底统一进 review_task 人工队列
+> - SUSPICIOUS/举报复审/DLQ 兜底统一进 review\_task 人工队列
 > - 队列 → 详情 → 认领（CAS 防抢）→ 裁决（终态 CAS + 处罚/举报回写联动）
 > - sweeper 兜底：认领超时回池、申诉超时维持、stuck 分频重投、三态 Gauge
 
 **功能描述——详细版：**
 
-> - `listQueue`：REVIEWER/ADMIN；layer2_risk 降序 + create_time 升序；配额校验（max-active-per-reviewer=20 防单人占满队列）
+> - `listQueue`：REVIEWER/ADMIN；layer2\_risk 降序 + create\_time 升序；配额校验（max-active-per-reviewer=20 防单人占满队列）
 > - `getTask`：含机审三分态/命中词快照/证据图（证据经 FileClient 批量取预签名 URL）
-> - `claimTask`：CAS `where id=? and status=2 and assignee is null`，affected=0 抛 70004（已被他人认领）；写 assignee + claim_time（sweeper 超时回池基准）
-> - `decideTask`：终态 CAS（where status=2）置 {3,4}，天然拦截重复裁决；REJECT 联动内容下架事件 + punish_log 落行 + violation_score 原子累加 + 举报回写；人审直接封禁需 `confirm=true` 双签留痕（moderation_record mod\_type=6）+ punish.result 事件（auth 消费强制下线全会话）
+> - `claimTask`：CAS `where id=? and status=2 and assignee is null`，affected=0 抛 70004（已被他人认领）；写 assignee + claim\_time（sweeper 超时回池基准）
+> - `decideTask`：终态 CAS（where status=2）置 {3,4}，天然拦截重复裁决；REJECT 联动内容下架事件 + punish\_log 落行 + violation\_score 原子累加 + 举报回写；人审直接封禁需 `confirm=true` 双签留痕（moderation\_record mod\_type=6）+ punish.result 事件（auth 消费强制下线全会话）
 > - `ReviewTaskSweeper`（fixedDelay 60s 默认，四职责顺序执行互不依赖）：认领超时回池 / 申诉超时维持 / 三态 Gauge 埋点 / stuck 任务分频重投
 
 **通俗版**：\
@@ -474,9 +474,9 @@ litisle-api（契约层，宿主服务与 review 共用）
 
 **功能描述——详细版：**
 
-> - `submitReport`：reporter ≠ 目标 owner → 活跃举报去重（active\_key 兜底）→ 落 report + 证据关联（report_evidence）→ 同步 DFA 初审分流：HIGH 命中建 review\_task 转人工 / 低风险机审直处理
+> - `submitReport`：reporter ≠ 目标 owner → 活跃举报去重（active\_key 兜底）→ 落 report + 证据关联（report\_evidence）→ 同步 DFA 初审分流：HIGH 命中建 review\_task 转人工 / 低风险机审直处理
 > - `withdrawReport`：CAS `where reporter_id=? and status<3` 置 4-已撤回；已建 review\_task 不撤销（进池的任务由人审闭环收口）
-> - `getInternalReport`：内部契约提供方（ReviewFeignProviderController；网关不路由 /api/feign/**）
+> - `getInternalReport`：内部契约提供方（ReviewFeignProviderController；网关不路由 /api/feign/\*\*）
 
 **通俗版**：\
 用户可以举报违规内容：不能自己举报自己、同一目标未结案不能重复举报、证据要登记。\
@@ -511,9 +511,9 @@ litisle-api（契约层，宿主服务与 review 共用）
 
 **功能描述——详细版：**
 
-> - `submitAppeal`：appellant 与内容 owner 一致校验（biz_type→report.target_type 映射回查归属，防替别人申诉）→ 双层防重（关联列级 + 内容级 status=0）→ 落 appeal
+> - `submitAppeal`：appellant 与内容 owner 一致校验（biz\_type→report.target\_type 映射回查归属，防替别人申诉）→ 双层防重（关联列级 + 内容级 status=0）→ 落 appeal
 > - `judgeAppeal`：仅 ADMIN（REVIEWER 不可自裁）+ 原驳回裁决人回避 + 改判撤销高风险需 confirm=true 双签
->   - 维持 → status=1；撤销 → status=2 + punish_log 撤销 + violation_score 重算 + 同内容活跃举报批量回写 status=3（按 target_type+target_id，非仅本举报）
+>   - 维持 → status=1；撤销 → status=2 + punish\_log 撤销 + violation\_score 重算 + 同内容活跃举报批量回写 status=3（按 target\_type+target\_id，非仅本举报）
 >   - 缓存同步失效（text-result/img-result/last-hash + 黑名单移除 sha256）
 >   - 两分支事务提交后均发 `appeal.result`（reviewTaskId 作 notification 幂等键）；下游恢复由 file/content/message 消费侧执行
 
@@ -545,7 +545,7 @@ litisle-api（契约层，宿主服务与 review 共用）
 
 **功能描述：**
 
-> - punish_log 处罚流水 + violation_score 违规分累计；禁言/封禁阈值按生效行重放判定
+> - punish\_log 处罚流水 + violation\_score 违规分累计；禁言/封禁阈值按生效行重放判定
 > - 处罚权威态快照供 auth/content 覆盖式回查；punish.result 事件驱动 auth 强制下线
 > - 双向对账 sweeper 校正 review 与 auth/user 两侧处罚状态漂移
 
@@ -590,35 +590,41 @@ litisle-api（契约层，宿主服务与 review 共用）
 
 **功能描述：**
 
-> - 五个 sweeper 错峰兜底（全带 Redis SETNX+token 互斥：拿不到锁直接退出、TTL 自愈、finally 比对 token 归属再释放）
-> - 全站 QPS 护栏 + 模型级并发闸，防机审调用量洪峰打穿模型后端
-> - AlertThresholdMetrics 把阈值暴露为 Prometheus 指标，告警规则引用指标而非写死数字
+> - 五个定时清扫任务错峰兜底（多实例部署时靠「Redis 抢锁+令牌」保证同一时刻只有一台在干活：抢不到锁直接跳过本轮、锁超时自动失效、释放前核对令牌归属防误删别人的锁）
+> - 全站 QPS 限流护栏 + 模型级并发闸，防机审调用量洪峰打穿模型后端
+> - AlertThresholdMetrics 把各条告警的触发阈值做成监控指标，告警规则引用指标而非写死数字
 
 **功能描述——详细版：**
 
 > **sweeper 错峰时刻表**
 >
-> | Sweeper | 调度 | 职责 |
-> | --- | --- | --- |
-> | ReviewTaskSweeper | fixedDelay 60s（外置） | 认领超时回池/申诉超时维持/Gauge/stuck 重投 |
-> | PunishReconcileSweeper | cron 外置（默认 */10min） | 处罚双向对账 |
-> | QuarantineSweeper | 03:00（外置） | 违规图隔离清理（申诉豁免/限速删除） |
-> | WordlibMisreportCleanupSweeper | 05:00 | 误报明细 TTL 清理（last_report_time 口径） |
-> | ModerationRecordArchiveSweeper | 归档占位 | **默认关**（archive-enabled），本期仅绑定配置与契约 |
+> | Sweeper                        | 调度                   | 具体做什么                            |
+> | ------------------------------ | -------------------- | ----------------------------------- |
+> | ReviewTaskSweeper              | 60 秒一轮（间隔可配置）  | ①审核员认领后超时未裁决→任务收回待审池、重新可被认领 ②申诉超 7 天无人裁决→系统自动按「维持原判」收口并通知作者 ③刷新三条积压监控读数（待机审/无人认领/已认领未裁决）与死信队列堆积深度 ④疑似丢消息、长期卡在待审的任务→定期重投 MQ 重新触发机审 |
+> | PunishReconcileSweeper         | 默认每 10 分钟（可配置） | ①已被封禁但账号还在线→补踢下线（防「踢下线」事件丢失导致漏封） ②处罚已撤销但登录侧还记着「封禁/禁言」→触发登录侧回查解封（防「解封」事件丢失导致误伤） |
+> | QuarantineSweeper              | 每天 03:00（可配置）     | 删除超过保留期（默认 30 天）、最新结论仍是违规、且没有待裁决申诉的隔离图片（申诉中的先不删、顺延下轮）；批量删除按每分钟 N 张限速，防打爆文件存储 |
+> | WordlibMisreportCleanupSweeper | 05:00                | 删除「最后一次上报时间」超过保留期（默认 180 天）的误报反馈记录；仍被用户持续上报的活跃记录不会删（重复上报会刷新时间戳） |
+> | ModerationRecordArchiveSweeper | 归档占位                 | **默认关**（archive-enabled）、二期占位未实现：计划把超过合规留存期（6 个月）的机审留痕迁到历史表后删热表行，防热表无限膨胀 |
 >
-> **QPS 护栏两层**
+> **这些任务解决什么问题**：正常业务由 MQ 消费和用户操作驱动，但消息可能丢、审核员可能离线、申诉可能没人管、数据总有该清的——sweeper 只负责捞这些「例外」，是补偿兜底而非主链路（系统健康时每轮只是几次索引查询，毫秒级返回）。
 >
-> - `ModerationGlobalQpsInterceptor`：送审入口全站 QPS 护栏（§2.6），超限保持待审不拒用户
-> - `ModerationModelQpsGuard`：模型级护栏（Redis 不可用走本地兜底计数，宁多花钱不漏审）
+> **QPS 护栏两层——第一层管「内容进来的速度」，第二层管「钱花出去的速度」**
 >
-> **观测口径**
+> - `ModerationGlobalQpsInterceptor`（第一层·入口限流）：拦 HTTP 送审接口的提交流量——流量超限时新内容继续排队等机审，不拒绝用户，只是结果晚一点出
+> - `ModerationModelQpsGuard`（第二层·模型调用限流）：拦 MQ 消费里「真实调用 AI 模型」这个花钱动作——文本按段落逐片调、图片逐张调，**每次真调模型前先申请一个全站调用名额，名额用完就先不调**。它是烧钱前的最后一道闸，专门防 Redis 缓存故障的放大场景：缓存挂了，「查缓存免重复调用」就失效，所有内容都直调模型，调用量瞬间放大 N 倍
+>   - 超限了怎么办：不拒绝用户、不丢内容——抛异常让 MQ 消息延迟重试，内容保持「待机审」，晚点再调模型，绝不默认放行
+>   - Redis 也挂了怎么办：自动切本地计数兜底（阈值更严格），宁可多花点钱直调模型，不漏审
+>   - 与第一层的关系：两层计数各自独立、互不挤占配额；阈值共用同一配置口（`litisle.moderation.qps.*`，Nacos 改了即时生效）
 >
-> - `ModerationMetrics`：机审域埋点（optional 模式，metrics 未接入零开销）
-> - `WordlibMetrics`：词库域埋点（误报/重建 Counter；**标签只到 scene 粒度**——Prometheus 序列只增不减，按 word 打标会基数爆炸且泄露词库）
-> - `AlertThresholdMetrics`：六告警规则阈值（存疑积压/DLQ 堆积/机审失败率/通过率回滑/缓存命中跌落等）外置 yml/Nacos，改配置即时生效无需改规则文件
+> **监控埋点三组**
+>
+> - `ModerationMetrics`：机审域计数——调用量、模型耗时、缓存命中、处罚联动次数等；项目未接监控组件时自动跳过，零开销
+> - `WordlibMetrics`：词库域计数——误报次数、词库重建次数；**统计只到「场景」粒度、不按具体词打标**——按词拆分会让监控数据量无限膨胀，且监控接口会把词库内容泄露出去
+> - `AlertThresholdMetrics`：把六条告警的触发阈值（存疑积压/死信堆积/机审失败率/通过率回滑/缓存命中跌落等）做成监控指标暴露出去，告警规则引用指标而非写死数字——阈值改在 yml/Nacos 里即时生效，不用改告警规则文件
 
 **通俗版**：\
-五个定时任务各管一摊、时间错开半夜跑，且多实例部署时靠「抢锁+令牌」保证同一时刻只有一台在干活——抢不到的直接下班，锁坏了靠过期时间自愈。\
+五个定时任务各管一摊、时间错开跑（高频的 60 秒/10 分钟一轮，清理类的排在半夜 3 点和 5 点互不打架）；多实例部署时靠「抢锁+令牌」保证同一时刻只有一台在干活——抢不到的直接下班，锁坏了靠过期时间自愈。\
+它们全是「补漏工」：正常流程轮不到它们出手，只在「消息丢了、审核员离线了、申诉没人管、数据该清了」时兜底收口。\
 所有机审调用都有两层闸门限速，防止一波流量把模型后端打垮、烧掉冤枉钱。\
 告警阈值放在配置里而不是写死在规则文件，运营改个数字立马生效。
 
@@ -627,7 +633,7 @@ litisle-api（契约层，宿主服务与 review 共用）
 > - sweeper 包五件套：\
 >   litisle\_review\sweeper\ReviewTaskSweeper.java、PunishReconcileSweeper.java、QuarantineSweeper.java、WordlibMisreportCleanupSweeper.java、ModerationRecordArchiveSweeper.java：\
 >   作用：\
->   见上表；新 sweeper 照此模板：SETNX+token 互斥 / 异常 catch 不外抛（下轮重试）/ cron 占位符直读外置
+>   见上表；新 sweeper 照此模板：Redis 抢锁+令牌互斥 / 单条异常 catch 住不外抛（下轮重试）/ 调度参数用配置占位符直读（Nacos 可调）
 > - ModerationGlobalQpsInterceptor.java + ModerationWebConfig.java：\
 >   litisle\_review\interceptor\ 与 config\：\
 >   作用：\
@@ -639,5 +645,6 @@ litisle-api（契约层，宿主服务与 review 共用）
 > - ModerationMetrics.java / WordlibMetrics.java / AlertThresholdMetrics.java：\
 >   litisle\_review\moderation\service、dfa\ 与 moderation\config\：\
 >   作用：\
->   三组埋点载体（业务类经 ObjectProvider optional 注入，监控未接入零开销）
+>   三组监控计数载体（业务类经 ObjectProvider 可选注入，监控未接入零开销）
 > - 配置总口：ModerationProperties（前缀 `litisle.moderation`）+ application.yml；新增可调参数一律挂这里，禁散落硬编码
+

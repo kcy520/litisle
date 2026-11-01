@@ -70,6 +70,16 @@
             <artifactId>opencc4j</artifactId>
         </dependency>
 
+        <!-- ✅ hankcs ACDAT（DFA 引擎切换批次1：AhoCorasickDoubleArrayTrie 双数组 trie 匹配内核，
+             严格 O(文本长度)，官方基准英文 5 倍 / 中文 9 倍于朴素 trie + fail 指针实现；
+             Maven Central 直引，零传递依赖。批次2 工厂接线、批次3 删旧引擎 AcTextScanEngine
+             后成为唯一内核） -->
+        <dependency>
+            <groupId>com.hankcs</groupId>
+            <artifactId>aho-corasick-double-array-trie</artifactId>
+            <version>1.2.3</version>
+        </dependency>
+
         <!-- common 模块 -->
         <!-- ✅ Jackson（JSON 序列化） com.fasterxml.jackson.core-->
         <dependency>

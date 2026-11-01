@@ -41,8 +41,9 @@ public interface TextScanEngine {
      * @return 可并发扫描的引擎实例
      */
     static TextScanEngine build(List<String> denyWords, List<String> allowWords) {
-        // 当前唯一实现：AC 自动机（批次2 ③）；批次3 影子比对通过后随 houbb 一同成为唯一引擎
-        return AcTextScanEngine.build(denyWords, allowWords);
+        // 当前唯一实现：hankcs ACDAT 双数组 trie（DFA 引擎切换批次2 接线）；
+        // 旧自研 AcTextScanEngine 已于批次3 影子比对归因归零后删除（2026-11-01）
+        return AcdatTextScanEngine.build(denyWords, allowWords);
     }
 
     /**

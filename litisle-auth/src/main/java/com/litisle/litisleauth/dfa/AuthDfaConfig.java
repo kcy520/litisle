@@ -15,7 +15,7 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 /**
  * DFA 同步闸门装配（auth 宿主侧，板块四 4-7 USERNAME 注册同步拒绝）
  *
- * <p>① DfaFacade Bean：挂接 Redis 快照装载器 RedisWordLibraryLoader（每场景独立 houbb 引擎）；
+ * <p>① DfaFacade Bean：挂接 Redis 快照装载器 RedisWordLibraryLoader（每场景独立 DFA 引擎，hankcs ACDAT 内核）；
  * ② SmartInitializingSingleton：全部单例就绪后 initAll() 逐文本场景构建引擎——
  * 任何场景装载失败（含兜底快照不可用）抛异常中断启动（宁严勿松，杜绝带病上线）；
  * ③ 词库广播监听容器：订阅 review:wordlib:change 触发热更（rebuild 内 version 乐观比对防乱序）</p>

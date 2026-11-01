@@ -9,10 +9,25 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * AC 扫描引擎语义契约测试（批次2 ③）：覆盖归一化分治、重复变体只长不短、
- * allow 优先过滤、最长优先去重、变体回映规范词等防绕过红线行为
+ * 扫描引擎语义契约测试（批次2 ③ 引入，DFA 引擎切换批次3 收口改造）：
+ * 覆盖归一化分治、重复变体只长不短、allow 优先过滤、最长优先去重、变体回映规范词等防绕过红线行为；
+ * 内核边界核对①②③用例（端点口径/重叠完整性/代理对）保留为回归守护——批次2 曾以「双引擎断言」
+ * 完成 hankcs ACDAT 与旧自研 AC 的影子核对，批次3 影子比对归因归零删除旧引擎后，本类收敛为
+ * 面向 TextScanEngine SPI（hankcs ACDAT 唯一实现）的单引擎契约测试，类名沿用历史不改
  */
 class AcTextScanEngineTest {
+
+    /**
+     * 引擎实例构建：经 TextScanEngine SPI 工厂构建引擎（批次3 后工厂唯一指向 hankcs ACDAT 实现）
+     *
+     * @param deny  黑名单词表
+     * @param allow 白名单词表
+     * @return 构建完成的扫描引擎实例
+     */
+    private static TextScanEngine newEngine(List<String> deny, List<String> allow) {
+        return TextScanEngine.build(deny, allow);
+    }
+
 
     @Test
     @DisplayName("CharNormalizer：大小写/全半角/数字写法/字母序号/繁简 各维度归一")
@@ -99,5 +114,61 @@ class AcTextScanEngineTest {
         assertTrue(engine.scan(null).isEmpty());
         TextScanEngine empty = TextScanEngine.build(List.of(), List.of());
         assertTrue(empty.scan("任意文本").isEmpty());
+    }
+
+    // ==================== 内核边界核对①②③（DFA 引擎切换批次2，双引擎断言守护） ====================
+
+    @Test
+    @DisplayName("内核边界①：allow 区间裁决端点口径——右端等界完全落入剔除；首尾相接仅部分重叠不误剔")
+    void kernelBoundaryAllowIntervalEndpoints() {
+        // 右端等界：cd 命中区间右端与 abcd 区间右端等界，属「完全落入」→ 剔除
+        TextScanEngine endpoints = newEngine(List.of("cd"), List.of("abcd"));
+        assertTrue(endpoints.scan("abcd").isEmpty());
+        // 首尾相接：bc 与 ab/cd 两个 allow 区间仅部分重叠（非完全落入）→ 不剔除，仍命中
+        TextScanEngine adjacency = newEngine(List.of("bc"), List.of("ab", "cd"));
+        assertEquals(List.of("bc"), adjacency.scan("abcd"));
+    }
+
+    @Test
+    @DisplayName("内核边界②：嵌套/重叠命中完整性——AB/B 只报 AB；AB/BC 部分重叠都报；同词多处命中去重")
+    void kernelBoundaryOverlapCompleteness() {
+        // AB 与 B 同库，text=AB 只报 AB（B 被 AB 完全覆盖；依赖 ACDAT 返回嵌套命中作裁决原料）
+        TextScanEngine nested = newEngine(List.of("AB", "B"), List.of());
+        assertEquals(List.of("AB"), nested.scan("AB"));
+        // AB [0,2) 与 BC [1,3) 部分重叠非包含 → 都保留（都算真实证据）
+        TextScanEngine overlap = newEngine(List.of("AB", "BC"), List.of());
+        List<String> hits = overlap.scan("ABC");
+        assertEquals(2, hits.size());
+        assertTrue(hits.contains("AB"));
+        assertTrue(hits.contains("BC"));
+        // 同一规范词多处/重叠命中只报一次（同词去重）
+        TextScanEngine repeated = newEngine(List.of("aa"), List.of());
+        assertEquals(List.of("aa"), repeated.scan("aaaa"));
+    }
+
+    @Test
+    @DisplayName("内核边界③：emoji 增补平面代理对——按 char 索引逐字符处理，打断不命中、邻接正常命中")
+    void kernelBoundarySurrogatePairs() {
+        // 😀 为增补平面字符，UTF-16 编码占 2 个 char（代理对）
+        String emoji = "\uD83D\uDE00";
+        // emoji 打断 a、b → ab 不连续（代理对占位）→ 不命中（若按码点合并处理会误命中）
+        TextScanEngine interrupted = newEngine(List.of("ab"), List.of());
+        assertTrue(interrupted.scan("a" + emoji + "b").isEmpty());
+        // emoji 在词外邻接 → 正常命中
+        assertEquals(List.of("ab"), interrupted.scan(emoji + "ab" + emoji));
+        // 词中插 emoji → 变体只展开重复字符不覆盖 emoji 占位 → 不命中
+        TextScanEngine variant = newEngine(List.of("好好学习"), List.of());
+        assertTrue(variant.scan("好" + emoji + "好学学习").isEmpty());
+    }
+
+    @Test
+    @DisplayName("同形注册语义：deny 与 allow 归一形相同 → deny 优先，allow 不提供保护")
+    void sameFormDenyWinsOverAllow() {
+        // deny=谢谢 与 allow=谢谢 同形：deny 先注册，allow 跳过 → 仍命中
+        TextScanEngine identical = newEngine(List.of("谢谢"), List.of("谢谢"));
+        assertEquals(List.of("谢谢"), identical.scan("谢谢"));
+        // 繁体 allow 归一后与简体 deny 同形 → deny 优先（归一形占用判定）
+        TextScanEngine traditional = newEngine(List.of("杀人"), List.of("殺人"));
+        assertEquals(List.of("杀人"), traditional.scan("殺人"));
     }
 }

@@ -13,7 +13,7 @@
 | 项目     | 说明                                                         |
 | -------- | ------------------------------------------------------------ |
 | 定位     | 独立微服务，内容安全统一收口方：**同步关键词闸门 + 异步机审（三分态）+ 人审工作流** |
-| 技术选型 | 自研 AC 自动机（AcTextScanEngine，dfa 批次3 ⑤b 已删 houbb sensitive-word 依赖）· LLM 文本审核（经 litisle-ai 通道）· ONNX（开发期图片）/ 云 API（生产期）· RabbitMQ 延迟插件 · Redis 结果缓存 |
+| 技术选型 | hankcs ACDAT 双数组 trie（AcdatTextScanEngine；演进：houbb → 自研 AC 自动机（dfa 批次3 ⑤b 删 houbb sensitive-word 依赖）→ hankcs AhoCorasickDoubleArrayTrie 内核，2026-11-01 DFA 引擎切换批次影子比对归零后收口）· LLM 文本审核（经 litisle-ai 通道）· ONNX（开发期图片）/ 云 API（生产期）· RabbitMQ 延迟插件 · Redis 结果缓存 |
 | 依赖方   | content / file / social 经 litisle-api 契约（Feign + MQ 事件）接入（私信归属 social，无独立 message 模块）；notification 消费结果事件做通知 |
 | 硬边界   | review **不跨库直写业务表**（回写一律 result 事件 + 业务方 CAS 回写）；业务方**不跨库直查** review 库（唯一特例：DFA 冷启动只读词库表兜底） |
 
@@ -21,7 +21,7 @@
 
 | 能力 | 载体 | 说明 |
 | --- | --- | --- |
-| 同步闸门 | DfaFacade（下沉 litisle-api 共享）+ AcTextScanEngine（自研 AC 自动机，零第三方依赖） | 发布/注册/私信链路内**本地执行**（免网络、不依赖 review 可用性）；构建期归一化展开变体 pattern（繁简/全半角/叠词只长不短，文本侧永不折叠），扫描后 allow 区间过滤 + 最长优先裁决；HIGH 黑名单词直接拒绝 70001，MID 只标记不拦截 |
+| 同步闸门 | DfaFacade（下沉 litisle-api 共享）+ AcdatTextScanEngine（hankcs ACDAT 双数组 trie 内核，零传递依赖） | 发布/注册/私信链路内**本地执行**（免网络、不依赖 review 可用性）；构建期归一化展开变体 pattern（繁简/全半角/叠词只长不短，文本侧永不折叠），扫描后 allow 区间过滤 + 最长优先裁决；HIGH 黑名单词直接拒绝 70001，MID 只标记不拦截 |
 | 异步机审 | moderation 包 consumer + SPI 适配器 | MQ 消费驱动 LLM/图片模型，输出 PASS / REJECT / SUSPICIOUS 三分态 |
 | 人审工作流 | ReviewService（workflow 域） | SUSPICIOUS 终审、举报处理、申诉裁决、违规分与处罚 |
 

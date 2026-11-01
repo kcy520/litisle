@@ -34,8 +34,9 @@ import java.util.stream.Collectors;
  *
  * <p>【词库源纪律】引擎仅提供算法与变体对抗（归一化/重复变体展开，见 {@link TextScanEngine} 契约），
  * 词库完全来自 {@link WordLibraryLoader}（不用任何内置默认词库，避免与词库 SSOT 不一致，§4.4.4）。
- * 【批次2 ③】底层由 houbb SensitiveWordBs 替换为自研 AC 自动机 {@link AcTextScanEngine}，
- * 对外签名零变化；houbb 依赖保留至批次3 影子比对通过后移除</p>
+ * 【批次2 ③】底层由 houbb SensitiveWordBs 替换为 AC 自动机引擎，对外签名零变化；
+ * 【DFA 引擎切换批次3 收口（2026-11-01）】内核由自研 AC 切换为 hankcs ACDAT 双数组 trie
+ * （{@link AcdatTextScanEngine}，影子比对归因归零后删除旧自研实现），对宿主调用方签名零变化</p>
  *
  * <p>【宁严勿松】引擎未初始化时 {@link #check} 抛 IllegalStateException，绝不按无命中放行；
  * 命中词未在级别映射中（防御分支，正常情况 scan 返回规范词必命中映射）按 HIGH 兜底</p>

@@ -18,7 +18,7 @@ import com.github.houbb.opencc4j.util.ZhConverterUtil;
  *
  * <p>【红线：重复字符折叠（N:1 有损归一）禁在本类实现】文本侧若把「谢谢」折叠成「谢」，
  * 词库单字「谢」会误命中正常叠词致全量误报，且 1:N 展开（⑩→10）后位置错乱；
- * 重复变体对抗改在 {@link AcTextScanEngine} 构建期把词展开为变体 pattern 进 trie，
+ * 重复变体对抗改在 {@link TextScanEngine} 引擎构建期把词展开为变体 pattern 进 trie，
  * 文本侧永不折叠。任何改动必须保持：文本与词库两侧调用同一 normalize，口径分叉=变形词漏审</p>
  *
  * <p>线程安全：纯函数无状态（opencc4j 转换器内部线程安全），可并发调用</p>

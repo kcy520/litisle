@@ -14,7 +14,7 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 
 /**
  * DFA 同步闸门装配（review 宿主侧，板块二）
- * <p>① DfaFacade Bean：挂接查表装载器 TableWordLibraryLoader（每场景独立 houbb 引擎）；
+ * <p>① DfaFacade Bean：挂接查表装载器 TableWordLibraryLoader（每场景独立 DFA 引擎，hankcs ACDAT 内核）；
  * ② SmartInitializingSingleton：全部单例就绪后 initAll() 逐文本场景构建引擎——
  * 任何场景装载失败（含兜底快照不可用）抛异常中断启动（宁严勿松，杜绝带病上线）</p>
  */
