@@ -1,5 +1,6 @@
 package com.litisle.litislesearch.config;
 
+import com.litisle.litislesearch.constant.SearchBizConstant;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,9 @@ import java.util.List;
  * - rabbit：索引同步死信交换机命名（sync-queue 为预留 key，实际队列以 MqConstant 六队列为准）
  * - fallback：空结果兜底 Embedding 超时（1s，批次A A1 定案）+ ES 不可用降级开关（批次A A3 定案）
  * - heat：互动热度刷写周期/首批延迟/_bulk 分片（batch-size 1000 / concurrency 2）/ pending 键 TTL（2h，批次A A7 定案）
+ * - ingest：RAG 切片门槛与粒度（正文最小 200 字 / 每片 500 字 / 重叠 50 字）
+ * - embedding：向量提供方（开关 / 提供方类型 / 模型 / 维度 / 服务地址 / 密钥 / 超时 / 批量，批次七）
+ * - retry：索引同步消费失败重试（最大次数 / 首次退避延迟）
  */
 @Data
 @Component
@@ -137,6 +141,17 @@ public class SearchProperties {
         private int numCandidates = 100;
         /** 相似度阈值（默认 0.0 不过滤；ai RAG 的 0.65 阈值属 ai 侧） */
         private double similarityThreshold = 0.0;
+        /** 相似推荐返回条数上限（默认 50，REST/Feign 传入 topK 超过则截断） */
+        private int maxTopK = 50;
+        /**
+         * 融合评分权重：向量相似度（默认 0.7，三项权重按总和归一化，
+         * 批次七 7.1「向量相似 + 标签重合度 + 行为热度加权」，默认值可调）
+         */
+        private double vectorWeight = 0.7;
+        /** 融合评分权重：标签重合度（默认 0.2，Jaccard 交集/并集） */
+        private double tagWeight = 0.2;
+        /** 融合评分权重：行为热度（默认 0.1，log1p(heat) 归一化到 0~1） */
+        private double heatWeight = 0.1;
     }
 
     /** 热点查询缓存配置（对应 yml: litisle.search.cache） */
@@ -265,6 +280,37 @@ public class SearchProperties {
 
         /** 向量化总开关（默认 false：模型未选型前关闭，开启需先接入提供方实现） */
         private boolean enabled = false;
+
+        /**
+         * 提供方类型标识（默认 none=未接入）：
+         * 与 {@link com.litisle.litislesearch.embedding.EmbeddingProvider#providerName()} 精确匹配，
+         * 例如 openai-compatible（OpenAI 兼容 /v1/embeddings）、ollama、dashscope、tei
+         */
+        private String provider = SearchBizConstant.EMBEDDING_PROVIDER_NONE;
+
+        /**
+         * 模型标识（如 bge-m3 / text-embedding-v3）：
+         * 用于日志与索引 _meta 登记；模型变更意味着向量语义漂移，必须全量重建 vec_dense/chunk_vector
+         */
+        private String model;
+
+        /** 向量维度（必须与模型实际输出一致，默认 1024 与 mappings dims 对齐；不一致时 VectorService 拒绝写入） */
+        private int dimension = SearchBizConstant.EMBEDDING_DIMS;
+
+        /** 服务地址（HTTP 提供方 base-url；内网地址走 Nacos/环境变量覆盖，禁止硬编码） */
+        private String baseUrl;
+
+        /** 鉴权密钥（禁止硬编码；用环境变量占位符注入，如 ${LITISLE_EMBEDDING_API_KEY:}） */
+        private String apiKey;
+
+        /** 单次向量化请求超时（提供方适配器使用；查询侧兜底另有 fallback.embedding-timeout） */
+        private Duration timeout = Duration.ofSeconds(5);
+
+        /** 单批向量化条数（提供方支持批量接口时使用，降低网络往返） */
+        private int batchSize = 32;
+
+        /** 全量重建扫描批量（search_after 每批拉取文档数，默认 100） */
+        private int rebuildBatchSize = 100;
     }
 
     /**

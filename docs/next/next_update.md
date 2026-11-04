@@ -244,11 +244,20 @@
 
 ###### 7.1 VectorService + KnnRecommender + SimilarController
 
-- [ ] `GET /search/similar/{articleId}?topK=`：取源文章 vec_dense + tags → KNN（num_candidates=100、TopK 默认 10、cosine）→ 融合评分（向量相似 + 标签重合度 + 行为热度加权）→ 阈值过滤（`knn.similarity-threshold` 默认 0.0）→ **强制 filter(visibility=PUBLIC)（C3）** + 排除自身与已下架文档
+- [x] `GET /search/similar/{articleId}?topK=`：取源文章 vec_dense + tags → KNN（num_candidates=100、TopK 默认 10、cosine）→ 融合评分（向量相似 + 标签重合度 + 行为热度加权）→ 阈值过滤（`knn.similarity-threshold` 默认 0.0）→ **强制 filter(visibility=PUBLIC)（C3）** + 排除自身与已下架文档
+  - ✅ 2026-11-04：`SimilarServiceImpl` 落地——源文章回查（不存在/非 PUBLIC 报 `SEARCH_SOURCE_NOT_FOUND`，无向量返回空列表）→ KNN（`vec_dense`、k=topK+1、num_candidates 取配置且不小于 k）→ 融合评分（`knn.vector-weight` 0.7 / `tag-weight` 0.2 / `heat-weight` 0.1，按总和归一化；标签重合度用 Jaccard，热度用 log1p(x)/(1+x) 归一）→ 原始 cosine 分按 `similarity-threshold` 过滤 → 融合分降序截断 topK（上限 `knn.max-top-k` 50）；filter 强制 `visibility=PUBLIC` + `must_not id=自身`（C3；下架文档已在批次二删除，故无需额外状态过滤）；ES 异常统一 `SEARCH_ES_UNAVAILABLE`
+  - ✅ 2026-11-04：新增 `SimilarController`（`GET /api/search/similar/{articleId}?topK=`，网关白名单既有 `/api/search/similar/**` 已放行，无额外网关改动）；`SimilarArticleVO` 复用既有契约
+  - ✅ 2026-11-04：Embedding 接入骨架——新增 `embedding/EmbeddingProvider` SPI（providerName/modelName/available/embed/embedBatch，禁止硬编码、仅做本地配置判断）；`SearchProperties.embedding` 扩展 provider/model/dimension/base-url/api-key/timeout/batch-size/rebuild-batch-size（yml 同步，密钥用 `${LITISLE_EMBEDDING_API_KEY:}` 环境变量占位符）；`VectorServiceImpl` 改为按 `embedding.provider` 精确匹配提供方，未接入返回 null（开关关闭不告警、未接入仅告警一次）、调用失败/维度不一致返回 null 不阻断索引写入；`VectorService` 新增 `available()`
+  - ✅ 2026-11-04：向量全量重建框架——新增 `VectorRebuildService/Impl`（`rebuildArticleVectors` / `rebuildChunkVectors`）：提供方未就绪整体跳过；`search_after` 按主键升序分页（规避 from+size 深分页窗口）→ 逐条向量化 → bulk partial update 只写 `vec_dense`/`chunk_vector`；文章输入与发布链路共用 `SearchTextUtils#buildEmbeddingInput`（标题+摘要+正文截断 2000 字，避免口径漂移），切片直接用 `chunk_text` 原文；**触发方式（管理端点/一次性任务/开关）待确认，本次仅落框架不含自动触发**
+  - ⚠️ 待确认：Embedding 提供方/模型/服务地址/密钥注入方式未定（清单未给选型），本次不写任何提供方适配器，`embedding.enabled=false`、`provider=none` 时行为与现网一致（不写向量字段）
+  - 编译验证已通过（2026-11-04，`mvn -q -pl litisle-search -am compile -DskipTests` exit 0）
 
 ###### 7.2 FeignProviderController
 
-- [ ] 实现 `/api/feign/search/**`（网关不路由）：`GET /api/feign/search/similar`（对齐已落地 SearchClient，fail-fast）+ `POST /api/feign/search/search`（服务间检索，非降级链路）；供 ai RAG 与前端"相关文章"复用
+- [x] 实现 `/api/feign/search/**`（网关不路由）：`GET /api/feign/search/similar`（对齐已落地 SearchClient，fail-fast）+ `POST /api/feign/search/search`（服务间检索，非降级链路）；供 ai RAG 与前端"相关文章"复用
+  - ✅ 2026-11-04：`SearchFeignProviderController` 补 `GET /similar`（参数 `articleId` 必填、`topK` 可选，直接复用 `SimilarService`，与 REST 行为一致）；`POST /search` 已于批次四 4.1 落地，本次仅更新类注释契约清单
+  - ✅ 2026-11-04：契约对齐 `litisle-api` 的 `SearchClient#similar/#search`（fail-fast 降级工厂已存在，无需改动 api 模块）
+  - 编译验证已通过（2026-11-04，`mvn -q -pl litisle-search -am compile -DskipTests` exit 0）
 
 ##### 批次八：降级链路与观测（依赖批次四；对齐批次D D6）
 

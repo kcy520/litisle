@@ -173,6 +173,12 @@ litisle:
       num-candidates: 100
       # 相似推荐阈值（默认不过滤；ai RAG 的 0.65 阈值属 ai 侧，不在此收敛）
       similarity-threshold: 0.0
+      # 相似推荐返回条数上限（REST/Feign 传入 topK 超过则截断）
+      max-top-k: 50
+      # 融合评分权重（向量相似 + 标签重合度 + 行为热度，按总和归一化）
+      vector-weight: 0.7
+      tag-weight: 0.2
+      heat-weight: 0.1
     # 热点查询缓存（命中直返；兜底/降级结果不写缓存，防把兜底当真命中）
     cache:
       hot-query-enabled: true
@@ -210,9 +216,25 @@ litisle:
       chunk-size: 500
       # 相邻切片重叠字数（防断章取义）
       chunk-overlap: 50
-    # Embedding 向量化（提供方随批次七接入；关闭时 vec_dense/chunk_vector 不写入，索引其余字段不受影响）
+    # Embedding 向量化（批次七；关闭/未接入时 vec_dense/chunk_vector 不写入，索引其余字段不受影响）
     embedding:
       enabled: false
+      # 提供方类型标识：none=未接入；选型确认后改为适配器登记值（如 openai-compatible / ollama / dashscope / tei）
+      provider: none
+      # 模型标识（写入索引 _meta；模型变更必须全量重建向量字段）
+      model: ""
+      # 向量维度（必须与模型输出一致，默认 1024 与 mappings dims 对齐）
+      dimension: 1024
+      # 服务地址（HTTP 提供方 base-url；禁止写死，内网地址走 Nacos/环境变量覆盖）
+      base-url: ""
+      # 鉴权密钥：禁止落盘明文，用环境变量注入（未设置时为空，提供方 available() 判定不可用）
+      api-key: ${LITISLE_EMBEDDING_API_KEY:}
+      # 单次向量化请求超时
+      timeout: 5s
+      # 单批向量化条数（提供方批量接口使用）
+      batch-size: 32
+      # 全量重建扫描批量（search_after 每批拉取文档数）
+      rebuild-batch-size: 100
     # 索引同步消费重试（异常按指数退避延迟重投，超次数 nack 入死信队列；批次二 2.4）
     retry:
       # 最大重试次数（含首发共 max-count + 1 次投递）

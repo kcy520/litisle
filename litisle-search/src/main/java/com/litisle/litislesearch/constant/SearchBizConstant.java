@@ -108,6 +108,12 @@ public final class SearchBizConstant {
     /** Embedding 向量维度（批次C C1 定版：vec_dense 与 chunk_vector 统一单模型，维度一致，一期 1024） */
     public static final int EMBEDDING_DIMS = 1024;
 
+    /**
+     * Embedding 提供方「未接入」标识（对应配置 litisle.search.embedding.provider=none）：
+     * VectorService 据此跳过向量写入，索引其余字段不受影响
+     */
+    public static final String EMBEDDING_PROVIDER_NONE = "none";
+
     /** ik 中文分词器：细粒度切分（写入侧 analyzer，索引时尽量多切词提升召回） */
     public static final String ANALYZER_IK_MAX_WORD = "ik_max_word";
 

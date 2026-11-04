@@ -87,4 +87,63 @@
 #### search模块
 
 > **search 模块内容已迁出（2026-11-03，用户确认）**：批次A/B/C 定版记录、批次D（D1 骨架摘要 + D2~D6 待办）与 V1~V3 验证项已原样迁入 [next_update.md](../next/next_update.md) search模块（重组为批次一~八 + V1~V3，user_idx 消费链路暂缓项迁入该文档「暂不实现汇总」）；本清单不再保留 search 条目，后续 search 活跃任务统一在 next_update.md 维护，勿在此重复登记。
+> **（2026-11-04 补）**：搜索链路企业级优化为独立临时立项（性能补强 + 可靠性补强，非 next_update.md 既定批次一~八范围），仍登记于本清单，见下方「search模块（搜索链路企业级优化）」批次一~三。
+
+------------
+
+#### search模块（搜索链路企业级优化，临时立项）
+
+> 批次划分依据：2026-11-04 搜索链路代码评审（三处代码点：ContentInternalServiceImpl 建索引回查与标签联想端点、UserFeignProviderController 注册事件发布）；方案选型贴合企业主流：thin event（事件只带定位键）+ 回查范式保留不动，联想走「最小输入长度 + Redis 短缓存 + 匿名限流」组合（标签入 ES completion 仅作触发式升级，不提前双写），索引同步补版本比较防乱序覆盖；推进顺序：批次一 → 二 → 三（相互独立，可并行）。
+
+##### 批次一：搜索联想性能优化（推荐组合 L0 + L1 + L5）
+
+###### 1.1 联想最小输入长度门控（L0）
+
+- [ ] SuggestServiceImpl#suggest 增加最小输入长度校验：q 长度小于阈值直接返回空列表（当前仅校验空串与 >64 超长）；联想为高频击键场景，最小长度可在最前端砍掉大量单字符穿透请求，成本最低收益最大
+  - 涉及：litisle-search SuggestServiceImpl；长度阈值走 SearchBizConstant 常量（禁硬编码），风格对齐 content 侧 TAG_SUGGEST_KEYWORD_MAX_LENGTH
+
+###### 1.2 标签联想 Redis 短缓存（L1，推荐主方案）
+
+- [ ] TagServiceImpl#searchByPrefix 增加 Redis 短缓存：命中 TTL 5~10min 带 ±10% 抖动（防同批 key 同时过期雪崩），空结果短 TTL 60s（防缓存穿透）；写法对齐同文件 hotTags 既有缓存范式（CacheConstant 新增前缀常量 + RedisUtil）
+  - 涉及：litisle-content TagServiceImpl、commonredis CacheConstant
+  - 口径：标签池变更（新建/封禁/删除）不主动失效缓存，靠短 TTL 自然过期收敛（联想场景允许分钟级陈旧）；search 侧 SuggestServiceImpl#collectTags 暂不加缓存（Feign 结果已随 content 侧缓存受益，避免双层缓存口径复杂化）
+
+###### 1.3 /search/suggest 匿名限流（L5）
+
+- [ ] SearchController#suggest 补 @RateLimiter：IP 维度（建议 20 次/60s，阈值常量化），对齐 content TagController /tags 的 USER 维度限流风格；suggest 为匿名接口且无 IP 限流，可被脚本刷穿直连 MySQL（经 L1 缓存后 DB 压力已大幅缓解，限流为兜底防线）
+  - 涉及：litisle-search SearchController
+
+###### 1.4 标签入 ES completion（L3，挂起不实施）
+
+- [ ] 挂起项（登记触发条件，当前不做）：将 content 标签池同步至 ES completion 字段，suggest 一次 ES 请求拿齐书名/作者/标签三源并消掉 Feign 跨服务调用（大厂主流终态）。触发条件：标签总数 > 5万，或 suggest QPS > 200，或联想 P99 > 100ms；触发后迁回实施（涉及标签双写一致性，需先专项设计同步机制）
+
+------------
+
+##### 批次二：索引同步可靠性补强（thin event 范式的企业级补强）
+
+###### 2.1 索引写入版本比较（防乱序覆盖）
+
+- [ ] ArticleIndexServiceImpl 写入前增加版本比较：回查 DTO 已带 publishTime（=上游 updateTime），写入前读 ES 现有文档 updateTime，小于等于现值则跳过写入；消除「发布/更新事件乱序到达 → 旧快照覆盖新快照」的最终一致窗口（现状为按 articleId 无条件 upsert 整篇覆盖）
+  - 涉及：litisle-search ArticleIndexServiceImpl（article_idx 优先落地，book_idx/user_idx 同口径跟进）
+  - 备选方案（暂不采用）：同一 articleId 事件固定队列 + 单消费者串行消费——约束更强但牺牲吞吐，且多队列扩容时失效
+
+###### 2.2 索引批量回查端点（挂起不实施）
+
+- [ ] 挂起项（登记触发条件，当前不做）：ContentClient 新增 getArticleIndexDocs(List<Long>) 批量回查，将消费端 N 次逐条 RPC 压成 1 次（当前一次消息一次回查）。触发条件：索引同步消息量级上来（如日均消费 > 1万条）后实施
+
+------------
+
+##### 批次三：user 事件发送时机纪律（登记，不改代码）
+
+###### 3.1 注册/资料更新事件发送时机纪律
+
+- [x] 纪律登记（本条即为登记动作本身，不产生代码改动）：UserFeignProviderController#createUser 当前无 @Transactional，「先落库后发事件」成立，现有实现正确；若将来为 createUser 加事务，必须改为 afterCommit 发送（参考 litisle-content BookServiceImpl#publishBookChangedAfterCommit 写法），否则出现「事件已发、事务回滚」的脏事件导致 user_idx 脏数据
+  - ✅ 2026-11-04：已登记入清单；触发时机（createUser 引入事务时）由 code review 按本条执行
+  - 涉及：litisle-user UserFeignProviderController
+
+------------
+
+##### V1 联想链路优化验证
+
+- [ ] 验证批次一 L0/L1/L5 生效：同前缀重复请求命中 Redis 缓存（命中率日志）、空结果短 TTL 防穿透生效、超限 IP 请求被限流、TTL 抖动生效（依赖批次一）
 

@@ -192,10 +192,8 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
      * @return 向量；模型未接入返回 null
      */
     private java.util.List<Float> embedArticle(ArticleIndexDocDTO dto, String plainText) {
-        // 拼接语义输入：标题权重最高，其次摘要与正文（正文按上限截断）
-        String contentPart = plainText.length() > SearchBizConstant.EMBEDDING_INPUT_MAX_CHARS
-                ? plainText.substring(0, SearchBizConstant.EMBEDDING_INPUT_MAX_CHARS) : plainText;
-        String input = dto.getTitle() + "\n" + (dto.getSummary() == null ? "" : dto.getSummary()) + "\n" + contentPart;
+        // 拼接语义输入：标题权重最高，其次摘要与正文；与全量重建共用同一规则（SearchTextUtils）
+        String input = SearchTextUtils.buildEmbeddingInput(dto.getTitle(), dto.getSummary(), plainText);
         return vectorService.embed(input);
     }
 
