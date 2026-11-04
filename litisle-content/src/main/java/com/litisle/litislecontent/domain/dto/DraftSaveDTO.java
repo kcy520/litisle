@@ -14,7 +14,7 @@ import java.util.List;
  * 草稿保存入参（DraftService#save，快照幂等写入）
  * <p>baseVersion 与服务端最新 draft_version 比对：相等→UPSERT 递增；落后→ARTICLE_DRAFT_CONFLICT 刷新；
  * 同版本重复提交→幂等跳过（多端/重试安全）</p>
- * <p>自动保存 60s 窗口限流（ContentLimitConstant.DRAFT_SAVE_LIMIT），超保留版数滚动清理最旧快照</p>
+ * <p>自动保存 60s 窗口限流（ContentLimitConstant.DRAFT_SAVE_LIMIT）防高频刷库</p>
  *
  * @author litisle
  */

@@ -91,6 +91,7 @@ public class UnpublishedCacheCleaner {
                     //收集到的键里存的是 ： 识别模型对某张图片的机审结论 （配合 OnnxImageModerationAdapter 的 reject/suspicious 概率判定）。
             for (String sha256 : collectImgSha256(articleId)) {
                 scanCollect(String.format(ModerationConstant.IMG_RESULT_SCAN_PATTERN, sha256), keys);
+                //question：如果该图形在其他文章中是免审的，但是在这里被删了，会影响其他文章的免审吗？
             }
 
             // 步骤4：批量删除收集到的缓存键
@@ -106,8 +107,12 @@ public class UnpublishedCacheCleaner {
     }
 
 
+
     /**
      * SCAN 收集匹配键（版本段通配，键名唯一收集防重）—— redis。
+     *
+     * 在文章下架（unpublished）时，用 Redis 的 SCAN 命令，
+     * 按通配模式增量扫描并收集需要失效的缓存 key，然后统一删除，避免一次性阻塞 Redis。
      *
      * @param pattern SCAN 匹配模式（ModerationConstant *_SCAN_PATTERN 格式化）
      * @param keys    收集容器

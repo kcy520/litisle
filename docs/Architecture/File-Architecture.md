@@ -1,6 +1,7 @@
 # litisle-file 文件模块架构文档
 
-> 版本：v1.3（2026-10-14 按当前实现对齐：补 deleteQuarantined 契约、batch/download 限流明细、public-url-base 配置、申诉结果消费链路）
+> 版本：v1.4（2026-11-02 删除语义统一：隔离图到期删除改「软删 + 解绑引用」，取消对账任务 quarantine/ 前缀豁免，新增 unbindAllRefs 能力；清除回收站兜底虚假口径）
+> 前版：v1.3（2026-10-14 按当前实现对齐：补 deleteQuarantined 契约、batch/download 限流明细、public-url-base 配置、申诉结果消费链路）
 >
 > 关联文档：[Design-Document.md](https://tencent.yuanbao/Design-Document.md) §2.1.3 / §2.7 · [Function-Document.md](https://tencent.yuanbao/Function-Document.md) §3 · [Sql-Document.md](https://tencent.yuanbao/Sql-Document.md) §八
 >
@@ -67,7 +68,7 @@ litisle-file
 | 图片对齐信息        | 正文图片 5 种对齐  | align 冗余存 `file_meta`，实际以 content `article_image` 为准 |
 | 引用登记            | file_ref 引用登记  | 业务方绑定/解绑引用时与业务表同事务登记 file_ref（方案C）；并发幂等由 uk_ref 唯一索引 + 吞 DuplicateKeyException 兜底 |
 | 下载（流式代理）    | 大文件断点续传     | `GET/HEAD /{fileId}/download`：手写 Range 解析（200/206/416）+ ETag(sha256)/Last-Modified/If-Range；仅单区间，多区间回 200 全量；StreamingResponseBody + fileIoExecutor 线程隔离（见 seaweedfs笔记 §五） |
-| 删除（解绑语义）    | 解绑引用 + 软删除  | DELETE 仅解除调用方引用；无活跃引用才 `del_flag=1`；定时清理前置校验 file_ref，防秒传共享悬空他人引用 |
+| 删除（解绑语义）    | 解绑引用 + 软删除  | DELETE 仅解除调用方引用；无活跃引用才 `del_flag=1`；定时清理前置校验 file_ref，防秒传共享悬空他人引用；隔离图到期删除同走软删缓冲（review 侧保留期收口委派软删，7 天缓冲期内可恢复，期满物理清理） |
 
 ### 2.2 枚举定义
 
@@ -166,8 +167,9 @@ void delete(String fileId, Long operatorId);                    // 解绑调用�
 
 // 审核联动域 FileModerationService
 void quarantine(String fileId);                                 // 违规图隔离（REJECT）
-void unquarantine(String fileId);                               // 隔离恢复（申诉改判 PASS）
-void deleteQuarantined(String fileId);                          // 隔离图到期删除（review 侧 QuarantineSweeper 委托；前缀校验+删本体/缩略图+软删，幂等）
+void unquarantine(String fileId);                               // 隔离恢复（申诉改判 PASS；含软删态恢复：对象验在 → 前缀移回 → 解除软删）
+void deleteQuarantined(String fileId);                          // 隔离图到期软删（review 侧 QuarantineSweeper 委托；前缀校验+软删+解绑引用，不删对象，幂等）
+void unbindAllRefs(String fileId);                              // 按 fileId 解绑全部引用（审核终结证据专用，突破四元组铁律的管理动作）
 void updateSafeFlag(String fileId, SafeFlagEnum safeFlag);      // 审核结果回写
 Map<String, Integer> batchGetSafeFlags(List<String> fileIds);   // 批量读 safe_flag
 FileContentDTO getInternalContent(String fileId);               // 机审取图（不过 safe_flag 闸口）
@@ -220,6 +222,8 @@ getMetaOrThrow / buildPublicUrl                                 // 四域共用�
 引用方的 fileId（7 天缓冲只防误删恢复，不防共享悬空）。file_ref 由业务方在绑定/解绑
 引用时同步登记（与业务表同事务），删除接口仅解绑当前调用方引用，物理清理前置校验无
 活跃引用——引用可审计、误删有兜底。建表语句见 Sql-Document.md §八。
+例外：`unbindAllRefs(fileId)`（审核侧专用）按 fileId 全删——审核终结违规证据属管理动作，
+file_ref 为纯计数登记不伤数据（隔离图到期软删时调用，恢复后由 content 侧补登记）。
 
 ### 4.3 图片对齐归属（跨模块约定）
 
@@ -248,7 +252,7 @@ getMetaOrThrow / buildPublicUrl                                 // 四域共用�
 | `litisle.file.moderation.image-provider / image-model-version` | onnx / v1 | 审核缓存 key 版本段，须与 review 侧一致 |
 | `litisle.file.moderation.pending-placeholder-url` | /img/file-pending.svg | PUBLIC 待审/存疑占位图 |
 | `litisle.file.reconcile-task.cron / compensate-threshold-minutes / physical-clean-delay-days` | 0 0 2 * * ? / 30 / 7 | 对账任务（cron 由 @Scheduled 占位符读取） |
-| `litisle.file.reconcile-task.quarantine-prefix / skip-quarantine-cleanup` | quarantine/ / true | 隔离前缀跳过物理清理（保留期归 moderation 侧） |
+| `litisle.file.reconcile-task.quarantine-prefix / skip-quarantine-cleanup` | quarantine/ / true | 隔离前缀 SSOT（隔离/恢复/到期软删共用）；skip-quarantine-cleanup **已停用**（删除语义统一后对账任务不再豁免隔离前缀，配置保留仅为兼容） |
 | `litisle.seaweed.host / s3-port / filer-port`     | localhost / 8333 / 8888 | 环境特定值（local/dev.yaml） |
 
 ------
@@ -284,4 +288,4 @@ getMetaOrThrow / buildPublicUrl                                 // 四域共用�
 8. **线程隔离**：下载走 fileIoExecutor（CallerRunsPolicy 回压）+ configureAsyncSupport；上传保持同步（multipart/事务语义，见 FileUploadServiceImpl 注释）
 9. **上传完整性**：SDK ChecksumAlgorithm.SHA256 或显式下发摘要，SeaweedFS 网关侧校验（BadDigest 拒写）
 10. **副本策略**：Volume `replication=001`（单副本），重要 collection 可按需调高副本数
-11. **审核联动（已落地）**：safe_flag 四态 default-deny（0 违规/1 正常/2 待检/3 可疑）；上传前置闸门（黑名单 `review:img-blacklist:{sha256}`、结果缓存 `review:img-result:{provider}:{modelVersion}:{sha256}`）→ 未命中置 2 并生产 `moderation.image.submit`；`ModerationResultListener` 消费结果回写（moderation.result：REJECT→quarantine/0、PASS→1、SUSPICIOUS→3；moderation.appeal.result：改判 PASS→unquarantine/1）；隔离图到期删除经 `deleteQuarantined` 契约由 review 侧 QuarantineSweeper 保留期收口；读类闸口按 access 分层（详见 file-index.md §十一）
+11. **审核联动（已落地）**：safe_flag 四态 default-deny（0 违规/1 正常/2 待检/3 可疑）；上传前置闸门（黑名单 `review:img-blacklist:{sha256}`、结果缓存 `review:img-result:{provider}:{modelVersion}:{sha256}`）→ 未命中置 2 并生产 `moderation.image.submit`；`ModerationResultListener` 消费结果回写（moderation.result：REJECT→quarantine/0、PASS→1、SUSPICIOUS→3；moderation.appeal.result：改判 PASS→unquarantine/1）；隔离图到期经 `deleteQuarantined` 契约由 review 侧 QuarantineSweeper 保留期收口（到期软删 + 解绑引用，不删对象）；删除语义统一：任何删除先软删 del_flag=1，物理清理只由对账任务在缓冲期满后执行——隔离图软删缓冲 7 天内可人工恢复（unquarantine 支持软删态恢复，可恢复窗口 = 保留期 10 + 缓冲 7 = 17 天），期满物理删除不可恢复走死链兜底；读类闸口按 access 分层（详见 file-index.md §十一）

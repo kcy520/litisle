@@ -2,6 +2,7 @@ package com.litisle.litislereview.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litislereview.dfa.WordlibAuditContext;
@@ -572,11 +573,11 @@ public class WordlibServiceImpl implements WordlibService {
                     .replace("_", "\\_");
             wrapper.apply("word LIKE CONCAT('%', {0}, '%') ESCAPE '\\\\'", escaped);
         }
-        // LIMIT 安全上限走 .last()：MyBatis-Plus 对 LIMIT 无类型化 API（selectPage 依赖分页拦截器，
-        // 本模块未配置、缺拦截器时静默不截断反而更危险）；SQL 关键字仅此一处收口，数值取自常量
-        wrapper.orderByAsc(SensitiveWordLibrary::getId)
-                .last("LIMIT " + WORD_LIST_LIMIT);
-        List<SensitiveWordVO> vos = sensitiveWordLibraryMapper.selectList(wrapper).stream()
+        // LIMIT 安全上限用 Page 替代 .last("LIMIT")：分页拦截器标准方式，无裸 SQL 字符串；
+        // searchCount=false 跳过 COUNT；上限数值取自常量 WORD_LIST_LIMIT（分页拦截器 maxLimit=500 兜底防配错）
+        wrapper.orderByAsc(SensitiveWordLibrary::getId);
+        List<SensitiveWordVO> vos = sensitiveWordLibraryMapper
+                .selectList(Page.of(1, WORD_LIST_LIMIT, false), wrapper).stream()
                 .map(this::toWordVo)
                 .toList();
         // §5.4 治理建议清单：为当前页词批量附加「建议标记 + 证据字段」（两次 IN 查询 + 内存计算，禁逐词查询）

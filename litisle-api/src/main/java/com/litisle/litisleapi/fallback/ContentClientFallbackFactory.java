@@ -5,6 +5,7 @@ import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
+import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import lombok.extern.slf4j.Slf4j;
@@ -61,6 +62,16 @@ public class ContentClientFallbackFactory implements FallbackFactory<ContentClie
             public Result<Void> updateCounters(ArticleCounterUpdateDTO dto) {
                 log.error("远程调用 content 模块 updateCounters 失败！articleId = {}", dto, cause);
                 throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);            }
+
+            /**
+             * 建索引回查为 search 索引同步核心读依赖 fail-fast：静默返回空数据会导致
+             * 索引写入残缺文档/误删文档，异常穿透到消费端由延迟重试兜底
+             */
+            @Override
+            public Result<ArticleIndexDocDTO> getArticleIndexDoc(Long articleId) {
+                log.error("远程调用 content 模块 getArticleIndexDoc 失败！articleId = {}", articleId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);
+            }
         };
     }
 }

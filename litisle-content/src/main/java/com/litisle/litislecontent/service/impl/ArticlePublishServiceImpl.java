@@ -2,7 +2,10 @@ package com.litisle.litislecontent.service.impl;
 
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litisleapi.constant.ModerationConstant;
@@ -201,6 +204,76 @@ public class ArticlePublishServiceImpl implements ArticlePublishService {
         vo.setHit(hitResult.hit());
         vo.setRisk(hitResult.maxLevel());
         return vo;
+    }
+
+    /**
+     * 定时发布到点扫描（供 ArticleScheduledPublishJob 调用）。
+     *
+     * 作用：
+     * 扫描"到点的草稿"（status=0 草稿态 + scheduled_publish_time≤当前时间 + 未软删），
+     * 逐篇复用 publishBatch 走既有发布链路（归属校验→状态机→CAS 0→1→事务提交后发 content.submitted），
+     * 复用即幂等：并发下 CAS 不满足自动跳过，不会重复送审。
+     * 无论发布成功还是失败，都清空该篇的 scheduled_publish_time：
+     * 成功清空是收尾；失败清空是防止同一篇被下一轮无限重扫（失败原因多为内容状态非法，
+     * 重试也不会成功，作者在"我的文章"里看到草稿未发布可自行处理）。
+     *
+     * @return 本轮实际完成发布（送审）的篇数
+     */
+    @Override
+    public int publishDueScheduled() {
+
+        /**
+         * 定时发布到点扫描流程：
+         *
+         * ① 捞到点草稿：草稿态 + 定时时间已到 + 未软删，按定时时间升序（早到先发），
+         *    单轮最多 SCHEDULED_PUBLISH_BATCH_SIZE 篇（分页插件标准方式，searchCount=false 不触发 COUNT）。
+         * ② 逐篇发布：直接复用 publishBatch 单篇口径（operatorId=作者本人，归属校验天然通过），
+         *    逐篇独立事务，单篇失败不影响其他篇。
+         * ③ 清定时字段：发布成功或失败都用条件更新把 scheduled_publish_time 置 NULL，
+         *    防止反复重扫；失败篇目 warn 日志留痕（不静默）。
+         */
+
+        // 步骤①：捞到点草稿（Page.of 第三参 false=不执行 COUNT，纯当 LIMIT 用，项目惯例）
+        List<Article> dueList = articleMapper.selectList(
+                Page.of(1, ContentBizConstant.SCHEDULED_PUBLISH_BATCH_SIZE, false),
+                new LambdaQueryWrapper<Article>()
+                        .eq(Article::getStatus, ArticleStatusEnum.DRAFT)
+                        .eq(Article::getDelFlag, DelFlag.NOT_DELETED)
+                        .isNotNull(Article::getScheduledPublishTime)
+                        .le(Article::getScheduledPublishTime, java.time.LocalDateTime.now())
+                        .orderByAsc(Article::getScheduledPublishTime));
+        // 空轮直接返回（绝大多数轮次走这里，零开销）
+        if (dueList == null || dueList.isEmpty()) {
+            return 0;
+        }
+        // 本轮完成发布（送审）篇数计数
+        int publishedCount = 0;
+        // 步骤②：逐篇走既有发布链路（publishBatch 内部每篇独立事务，单篇失败不影响其他篇）
+        for (Article article : dueList) {
+            Long articleId = article.getId();
+            // 归属口径：operatorId 传作者本人（定时发布=作者意志的延迟执行，归属校验天然通过）
+            List<ArticleBatchResultVO> results = publishBatch(List.of(articleId), article.getAuthorId());
+            // 步骤③：按回执分流——成功计数收尾，失败留痕；两种情况都清定时字段防重扫
+            boolean success = results.size() == 1 && Boolean.TRUE.equals(results.get(0).getSuccess());
+            if (success) {
+                publishedCount++;
+                log.info("定时发布送审完成，articleId={}，authorId={}", articleId, article.getAuthorId());
+            } else {
+                // 失败不静默：warn 留痕（常见原因：内容指纹缺失/状态机拒绝），文章停留草稿态待作者处理
+                String errorCode = results.isEmpty() ? "unknown" : results.get(0).getErrorCode();
+                log.warn("定时发布送审失败（已清定时字段，防反复重扫），articleId={}，authorId={}，errorCode={}",
+                        articleId, article.getAuthorId(), errorCode);
+            }
+            // 清空定时字段：条件更新显式写 NULL（MP not_null 更新策略下 updateById 写不了 NULL）；
+            // 更新失败仅记日志（最多晚清一轮，CAS 幂等保证不会重复发布）
+            int rows = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
+                    .eq(Article::getId, articleId)
+                    .set(Article::getScheduledPublishTime, null));
+            if (rows == 0) {
+                log.warn("定时发布清空 scheduled_publish_time 未命中（可能已被并发清理），articleId={}", articleId);
+            }
+        }
+        return publishedCount;
     }
 
     /**

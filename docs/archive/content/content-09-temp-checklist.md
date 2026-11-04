@@ -1,5 +1,5 @@
 > **拆分归档**：本文件拆分自同目录索引页 [content-implemention-records.md](content-implemention-records.md)，原单文件对应板块正文原样搬运（2026-10-28 拆分，内容零修改），各板块入口见索引页。
-> **板块九说明**：迁自 docs/temp/temp.md（临时任务清单）；批次1~3（阶段1~14）已于 2026-10-28 归档，批次4（阶段15~17）、批次5（后续另立项）归档追加至本文件，content 模块缺口修复批次 Q1~Q5（2026-10-30）归档追加至本文件（dfa 批次记录已迁 [review-08-wordlib-dfa.md](../review/review-08-wordlib-dfa.md)，2026-10-31 批次6）。
+> **板块九说明**：迁自 docs/temp/temp.md（临时任务清单）；批次1~3（阶段1~14）已于 2026-10-28 归档，批次4（阶段15~17）、批次5（后续另立项）归档追加至本文件，content 模块缺口修复批次 Q1~Q5（2026-10-30）归档追加至本文件（dfa 批次记录已迁 [review-08-wordlib-dfa.md](../review/review-08-wordlib-dfa.md)，2026-10-31 批次6）；内容模块功能缺口立项清单 批次1~5（2026-11-02 完成）归档追加至本文件（2026-11-03 批次8）。
 
 ## 板块九：临时清单（docs/temp/temp.md）——分类枚举化与 content 模块补链（2026-10-20 ~ 2026-10-30；批次3 阶段10~14、批次4 阶段15~17、批次5 后续另立项 于 2026-10-28 归档；content 模块缺口修复批次 Q1~Q5 于 2026-10-30 归档）
 
@@ -1525,3 +1525,208 @@ mulu
   - ✅ **完成登记（2026-10-30）**：[BookServiceImpl.update] 步骤1 归属校验后补 `status==TAKEN_DOWN` 拒改（采用清单第一选项=补校验，与 Q2 addChapter 拒挂同构收口；复用 30016 BOOK_STATUS_INVALID 零新码）。litisle-content 编译 ✅
 - [x] **Q5 阅读历史上报不校验书籍状态（2026-10-30 完成）**——ReadingHistoryServiceImpl.report 仅校验章节归属（L78-81），下架书手动 PUT 上报仍成功（读路径已挡→「读不了但能报进度」不一致）；修复：report 书籍维度补书状态校验（下架书非作者拒绝）；低优先级；与 DFA 无关可随时执行
   - ✅ **完成登记（2026-10-30）**：[ReadingHistoryServiceImpl.report] 步骤1 章节归属校验后补 bookMapper 查书状态——`TAKEN_DOWN 且非作者` 拒报（复用 30016 BOOK_STATUS_INVALID；作者本人放行=与读路径「下架书仅作者可读」requireReadableBook 同口径；book 为 null 跳过校验不阻塞上报，防章节校验后书被软删的极窄窗口 NPE）。litisle-content 编译 ✅
+
+### 内容模块功能缺口立项清单（2026-11-02 登记；推荐方案整理，均未实施）
+
+> 来源：content 模块全面缺口排查（对照 Design-Document §2.3.3 / Function-Document §7 / Content-Architeche.md / 代码实况交叉核实）。本节仅登记立项候选与推荐方案，**未经用户确认不实施**；确认后按批次执行，完成后按归档纪律迁移。
+> 批次状态：批次1~5 ✅ 已完成（2026-11-02），content 模块本清单全部完成。
+> 排序原则：P1 真实风险项（安全兜底/一致性）优先，P2 运营增强，P3 体验补充。
+
+#### 批次1 · 正文长度上限与超长策略（P1 · 安全兜底）✅ 已完成（2026-11-02）
+
+> **完成标注（2026-11-02）**：已按推荐方案落地。落点：`ContentLimitConstant.ARTICLE_CONTENT_MAX_BYTES=256KB` + 新增 `utils/ContentLengthGuard`（发布 createAndPublish / 建档 saveDraftRow / 编辑 update / 草稿 DraftServiceImpl.save 四路收口，均在校验前置阶段拦截）；错误码 **CONTENT_TOO_LONG(30018)**（⚠️ 原记录 30015 有误：30015~30017 已被 BOOK_CHAPTER_NO_CONFLICT/BOOK_STATUS_INVALID/BOOK_COVER_REFUSED 占用，实际取 30018）；PublishTextPrecheck 未动（SSOT 三方复用，落点修正已遵守）。文档同步：Design-Document §2.3.3 / Function-Document §7 / Content-Architeche.md §2.1+§2.4 A1+§六错误码 / Content-Business-Guide.md 阶段一+阶段二+板块一（限流矩阵无新端点不动）；Sql-Document 无 DB 变更。编译验证：litisle-content 单模块 + 根聚合 compile 均通过。
+
+**缺口**：发布链路仅校验空内容/标题≤100，`content_html` 为 LONGTEXT **无上限**——超大正文会打爆送审链路（review 回查）、search 索引同步与 ai RAG 摄入。
+
+**推荐方案**（兜底硬上限 + 软引导拆分，**不做自动拆分**；上限 **256KB** 已用户确认 2026-11-02）：
+- 硬上限：`ContentLimitConstant` 新增 `ARTICLE_CONTENT_MAX_BYTES = 256KB`（≈10 万字富文本 HTML），发布编排阶段拦截，错误信息提示当前长度/上限。
+- 数值依据（2026-11-02 评估）：DB 侧 LONGTEXT 页外存储 + max_allowed_packet 默认 64MB，256KB/512KB 均零压力；取 256KB 是为控**机审成本**（去标签后 ≈10 万字 ≈ 50 个 LLM 切片；512KB ≈ 100 片）——超长篇创作的正确载体是书籍分章，每章独立过机审。
+- 为什么不做自动拆分：拆分会改变作者的内容语义与章节归属，机器拆分破坏内容完整性；review 侧已按切片收口机审长度问题，存储侧上限定位是**防滥用兜底**而非防长篇。
+- 超长软引导：发布被拦时提示"内容过长，建议作为书籍拆分章节发布"——书籍章节机制天然承载长篇连载，属既有能力复用；二期可在编辑器侧补字数统计前端提示。
+- 草稿侧同步收口：草稿保存路径同上限校验（防绕过发布口直接灌大草稿行，草稿为单行覆盖 LONGTEXT 同样受影响）。
+
+**配套调整（2026-11-02 代码核实）**：
+- ⚠️ **落点修正**：`PublishTextPrecheck` 是契约库 SSOT（litisle-content 发布 / litisle-social 私信 / auth 用户名注册三方复用），**上限校验不进该类**（不同场景上限不同，避免波及 social/auth）——落 content 侧发布编排（`ArticleServiceImpl` 现有 precheck 调用之后）+ `DraftServiceImpl` 保存路径。
+- `common-core/ErrorCode` 新增 `CONTENT_TOO_LONG(30015)`（现错误码已用至 30014）。
+- `ContentLimitConstant` 新增常量（含草稿复用同值）。
+- 文档同步：Design-Document §2.3.3 / Function-Document §7 / Content-Architeche.md §3.1 限流与 §2.1 / Content-Business-Guide.md 阶段二；Sql-Document 无 DB 变更。
+- 编译验证：litisle-content 单模块 + 根聚合 compile。
+
+#### 批次2 · 定时发布（P2 · 运营增强）✅ 已完成（2026-11-02）
+
+> **完成标注（2026-11-02）**：已按推荐方案落地。落点：`Article.scheduledPublishTime`（datetime null）+ `ArticleUpdateDTO.scheduledPublishTime`（@Future 声明性契约）+ `cancelScheduledPublish` 取消标志 + `ArticlePublishServiceImpl#publishDueScheduled`（扫描到点草稿复用 publishBatch 送审链路，单轮 ≤100 篇 Page.of 分页惯例）+ `ArticleScheduledPublishJob`（@Scheduled interval-ms:60000 + enabled 开关 + 分布式锁单点 + fail-safe，范式对齐 FeedHotRankRefillJob）+ `update()` 编辑链路接入（仅 status=0，互斥校验，条件更新显式写 NULL）+ `ContentBizConstant.SCHEDULED_PUBLISH_BATCH_SIZE=100` + yml `litisle.content.publish.scheduled.*` 三项。
+> ⚠️ **两处口径修正**：①「发布内部方法抽取」担忧不成立——代码核实 `publishBatch(articleIds, operatorId)` 本就带 operatorId 参数、service 层零登录态依赖，job 直接复用（operatorId=作者本人），无需抽取；②「置 null 即取消定时」与 ArticleUpdateDTO 局部更新约定（null=不修改）冲突，改为独立布尔标志 `cancelScheduledPublish=true` 取消（两字段互斥校验），同时"通知作者"因项目无站内通知基建，落地为 warn 日志留痕 + 清空定时字段 + 文章停留草稿态（作者"我的文章"可见），防反复重扫不静默。
+> 文档同步：Design-Document §2.3.3（核心功能/错误处理行）/ Function-Document §7（定时发布行）/ Content-Architeche.md §2.1+§三+§四+§五 / Content-Business-Guide.md 板块一 / Sql-Document（建表补列 + 已有库 ALTER + 设计要点）；无新端点，限流矩阵/网关白名单不动。编译验证：litisle-content 单模块 + 根聚合 compile 均通过。
+> **配套补漏（2026-11-02 高频表联动排查）**：①`docker/init/mysql/content-schema.sql` 建表语句补 `scheduled_publish_time` 列 + 设计注释段补说明行（此前 Docker 初始化建出的表缺列，定时扫描 SQL 会报 Unknown column）；②`ArticleDetailVO` 补 `scheduledPublishTime` 回显字段 + `getDetail` 组装回填（仅 owner 回显，对齐 status 私有口径，游客/他人侧恒 null）。其余联动面已核实无影响：ArticleMapper 手写 SQL 无列枚举、Feign 回查 ContentDTO 手动组装字段白名单不泄露、Redis 不缓存 Article 实体、插入路径 MP insert 默认 null 无需改。
+
+**缺口**：完全未设计；批量发布已有，但"攒稿定时发"是创作平台常见诉求。
+
+**推荐方案**（复用既有发布链路，零新增状态机分支）：
+- 字段：`article` 加 `scheduled_publish_time DATETIME NULL`（仅草稿态 status=0 允许设置； Sql-Document 同步补列）。
+- 触发：新增 `ArticleScheduledPublishJob`（job 包，与 `FeedHotRankRefillJob` 同款模式）：固定间隔（1min）扫描 `status=0 && scheduled_publish_time<=now && del_flag=0`，逐篇调用既有发布内部方法（走 CAS 0→1 + 送审链路，CAS 幂等天然防重扫重复发布）。
+- 多实例防重：Redisson 分布式锁（common 已有）包裹扫描批；单篇 CAS 不满足自动跳过（幂等兜底）。
+- 编辑端：PUT /article 扩展 `scheduled_publish_time` 字段，置 null 即取消定时；归属校验复用既有链。
+- 失败处理：到点发布失败（如 DFA 拦截/预检不过）走正常驳回链路通知作者并清空定时字段，不静默吞掉。
+
+**配套调整（2026-11-02 代码核实）**：
+- `Article` 实体 + `ArticleUpdateDTO`（或发布/编辑 DTO）扩展 `scheduledPublishTime` 字段（DTO 侧 @Future 未来时间校验）。
+- `Sql-Document` 补列 DDL（`ALTER TABLE article ADD COLUMN scheduled_publish_time DATETIME NULL`；已有库同款 ALTER，docker 重建自动）。
+- 新增 `ArticleScheduledPublishJob`（job 包，对齐现有三 job 范式：`@Scheduled(fixedDelayString="${litisle.content.publish.scheduled.interval-ms:60000}")` + enabled 开关 + fail-safe 吞异常下轮重试）。
+- ⚠️ **发布内部方法抽取**：现有发布编排从 Controller 进入、依赖 StpUtil 登录态取 authorId，job 无登录态——需在 `ArticleServiceImpl` 抽取"带 authorId 参数的内部发布方法"，Controller 路径与 job 路径共用（防两套口径漂移）。
+- Redisson 分布式锁（common 已有）包裹扫描批；单篇 CAS 不满足自动跳过。
+- `application.yml` 补配置项（interval-ms / enabled），ContentProperties 是否收口对齐现有 job 模式决定（现有 job 为 yml 占位符直读）。
+- 限流矩阵/网关白名单：无新端点（复用 PUT /article），均不动。
+- 文档同步：Design-Document §2.3.3 / Function-Document §7 / Content-Architeche.md §2.1+§三 / Content-Business-Guide.md 板块一 / Sql-Document。
+
+#### 批次3 · 事件丢失对账（P1 · 一致性兜底）✅ 已完成（2026-11-02，路径A 本地 outbox）
+
+> **完成标注（2026-11-02）**：⚠️ 前置决策已定——litisle-search 仅启动类骨架（ES 索引/消费端均未实现），路径B 无从实施，落**路径A：本地 outbox 落表**。落点：新增 `event_outbox` 表（Sql-Document §二 第 10 表 + docker content-schema.sql 同步，吸取批次2「docker 建表缺列」教训两处同改；状态 0-待发送 1-已发送 2-发送失败 3-重试超限放弃）+ `EventOutbox` 实体/Mapper + `ContentEventProducer` 改造（四发送方法统一走「发送前落 outbox status=0 → sendCritical 必达语义发送（内静默重试 1 次）→ 成功置 1 / 失败置 2」编排，**先落表再发送**防「发送前崩溃」窗口；全程 fail-safe 不向调用方抛，outbox 写失败退化为尽力而为不阻断主流程）+ `EventOutboxResendJob`（job 包，@Scheduled 1min + enabled 开关 + 分布式锁单点 + fail-safe，范式对齐 FeedHotRankRefillJob；扫 status in(0,2) && retry_count<5 补发，反序列化 payload 重发 eventId 不变——消费端幂等去重无副作用；超限置 3 放弃留痕 error 告警；顺带清理已发送满 7 天过期行防表无界）+ yml `litisle.content.outbox.*` 六项（占位符直读，对齐既有 job 模式）。
+> 口径说明：与 MqSendUtil 头注释「暂不做本地消息表（已定 Seata AT 覆盖积分商城）」不冲突——该决策针对 common-mq 通用层（支付扣款级强一致），本批为 content 模块局部兜底（search/ai 依赖事件必达），不动 common-mq；sendCritical + catch 组合替代原 send（尽力而为）——调用方既有行为不变（不抛异常），失败从「静默丢失」升级为「落箱重发」。
+> 文档同步：Design-Document §2.4 事件总线备注 / Content-Architeche.md §1.1 拓扑 + §3.2 事件矩阵备注 + §四（9→10 表 + event_outbox 行）+ §五配置 + §七铁律 3 / Sql-Document（建表 + 设计原因 + 已有库 DDL 提示）。编译验证：litisle-content 单模块 + 根聚合 compile 均通过。
+> 遗留（路径B 立项后）：search 立项后可加索引存在性终态对账（EventReconcileJob 比对补发），outbox 兜「发送侧必达」、对账兜「消费侧落库」，两层互补——暂不立项。
+
+**缺口**：ai RAG 摄入有 DLQ+重试（Design-Document §2.6），但 **search 索引同步**的 `content.published/unpublished` 事件丢失无兜底——事件丢了文章永久漏出搜索/残留索引，无感知。
+
+**推荐方案**（复用 TagCountReconcileJob 对账模式）：
+- 新增 `EventReconcileJob`（job 包）：T+1 增量扫描昨日进入终态（1-已发布 / 下架四路径）的文章，调 search 侧对账端点（content 作提供方或 search 暴露批量 `exists(articleId, updateTime)` 查询）比对索引存在性与版本新旧。
+- 不一致补发：缺索引补发 `content.published` / 多余补发 `content.unpublished`——search 侧 upsert/remove 语义天然幂等，补发零副作用。
+- 一期范围只对账 search；ai RAG 侧后续复用同一 job 扩展比对（同事件矩阵，RAG 已有 DLQ 可后置）。
+- 扫描水位：记录上次对账时间戳作增量水位，防全表扫（与阅读历史"仅前进"同思路）。
+
+**配套调整（2026-11-02 代码核实；✅ 已按路径A 全部落地，见顶部完成标注）**：
+- [x] 前置决策：路径二选一——⚠️ litisle-search 当前仅启动类骨架（ES 索引/`content.published` 消费端均未实现），索引比对无从谈起
+  - 路径A（推荐先行，不依赖 search）：**本地 outbox 落表**——content 侧新增 `event_outbox` 表（事件体+状态+重试次数），`ContentEventProducer` 发送后落 outbox（afterCommit），新增重发 job 扫 `status=待发送/失败 && retry<上限` 重发；先把「事件必达」地基打牢，search 立项后零改动受益 ✅
+  - 路径B（search 立项后）：search 侧批量 `exists(articleId, updateTime)` 对账端点 + `litisle-api` 新增 SearchClient Feign 契约 + `EventReconcileJob` 比对补发（本方案原主体）——暂不立项（见完成标注遗留）
+- [x] （路径A）Sql-Document 补 `event_outbox` 建表 DDL + outbox 清理策略（已发送 N 天后清）
+- [x] （路径A）`ContentEventProducer` 改造：发送后落 outbox（afterCommit）+ 新增重发 job（改造点集中，统一收口正是它的职责，改一处全事件生效）
+- [x] 文档同步：Design-Document §2.4 事件矩阵备注 / Content-Architeche.md（若走路径A 补 outbox 设计节）
+- [x] 验证：编译 litisle-content + 根聚合
+
+#### 批次4 · reading_history 增长治理（P2 · 数据生命周期）✅ 已完成（2026-11-02）
+
+**缺口**：`uk_user_biz` 每人每对象一行，长期**无限增长**，无上限无清理策略。
+
+**推荐方案**（LRU 单用户条数上限，用户确认选二期方案直接实施，2026-11-02；原 TTL 一期方案取消）：
+- 核心：单用户条数上限（`HISTORY_MAX_PER_USER = 500` 条/biz_type），写入时懒删除最旧行（按 last_read_time）——随写入路径走，**零新增 job、零 yml 配置**。
+- 写入收口：PUT 上报 + 详情自动落历史两路写入收敛到同一写入方法（懒删逻辑只写一处）；自动落历史路径保持 fail-safe 语义（懒删失败不影响主流程）。
+- 懒删实现：超限删最旧——MySQL 不支持 delete 自引用子查询带 limit，用 join 写法（`DELETE h FROM reading_history h JOIN (SELECT id FROM ... WHERE user_id=? AND biz_type=? ORDER BY last_read_time DESC LIMIT 500,?)` 式删除第 500 条之后的行）；写入路径已有 2/60s 限频控量，删除开销可接受。
+- 索引配套：`user_id + biz_type + last_read_time` 联合索引支撑"查本人最旧/定位超额行"，建表核对缺则补。
+
+**配套调整（2026-11-02 代码核实；方案调整后重列；任务清单）**：
+- [x] `ContentLimitConstant`（或 ContentBizConstant）新增 `HISTORY_MAX_PER_USER = 500`
+- [x] 写入路径收口核对：PUT 上报 与 详情自动落历史（BookReadSupport/详情链路）收敛同一写入方法——未收敛则先收口再挂懒删（防两路口径漂移）（核实结果：report / recordFromArticle / recordBookRead 三路径已共用 `upsertHistory`，懒删挂该私有方法零额外收口）
+- [x] 写入方法挂懒删：超 500 条删最旧行（按 last_read_time），懒删失败 fail-safe 不影响主流程（落点：`upsertHistory` 新插入行成功后触发 `trimOverflowHistory`——更新行不新增条数不触发；try-catch warn 不阻断）
+- [x] `ReadingHistoryMapper` 新增「删超额最旧行」方法（join 写法，禁自引用子查询 limit）（`deleteOverflowOldest(userId, bizType, offset, batchSize)`：子查询按 update_time desc, id desc 稳定排序 LIMIT 500,100 派生表 join 回主表按主键删；单批封顶 100 行防异常大删）
+- [x] `Sql-Document`：核对 reading_history 联合索引（user_id+biz_type+last_read_time）；缺则补 DDL + 已有库 ALTER（docker 重建自动）（核对结果：`idx_user_time(user_id, biz_type, update_time)` 建表已有，**无 DB 变更**）
+- [x] 约束：不新增 job / application.yml 配置（懒删随写入走）
+- [x] 文档同步：Function-Document §7 / Content-Architeche.md §2.1 阅读历史行 / Content-Business-Guide.md 板块四
+- [x] 验证：编译 litisle-content + 根聚合（均通过）
+
+#### 批次5 · 书籍章节重排（P3 · 体验补充）✅ 已完成（2026-11-02）
+
+**缺口**：章节挂载/卸载已有，批量重排（拖拽排序后批量更新 `chapter_no`）端点文档与代码均无。
+
+**推荐方案**（两阶段偏移法解唯一键冲突）：
+- 端点：`PUT /book/{id}/chapters/reorder`，入参有序表 `[{chapterId, newChapterNo}]`（前端拖拽后全量提交新序）。
+- uk(book_id, chapter_no) 冲突解法——**两阶段偏移**：单事务内 ①所有涉及行先 `chapter_no += 10000`（临时区，避开唯一键冲突）②再落正值为新序号；比"先删后插"安全（章节行含文章挂载关系，不可删了重插）。
+- 校验复用：归属校验（书籍+章节均本人）+ newChapterNo 连续性校验（1..N 无重复无空洞）+ 章节数上限用新增 `BOOK_CHAPTER_MAX`（原「复用既有常量」经代码核实不成立，见配套调整）。
+- 零额外改动收益：排序键即 `chapter_no`（既有设计），重排后章节列表/上一章下一章导航自动生效。
+
+**配套调整（2026-11-02 代码核实；任务清单）**：
+- [x] `ContentLimitConstant`/`ContentBizConstant` 新增 `BOOK_CHAPTER_MAX`（⚠️ 章节数上限常量实际不存在，grep constant 包零命中——原方案「复用既有常量」不成立；值与 Sql-Document 建表注释对齐）（新增 `BOOK_CHAPTER_MAX = 1000`，Sql-Document book_chapter 索引说明节补同口径注释；重排整单校验①兜底）
+- [x] `ContentLimitConstant` 新增 `REORDER_MAX_COUNT` 限流 + Architecture §3.1 限流矩阵补行；网关白名单不动（登录端点）（`REORDER_MAX_COUNT = 10`，60s 窗口；另新增 `BOOK_CHAPTER_REORDER_OFFSET = 10_000_000` 两阶段偏移量常量）
+- [x] `BookController` 新端点 + `BookService/Impl` 重排方法（单事务包裹两阶段偏移）（`PUT /book/{id}/chapters/reorder` + `reorderChapters`：owner/下架拒 → book 粒度分布式锁 → 读整书章节行 → 五道整单校验 → 阶段①整书偏移进临时区 → 阶段②CASE WHEN 单语句落正值 1..N；并发兜底：阶段②落绝对值新序，后到事务收敛）
+- [x] `BookChapterMapper` 新增两条批量 update（偏移 / 落正值，禁用先删后插）（`shiftChapterNoToTempArea` / `applyChapterNo`）
+- [x] 新增 `BookChapterReorderDTO`（`List<ReorderItem>` 嵌套 @Valid 校验：chapterId 非空 + newChapterNo≥1）（外层 @NotEmpty + @Valid 级联）
+- [x] 并发重排防护：book 粒度 Redisson 锁（common 已有；book 无 version 字段则零 DDL，推荐前者）（`DistributedLock.tryLock` 锁键 `content:book:chapter-reorder:{bookId}`，等待 3s 抢锁失败按 TOO_MANY_REQUESTS 拒绝；新错误码 `BOOK_CHAPTER_REORDER_INVALID(30019)`）
+- [x] 文档同步：Content-Architeche.md §三接口表 / Content-Business-Guide.md 板块四 / Design-Document §2.3.3 / Function-Document §7（另：Architecture §3.1 限流矩阵 + §六错误码表 / Sql-Document 索引说明节）
+- [x] 验证：编译 litisle-content + 根聚合（均通过）
+
+### content模块
+
+> 批次划分依据：2026-11-03 Feed 热门榜专项排查（`/feed` Redis 重启场景并发保护审查 + 浏览量 5min 刷回链路分析；同日代码复核修正 P5 证据并定案 D-1~D-4 四个决策点）；推进顺序：批次E 第一批（止血，改动小收益大）→ 第二批（降级健壮性）→ 第三批（写放大治理，走 search 批次A A7 定案流程，依赖批次D D2）。
+
+#### 批次E：Feed 热门榜与浏览量刷回链路治理（2026-11-03 立项）
+
+##### E.0 排查结论与问题清单（背景登记，不单独改代码）
+
+**总体结论**：`/feed` 在 Redis 重启场景下的并发保护基本到位（单飞锁 + 时间倒序兜底），真正风险是「Redis 全宕时锁失效」；「每 5min 大量 UPDATE」本身不是瓶颈，真正的瓶颈是它连带触发的三个问题：`update_time` 索引缺失导致增量灌榜全表扫（P1）、`update_time` 被浏览量污染业务语义（P2）、ES 整文档重写放大（P3）。
+
+**主题A：Redis 重启 / 榜过期 + 大量请求——三层防线现状**
+
+| 层 | 载体 | 失效条件 |
+| --- | --- | --- |
+| ① 结果缓存 | `content:feed:{page}:{size}`，TTL ±10% 抖动 | Redis 重启 |
+| ② 热度榜 | `CONTENT_FEED_HOT_ZSET`，TTL 30min | 重启 / 30min 未续期 |
+| ③ DB 兜底 | `loadByTimeDesc`，createTime 倒序 + Page 分页 | — |
+
+并发闸门：单飞锁——1 个请求抢锁回源，其余等 2s + 睡 200ms 重读。
+
+| 场景 | 表现 | DB 压力 |
+| --- | --- | --- |
+| A. 仅榜过期，结果缓存还在 | 无感，仅榜单滞后 | 0 |
+| B. 榜 + 结果缓存同时过期 | 降级时间倒序，不空流（锁挡住并发） | 每页 1 次 |
+| C. Redis 整体宕机 | 锁失效，全部直查 DB | N 并发 = N 次 ⚠️ |
+
+**主题B：每 5min 大量 UPDATE——口径纠正与问题清单**
+
+口径纠正（关键）：UPDATE 条数 = 5min 内「被浏览过的不同文章数」，不是 PV。Redis 已按 articleId 聚合（ViewCounterSupport 的 `INCR pending`），热点文章无论 10 PV 还是 10 万 PV 都只产生 1 条 UPDATE。量化：1000 万 PV/天、50 万篇/天被浏览 → 5 万条/5min ≈ 167 条/秒，单行 UPDATE 几十~几百 µs，约占单核 1~3%。**结论：UPDATE 本身不是瓶颈，热点行锁竞争也不存在。**
+
+问题清单（按风险等级排序）：
+
+| # | 问题 | 根因 | 关键证据 | 等级 |
+| --- | --- | --- | --- | --- |
+| P1 | 增量灌榜每 5min 扫全部已发布文章 | `article` 表无 `update_time` 索引 | content-schema.sql:L45-L49 只有 author/zone_status/visibility/batch/create_time | 🔴 高 |
+| P2 | 浏览老文章会把文章顶到「最新列表」顶部 | `update_time` 是 `ON UPDATE CURRENT_TIMESTAMP`，`incrViewCnt` 未保留原值 | content-schema.sql:L43 + ArticleMapper:L36-L38 | 🔴 高（业务语义 bug） |
+| P3 | ES 每 5min 产生 167 次/s 的 4KB+ 整文档重写 | ES partial update 内部是 `GET _source → 合并 → 整篇 index` | A7 待登记项 | 🟠 中高 |
+| P4 | Redis 全宕时单飞锁失效，N 并发 → N 次 DB 查询 | 锁本身依赖 Redis | FeedServiceImpl:L92-L125 | 🟠 中高 |
+| P5 | `/article/hot` 每次请求 filesort（2026-11-03 复核修正：listHot 已排除 content_html 且 TopN 关 count，残留问题仅排序无索引） | `view_cnt` 无索引 → orderByDesc filesort | ArticleServiceImpl.listHot:L1041-L1049（缓存三防注释声明「随板块五 feed 接入」尚未落地） | 🟠 中 |
+| P6 | 榜空降级回源拉取 `content_html`（longtext） | `loadByTimeDesc` / `loadByHotRank` 未排除大字段 | L152-L191 | 🟡 中 |
+| P7 | 榜缺失后最长约 5min 走时间倒序 | 只能等定时任务下一轮重建 | fixedDelay=300000 + initialDelay=60000 | 🟡 低 |
+
+瓶颈连锁链路：
+
+```
+Redis 聚合（✅ 做对了）
+      ↓
+  5min 刷回 UPDATE
+      ├─→ ① update_time 被刷新 → 老文章顶到「最新列表」（P2 逻辑 bug）
+      ├─→ ② 增量灌榜按 update_time 捞 → 无索引 → 全表扫（P1 性能瓶颈）
+      ├─→ ③ 发 view-count-flushed 事件 → ES 整文档重写 4KB（P3 写放大）
+      └─→ ④ 顺带暴露 /article/hot 无索引排序（P5）
+```
+
+##### E.1 第一批：止血（改动小、收益大）
+
+- [x] P2：`incrViewCnt` 显式保留 `update_time`，新增 `stat_update_time` 列（浏览量只刷它——修复语义污染，同时保住增量识别能力）。**定案 D-1（2026-11-03）：stat_update_time 仅由热度信号刷新**（view/like/comment 计数回写 + `updateCounters`）；四条下架路径**显式 ZREM 榜成员**（不依赖时间列，下架实时剔除，防增量轮捞不到残留榜上最长 1h）；`loadByHotRank` 回查补 status=2+visibility=1 过滤（兜底双保险，对齐 search C3 口径）；FeedHotRankSupport「任何 UPDATE 刷新 update_time 覆盖全部变更源」设计注释同步改写；涉及 content-schema.sql DDL + ArticleMapper.incrViewCnt + 增量灌榜扫描列切换 + ContentInternalServiceImpl#updateCounters
+  - ✅ 2026-11-03：ArticleMapper.incrViewCnt SQL 改为 `update_time = update_time`（显式赋原值抑制 ON UPDATE 自动刷新）+ `stat_update_time = CURRENT_TIMESTAMP`；Article 实体新增 statUpdateTime；ContentInternalServiceImpl#updateCounters 显式 set stat_update_time（点赞/评论回写同刷）；FeedHotRankSupport 增量水位扫描切 `.ge(statUpdateTime)`（含类头/refillDelta/refillDeltaJavadoc 三处注释口径改写：增量依据=stat_update_time 仅由热度信号刷新，update_time 回归业务编辑语义）；下架 ZREM 统一收口在 ContentEventProducer#sendUnpublished（删除/转私密/复审驳回/封禁连带四路径全经此发送，bizType=文章才 ZREM，removeFromRank 内部 fail-safe 吞异常不阻断下架）+ FeedHotRankSupport 新增 removeFromRank；loadByHotRank 回查补 status=2+visibility=1+未软删过滤；common-redis RedisUtil 补成员级 zRemove（与按排名删除的 zRemoveRangeByRank 区分）；编译验证已通过（2026-11-03）
+- [x] P1：补单列 `idx_stat_update_time`（**定案 D-2（2026-11-03）：单列起步**——增量查询含 `zone IN (1,2)`，复合索引 zone 前缀下范围列收益打折；增量轮 5min 一次捞变更量小，单列+回表过滤足够，EXPLAIN 验证不足再升级复合）；与 P2 扫描列切换配套建在 stat_update_time 上；涉及 content-schema.sql DDL 登记
+  - ✅ 2026-11-03：content-schema.sql article 表新增 `stat_update_time datetime not null default current_timestamp` 列 + `idx_stat_update_time` 单列索引（update_time 列注释同步补「浏览量刷回显式保留原值」口径）；[Sql-Document.md](../../Sql-Document.md) article DDL 镜像同步 + 设计原因节登记已有库 ALTER 语句（docker 重建自动带列）；编译验证已通过（2026-11-03）
+- [x] P6：榜空回源查询排除 `content_html`（`loadByTimeDesc` / `loadByHotRank` 对齐 `listPublic` 写法）
+  - ✅ 2026-11-03：FeedServiceImpl 两回源查询补 `.select(Article.class, i -> !COLUMN_CONTENT_HTML.equals(...))`（回源只装配 FeedItemVO 卡片字段）；编译验证已通过（2026-11-03）
+
+##### E.2 第二批：降级健壮性
+
+- [x] P4：Redis 全宕兜底——**定案 D-4（2026-11-03）：不引 Caffeine**（全仓无该依赖，为单一场景引依赖不划算），按 cacheKey 粒度手写轻量实现：JVM Semaphore 本地单飞 + `ConcurrentHashMap` last-good 快照（feed key 组合=page×size 有限），兜住场景 C（锁失效 N 并发直查 DB）；`loadByTimeDesc` 加熔断/限流
+  - ✅ 2026-11-03：新增 FeedLocalFallbackSupport（JVM Semaphore 每 key 单许可 + ConcurrentHashMap 快照 + 快照 10min 年龄上限 + 闸门/快照表 500 条上限保护，超限共用溢出闸门防恶意深翻页刷 key）；FeedServiceImpl.feed 重构为外层 try/catch（Redis 链路任一环节异常即降级）→ feedViaRedis（原缓存三防主链路）→ feedViaLocalFallback（等待闸门≤2s，超时只取快照、无快照返回空，绝不放大 DB 并发——本地闸门即 loadByTimeDesc 的限流/熔断收口）；Redis 正常链路每次回源成功自动刷新快照（loadFromDb 落快照，故障期切换无感）；编译验证已通过（2026-11-03）
+- [x] P7：榜缺失时异步触发重建，不等下一轮定时（fixedDelay=300s + initialDelay=60s）
+  - ✅ 2026-11-03：FeedHotRankSupport 新增 triggerRebuildAsync（CAS 去抖 rebuildQueued 防榜缺失风暴期重复入队 + 单线程 daemon 池 + 复用灌榜分布式锁 REFILL_LOCK_KEY 抢不到即放弃）+ @PreDestroy 优雅关闭；FeedServiceImpl.loadFromDb 榜空分支调用；REFILL_LOCK_KEY 常量从 FeedHotRankRefillJob 上移 FeedHotRankSupport（定时任务与异步触发共用）；编译验证已通过（2026-11-03）
+- [x] P5：`/article/hot` **定案 D-3（2026-11-03）：切读 `CONTENT_FEED_HOT_ZSET` 热度榜**（与 feed 热榜同源、语义统一，对齐 A7「heat 对齐 content 热门榜」口径，彻底消除 filesort），榜空回退现有 view_cnt 直查（降级路径低频，不建 view_cnt 索引）；⚠️ 接口语义变化：由全站 view_cnt 直排改为 heat 榜序（含 zone 过滤+时间衰减），前端展示口径需同步知会
+  - ✅ 2026-11-03：ArticleServiceImpl.listHot 重写——hot.enabled 且榜非空走榜链路（topArticleIds TopN + 批量回查补 status=2+visibility=1 过滤 + 排除 content_html + 榜序重排，消除 orderByDesc(view_cnt) filesort）；榜空/开关关闭回退原 view_cnt 直查（不建 view_cnt 索引）；接口语义变化已在方法注释声明（前端知会）；编译验证已通过（2026-11-03）
+
+##### E.3 第三批：写放大治理（走 A7 定案流程）
+
+- [ ] P3：ES 侧 Redis 累加 + 定时 `_bulk`（167 次/s → 1~2 次/s）——依赖 search 批次A A7 定案与批次D D2 IndexHeatFlushJob 落地，本批次仅确认 content 侧 view-count-flushed 发布点对接无误
+  - ✅ 2026-11-03：content 侧发布点确认无误——ViewCountFlushJob 按文章聚合 GETDEL 后逐条 `ContentEventProducer#sendViewCountFlushed`（EXCHANGE_CONTENT / ROUTING_CONTENT_VIEW_COUNT_FLUSHED，eventId 幂等基座四字段齐备），A7 search 消费端按该事件对接即可，content 侧零改动；代码部分随 search 批次D D2 落地后关闭
+  - 🦴 可选缓解（暂不立项，按需另行评估）：刷回周期 5min → 10~15min（UPDATE 量减半以上，用户无感）；批量 UPDATE（JOIN VALUES，省 N 次 round trip）；读写分离 / 计数拆表（隔离写对读的影响）。**拆表评估口径（2026-11-03 复查定论）：article 21 列不拆**——content_html 唯一大字段 longtext 行外存储（行内仅指针）且全链路列表/回源/榜查询已列投影排除，宽表无实际 I/O 负担；计数三列经 E.0 量化非瓶颈（167 条/s ≈ 单核 1~3%，无热点行锁竞争），拆计数表反引入 join/跨表事务复杂度；再评估触发条件：计数回写出现热点行锁等待、单行 UPDATE TPS 明显成为瓶颈、或热点文章计数行竞争可观测时，仅拆 `article_stats` 计数表（view/like/comment + stat_update_time 迁出），正文列不动
+
+
+
+##### E.4 配套修改补漏（2026-11-03 落地后复查发现）
+
+> 复查范围：stat_update_time 全链路依赖、unpublished 调用点覆盖、update_time 其他消费方、content_html 列投影。已核实无遗漏的点：rankCandidateQuery 列投影仅 5 列（不拖 content_html）；下架四路径全部经 sendUnpublished 收口（ArticleServiceImpl/PublishServiceImpl/ReviewWriteBackServiceImpl 三调用点全覆盖）；content 内无其他 update_time 增量依赖与字符串 SQL；书籍表无浏览计数刷回链路（无同类污染）。
+
+- [x] P7 补漏①：榜空触发条件过宽——`loadFromDb` 以「本页 hotIds 为空」判定榜缺失，深度翻页（pageNo 超出榜成员页数）也会触发 `triggerRebuildAsync`；有 CAS 去抖 + 分布式锁 + 60s 空结果短缓存兜底，但语义上「榜非空、页超界」≠「榜缺失」，每轮重建完成后深页请求会再次触发无谓 refillAuto（每 key 最短 60s 一次）。修正：仅 `pageNo == 1 && hotIds.isEmpty()` 时触发（第 1 页为空 ⇒ 榜缺失/TopN 未满），深页超界只走时间倒序兜底不触发重建
+  - ✅ 2026-11-03：FeedServiceImpl.loadFromDb 榜空分支加 `pageNo == 1` 前置判断（深页超界仅走 loadByTimeDesc 兜底，不触发重建）；方法 javadoc 同步更新；编译验证已通过（2026-11-03）
+- [x] P7 补漏②：`triggerRebuildAsync` 未尊重灌榜开关 `litisle.content.feed.hot.refill-enabled`（该开关现只在 FeedHotRankRefillJob 判断）——多实例部署「只开一台灌榜」场景下，其余实例的 feed 请求仍会经异步触发执行 refillAuto（绕过开关语义）。修正：FeedHotRankSupport 注入 refill-enabled 配置，异步触发前置判断（定时任务开关判断保留不变）
+  - ✅ 2026-11-03：ContentProperties.Feed.Hot 新增 `refillEnabled`（默认 true，yml 键 feed.hot.refill-enabled 放松绑定不变）；FeedHotRankRefillJob 弃用 @Value 改注入 ContentProperties 判断开关（同配置单一口径）；FeedHotRankSupport.triggerRebuildAsync 前置判断 refillEnabled；编译验证已通过（2026-11-03）

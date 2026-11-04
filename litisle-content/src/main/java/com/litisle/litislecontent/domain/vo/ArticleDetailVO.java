@@ -52,6 +52,12 @@ public class ArticleDetailVO implements Serializable {
     /** 状态（作者本人可见流转态；游客侧恒为 PUBLISHED） */
     private ArticleStatusEnum status;
 
+    /**
+     * 定时发布时间（仅作者本人查看时回填；游客/他人侧恒为 null——定时安排属作者私有信息）
+     * <p>null=未设置定时；仅草稿态（status=0）可能有值</p>
+     */
+    private LocalDateTime scheduledPublishTime;
+
     /** 可见性 */
     private VisibilityEnum visibility;
 

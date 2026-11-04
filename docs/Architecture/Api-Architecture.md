@@ -121,11 +121,11 @@
 | feign/ 包       | ✅   | UserClient / AuthClient / FileClient / AiClient / ContentClient / SocialClient / ReviewClient（均含 fallbackFactory 降级） |
 | config/ 包      | ✅   | FeignApiConfig（超时/重试统一配置）+ FeignFallbackAutoConfiguration（降级工厂自动装配） |
 | fallback/ 包    | ✅   | User / Auth / File / Ai / Content / Message / Review 七个 FallbackFactory |
-| moderation/ 包  | ✅   | 发布前置/机审联动门面组件 10 个（见 §15） |
-| dfa/ 包         | ✅   | DFA 同步闸门共享组件（DfaFacade / DfaScenes / WordLibraryLoader SPI 等 7 个，见 §14） |
+| moderation/ 包  | ✅   | 发布前置/机审联动门面组件 12 个（见 §15） |
+| dfa/ 包         | ✅   | DFA 同步闸门共享组件（7 个契约组件 + 3 个引擎组件，见 §14） |
 | dto/ 包         | ✅   | auth / captcha / user / file / ai / moderation / content / social 子包 |
 | vo/ 包          | ✅   | 已独立成包（vo/user/UserBriefVO、UserRolesVO 暂为空类占位） |
-| event/ 包       | ✅   | user/UserRegisteredEvent（空类）+ moderation/ 五个事件 + content/ContentUnpublishedEvent（均字段完整） |
+| event/ 包       | ✅   | user/UserRegisteredEvent（空类）+ UserBannedEvent + moderation/ 五个事件 + content/ContentPublishedEvent、ContentUnpublishedEvent（均字段完整） |
 | enums/ 包       | ✅   | RegisterSourceEnum + ImageAuditTriggerEnum（RoleEnum 等共享枚举待实现） |
 | constant/ 包    | ✅   | MqConstant / BizCacheKey / FeignConstant / ModerationConstant |
 | result/ 包      | ❌   | 不再需要（ErrorCode 由 common-core 统一维护）    |
@@ -154,7 +154,7 @@ litisle-api
 
 │   ├── AiClient              # ✅ AI 服务契约（LLM 通用对话通道，提供方端点待实现，见 §4.5）
 
-│   ├── ContentClient         # ✅ 内容服务契约（机审回查正文/配图反查，见 §4.6）
+│   ├── ContentClient         # ✅ 内容服务契约（机审回查正文/配图反查/计数回写，提供方已落地，见 §4.6）
 │   ├── SocialClient          # ✅ 私信服务契约（私信机审回查，见 §4.7）
 │   ├── ReviewClient          # ✅ 审核服务契约（取证落库/处罚态回查，见 §4.8）
 │   └── PaymentFeignApi / ShopFeignApi / NotificationFeignApi  # ⏳ 待实现
@@ -182,7 +182,13 @@ litisle-api
 
 │   ├── DfaFacade             # 门面：initAll / rebuild / check
 
-│   ├── DfaScenes             # 场景归一映射（ARTICLE/COMMENT/USERNAME/MESSAGE）
+│   ├── TextScanEngine        # 扫描引擎接口（宿主/门面可插拔）
+
+│   ├── AcdatTextScanEngine   # AC 自动机 + 双数组 Trie 引擎实现
+
+│   ├── CharNormalizer        # 字符归一化（全角/大小写等，扫描前统一）
+
+│   ├── DfaScenes             # 场景归一映射（ARTICLE/COMMENT/USERNAME/MESSAGE/BIO）
 
 │   ├── DfaHitResult          # 判定结果（hit/maxLevel/hitWords/wordlibVer）
 
@@ -206,15 +212,26 @@ litisle-api
 
 │   ├── ai/                   # ✅ AiChatRequestDTO / AiChatResponseDTO
 │   ├── moderation/           # ✅ PunishStatusDTO / PunishAuditDTO / PunishSpeakCheckDTO / UsernameRejectRecordDTO
-│   ├── content/              # ✅ ContentDTO / ArticleImageRefDTO / ContentPreviewCheckDTO / ContentPreviewCheckVO
+│   ├── content/              # ✅ ContentDTO / ArticleImageRefDTO / ContentPreviewCheckDTO / ContentPreviewCheckVO / ArticleCounterUpdateDTO
 │   ├── social/               # ✅ MessageDTO（私信机审回查出参）
 │   └── review/ payment/ ...  # ⏳ 待实现
+
+├── moderation/               # ✅ 跨服务决策口径 SSOT 门面（12 个，见 §15）
+
+│   ├── SubmitTextAssembler / PublishTextPrecheck / DfaPublishGate
+│   ├── UsernameRejectGate / UsernameModerationGate / BioModerationGate
+│   ├── LastHashStore / LastHashExemptChecker / StrangerQuotaGate
+│   └── MessageRecallGate / MachineRejectPunishGate / ContentUnpublishedInvalidator
 
 ├── event/
 
 │   ├── user/UserRegisteredEvent        # ⚠️ 空类，Schema 字段已在 Javadoc 约定待补
 
+│   ├── user/UserBannedEvent            # ✅ 用户封禁（user 发布 → content 消费下架连带）
+
 │   ├── content/ContentUnpublishedEvent # ✅ 内容下架（content 发布 → ai/search 消费）
+
+│   ├── content/ContentPublishedEvent   # ✅ 内容发布（content 发布 → search/ai/notification 消费）
 │   └── moderation/
 │       ├── ImageSubmitEvent            # ✅ 图片送审（file 发布 → review 消费）
 │       ├── TextSubmitEvent             # ✅ 文本送审（content/message 发布 → review 消费）
@@ -312,10 +329,12 @@ litisle-api
 | ------ | ------------------------ | ------------------- | -------------------- | -------- | ------------------------------------------------------------ |
 | `chat` | POST `/api/feign/ai/chat`| `AiChatRequestDTO`  | `AiChatResponseDTO`  | fail-fast | OpenAI 兼容通道（base-url/api-key/model 外置 Nacos）；system+user 双段 prompt 最小对话面，few-shot/防注入/JSON 白名单校验由调用方组织；降级由 review 侧转 SUSPICIOUS 人审 |
 
-### 4.6 ContentClient（litisle-content 提供方，端点待实现，均 fail-fast）
+### 4.6 ContentClient（litisle-content 提供方，端点已落地：ContentFeignProviderController，均 fail-fast）
 
 - `getContent(bizType, bizId)` — GET `/api/feign/content/get` → `ContentDTO`：机审回查正文
 - `listArticleImages(articleId)` — GET `/api/feign/content/article-images` → `List<ArticleImageRefDTO>`：配图复审反查列表（逐张经 FileClient 取图）
+- `listArticleIdsByFileId(fileId)` — GET `/api/feign/content/article-ids-by-file` → `List<Long>`：按 idx_file_id 反查引用文章（图片复审再聚合用；聚合判定收口 review 消费端）
+- `updateCounters(ArticleCounterUpdateDTO)` — POST `/api/feign/content/counters/update` → Void：social 计数回写冗余列（view/like/comment cnt，幂等绝对值 SET）
 
 ### 4.7 SocialClient（litisle-social 私信域提供方，端点待实现，fail-fast）
 
@@ -360,6 +379,7 @@ File / Ai 模块关键 DTO 如下：
 | `PunishAuditDTO` / `PunishSpeakCheckDTO` | — | 处罚审计 / 发言前禁言校验 |
 | `UsernameRejectRecordDTO` | contentHash, hitWords, wordlibVer  | 用户名拒绝取证载荷（禁落用户名明文） |
 | `ContentDTO` / `ArticleImageRefDTO` | — | 机审回查正文 / 配图引用（fileId+file_meta.id） |
+| `ArticleCounterUpdateDTO` | articleId, viewCnt, likeCnt, commentCnt 等 | social 计数回写冗余列（幂等绝对值 SET） |
 | `MessageDTO`       | —                                          | 私信机审回查出参 |
 
 ------
@@ -416,6 +436,8 @@ Routing:  moderation.result（死信：moderation.result.dlq）
 | `TextSubmitEvent`              | event/moderation  | content/message | review | ✅ 字段完整（modType/bizType/bizId/scene/contentHash/retryCount，不含正文） |
 | `PunishResultEvent`            | event/moderation  | review | auth/user      | ✅ 字段完整（userId/action/op/punishLogId/frozenUntil/retryCount，仅触发信号） |
 | `ContentUnpublishedEvent`      | event/content     | content | ai/search     | ✅ 字段完整（bizType/bizId/contentHash/reason，下架失效向量库/ES） |
+| `ContentPublishedEvent`        | event/content     | content | search/ai/notification | ✅ 字段完整（bizType/bizId/contentHash，发布同步索引/欢迎推送） |
+| `UserBannedEvent`              | event/user        | user    | content       | ✅ 字段完整（eventId/eventTime/traceId/version + userId/reason，封禁下架连带） |
 
 > 全部事件均含公共字段 eventId/eventTime/traceId/version，JSON 序列化（Jackson2JsonMessageConverter），禁止 @Builder。
 
@@ -480,15 +502,20 @@ Header 名统一由 common-core 的 `HeaderConstant` 维护（X-User-Id / X-Role
 
 ## 十、统一错误码设计
 
-错误码按模块分段，示例如下：
+错误码按模块分段，示例如下（SSOT 为 common-core `ErrorCode`）：
 
-| 模块 | 区间        |
-| ---- | ----------- |
-| 通用 | 10000–19999 |
+| 模块 | 区段 |
+| ---- | ---- |
+| 通用 | 10000–19999（10001 参数 / 10005 限流 / 10014 无权限） |
 | 用户 | 20000–29999 |
-| 认证 | 30000–39999 |
-| 内容 | 40000–49999 |
-| 支付 | 80000–89999 |
+| 内容 | 30000–39999（30001–30019 已落地，见 content-index §十一） |
+| 社交 | 40000–49999 |
+| 支付 | 50000–59999 |
+| 商城 | 60000–69999 |
+| 审核 | 70000–79999（70001 敏感词命中） |
+| AI   | 80000–89999 |
+| 文件 | 90000–99999 |
+| 搜索 | 100000–109999（100001–100004 SEARCH_PARAM_INVALID / SEARCH_PAGE_EXCEEDED / SEARCH_SOURCE_NOT_FOUND / SEARCH_ES_UNAVAILABLE 已落地，2026-11-03 temp search批次B B3） |
 
 ------
 
@@ -570,7 +597,9 @@ litisle-service
 | 组件                    | 职责                                                         |
 | ----------------------- | ------------------------------------------------------------ |
 | `DfaFacade`             | 门面：`initAll`（启动逐场景构建，失败 fail-fast 中断启动）/ `rebuild`（version 乐观比对防乱序 + 原子换引用，在途查询不受影响）/ `check`（HIGH 拦 70001，MID 只标记送审，未初始化抛异常绝不 default-allow） |
-| `DfaScenes`             | 场景归一映射：去 `_RE_REVIEW` 后缀；ARTICLE_FEATURED/ARTICLE_COMMUNITY→ARTICLE，图片场景返回 null（不走 DFA） |
+| `TextScanEngine`        | 扫描引擎接口（可插拔），`AcdatTextScanEngine` 为 AC 自动机+双数组 Trie 默认实现 |
+| `CharNormalizer`        | 字符归一化（全角/大小写等），扫描前统一文本形态防变体绕过     |
+| `DfaScenes`             | 场景归一映射：去 `_RE_REVIEW` 后缀；ARTICLE_FEATURED/ARTICLE_COMMUNITY→ARTICLE，BIO 直映自身，图片场景返回 null（不走 DFA） |
 | `DfaHitResult`          | 判定结果 record（hit / maxLevel / hitWords / wordlibVer）     |
 | `WordEntry`             | 词条 record（word / level 1-HIGH 2-MID / blacklist 黑白名单分流） |
 | `WordLibraryLoader`     | 装载 SPI：review 查表、content/message 读 Redis 快照；加载失败回退本地持久化快照并告警，绝不 default-allow |
@@ -589,6 +618,8 @@ litisle-service
 | `PublishTextPrecheck` | 发布前置校验：空内容（trim+去标签可见文本）/ 标题≤100 |
 | `DfaPublishGate` | DFA 闸门决策：HIGH 拦 70001、MID 只标记（decide→DfaGateDecision） |
 | `UsernameRejectGate` | 注册拒绝取证编排（取证失败仅留痕，不影响拦截结论） |
+| `UsernameModerationGate` | 用户名链路编排：HIGH 拦截 + 联动 `UsernameRejectGate` 取证（注册/改名共用，违规请求零写库） |
+| `BioModerationGate` | 简介类文本闸门：BIO 场景词库同步快筛，HIGH 拦 70001 不取证不建审核任务；空串=清空语义直接放行 |
 | `LastHashStore` | 免审 last-hash 读写删（value JSON：hash+verdict，SUSPICIOUS 禁写） |
 | `LastHashExemptChecker` | 免审判定 SSOT：decide / statusExcluded / imgReReviewPassed（图片连带免审） |
 | `StrangerQuotaGate` | 陌生人配额：Redis INCR 主计数，故障降级 DB 原子条件更新（上限 3） |

@@ -145,6 +145,14 @@ public class Article implements Serializable {
     private String contentHash;
 
     /**
+     * 定时发布时间
+     * <p>datetime 可空：仅草稿态（status=0）允许设置；到点由 ArticleScheduledPublishJob 扫描
+     * 并走批量送审链路（CAS 0→1）自动发布；置 NULL 即取消定时（编辑接口取消用条件更新显式写 NULL）</p>
+     */
+    @TableField("scheduled_publish_time")
+    private LocalDateTime scheduledPublishTime;
+
+    /**
      * 删除标志
      * <p>NOT_DELETED(0)-未删除 / DELETED(1)-已删除</p>
      */
@@ -168,4 +176,13 @@ public class Article implements Serializable {
      */
     @TableField("update_time")
     private LocalDateTime updateTime;
+
+    /**
+     * 热度信号统计时间
+     * <p>datetime，仅浏览/点赞/评论计数回写时刷新（DB 默认 current_timestamp）；
+     * 与 update_time「最新列表」语义解耦——热度榜增量灌榜按此列捞变更文章，
+     * 浏览量刷回不再把老文章顶到最新列表顶部</p>
+     */
+    @TableField("stat_update_time")
+    private LocalDateTime statUpdateTime;
 }

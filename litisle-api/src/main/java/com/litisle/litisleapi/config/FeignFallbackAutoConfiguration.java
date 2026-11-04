@@ -89,4 +89,15 @@ public class FeignFallbackAutoConfiguration {
     public SocialClientFallbackFactory messageClientFallbackFactory() {
         return new SocialClientFallbackFactory();
     }
+
+    /**
+     * 注册 SearchClient 降级工厂（temp search批次B B1）：
+     * 供 @FeignClient(fallbackFactory = SearchClientFallbackFactory.class) 注入，
+     * 相似推荐/服务间检索核心读依赖 fail-fast 语义见工厂类注释
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public SearchClientFallbackFactory searchClientFallbackFactory() {
+        return new SearchClientFallbackFactory();
+    }
 }

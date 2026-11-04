@@ -22,6 +22,7 @@ import com.litisle.litislecontent.service.DraftService;
 import com.litisle.litislecontent.service.support.ArticleImageRefSupport;
 import com.litisle.litislecontent.service.support.ArticleImageRenderSupport;
 import com.litisle.litislecontent.utils.ArticleHtmlSanitizer;
+import com.litisle.litislecontent.utils.ContentLengthGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -98,6 +99,9 @@ public class DraftServiceImpl implements DraftService {
         String contentHtml = dto.getContentHtml() == null || dto.getContentHtml().isEmpty()
                 ? dto.getContentHtml()
                 : ArticleHtmlSanitizer.sanitize(dto.getContentHtml());
+        // 正文长度硬上限（防滥用兜底，与发布/建档/编辑同上限）：草稿为单行覆盖 LONGTEXT，
+        // 防绕过发布口直接灌大草稿行拖垮存储与后续送审链路
+        ContentLengthGuard.checkContentLength(dto.getContentHtml());
         // 步骤3：版本判定严格按序四分支（先拦截冲突/非法，再幂等/递增，防重复请求误入冲突分支）
         int serverVersion = draft == null ? 0 : draft.getDraftVersion();
         int cmp = dto.getBaseVersion().compareTo(serverVersion);

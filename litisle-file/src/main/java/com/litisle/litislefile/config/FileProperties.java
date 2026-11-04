@@ -94,9 +94,12 @@ public class FileProperties {
         private int compensateThresholdMinutes = 30;
         /** Step2 软删缓冲期（天）：del_flag=1 超此时间才物理清理（防误删不可恢复） */
         private int physicalCleanDelayDays = 7;
-        /** Step2 隔离前缀：path 以此开头的记录跳过物理清理（违规图保留期由 moderation 侧控制，防两套保留期打架） */
+        /** Step2 隔离前缀：隔离/恢复/到期软删的前缀校验与对象移动共用（前缀 SSOT） */
         private String quarantinePrefix = "quarantine/";
-        /** Step2 是否跳过隔离前缀记录的物理清理（默认 true；置 false 时退回 file 侧保留期口径，仅调试用） */
+        /**
+         * 已停用（删除语义统一后对账任务不再豁免 quarantine/ 前缀，代码已删除该跳过分支）；
+         * 保留仅为 yml 兼容，防止旧配置解析报错
+         */
         private boolean skipQuarantineCleanup = true;
     }
 

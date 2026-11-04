@@ -187,11 +187,11 @@ litisle:
       compensate-threshold-minutes: 30
       # Step2 软删缓冲期（天）：del_flag=1 超此时间才物理清理（防误删不可恢复）
       physical-clean-delay-days: 7
-      # Step2 隔离前缀：path 以此开头的记录跳过物理清理
-      # 违规图保留期由 moderation 侧（litisle.moderation.quarantine.retention-days，当前=10 天）控制，
-      # 防 file 侧 7 天清理提前删除违规图证据、致申诉无法复核（两套保留期打架）
+      # Step2 隔离前缀：隔离/恢复/到期软删的前缀校验与对象移动共用（前缀 SSOT）
+      # 违规图到期软删后与其他文件同走「软删 → 缓冲 7 天 → 物理清理」纪律，不再豁免物理清理
       quarantine-prefix: quarantine/
-      # 「file 侧跳过隔离清理」开关：默认 true；置 false 时退回 file 侧保留期口径（仅调试用）
+      # 「file 侧跳过隔离清理」开关：已停用（删除语义统一后对账任务不再豁免 quarantine/ 前缀，
+      # 代码已删除该跳过分支）；配置保留仅为兼容，防旧配置解析报错
       skip-quarantine-cleanup: true
     # 文件 IO 线程池：上传/下载阻塞 IO 隔离（下载走 StreamingResponseBody，由该池执行）
     # 慢客户端不再占用 Tomcat 工作线程，防止主线程池被打满

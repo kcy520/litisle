@@ -1,6 +1,7 @@
 # litisle-review 审核模块架构文档（简化版）
 
-> 版本：v1.2（2026-10-14，按当前实现对齐）
+> 版本：v1.3（2026-11-02 删除语义统一：隔离图到期删除改「软删 + 解绑引用」由 Sweeper 委派，物理清理统一交 file 侧对账任务（不再豁免）；retention-days 过期值修正 30→10）
+> 前版：v1.2（2026-10-14，按当前实现对齐）
 >
 > 关联文档：[Review-Architecture-Development-detailed.md](Review-Architecture-Development-detailed.md)（详细版，防绕过推演/竞态分析看它）· [Sql-Document.md] litisle_review 章节（表结构 SSOT）· [Api-Architecture.md](Api-Architecture.md) · [commom-des.md](commom-des.md)
 >
@@ -47,7 +48,7 @@ litisle-review
 ├── mq/publisher/     ★ ModerationResultPublisher / ModerationAppealResultPublisher
 │                       / PunishResultPublisher（事务铁律：落库失败不发、afterCommit 发送、失败入 DLQ）
 ├── sweeper/          ★ ReviewTaskSweeper（认领超时回池/申诉超时维持/三态 Gauge/stuck 分频重投）
-│                       / QuarantineSweeper（隔离清理/申诉豁免/限速删除）
+│                       / QuarantineSweeper（隔离到期软删/申诉豁免/限速删除）
 │                       / ModerationRecordArchiveSweeper（留痕归档，archive-enabled 默认关）
 │                       / PunishReconcileSweeper（处罚双向对账）
 ├── dfa/              ★ WordlibVersionService / WordlibChangeSubscriber / TableWordLibraryLoader
@@ -94,7 +95,7 @@ litisle-review
 
 ### 2.3 图片触发时机（按 biz_type 区分）
 
-- **AVATAR/COVER**：上传即审——先查 REJECT 拒传黑名单（命中拒传不落库），未命中落库 safe_flag=2 + 发 image.submit；违规图移入 `quarantine/` 隔离前缀，del_flag 保持 0（不破坏 file_ref 不变式）
+- **AVATAR/COVER**：上传即审——先查 REJECT 拒传黑名单（命中拒传不落库），未命中落库 safe_flag=2 + 发 image.submit；违规图移入 `quarantine/` 隔离前缀，del_flag 保持 0（不破坏 file_ref 不变式）；保留期到期由 QuarantineSweeper 委派 file 侧到期软删（不删对象，软删缓冲 7 天内可恢复，期满由对账任务物理清理）
 - **ARTICLE_IMG**：上传预审 + 发布复审；复审以文章为单位建一条任务（scene=ARTICLE_IMG_RE_REVIEW），content_hash 取全部配图 sha256 排序拼接后再哈希的聚合指纹
 - 机审取图一律按 fileId 走 FileClient 内部契约（字节流），严禁按用户 URL 抓取（SSRF 防线）
 
@@ -208,7 +209,7 @@ public interface ContentModerationService {
 | litisle.moderation.appeal.window-days | 7 | 申诉窗口（timeout-days 口径已收敛至 sweeper 组，原键仅备查） |
 | litisle.moderation.report.abuse-threshold | 3 | 诬告累计阈值（反向落警告+降信誉） |
 | litisle.moderation.claim.max-active-per-reviewer | 20 | 单审核员在手上限（timeout-minutes 口径已收敛至 sweeper 组） |
-| litisle.moderation.quarantine.* | retention-days=30 等 | 隔离保留期 + 限速删除/批次/短锁（review 侧专属清理，file 侧跳过该前缀） |
+| litisle.moderation.quarantine.* | retention-days=10 等 | 隔离保留期 + 限速删除/批次/短锁；到期软删由 Sweeper 委派 file 侧，物理清理统一交 file 侧对账任务（不再豁免，可恢复窗口 = 10 + 7 = 17 天） |
 | litisle.moderation.sweeper.* | claim-timeout-minutes=30 / appeal-timeout-days=7 / stuck-resubmit-minutes=30 / stuck-resubmit-every-rounds=30 | 认领超时回池 / 申诉超时维持 / status=0 卡死任务分频重投 |
 | litisle.moderation.record.* | retention-months=6 / archive-enabled=false | 留痕归档：保留期与归档开关（默认关，04:00 错峰调度） |
 | litisle.moderation.llm.temperature / few-shot-version / timeout-ms / max-text-chars | 0 / v1 / 15000 / 6000 | LLM 判定一致性与超长分片阈值 |

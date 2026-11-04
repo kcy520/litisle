@@ -431,14 +431,14 @@ litisle-content
 | 项       | 内容                                                         |
 | -------- | ------------------------------------------------------------ |
 | 主要职责 | 文章/书籍/合集/草稿、分区(普通/作家/推荐流)、图片插入与对齐、大篇幅送审（切片/聚合收口 review 消费端） |
-| 核心功能 | 草稿自动保存；图片任意位置插入+5 种对齐；分区互斥；普通→作家升级申请；合集章节目录+阅读历史；送审仅发单条 `content.submitted`（事件体不含正文，切片禁静默截断由 review 侧兑底） |
+| 核心功能 | 草稿自动保存；图片任意位置插入+5 种对齐；分区互斥；普通→作家升级申请；合集章节目录+阅读历史；章节批量重排（批次5 2026-11-02：PUT /book/{id}/chapters/reorder 全量提交新序 1..N，两阶段偏移解 uk(book_id,chapter_no) 冲突，整单校验+book 粒度分布式锁，下架书拒重排）；送审仅发单条 `content.submitted`（事件体不含正文，切片禁静默截断由 review 侧兑底）；定时发布（项2 2026-11-02）：草稿态文章可设 `scheduled_publish_time`（PUT /article/{id}，仅 status=0，置 NULL 取消），`ArticleScheduledPublishJob` 每 1min 扫描到点草稿复用批量送审链路（CAS 0→1 幂等防重），发布/失败均清定时字段（失败 warn 留痕不静默，作者在"我的文章"可见） |
 | 关键组件 | `ArticleService`、`BookService`、`CollectionService`、`DraftService`、`ZoneRouter`、`ContentEventProducer`、`FeedService`、`FavoriteService` |
 | 数据模型 | `article`、`article_image`、`article_draft`、`book`、`book_chapter`、`reading_history`、`favorite`（一期收藏临时承载） |
 | 章节阅读编排（阶段17） | BookService 三读方法（getDetail/pageChapters/getChapterDetail）：visibilities 按查看者计算（作者全可见/匿名仅公开/关注者回查降级），章节正文复用文章判定链，BookReadSupport 承接浏览计数+书籍历史（fail-safe）；出参 BookDetailVO（首尾章+lastRead*+favorited）/ BookChapterDetailVO（prev/next 导航） |
 | 外部依赖 | MyBatis-Plus、Redis、litisle-file、litisle-api(AI/Review/User Feign)、MQ |
 | API      | `POST /content/article`、`PUT /content/article/{id}`、`POST /content/draft/save`、`POST /content/book`、`GET /content/feed`、`POST /content/upgrade-apply` |
 | 流程     | 发布：校验+落库（CAS 0/3→1）→ afterCommit 发单条 `content.submitted`（切片/聚合收口 review 消费端）→ `moderation.result` 事件驱动回写状态 → 已发布/驳回 |
-| 错误处理 | 草稿保存幂等；切片失败重试不静默截断（review 消费端兑底）；分区冲突拒绝                     |
+| 错误处理 | 草稿保存幂等；切片失败重试不静默截断（review 消费端兑底）；分区冲突拒绝；正文长度硬上限 256KB（应用层兜底拦截，错误码 CONTENT_TOO_LONG=30018，发布/建档/编辑/草稿保存四路收口，超限提示拆分书籍章节）；定时发布到点送审失败不重试（清定时字段+warn 日志，文章停留草稿态待作者处理）                     |
 | 安全     | 作家分区跳 DFA 全量人工；图片走 file 鉴权                    |
 | 性能     | 推荐流预计算+缓存；正文大字段延迟加载；切片并行(线程池)      |
 
@@ -707,6 +707,8 @@ litisle-notification
 | `shop.order.shipped`     | shop             | notification（通知用户已发货）            |
 | `user.banned`            | user（review 仅发 punish.result） | content(下架)、social(禁言)、ai(封禁会话) |
 | `sensitiveword.updated`  | review(运营后台) | 全服务(订阅刷新本地 DFA)                  |
+
+> 事件必达兜底（本地 outbox，content 批次3 2026-11-02）：content 侧 ContentEventProducer 四类事件（submitted/published/unpublished/image.submit）发送前先落 `event_outbox` 表（发送前崩溃/发送失败两类丢失有重发兜底，EventOutboxResendJob 定时补发，超限放弃留痕），消费端按 eventId 幂等去重，重发无副作用；其余服务事件仍为尽力而为（失败自然兜底路径各异），后续按需复用同款 outbox 模式。
 
 ---
 

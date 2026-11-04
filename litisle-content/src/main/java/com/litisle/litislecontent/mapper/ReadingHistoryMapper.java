@@ -3,6 +3,7 @@ package com.litisle.litislecontent.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.litislecontent.domain.entity.ReadingHistory;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -54,4 +55,35 @@ public interface ReadingHistoryMapper extends BaseMapper<ReadingHistory> {
     Page<ReadingHistory> selectMyHistoryPage(Page<ReadingHistory> page,
                                              @Param("userId") Long userId,
                                              @Param("bizType") Integer bizType);
+
+    /**
+     * 删除单用户单类型下超出保留条数的最旧行（阅读历史增长治理懒删）
+     *
+     * <p>实现说明：
+     * <ul>
+     *   <li>子查询先按 update_time desc, id desc（与历史列表同款稳定排序）取出该用户该类型
+     *       第 offset 条之后的行（即最新 keepCount 条之外的最旧行），再 join 回主表按主键删除</li>
+     *   <li>不写「delete ... where 自引用子查询带 limit」：MySQL 不支持 delete 目标表直接
+     *       引用带 limit 的子查询，join 派生表写法是标准解法</li>
+     *   <li>rows 不足 offset 条时子查询为空集，删除 0 行，无副作用</li>
+     *   <li>索引支撑：idx_user_time(user_id, biz_type, update_time) 覆盖子查询过滤与排序</li>
+     * </ul>
+     *
+     * @param userId    读者ID
+     * @param bizType   阅读对象类型：1-书籍 2-独立文章
+     * @param offset    保留条数（保留最新 offset 条，删除其后所有行）
+     * @param batchSize 单批删除上限（防御性封顶，防异常数据导致一次大删）
+     * @return 实际删除行数
+     */
+    @Delete("<script>"
+            + "delete rh from reading_history rh "
+            + "join (select id from reading_history "
+            + "where user_id = #{userId} and biz_type = #{bizType} "
+            + "order by update_time desc, id desc "
+            + "limit #{offset}, #{batchSize}) t on rh.id = t.id"
+            + "</script>")
+    int deleteOverflowOldest(@Param("userId") Long userId,
+                             @Param("bizType") Integer bizType,
+                             @Param("offset") int offset,
+                             @Param("batchSize") int batchSize);
 }

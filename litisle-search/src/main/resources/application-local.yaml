@@ -1,0 +1,71 @@
+# ================================
+# Sentinel 本地心跳端口
+# 同机多服务需错开：auth 8719 / user 8720 / file 8721 / search 8722
+# dashboard 地址在 Nacos 共享配置 litisle-shared.yaml 统一维护
+# ================================
+spring:
+  cloud:
+    sentinel:
+      transport:
+        port: 8722
+      # ================================
+      # Sentinel 规则 Nacos 数据源（规则属运营参数，外置 Nacos/热更新/重启不丢）
+      # 规则实体 JSON 由运维/开发在 Nacos 控制台维护（dataId 见下），
+      # Dashboard 仅作观测入口；资源名以启动后 Dashboard「簇点链路」为准
+      # ================================
+      datasource:
+        degrade-rules:
+          nacos:
+            server-addr: ${litisle.nacos.server-addr}
+            username: ${litisle.nacos.username}
+            password: ${litisle.nacos.password}
+            data-id: litisle-search-degrade-rules.json
+            group-id: DEFAULT_GROUP
+            rule-type: degrade
+
+litisle:
+  # ================================
+  # Nacos 配置（本地环境：宿主机映射端口 8848）
+  # ================================
+  nacos:
+    server-addr: localhost:8848
+    username: nacos
+    password: nacos
+    namespace: ''
+    group: DEFAULT_GROUP
+
+  # ================================
+  # MySQL 配置（IDEA 本地运行：连宿主机映射端口）
+  # 注意：docker compose 中业务数据库宿主机端口是 3307
+  # ================================
+  db:
+    host: localhost
+    port: 3307
+    database: litisle_search
+    username: test_k.1
+    # 本地环境字面值（与 compose .env 中 COMPOSE_MYSQL_PASSWORD 保持一致，改 .env 时需同步此处）
+    password: 123
+
+  # ================================
+  # Redis 配置（IDEA 本地运行：使用宿主机映射端口）
+  # 注意：docker compose 中 Redis 宿主机端口是 6380
+  # ================================
+  redis:
+    host: localhost
+    port: 6380
+    # 本地环境字面值（与 compose .env 中 COMPOSE_REDIS_PASSWORD 保持一致，改 .env 时需同步此处）
+    password: 123
+
+  # ================================
+  # RabbitMQ 配置（IDEA 本地运行：使用宿主机映射端口）
+  # ================================
+  rabbitmq:
+    host: localhost
+    port: 5672
+
+  # ================================
+  # Elasticsearch 配置（IDEA 本地运行：使用宿主机映射端口）
+  # 注意：docker compose 中 Elasticsearch 宿主机端口是 9200（开发环境已关闭安全认证）
+  # ================================
+  es:
+    hosts: localhost:9200

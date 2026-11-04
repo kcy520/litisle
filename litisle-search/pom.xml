@@ -27,15 +27,150 @@
     <!--dependencies部分-->
     <dependencies>
 
+        <!-- Web MVC：SearchController/SimilarController/SearchHistoryController REST 接口 + Jackson 序列化 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Actuator 监控端点：/actuator/health 健康检查 + /actuator/prometheus 指标暴露 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Prometheus 指标注册表：提供 /actuator/prometheus 端点（actuator 本体不含，必须单独引入） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- 参数校验（q 必填/分页范围/type、sort 枚举绑定等入参校验） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- RabbitMQ（索引同步消费：content.published / content.unpublished / content.article-updated /
+             content.view-count-flushed / social.liked / social.commented，手动 ACK + DLQ 兜底） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
+        <!-- Elasticsearch Java Client（版本由父 POM dependencyManagement 锁定 8.18.8，
+             全文检索 multi_match/function_score + dense_vector KNN 相似推荐） -->
+        <dependency>
+            <groupId>co.elastic.clients</groupId>
+            <artifactId>elasticsearch-java</artifactId>
+        </dependency>
+
+        <!-- common-core：Result / BizException / ErrorCode（search 分段 100000-109999） -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-redis：热点查询缓存（hot-query 缓存命中直返）+ RedisTemplate -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-redis</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-security：Sa-Token 登录校验（/search/history 需登录）+ X-User-Id 鉴权上下文 -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-security</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- common-mq：MQ 机制层统一收口（Jackson2JsonMessageConverter / MqSendUtil / MqAckHelper / MqTraceSupport） -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-mq</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- MyBatis-Plus：SearchHistoryMapper extends BaseMapper（search_history 单表，yml 已配置） -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        </dependency>
+        <!-- MySQL 驱动（litisle_search 库：唯一自有表 search_history） -->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+        </dependency>
+
+        <!-- Redis 连接池（yml lettuce pool 配置的前提） -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
+
+        <!-- Feign：降级热门列表（content /article/hot）+ 标签联想聚合（content /tags）等跨服务调用
+             （fallbackFactory 依赖 Sentinel，见项目约定） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <!-- Feign 负载均衡 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+        <!-- Sentinel：Feign 降级 fallbackFactory 生效前提（feign.sentinel.enabled: true） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <!-- Sentinel 规则 Nacos 数据源：规则持久化 Nacos（热更新/重启不丢），
+             监听 dataId=litisle-search-degrade-rules.json（见 application-local.yaml datasource 配置） -->
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+        </dependency>
+
+        <!-- Nacos 服务注册发现（被网关 lb://litisle-search 路由的前提） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!-- Nacos 配置中心（拉取 litisle-shared.yaml 共享配置） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
+        <!-- api 模块：SearchClient Feign 契约 + 事件体（ContentPublishedEvent 等）+ MqConstant -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>litisle-api</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!-- API 文档（yml knife4j 段已配置，扫 controller 包） -->
+        <dependency>
+            <groupId>com.github.xiaoymin</groupId>
+            <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+        </dependency>
+
+        <!--lombok-->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
         </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+            <version>RELEASE</version>
+            <scope>compile</scope>
         </dependency>
 
     </dependencies>

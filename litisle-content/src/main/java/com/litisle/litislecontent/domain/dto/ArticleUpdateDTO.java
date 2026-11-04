@@ -3,11 +3,13 @@ package com.litisle.litislecontent.domain.dto;
 import com.litisle.litislecontent.enums.ArticleCategoryEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.enums.ZoneEnum;
+import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
 import java.io.Serializable;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -53,4 +55,19 @@ public class ArticleUpdateDTO implements Serializable {
 
     /** 标签名列表（任意状态可改——标签不影响 content_hash，方案B解耦；null=不修改） */
     private List<String> tagNames;
+
+    /**
+     * 定时发布时间（仅 status=0 草稿态可设置；null=不修改）
+     * <p>非空=设置/覆盖定时；取消定时传 cancelScheduledPublish=true（与本字段互斥）；
+     * 到点由 ArticleScheduledPublishJob 自动走批量送审链路发布</p>
+     * <p>@Future 为声明性契约（Controller 未启 @Valid 不触发），实际校验收口 Service 侧</p>
+     */
+    @Future(message = "定时发布时间必须晚于当前时间")
+    private LocalDateTime scheduledPublishTime;
+
+    /**
+     * 取消定时发布标志（仅 status=0 草稿态可操作；null/false=不修改）
+     * <p>true=将 scheduled_publish_time 置 NULL 取消定时；与 scheduledPublishTime 互斥（同传拒绝）</p>
+     */
+    private Boolean cancelScheduledPublish;
 }

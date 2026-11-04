@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
  *   ② 事务内 bindRef（fail-fast）：Feign 失败抛异常随本地事务回滚，无「挂图未登记」中间态；
  *   ③ afterCommit unbindRef（warn 留痕）：编辑重挂差集/软删/草稿清理的补偿性解绑，
  *      失败仅告警不阻断——残留引用仅晚删/不删，保守方向不丢数据（file 侧「仍有引用跳过并告警」兑底）；
- *   ④ 新旧差集计算：编辑重挂/快照滚动清理的弃图判定基准
+ *   ④ 新旧差集计算：编辑重挂配图的弃图判定基准
  *
  * 【四元组精确解绑铁律】unbindRef 必须传完整 (fileId,bizType,bizId,ownerId)，禁按 fileId 删——
  * 同一图可被秒传共享/多文引用，按 fileId 删会悬空他人引用（方案C 设计前提）
@@ -116,6 +116,22 @@ public class ArticleImageRefSupport {
     }
 
     /**
+     * 补偿性批量补登记文章维度引用（ARTICLE_IMG + bizId=articleId，幂等，重试安全）：
+     * 申诉平反恢复隔离配图后，补齐 file 侧到期软删时被按 fileId 解绑的引用计数
+     * <p>与 bindArticleRefs 区别：本入口供 MQ 消费链路（非本地事务）调用，
+     * fail-safe（失败留痕不阻断）由调用方把控
+     *
+     * @param fileIds   恢复成功的文件ID列表（自动去重）
+     * @param articleId 文章ID（引用 bizId）
+     * @param ownerId   引用归属用户ID（文章作者）
+     */
+    public void bindArticleImageRefs(List<String> fileIds, Long articleId, Long ownerId) {
+        // 去重保序后复用逐图登记（bindRef 幂等：同四元组已存在则跳过）
+        bindRefs(fileIds == null || fileIds.isEmpty() ? List.of() : List.copyOf(new LinkedHashSet<>(fileIds)),
+                ContentBizConstant.FILE_BIZ_TYPE_ARTICLE_IMG, articleId, ownerId);
+    }
+
+    /**
      * 封面归属校验（阶段8②）：fileId 归属本人且 bizType=ARTICLE_IMG（封面上传时落定维度，
      * 与正文配图同源），fail-fast 防挂他人文件当封面（checkImageOwnership 只查正文 images 的补口）
      * <p>复用 batchGetOwners 一次往返（单元素批量，语义与 N+1 收口一致）
@@ -178,7 +194,7 @@ public class ArticleImageRefSupport {
     /**
      * afterCommit 逐个解除引用（幂等，四元组精确定位；失败 warn 留痕不阻断主流程）
      * <p>事务活跃时注册 afterCommit 执行（保证业务变更先落库再解绑）；已处于 afterCommit 上下文
-     * （如草稿快照滚动清理回调）时自动降级为直接解绑（防注册失效，见方法体注释）；
+     * （上游链路已在提交后回调中）时自动降级为直接解绑（防注册失效，见方法体注释）；
      * 补偿性清理不进主事务——解绑失败仅残留引用（晚删/不删，保守方向不丢数据），
      * 若随主事务 fail-fast 反而会让已成立的业务变更回滚；
      * file 侧「仍有引用跳过并告警」兑底，对账任务最终一致

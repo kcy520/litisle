@@ -2,6 +2,7 @@ package com.litisle.litislereview.sweeper;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.commonmq.send.MqSendUtil;
 import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.event.moderation.ImageSubmitEvent;
@@ -214,11 +215,12 @@ public class ReviewTaskSweeper {
     private int reclaimTimeoutClaims(int claimTimeoutMinutes, int batchLimit) {
         LocalDateTime now = LocalDateTime.now();
         // ===== 步骤1：扫超时已认领任务（status=2，claim_time < now-阈值，limit=batchLimit） =====
-        List<ReviewTask> tasks = reviewTaskMapper.selectList(new LambdaQueryWrapper<ReviewTask>()
-                .select(ReviewTask::getId)
-                .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.MANUAL_PENDING)
-                .lt(ReviewTask::getClaimTime, now.minusMinutes(claimTimeoutMinutes))
-                .last("LIMIT " + batchLimit));
+        // 用 Page 替代 .last("LIMIT")：分页拦截器标准方式，无裸 SQL 字符串（searchCount=false 跳过 COUNT）
+        List<ReviewTask> tasks = reviewTaskMapper.selectList(Page.of(1, batchLimit, false),
+                new LambdaQueryWrapper<ReviewTask>()
+                        .select(ReviewTask::getId)
+                        .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.MANUAL_PENDING)
+                        .lt(ReviewTask::getClaimTime, now.minusMinutes(claimTimeoutMinutes)));
         if (tasks.isEmpty()) {
             return 0;
         }
@@ -268,10 +270,11 @@ public class ReviewTaskSweeper {
      */
     private int maintainTimeoutAppeals(int appealTimeoutDays, int batchLimit) {
         // ===== 步骤1：扫超时待裁决申诉（status=0，create_time < now-阈值，limit=batchLimit） =====
-        List<Appeal> appeals = appealMapper.selectList(new LambdaQueryWrapper<Appeal>()
-                .eq(Appeal::getStatus, AppealStatusEnum.PENDING)
-                .lt(Appeal::getCreateTime, LocalDateTime.now().minusDays(appealTimeoutDays))
-                .last("LIMIT " + batchLimit));
+        // 用 Page 替代 .last("LIMIT")：分页拦截器标准方式，无裸 SQL 字符串（searchCount=false 跳过 COUNT）
+        List<Appeal> appeals = appealMapper.selectList(Page.of(1, batchLimit, false),
+                new LambdaQueryWrapper<Appeal>()
+                        .eq(Appeal::getStatus, AppealStatusEnum.PENDING)
+                        .lt(Appeal::getCreateTime, LocalDateTime.now().minusDays(appealTimeoutDays)));
         int maintained = 0;
         for (Appeal appeal : appeals) {
             try {
@@ -347,10 +350,11 @@ public class ReviewTaskSweeper {
      */
     private int resubmitStuckTasks(int stuckResubmitMinutes, int batchLimit) {
         // ===== 步骤1：扫超时待审任务（status=PENDING，create_time < now-阈值，limit=batchLimit） =====
-        List<ReviewTask> tasks = reviewTaskMapper.selectList(new LambdaQueryWrapper<ReviewTask>()
-                .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.PENDING)
-                .lt(ReviewTask::getCreateTime, LocalDateTime.now().minusMinutes(stuckResubmitMinutes))
-                .last("LIMIT " + batchLimit));
+        // 用 Page 替代 .last("LIMIT")：分页拦截器标准方式，无裸 SQL 字符串（searchCount=false 跳过 COUNT）
+        List<ReviewTask> tasks = reviewTaskMapper.selectList(Page.of(1, batchLimit, false),
+                new LambdaQueryWrapper<ReviewTask>()
+                        .eq(ReviewTask::getStatus, ReviewTaskStatusEnum.PENDING)
+                        .lt(ReviewTask::getCreateTime, LocalDateTime.now().minusMinutes(stuckResubmitMinutes)));
         if (tasks.isEmpty()) {
             return 0;
         }

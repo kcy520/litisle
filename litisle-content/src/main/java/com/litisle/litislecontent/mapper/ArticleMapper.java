@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.litisle.litislecontent.domain.entity.Article;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 /**
@@ -29,11 +30,31 @@ public interface ArticleMapper extends BaseMapper<Article> {
      * 作用：view_cnt = view_cnt + delta 原子自增（SQL 层单语句，无先查后写并发丢更新）；
      * 仅刷回活跃文章（del_flag=0，软删文章行保留但计数无对外语义，不刷避免复活漂移）。
      *
+     * 时间列口径（批次E P2 定案 D-1 2026-11-03）：
+     * - update_time = update_time：显式赋原值抑制 ON UPDATE CURRENT_TIMESTAMP 自动刷新，
+     *   浏览量刷回不再把老文章顶到「最新列表」顶部（列表按 update_time 倒序展示）；
+     * - stat_update_time = CURRENT_TIMESTAMP：热度信号统计时间只由本语句（浏览）与
+     *   updateCounters（点赞/评论回写）刷新，供热度榜增量灌榜按水位捞变更文章。
+     *
      * @param articleId 文章ID
      * @param delta     待累加增量（>=1，由定时任务 GETDEL 聚合而来）
      * @return affected rows（0=文章不存在或已软删，调用方仅留痕不报错）
      */
-    @Update("UPDATE article SET view_cnt = view_cnt + #{delta} "
+    @Update("UPDATE article SET view_cnt = view_cnt + #{delta}, "
+            + "update_time = update_time, "
+            + "stat_update_time = CURRENT_TIMESTAMP "
             + "WHERE id = #{articleId} AND del_flag = 0")
     int incrViewCnt(@Param("articleId") Long articleId, @Param("delta") long delta);
+
+    /**
+     * 查询文章当前浏览量（只取 view_cnt 单列，避开详情大字段 content_html）。
+     *
+     * 作用：浏览计数刷回成功后，取落库后的最新绝对值填 `content.view-count-flushed`
+     * 事件体（事件契约为覆盖语义，消费端直接 SET，不能传增量）。
+     *
+     * @param articleId 文章ID
+     * @return 当前浏览量绝对值（文章不存在/已软删返回 null，调用方跳过事件发送）
+     */
+    @Select("SELECT view_cnt FROM article WHERE id = #{articleId} AND del_flag = 0")
+    Long selectViewCnt(@Param("articleId") Long articleId);
 }

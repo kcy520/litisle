@@ -9,6 +9,8 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.PageResult;
 import com.litisle.litislecontent.cache.FollowRelationCache;
+import com.litisle.litislecontent.constant.ContentLimitConstant;
+import com.litisle.litislecontent.domain.dto.BookChapterReorderDTO;
 import com.litisle.litislecontent.domain.dto.BookMyQueryDTO;
 import com.litisle.litislecontent.domain.dto.BookQueryDTO;
 import com.litisle.litislecontent.domain.dto.BookSaveDTO;
@@ -34,13 +36,19 @@ import com.litisle.litislecontent.service.ArticleService;
 import com.litisle.litislecontent.service.BookService;
 import com.litisle.litislecontent.service.ReadingHistoryService;
 import com.litisle.litislecontent.service.support.FavoriteStateSupport;
+import com.litisle.commonredis.constant.CacheConstant;
+import com.litisle.commonredis.lock.DistributedLock;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * 书籍/合集域实现（owner 管理 + 章节归属校验）。
@@ -78,6 +86,9 @@ public class BookServiceImpl implements BookService {
 
     /** 文件引用支撑组件（Q3：书籍封面复用文章侧 checkCoverOwnership 归属+bizType 校验） */
     private final ArticleImageRefSupport articleImageRefSupport;
+
+    /** 分布式锁（章节重排 book 粒度并发防护，批次5 2026-11-02） */
+    private final DistributedLock distributedLock;
 
     /** 分类缺省值（BookSaveDTO.category 可空，落库默认「小说」） */
     private static final String DEFAULT_CATEGORY = "小说";
@@ -280,6 +291,104 @@ public class BookServiceImpl implements BookService {
         }
         // 步骤3：仅移除挂载关系不删文章；被移除章节的阅读历史行 chapter_id 悬空由列表容错（不物理删历史行）
         bookChapterMapper.deleteById(chapterId);
+    }
+
+    /**
+     * 章节批量重排（owner，批次5 2026-11-02）：前端拖拽后全量提交新序，两阶段偏移落库
+     *
+     * @param bookId 书籍ID
+     * @param dto    重排清单（全量：[{chapterId, newChapterNo}]）
+     * @param userId 当前登录用户ID
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reorderChapters(Long bookId, BookChapterReorderDTO dto, Long userId) {
+
+        /**
+         * 章节重排流程（两阶段偏移，解 uk(book_id, chapter_no) 唯一键冲突）：
+         *
+         * ① owner + 状态校验：仅书籍作者可重排；下架书拒重排（与挂章/编辑元数据同口径——
+         *    下架=对外终止态，冻结组织结构调整）。
+         * ② book 粒度分布式锁：防多实例/多端并发重排互踩（抢锁失败按请求过频拒绝，稍后重试）。
+         * ③ 读整书章节行 + 整单校验：清单与实际章节一一对应、新序号恰为 1..N 连续无重复——
+         *    校验不通过整单拒绝，杜绝重排后序号空洞/重复。
+         * ④ 阶段一：整书全部章节序号 += 偏移量挪进临时区（避开唯一键冲突）；
+         *    阶段二：按清单落正值为新序号（CASE WHEN 单语句批量覆盖）。
+         *    禁止「先删后插」：章节行含文章挂载关系，删了重插会丢行。
+         *    并发兜底说明：锁释放在事务提交前有极窄窗口，但阶段二落的是绝对值新序，
+         *    后到事务基于最新提交值重排仍收敛为提交者的目标布局，DB 行锁保证写不交错。
+         */
+
+        // 步骤1：owner 校验（软删书按不存在处理）+ 下架书拒重排
+        Book book = requireOwnedBook(bookId, userId);
+        if (book.getStatus() == BookStatusEnum.TAKEN_DOWN) {
+            throw new BizException(ErrorCode.BOOK_STATUS_INVALID);
+        }
+        // 步骤2：book 粒度分布式锁（等待 3s，抢不到说明有并发重排进行中）
+        String lockKey = CacheConstant.LOCK_PREFIX + "content:book:chapter-reorder:" + bookId;
+        if (!distributedLock.tryLock(lockKey, 3, TimeUnit.SECONDS)) {
+            throw new BizException(ErrorCode.TOO_MANY_REQUESTS);
+        }
+        try {
+            // 步骤3：读整书章节行（重排为全量提交，不按清单局部更新）
+            List<BookChapter> chapters = bookChapterMapper.selectList(new LambdaQueryWrapper<BookChapter>()
+                    .eq(BookChapter::getBookId, bookId));
+            List<BookChapterReorderDTO.ReorderItem> items = dto.getItems();
+            // 整单校验：清单完整性 + 新序 1..N（不通过整单拒绝）
+            validateReorderList(chapters, items);
+            // 步骤4-阶段一：整书序号偏移进临时区（避开 uk_book_chapter_no 唯一键冲突）
+            bookChapterMapper.shiftChapterNoToTempArea(bookId, ContentLimitConstant.BOOK_CHAPTER_REORDER_OFFSET);
+            // 步骤4-阶段二：按清单落正值为新序号（1..N，一次覆盖全部章节行）
+            bookChapterMapper.applyChapterNo(bookId, items);
+        } finally {
+            // 锁必须释放（leaseTime 兜底防死锁，正常路径 finally 显式释放）
+            distributedLock.unlock(lockKey);
+        }
+    }
+
+    /**
+     * 重排清单整单校验（reorderChapters 专用）：五道检查任一不过整单拒绝
+     *
+     * @param chapters 本书当前全部章节行
+     * @param items    前端提交的重排清单
+     */
+    private void validateReorderList(List<BookChapter> chapters,
+                                     List<BookChapterReorderDTO.ReorderItem> items) {
+        // 检查①：章节数上限兜底（防超大清单批量 update 失控）
+        if (chapters.size() > ContentLimitConstant.BOOK_CHAPTER_MAX) {
+            throw new BizException(ErrorCode.BOOK_CHAPTER_REORDER_INVALID);
+        }
+        // 检查②：清单条数必须与实际章节数一致（全量提交语义）
+        if (items == null || items.size() != chapters.size()) {
+            throw new BizException(ErrorCode.BOOK_CHAPTER_REORDER_INVALID);
+        }
+        // 检查③：章节ID 一一对应——清单内无重复章节，且与本书章节集合完全相等（缺/多/跨书均拒绝）
+        Set<Long> actualIds = chapters.stream()
+                .map(BookChapter::getId).collect(Collectors.toSet());
+        Set<Long> itemIds = items.stream()
+                .map(BookChapterReorderDTO.ReorderItem::getChapterId).collect(Collectors.toSet());
+        if (itemIds.size() != items.size() || !itemIds.equals(actualIds)) {
+            throw new BizException(ErrorCode.BOOK_CHAPTER_REORDER_INVALID);
+        }
+        // 检查④：新序号无重复且恰好构成 1..N（连续无空洞）
+        Set<Integer> newNos = items.stream()
+                .map(BookChapterReorderDTO.ReorderItem::getNewChapterNo)
+                .collect(Collectors.toCollection(HashSet::new));
+        if (newNos.size() != items.size()) {
+            throw new BizException(ErrorCode.BOOK_CHAPTER_REORDER_INVALID);
+        }
+        for (int i = 1; i <= items.size(); i++) {
+            if (!newNos.contains(i)) {
+                throw new BizException(ErrorCode.BOOK_CHAPTER_REORDER_INVALID);
+            }
+        }
+        // 检查⑤：防御性预检——存量序号必须小于偏移量（保证临时区不与正序区重叠；
+        // 正常数据 chapter_no ≤ 章节数上限 1000，本检查理论上不触发，防历史脏数据）
+        boolean anyOverflow = chapters.stream()
+                .anyMatch(c -> c.getChapterNo() >= ContentLimitConstant.BOOK_CHAPTER_REORDER_OFFSET);
+        if (anyOverflow) {
+            throw new BizException(ErrorCode.BOOK_CHAPTER_REORDER_INVALID);
+        }
     }
 
     /**

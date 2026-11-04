@@ -27,11 +27,13 @@ import com.litisle.litislecontent.mapper.ArticleImageMapper;
 import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.mq.ContentEventProducer;
 import com.litisle.litislecontent.service.ArticleReviewWriteBackService;
+import com.litisle.litislecontent.service.support.ArticleImageRefSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.List;
 import java.util.Map;
@@ -86,6 +88,9 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
 
     /** 文件域客户端（4→2 申诉平反后连带恢复被隔离配图，file 侧不消费文章域申诉事件） */
     private final FileClient fileClient;
+
+    /** 插图引用支撑组件（配图恢复后补登记 file_ref 引用计数，复用幂等逐图登记） */
+    private final ArticleImageRefSupport articleImageRefSupport;
 
     /**
      * 处理审核结果事件（双链路聚合回写主流程，§4.5.2）。
@@ -200,7 +205,7 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
          * ④ 封禁态校验：作者正被封禁时不放行（防晚到申诉翻转封禁连带结果）；
          *    回查失败也不放行，交延迟重试。
          * ⑤ CAS 两向恢复：首发驳回(3)→发布 或 复审下架(4)→发布（终态只有申诉能改）。
-         * ⑥ 连带处理：复审下架恢复时，连带解除配图隔离；发 content.published 恢复搜索/AI 收录。
+         * ⑥ 连带处理：复审下架恢复时，连带解除配图与封面隔离；发 content.published 恢复搜索/AI 收录。
          * ⑦ 未生效分流：已是发布态（重复消费）静默；其他状态留痕。
          */
 
@@ -276,10 +281,10 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
             fromTakenDown = affected > 0;
         }
         if (affected > 0) {
-            // 步骤6：4→2 场景连带恢复被隔离配图（[8.1]：file 侧不消费文章域申诉事件，
-            // 不连带恢复的话申诉平反后配图会永久隔离；恢复操作重复执行无副作用，失败只留日志不阻断改判主体）
+            // 步骤6：4→2 场景连带恢复被隔离配图与封面（[8.1]：file 侧不消费文章域申诉事件，
+            // 不连带恢复的话申诉平反后配图/封面会永久隔离；恢复操作重复执行无副作用，失败只留日志不阻断改判主体）
             if (fromTakenDown) {
-                unquarantineImages(articleId);
+                unquarantineImages(articleId, article.getAuthorId(), article.getCoverFileId());
             }
             // 步骤7：发 content.published（让搜索/AI 索引恢复收录——和下架时必发 unpublished 成对；RAG 侧还有可见性回查兑底）兕底）
             ContentPublishedEvent published = new ContentPublishedEvent();
@@ -302,23 +307,64 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
     }
 
     /**
-     * 连带恢复被隔离配图（4→2 申诉平反专用）：逐张调 file 解除隔离（重复调用无副作用），
-     * 单张失败只记 error 日志不中断（改判主体已完成，剩余可由运营人工补偿或对账任务兑底）
+     * 连带恢复被隔离配图与封面（4→2 申诉平反专用）：逐张调 file 解除隔离（重复调用无副作用），
+     * 单张失败只记 error 日志不中断（改判主体已完成，剩余可由运营人工补偿或对账任务兑底）；
+     * 恢复成功的 fileId 循环后统一补登记引用（file 侧到期软删时按 fileId 解绑了全部引用——含封面，
+     * 不补登记则 owner 删文时该图被立即软删而非走引用计数，隐性数据不一致）
      *
-     * @param articleId 文章 ID（反查 article_image 现存配图）
+     * @param articleId   文章 ID（反查 article_image 现存配图）
+     * @param ownerId     引用归属用户ID（文章作者，调用方 handleAppeal 传入免回查）
+     * @param coverFileId 封面文件ID（调用方 handleAppeal 从 article 行传入免回查；可为空=文章无封面）
      */
-    private void unquarantineImages(Long articleId) {
+    private void unquarantineImages(Long articleId, Long ownerId, String coverFileId) {
         // 步骤1：反查文章现存配图文件ID列表
         List<String> fileIds = articleImageMapper.selectList(new LambdaQueryWrapper<ArticleImage>()
                         .eq(ArticleImage::getArticleId, articleId)).stream()
                 .map(ArticleImage::getFileId)
                 .toList();
-        // 步骤2：逐张调 file 解除隔离（重复调用无副作用），单张失败只留日志不中断
+        // 步骤2：逐张调 file 解除隔离（重复调用无副作用），单张失败只留日志不中断；
+        // 恢复成功的收集起来（失败的不补登记：图还在隔离/软删态，登记引用无意义）
+        List<String> restoredFileIds = new ArrayList<>();
         for (String fileId : fileIds) {
             try {
                 fileClient.unquarantine(fileId);
+                restoredFileIds.add(fileId);
             } catch (Exception e) {
                 log.error("[3-5] 配图恢复隔离失败（留痕不阻断），articleId={} fileId={}", articleId, fileId, e);
+            }
+        }
+        // 步骤3：统一补登记引用（幂等，重复登记同四元组自动跳过）；
+        // fail-safe：补登记失败 error 留痕不阻断文章恢复（引用计数由下次申诉周期/人工补偿兜底）
+        if (!restoredFileIds.isEmpty()) {
+            try {
+                articleImageRefSupport.bindArticleImageRefs(restoredFileIds, articleId, ownerId);
+            } catch (Exception e) {
+                log.error("[3-5] 配图恢复后补登记引用失败（留痕不阻断），articleId={} fileIds={}",
+                        articleId, restoredFileIds, e);
+            }
+        }
+        // 步骤4：连带恢复封面（封面不在 article_image 表，需单独处理）；
+        // 已在配图列表中的 fileId 不重复恢复（配图循环已处理过，unquarantine 幂等但省一次 Feign 调用）
+        if (coverFileId != null && !coverFileId.isBlank() && !fileIds.contains(coverFileId)) {
+            // 封面恢复结果标志（false=恢复失败仍处隔离/软删态，登记引用无意义跳过补登记）
+            boolean coverRestored = false;
+            try {
+                fileClient.unquarantine(coverFileId);
+                coverRestored = true;
+            } catch (Exception e) {
+                log.error("[3-5] 封面恢复隔离失败（留痕不阻断），articleId={} coverFileId={}",
+                        articleId, coverFileId, e);
+            }
+            // 封面恢复成功后补登记引用（file 侧到期软删解绑引用含封面，bizType 用封面专用 COVER，
+            // 复用 bindSingleRef 单引用幂等入口；fail-safe 留痕不阻断文章恢复）
+            if (coverRestored) {
+                try {
+                    articleImageRefSupport.bindSingleRef(coverFileId, ContentBizConstant.FILE_BIZ_TYPE_COVER,
+                            articleId, ownerId);
+                } catch (Exception e) {
+                    log.error("[3-5] 封面恢复后补登记引用失败（留痕不阻断），articleId={} coverFileId={}",
+                            articleId, coverFileId, e);
+                }
             }
         }
     }

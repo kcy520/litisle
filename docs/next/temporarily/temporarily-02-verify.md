@@ -15,3 +15,12 @@
 #### Dashboard 手动触发降级 / 熔断日志观察 + Nacos 规则热生效确认
 
 在 Dashboard 手动触发降级 / 观察熔断日志；确认 Dashboard 改 Nacos 规则热生效。
+
+### review 模块（DFA/词库批次运行时复验，迁自 docs/temp/temp.md，2026-11-02）
+
+#### 四宿主（content/file/social/review）启动复验 + 词库治理演练
+
+- DFA 引擎切换 hankcs ACDAT（批次7，2026-11-01 完成，录 [review-09](../../archive/review/review-09-dfa-acdat-switch.md)）：四宿主启动复验 DFA 冷启动装载 + 词库热更（Pub 广播重建/原子切换）链路正常；2026-11-01 三次探测 Nacos 8848/Redis 6379/MySQL 3306 均不可达，代码层验证已由 13/13 测试 + 根聚合编译覆盖
+- 词库治理演练（review-08 批次1 遗留，同批执行，录 [review-08](../../archive/review/review-08-wordlib-dfa.md)）：词库单条变更→审计落库 + 备份 gz 落盘、恢复到 v-N 演练
+
+触发条件：本机中间件可用后执行（详录见 review-09 批次2/3 与 review-08 批次1 验收 ⚠️ 标注）。

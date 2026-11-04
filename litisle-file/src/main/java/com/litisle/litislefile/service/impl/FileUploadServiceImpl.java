@@ -406,6 +406,8 @@ public class FileUploadServiceImpl implements FileUploadService {
 
     /**
      * 秒传判重查询（走 idx_dedup）：sha256+size+biz_type+del_flag=0；
+     * 追加 status=COMPLETED 过滤：put 失败的幽灵记录（status=0、对象不存在）在对账任务收口前
+     * 不得参与秒传——否则同文件上传会命中幽灵记录拿到坏链 fileId（对账窗口最长 24h+30min）；
      * PRIVATE（LICENSE）追加 owner_id 按 owner 隔离，防跨用户秒传探测泄露隐私
      */
     private FileMeta selectByDedupKey(String sha256, long size, StorageBizTypeEnum bizType, Long ownerId) {
@@ -414,6 +416,8 @@ public class FileUploadServiceImpl implements FileUploadService {
                 .eq(FileMeta::getSize, size)
                 .eq(FileMeta::getBizType, bizType)
                 .eq(FileMeta::getDelFlag, DelFlag.NOT_DELETED)
+                // 只允许完成态记录参与秒传：上传中（status=0）可能是 put 失败的幽灵，对象不存在
+                .eq(FileMeta::getStatus, UploadStatusEnum.COMPLETED)
                 // 判重排除隔离图：safe_flag=0 的隔离证据不参与秒传（黑名单/缓存过期后同图重传
                 // 不得秒传命中违规记录拿到永不展示的 fileId，重传由拒传黑名单拦截）
                 .ne(FileMeta::getSafeFlag, SafeFlagEnum.VIOLATIVE);

@@ -3,6 +3,7 @@ package com.litisle.litislecontent.service;
 
 import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
+import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 
 import java.util.List;
@@ -46,4 +47,12 @@ public interface ContentInternalService {
      * @param dto 计数回写 DTO
      */
     void updateCounters(ArticleCounterUpdateDTO dto);
+
+    /**
+     * 回查文章建索引所需的全量字段（search 索引同步专用，批次二 2.1）
+     *
+     * @param articleId 文章 ID
+     * @return 文章索引回查 DTO（含标签名列表与作者昵称）
+     */
+    ArticleIndexDocDTO getArticleIndexDoc(Long articleId);
 }

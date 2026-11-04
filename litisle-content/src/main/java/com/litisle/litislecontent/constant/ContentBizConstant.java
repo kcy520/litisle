@@ -75,6 +75,15 @@ public final class ContentBizConstant {
     /** 下架原因：3-转私密 */
     public static final int UNPUBLISH_REASON_TO_PRIVATE = 3;
 
+    // ==================== 定时发布（项2 2026-11-02） ====================
+
+    /**
+     * 定时发布任务单轮扫描上限（条）
+     * <p>ArticleScheduledPublishJob 每轮最多处理 N 篇到点草稿，防止积压时单轮拖太久
+     * （fixedDelay 模式下一轮结束才计下一轮间隔，超限部分下一轮自然继续消化）</p>
+     */
+    public static final int SCHEDULED_PUBLISH_BATCH_SIZE = 100;
+
     // ==================== 关注关系回查缓存（[4.1] visibility=3 仅关注者判定） ====================
 
     /**

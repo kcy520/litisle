@@ -416,6 +416,7 @@ create table if not exists `article`
     `status`        tinyint         not null default 0 comment '状态：0-草稿 1-待审核 2-已发布 3-驳回 4-下架',
     `visibility`    tinyint         not null default 1 comment '可见性：1-公开 2-仅自己可见 3-仅关注者可见（阶段9：原 4-密码访问已下线，存量 4 迁移为 1）',
     `publish_batch_id` bigint unsigned null comment '批量发布批次ID（同批次发布的多篇文章/章节共享，便于按批次展示与批量操作）',
+    `scheduled_publish_time` datetime null comment '定时发布时间（项2 2026-11-02；仅草稿态 status=0 允许设置，到点由 ArticleScheduledPublishJob 扫描走批量送审链路；置 NULL 取消定时）',
     `view_cnt`      bigint unsigned not null default 0 comment '浏览量',
     `like_cnt`      bigint unsigned not null default 0 comment '点赞数',
     `comment_cnt`   bigint unsigned not null default 0 comment '评论数',
@@ -423,12 +424,14 @@ create table if not exists `article`
     `del_flag`      tinyint         not null default 0 comment '删除标志：0-未删除 1-已删除',
     `version`       int             not null default 0 comment '乐观锁版本号',
     `create_time`   datetime        not null default current_timestamp comment '创建时间',
-    `update_time`   datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    `update_time`   datetime        not null default current_timestamp on update current_timestamp comment '更新时间（业务编辑/状态流转刷新；浏览量刷回显式保留原值，防老文章被顶到「最新列表」顶部）',
+    `stat_update_time` datetime      not null default current_timestamp comment '热度信号统计时间（仅浏览/点赞/评论计数回写刷新；热度榜增量灌榜按此列捞变更，与 update_time「最新列表」语义解耦）',
     index `idx_author_id` (`author_id`),
     index `idx_zone_status` (`zone`, `status`),
     index `idx_visibility` (`visibility`),
     index `idx_publish_batch` (`publish_batch_id`),
-    index `idx_create_time` (`create_time`)
+    index `idx_create_time` (`create_time`),
+    index `idx_stat_update_time` (`stat_update_time`)
     ) engine = InnoDB
     default charset = utf8mb4 comment = '文章表';
 
@@ -505,6 +508,8 @@ create table if not exists `book_chapter`
 # 索引说明（阶段17）：uk_book_chapter_no(book_id, chapter_no) 同时支撑「按书取目录按序号排序」
 # （章节列表 chapter_no 升序分页/首尾章/相邻章查询，序号即排序键，免额外排序索引）与章节序号防重；
 # idx_article_id 支撑文章反查挂载（归属判定/阅读落历史 limit 2）。阶段17 无新表。
+# 章节数上限（批次5 2026-11-02）：单本书 ≤1000 章，应用层常量收口（ContentLimitConstant.BOOK_CHAPTER_MAX，
+# 重排整单校验兜底），无 DB 约束、无 DDL 变更；章节重排为两阶段偏移纯 UPDATE，表结构不受影响。
 
 # 6. 阅读历史表（单表承载书籍+独立文章两类阅读历史，每人每类型每对象一行=上次阅读记录）
 create table if not exists `reading_history`
@@ -568,6 +573,26 @@ create table if not exists `favorite`
     index `idx_user_time` (`user_id`, `create_time`)
     ) engine = InnoDB
     default charset = utf8mb4 comment = '收藏表（一期 content 临时承载，单层收藏无分组；social 收藏夹立项后迁移 favorite_item 或另定合并方案）';
+
+# 10. 事件发件箱表（批次3 2026-11-02：MQ 事件必达兜底，本地 outbox 落表）
+create table if not exists `event_outbox`
+(
+    `id`           bigint unsigned not null auto_increment primary key comment '主键ID',
+    `event_id`     varchar(64)     not null comment '事件唯一ID（UUID，与事件体 eventId 同值，消费端幂等去重锚点）',
+    `event_type`   varchar(64)     not null comment '事件类型（事件体类简名，如 ContentPublishedEvent，排查定位用）',
+    `payload_type` varchar(128)    not null comment '事件体 Java 类全名（重发时 JSON 反序列化依据）',
+    `exchange`     varchar(64)     not null comment '目标交换机（MqConstant.EXCHANGE_*）',
+    `routing_key`  varchar(128)    not null comment '路由键（MqConstant.ROUTING_*）',
+    `payload`      text            not null comment '事件体 JSON 快照（事件体均为小对象：submitted 不含正文，published/unpublished 仅指纹与业务ID）',
+    `status`       tinyint         not null default 0 comment '状态：0-待发送 1-已发送 2-发送失败 3-重试超限放弃（死信留痕人工介入）',
+    `retry_count`  int             not null default 0 comment '重发次数（重发 job 累计，达上限置 3 放弃）',
+    `create_time`  datetime        not null default current_timestamp comment '创建时间（生产者发送前落表时刻）',
+    `update_time`  datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    `send_time`    datetime        null comment '成功发送时间（status=1 时有值）',
+    index `idx_status_create` (`status`, `create_time`),
+    index `idx_sent_update` (`status`, `update_time`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '事件发件箱表（本地 outbox：事件发送前先落表 status=0，发送成功置 1、失败置 2 由重发 job 兜底重发；防「发送前崩溃/发送失败」两类事件丢失——search 索引/ai RAG 依赖 content.published/unpublished 必达；idx_status_create 支撑重发扫描，idx_sent_update 支撑已发送行过期清理）';
 ```
 
 设计原因：
@@ -580,6 +605,11 @@ article_draft 与 article 分离：草稿是高频写、低频读，独立表避
 
 publish_batch_id：批量发布时同一批次文章共享一个 batch_id，便于前端"按批次展示"和"批量操作"。
 
+scheduled_publish_time（项2 2026-11-02）：定时发布时间，仅草稿态（status=0）允许设置，到点由 ArticleScheduledPublishJob 扫描走批量送审链路自动发布；置 NULL 即取消。可空列零存量迁移负担：docker 重建建表自动带列；已有库执行 `ALTER TABLE article ADD COLUMN scheduled_publish_time datetime null COMMENT '定时发布时间（仅草稿态可设，到点自动送审，置 NULL 取消）' AFTER publish_batch_id;` 无索引（草稿量小，扫描走 status 过滤足够，暂不加联合索引）。
+
+stat_update_time + idx_stat_update_time（批次E P2/P1 定案 D-1/D-2 2026-11-03）：热度信号统计时间列——仅由浏览量刷回（ArticleMapper.incrViewCnt，同时显式 `update_time = update_time` 抑制 ON UPDATE 自动刷新）与点赞/评论回写（ContentInternalServiceImpl#updateCounters 显式 set）刷新，热度分恰是这三类计数的函数，热度榜增量灌榜（FeedHotRankSupport 增量水位扫描）按此列捞变更文章；P2 修复 update_time 被「浏览老文章」污染的语义 bug（老文章被顶到最新列表顶部），update_time 回归「业务编辑/状态流转刷新」的「最新列表」语义。索引按 D-2 定案单列起步：增量查询含 `zone IN (1,2)`，复合索引 zone 前缀下范围列收益打折；增量轮 5min 一次捞变更量小，单列 + 回表过滤足够，EXPLAIN 验证不足再升级复合。docker 重建建表自动带列；已有库执行：
+`ALTER TABLE article ADD COLUMN stat_update_time datetime not null DEFAULT CURRENT_TIMESTAMP COMMENT '热度信号统计时间（仅浏览/点赞/评论计数回写刷新）' AFTER update_time, ADD INDEX idx_stat_update_time (stat_update_time);`
+
 book_chapter 用 (book_id, chapter_no) 唯一索引：保证章节序号不重复，序号即排序键。
 
 content_html 用 longtext：支持大篇幅切片前的完整正文。
@@ -587,6 +617,8 @@ content_html 用 longtext：支持大篇幅切片前的完整正文。
 tag + article_tag 独立多对多：标签是开放词汇关键词（区别于 category 单选分类），独立池支撑改名/封禁/热门统计；每篇上限 5 个防堆砌，新建过 DFA，与正文方案B（禁编已发布正文）解耦——标签不影响 content_hash。
 
 favorite 单层收藏（一期 content 临时承载）：uk_user_target 防重复收藏，idx_target 支撑按目标反查，idx_user_time 支撑我的收藏倒序分页；social 收藏夹立项后迁移 favorite_item 或另定合并方案。
+
+event_outbox 本地事件发件箱（批次3 2026-11-02）：ContentEventProducer 发送前落表（status=0），发送成功置 1、失败置 2，EventOutboxResendJob 定时重发（retry_count 达上限置 3 放弃留痕）；已发送行按保留天数（默认 7 天）定时清理；「发送前崩溃」「发送失败」两类事件丢失兜底，消费端 eventId 幂等去重保证重发无副作用。已有库执行 `CREATE TABLE IF NOT EXISTS event_outbox (...)` 同款 DDL（docker 重建自动）。
 ````
 
 ## 三、litisle-social 模块（数据库：litisle_social）
@@ -1948,7 +1980,7 @@ create table if not exists `file_meta`
 `del_flag`   tinyint         not null default 0 comment '删除标志：仅当 file_ref 无活跃引用才可置 1（方案C，防秒传共享悬空他人引用）；置 1 后不再参与秒传判重',
 `create_time` datetime       not null default current_timestamp comment '上传时间',
 `update_time` datetime       not null default current_timestamp on update current_timestamp comment '更新时间',
-`delete_time` datetime       null comment '软删除时间（del_flag 置 1 时写入，物理清理按此判超 7 天；违规隔离图例外：quarantine/ 前缀由 moderation 专属清理任务按 quarantine.retention-days=10 处理，本清理任务跳过，防 7 天早于申诉窗口物理删除）',
+`delete_time` datetime       null comment '软删除时间（del_flag 置 1 时写入，物理清理按此判超 7 天；2026-11-02 删除语义统一：隔离图到期软删同走本缓冲期，清理任务不再豁免 quarantine/ 前缀，缓冲期内可恢复、期满物理删除不可恢复）',
 index `idx_owner_biz` (`owner_id`, `biz_type`),
 index `idx_dedup` (`sha256`, `size`, `biz_type`, `del_flag`)
 ) engine = InnoDB
@@ -2090,3 +2122,47 @@ index idx_express (express_company, express_no)
 ) engine = InnoDB default charset = utf8mb4 comment = '运单表';
 ```
 ```
+
+## 五、litisle-search 模块（数据库：litisle_search）
+
+```sql
+-- ============================================================
+-- 模块：litisle-search
+-- 数据库：litisle_search
+-- 说明：search 无业务数据表（ES 索引文档为投影，状态 SSOT 在业务方 DB），
+--       search_history 为唯一自有表（用户搜索词记录，2026-11-03 新增，缺口 G8 闭环）
+-- 同步脚本：docker/init/mysql/search-schema.sql（首启自动执行，存量环境手动执行一次）
+-- 关键口径：
+--   1. UPSERT 同词仅前进：uk(user_id, keyword) 冲突时仅更新 updated_at（应用层 UPSERT）
+--   2. 上限懒删：单用户超 history.max-per-user（默认 20）由应用层删除最旧记录，无 DB 约束
+--   3. 隐私纪律：keyword 不写入任何 ES 索引文档/向量库（Search-Architecture §八-9）
+-- ============================================================
+
+create database if not exists litisle_search
+    character set utf8mb4
+    collate utf8mb4_unicode_ci;
+
+use litisle_search;
+
+/* ================= 1. 用户搜索历史表（search 唯一自有表） ================= */
+create table if not exists `search_history`
+(
+    `id`         bigint unsigned not null auto_increment primary key comment '主键ID',
+    `user_id`    bigint unsigned not null comment '用户ID（sys_user.id；接口侧 user_id 硬收口，仅本人可见）',
+    `keyword`    varchar(64)     not null comment '搜索关键词（长度 64 与查询词上限同源：SearchBizConstant.SEARCH_KEYWORD_MAX_LENGTH，批次四参数校验按 SEARCH_PARAM_INVALID 拒绝超长）',
+    `updated_at` datetime        not null default current_timestamp on update current_timestamp comment '最近搜索时间（UPSERT 同词仅前进更新本列；列表按本列降序）',
+    unique key `uk_user_keyword` (`user_id`, `keyword`),
+    index `idx_user_updated` (`user_id`, `updated_at`)
+) engine = InnoDB default charset = utf8mb4 collate = utf8mb4_unicode_ci comment = '用户搜索历史表（同词去重仅前进 + 上限懒删由应用层实现）';
+```
+
+> 存量环境手动执行（Docker 首启已自动建库授权的可跳过前两条）：
+>
+> ```sql
+> create database if not exists litisle_search character set utf8mb4 collate utf8mb4_unicode_ci;
+> GRANT ALL PRIVILEGES ON litisle_search.* TO 'test_k.1'@'%';
+> FLUSH PRIVILEGES;
+> ```
+>
+> 然后执行上方 search_history 建表语句即可。ES 侧无 DDL（article_idx / book_idx / user_idx / article_chunks
+> 四索引 mapping 由服务启动时 EsIndexInitializer 幂等创建，见 Search-Architecture §四）。

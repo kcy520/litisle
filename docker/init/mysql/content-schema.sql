@@ -36,15 +36,18 @@ create table if not exists `article`
     `like_cnt`      bigint unsigned not null default 0 comment '点赞数',
     `comment_cnt`   bigint unsigned not null default 0 comment '评论数',
     `content_hash`  char(64)        null comment '内容指纹SHA256（文本=标题+正文，对齐 review §2.1；配图聚合指纹属 ARTICLE_IMG_RE_REVIEW 场景不并入本列；免审直落/转公开不重审校验键）',
+    `scheduled_publish_time` datetime null comment '定时发布时间（项2 2026-11-02）：仅草稿态（status=0）允许设置，到点由 ArticleScheduledPublishJob 扫描走批量送审链路自动发布；置 NULL 即取消定时',
     `del_flag`      tinyint         not null default 0 comment '删除标志：0-未删除 1-已删除',
     `version`       int             not null default 0 comment '乐观锁版本号',
     `create_time`   datetime        not null default current_timestamp comment '创建时间',
-    `update_time`   datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    `update_time`   datetime        not null default current_timestamp on update current_timestamp comment '更新时间（业务编辑/状态流转刷新；浏览量刷回显式保留原值，防老文章被顶到「最新列表」顶部）',
+    `stat_update_time` datetime      not null default current_timestamp comment '热度信号统计时间（仅浏览/点赞/评论计数回写刷新；热度榜增量灌榜按此列捞变更，与 update_time「最新列表」语义解耦）',
     index `idx_author_id` (`author_id`),
     index `idx_zone_status` (`zone`, `status`),
     index `idx_visibility` (`visibility`),
     index `idx_publish_batch` (`publish_batch_id`),
-    index `idx_create_time` (`create_time`)
+    index `idx_create_time` (`create_time`),
+    index `idx_stat_update_time` (`stat_update_time`)
     ) engine = InnoDB
     default charset = utf8mb4 comment = '文章表';
 
@@ -177,12 +180,34 @@ create table if not exists `favorite`
     ) engine = InnoDB
     default charset = utf8mb4 comment = '收藏表（一期 content 临时承载，单层收藏无分组；social 收藏夹立项后迁移 favorite_item 或另定合并方案）';
 
+# 10. 事件发件箱表（批次3 2026-11-02：MQ 事件必达兜底，本地 outbox 落表）
+create table if not exists `event_outbox`
+(
+    `id`           bigint unsigned not null auto_increment primary key comment '主键ID',
+    `event_id`     varchar(64)     not null comment '事件唯一ID（UUID，与事件体 eventId 同值，消费端幂等去重锚点）',
+    `event_type`   varchar(64)     not null comment '事件类型（事件体类简名，如 ContentPublishedEvent，排查定位用）',
+    `payload_type` varchar(128)    not null comment '事件体 Java 类全名（重发时 JSON 反序列化依据）',
+    `exchange`     varchar(64)     not null comment '目标交换机（MqConstant.EXCHANGE_*）',
+    `routing_key`  varchar(128)    not null comment '路由键（MqConstant.ROUTING_*）',
+    `payload`      text            not null comment '事件体 JSON 快照（事件体均为小对象：submitted 不含正文，published/unpublished 仅指纹与业务ID）',
+    `status`       tinyint         not null default 0 comment '状态：0-待发送 1-已发送 2-发送失败 3-重试超限放弃（死信留痕人工介入）',
+    `retry_count`  int             not null default 0 comment '重发次数（重发 job 累计，达上限置 3 放弃）',
+    `create_time`  datetime        not null default current_timestamp comment '创建时间（生产者发送前落表时刻）',
+    `update_time`  datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    `send_time`    datetime        null comment '成功发送时间（status=1 时有值）',
+    index `idx_status_create` (`status`, `create_time`),
+    index `idx_sent_update` (`status`, `update_time`)
+    ) engine = InnoDB
+    default charset = utf8mb4 comment = '事件发件箱表（本地 outbox：事件发送前先落表 status=0，发送成功置 1、失败置 2 由重发 job 兜底重发；防「发送前崩溃/发送失败」两类事件丢失——search 索引/ai RAG 依赖 content.published/unpublished 必达；idx_status_create 支撑重发扫描，idx_sent_update 支撑已发送行过期清理）';
+
 # 设计原因：
 # article 计数字段冗余（view_cnt/like_cnt）：避免每次列表查询都 join 聚合，配合 Redis 异步刷新。
 # article_image 独立表：设计文档要求图片在任意位置插入 + 5 种对齐，落表后支持"图片管理"与重新排版。
 # article_draft 与 article 分离：草稿是高频写、低频读，独立表避免污染主表查询缓存。article_draft 单行 UPSERT（每草稿仅一行、只存最新内容，历史版本不留存），draft_version 作多端并发编辑的乐观锁计数器；发布后 article_id 回填，关联到正式文章。
 # publish_batch_id：批量发布时同一批次文章共享一个 batch_id，便于前端"按批次展示"和"批量操作"。
+# scheduled_publish_time：定时发布落内容表（1:1 发布属性，参照 WordPress post_date），到点 job 扫描草稿态走既有送审链路；不加索引（草稿量小，status 过滤足够）。
 # book_chapter 用 (book_id, chapter_no) 唯一索引：保证章节序号不重复，序号即排序键。
 # content_html 用 longtext：支持大篇幅切片前的完整正文。
 # tag + article_tag 独立多对多：标签是开放词汇关键词（区别于 category 单选分类），独立池支撑改名/封禁/热门统计；每篇上限 5 个防堆砌，新建过 DFA，与正文方案B（禁编已发布正文）解耦——标签不影响 content_hash。
 # favorite 单层收藏（一期 content 临时承载）：uk_user_target 防重复收藏，idx_target 支撑按目标反查，idx_user_time 支撑我的收藏倒序分页；social 收藏夹立项后迁移 favorite_item 或另定合并方案。
+# event_outbox 本地事件发件箱（批次3 2026-11-02）：ContentEventProducer 发送前落表（status=0），发送成功置 1、失败置 2，EventOutboxResendJob 定时重发（retry_count 达上限置 3 放弃留痕）；已发送行按保留天数（默认 7 天）定时清理；「发送前崩溃」「发送失败」两类事件丢失兜底，消费端 eventId 幂等去重保证重发无副作用。

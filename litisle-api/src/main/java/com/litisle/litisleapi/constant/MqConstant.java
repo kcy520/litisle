@@ -23,6 +23,12 @@ public class MqConstant {
     /** 通知模块交换机 */
     public static final String EXCHANGE_NOTIFICATION = "litisle.notification.exchange";
 
+    /**
+     * 社交模块交换机（temp search批次B B2 契约先行）：social 互动事件（点赞/评论）发布，
+     * search 消费更新 article_idx 互动计数并重算 heat；social 服务落地时启用
+     */
+    public static final String EXCHANGE_SOCIAL = "litisle.social.exchange";
+
     // ==================== 队列 ====================
 
     /** 用户注册事件队列 */
@@ -62,6 +68,26 @@ public class MqConstant {
 
     /** 内容下架路由键（板块四 4-4.1，发布至 EXCHANGE_CONTENT，事件体 ContentUnpublishedEvent） */
     public static final String ROUTING_CONTENT_UNPUBLISHED = "content.unpublished";
+
+    /**
+     * 文章元数据更新路由键（temp search批次B B7，批次A A2 定案，发布至 EXCHANGE_CONTENT，
+     * 事件体 ContentArticleUpdatedEvent）：content 已发布文章元数据编辑（title/tags/summary/cover）
+     * afterCommit 发布，search 消费轻量回查 partial update 元数据字段（不动向量与 chunks）
+     */
+    public static final String ROUTING_CONTENT_ARTICLE_UPDATED = "content.article-updated";
+
+    /** 文章元数据更新事件队列（search 侧消费，配 DLQ 兜底由 search 拓扑声明时落实） */
+    public static final String QUEUE_CONTENT_ARTICLE_UPDATED = "litisle.content.article.updated.queue";
+
+    /**
+     * 文章浏览量落库路由键（temp search批次B B7，批次A A5 定案，发布至 EXCHANGE_CONTENT，
+     * 事件体 ContentViewCountFlushedEvent）：content 浏览量 flush 任务落库后补推，
+     * search 消费覆盖更新 view_cnt 并重算 heat
+     */
+    public static final String ROUTING_CONTENT_VIEW_COUNT_FLUSHED = "content.view-count-flushed";
+
+    /** 文章浏览量落库事件队列（search 侧消费，配 DLQ 兜底由 search 拓扑声明时落实） */
+    public static final String QUEUE_CONTENT_VIEW_COUNT_FLUSHED = "litisle.content.view.count.flushed.queue";
 
     // ==================== 审核模块（moderation）====================
 
@@ -191,4 +217,24 @@ public class MqConstant {
 
     /** auth 侧处罚结果死信路由键（主队列 deadLetterRoutingKey，决定死信进 DLQ） */
     public static final String ROUTING_MODERATION_PUNISH_DLQ = "moderation.punish.result.dlq";
+
+    // ==================== 社交互动热度（temp search批次B B2，契约先行）====================
+
+    /**
+     * 点赞事件路由键（发布至 EXCHANGE_SOCIAL，事件体 SocialLikedEvent）：
+     * social 点赞落库 afterCommit 发布，search 消费增量更新 article_idx.like_cnt 并重算 heat
+     */
+    public static final String ROUTING_SOCIAL_LIKED = "social.liked";
+
+    /** 点赞事件队列（search 侧消费，配 DLQ 兜底由 search 拓扑声明时落实） */
+    public static final String QUEUE_SOCIAL_LIKED = "litisle.social.liked.queue";
+
+    /**
+     * 评论事件路由键（发布至 EXCHANGE_SOCIAL，事件体 SocialCommentedEvent）：
+     * social 评论落库 afterCommit 发布，search 消费增量更新 article_idx.comment_cnt 并重算 heat
+     */
+    public static final String ROUTING_SOCIAL_COMMENTED = "social.commented";
+
+    /** 评论事件队列（search 侧消费，配 DLQ 兜底由 search 拓扑声明时落实） */
+    public static final String QUEUE_SOCIAL_COMMENTED = "litisle.social.commented.queue";
 }

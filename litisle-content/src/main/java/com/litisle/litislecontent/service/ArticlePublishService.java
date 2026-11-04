@@ -50,4 +50,16 @@ public interface ArticlePublishService {
      * @return 预检结果 {hit, risk}
      */
     ContentPreviewCheckVO previewCheck(ContentPreviewCheckDTO dto, Long userId);
+
+    /**
+     * 定时发布到点扫描（供 ArticleScheduledPublishJob 调用）：
+     * 扫描到点的草稿态文章（status=0 且 scheduled_publish_time≤now 且未软删），
+     * 逐篇复用 publishBatch 走"归属校验→状态机→CAS 0→1→送审事件"既有链路；
+     * 逐篇独立事务，单篇失败不影响其他篇。
+     * 发布成功或失败均清空 scheduled_publish_time（失败不静默：warn 日志留痕，
+     * 文章停留草稿态作者在"我的文章"可见，同时防同一篇被反复重扫）。
+     *
+     * @return 本轮实际完成发布（送审）的篇数
+     */
+    int publishDueScheduled();
 }

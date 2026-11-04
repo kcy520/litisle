@@ -36,6 +36,20 @@ public class FileMetaSupport {
         return meta;
     }
 
+    /**
+     * fileId 查元数据（不过滤 del_flag，含软删记录），查无任何记录抛 FILE_NOT_FOUND
+     * <p>仅供隔离恢复链路使用：到期软删的隔离图在物理清理前的缓冲期内可经此回查恢复；
+     * 常规读路径仍走 getMetaOrThrow（仅活跃记录），语义不放松</p>
+     */
+    public FileMeta getMetaIncludeDeletedOrThrow(String fileId) {
+        FileMeta meta = fileMetaMapper.selectOne(new LambdaQueryWrapper<FileMeta>()
+                .eq(FileMeta::getFileId, fileId));
+        if (meta == null) {
+            throw new BizException(ErrorCode.FILE_NOT_FOUND);
+        }
+        return meta;
+    }
+
     /** PUBLIC 直链：publicUrlBase + bucket + path（与 SDK endpoint 分离，接 CDN 仅改配置） */
     public String buildPublicUrl(String bucket, String path) {
         return fileProperties.getSeaweedfs().getPublicUrlBase() + "/" + bucket + "/" + path;

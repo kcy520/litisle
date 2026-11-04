@@ -1,6 +1,7 @@
 package com.litisle.litislereview.sweeper;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.moderation.PunishAuditDTO;
 import com.litisle.litisleapi.feign.AuthClient;
@@ -98,13 +99,14 @@ public class PunishReconcileSweeper {
      */
     private int reconcileForward(int batchLimit) {
         // 扫描源：status=1 生效 + action=2 封禁 + 未过期（expire_time null=永久）——权威态认定「不应存在活跃会话」
-        List<Long> userIds = punishLogMapper.selectList(new LambdaQueryWrapper<PunishLog>()
-                        .select(PunishLog::getUserId)
-                        .eq(PunishLog::getStatus, PunishStatusEnum.EFFECTIVE)
-                        .eq(PunishLog::getAction, PunishActionEnum.BAN)
-                        .and(w -> w.isNull(PunishLog::getExpireTime)
-                                .or().gt(PunishLog::getExpireTime, LocalDateTime.now()))
-                        .last("LIMIT " + batchLimit))
+        // 用 Page 替代 .last("LIMIT")：分页拦截器标准方式，无裸 SQL 字符串（searchCount=false 跳过 COUNT）
+        List<Long> userIds = punishLogMapper.selectList(Page.of(1, batchLimit, false),
+                        new LambdaQueryWrapper<PunishLog>()
+                                .select(PunishLog::getUserId)
+                                .eq(PunishLog::getStatus, PunishStatusEnum.EFFECTIVE)
+                                .eq(PunishLog::getAction, PunishActionEnum.BAN)
+                                .and(w -> w.isNull(PunishLog::getExpireTime)
+                                        .or().gt(PunishLog::getExpireTime, LocalDateTime.now())))
                 .stream().map(PunishLog::getUserId).filter(Objects::nonNull).distinct()
                 .collect(Collectors.toList());
         int kicked = 0;
@@ -141,12 +143,13 @@ public class PunishReconcileSweeper {
     private int reconcileBackward(int batchLimit, int revokeLookbackDays) {
         // 扫描源：status=2 已撤销 + action∈{1,2}（仅禁言/封禁涉及会话快照；3-下架/4-警告撤销不碰快照）
         // 仅扫近窗口撤销行（revoke_time），防全表膨胀
-        List<Long> userIds = punishLogMapper.selectList(new LambdaQueryWrapper<PunishLog>()
-                        .select(PunishLog::getUserId)
-                        .eq(PunishLog::getStatus, PunishStatusEnum.REVOKED)
-                        .in(PunishLog::getAction, PunishActionEnum.MUTE, PunishActionEnum.BAN)
-                        .ge(PunishLog::getRevokeTime, LocalDateTime.now().minusDays(revokeLookbackDays))
-                        .last("LIMIT " + batchLimit))
+        // 用 Page 替代 .last("LIMIT")：分页拦截器标准方式，无裸 SQL 字符串（searchCount=false 跳过 COUNT）
+        List<Long> userIds = punishLogMapper.selectList(Page.of(1, batchLimit, false),
+                        new LambdaQueryWrapper<PunishLog>()
+                                .select(PunishLog::getUserId)
+                                .eq(PunishLog::getStatus, PunishStatusEnum.REVOKED)
+                                .in(PunishLog::getAction, PunishActionEnum.MUTE, PunishActionEnum.BAN)
+                                .ge(PunishLog::getRevokeTime, LocalDateTime.now().minusDays(revokeLookbackDays)))
                 .stream().map(PunishLog::getUserId).filter(Objects::nonNull).distinct()
                 .collect(Collectors.toList());
         int refreshed = 0;

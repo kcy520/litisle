@@ -1,6 +1,7 @@
 package com.litisle.litislereview.moderation.cache;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litislereview.domain.entity.ModerationRecord;
@@ -82,24 +83,27 @@ public class ModerationResultCache {
             // 步骤3：value 格式异常/Redis 异常→warn 后按未命中处理（降级送审，不信任脏缓存）
             log.warn("Redis 读取文本审核结果缓存异常或 value 非法，降级走 moderation_record 兑底，key={}", key, e);
         }
-        // 步骤4：Redis miss→moderationRecordMapper.selectOne(LambdaQueryWrapper)：
+        // 步骤4：Redis miss→moderationRecordMapper.selectList(Page.of(1,1,false), LambdaQueryWrapper)：
         //        eq(content_hash).eq(scene).in(verdict, PASS, REJECT)
         //        .eq(provider).eq(wordlib_ver).eq(model_version=fewShotVer)
-        //        .ge(create_time, now - ttlHours*(1+jitter)).orderByDesc(id).last("limit 1")
+        //        .ge(create_time, now - ttlHours*(1+jitter)).orderByDesc(id)，分页取第 1 条
+        //        （用 Page 替代 .last("limit 1")：分页拦截器标准方式，无裸 SQL 字符串；searchCount=false 跳过 COUNT）
         ReviewSceneEnum sceneEnum = toSceneEnum(scene);
         if (sceneEnum == null) {
             return Optional.empty();
         }
-        ModerationRecord record = moderationRecordMapper.selectOne(new LambdaQueryWrapper<ModerationRecord>()
-                .eq(ModerationRecord::getContentHash, contentHash)
-                .eq(ModerationRecord::getScene, sceneEnum)
-                .in(ModerationRecord::getVerdict, List.of(VerdictEnum.PASS, VerdictEnum.REJECT))
-                .eq(ModerationRecord::getProvider, provider)
-                .eq(ModerationRecord::getWordlibVer, wordlibVer)
-                .eq(ModerationRecord::getModelVersion, fewShotVer)
-                .ge(ModerationRecord::getCreateTime, LocalDateTime.now().minus(jitteredTtl()))
-                .orderByDesc(ModerationRecord::getId)
-                .last("limit 1"));
+        List<ModerationRecord> records = moderationRecordMapper.selectList(Page.of(1, 1, false),
+                new LambdaQueryWrapper<ModerationRecord>()
+                        .eq(ModerationRecord::getContentHash, contentHash)
+                        .eq(ModerationRecord::getScene, sceneEnum)
+                        .in(ModerationRecord::getVerdict, List.of(VerdictEnum.PASS, VerdictEnum.REJECT))
+                        .eq(ModerationRecord::getProvider, provider)
+                        .eq(ModerationRecord::getWordlibVer, wordlibVer)
+                        .eq(ModerationRecord::getModelVersion, fewShotVer)
+                        .ge(ModerationRecord::getCreateTime, LocalDateTime.now().minus(jitteredTtl()))
+                        .orderByDesc(ModerationRecord::getId));
+        // 取最新一条即命中结果（id 倒序 limit 1 语义；无行视为未命中）
+        ModerationRecord record = records.isEmpty() ? null : records.get(0);
         if (record == null) {
             return Optional.empty();
         }

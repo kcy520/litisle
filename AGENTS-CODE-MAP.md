@@ -72,7 +72,7 @@ Spring Cloud版本：2025.0.0.0
 | Architecture/ | 各模块架构文档：Api-Architecture.md（契约库）· Auth-Architecture.md（认证）· User-Architecture.md（用户）· Gateway-Architecture.md（网关）· File-Architecture.md（文件）· Review-Architecture.md（审核：漏斗/状态机/机审人审）· commom-des.md（common 子模块说明） |
 | index/ | 各模块速查表（写码/联调前先查，免逐个 Read）：api-index · auth-index · common-index · file-index · gateway-index · review-index · user-index |
 | next/ | 任务清单与进度看板：next_update.md（开发清单细案，只读勿改）· status.md（进度看板）· temporarily/（暂不实现项：索引 Temporarily_not_implemented.md + temporarily-01~04 正文文件，2026-10-28 拆分） |
-| archive/ | 已实现清单归档（按模块子目录，每目录一个索引页 + 按板块拆分的文件）：content/（索引 content-implemention-records.md + content-01~09 板块文件，板块九= temp.md 清单阶段1~17）· review/（索引 review-implemention-records.md + review-03~08 板块文件，板块八迁自 temp.md 批次6）· 20260929-implementation-records.md（限流降级等决策回溯） |
+| archive/ | 已实现清单归档（按模块子目录，每目录一个索引页 + 按板块拆分的文件）：content/（索引 content-implemention-records.md + content-01~09 板块文件，板块九= temp.md 清单阶段1~17）· review/（索引 review-implemention-records.md + review-03~09 板块文件，板块八/九迁自 temp.md 批次6/7）· file/（索引 file-implemention-records.md + file-01-delete-semantics.md，迁自 temp.md 批次8）· search/（索引 search-implemention-records.md + search-01-heat-write-path.md，迁自 temp.md 批次9）· 20260929-implementation-records.md（限流降级等决策回溯） |
 | overall_documen/ | 总体文档：Design-Document.md（总体+分模块架构，文本量大按需查阅）· Function-Document.md（功能设计）· System-architecture-design.md（common 子模块拆分） |
 | temp/ | 临时文件存储（Review-Business-Guide.md） |
 | cmd_index/ | 自用命令速查（cmd_cod.md，不重要） |

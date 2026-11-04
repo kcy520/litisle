@@ -2,11 +2,13 @@ package com.litisle.litislecontent.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.litisle.litislecontent.domain.dto.BookChapterReorderDTO;
 import com.litisle.litislecontent.domain.entity.BookChapter;
 import com.litisle.litislecontent.domain.vo.BookChapterVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.Collection;
 import java.util.List;
@@ -20,8 +22,9 @@ import java.util.List;
  *   uk_book_chapter_no 兜底，业务层捕获冲突重取最大序号+1 重试
  * - 反查章节归属：selectByArticleId(article_id) —— 文章是否已被挂书、挂到哪本书
  *   （发布校验/退章/阅读落历史的归属判定；limit 2 覆盖 0/1/多书归属判定，禁止只取第一条）
- * - 退章/重排：delete(book_id + article_id 或 chapter_no) —— 重排为同事务先删后插，
- *   reading_history 里指向被移除 chapter 的历史行由业务层容错（章节缺失按最新章处理）
+ * - 退章：delete(book_id + article_id 或 chapter_no)；
+ *   重排（批次5 2026-11-02）：shiftChapterNoToTempArea + applyChapterNo 两阶段偏移（禁先删后插，
+ *   章节行含文章挂载关系），reading_history 里指向被移动章节的历史行不受影响（chapter_id 不变，序号随行）
  * - 可见性章节查询（阶段17）：selectVisibleChapterPage / countVisibleChapters /
  *   selectFirstVisible / selectLatestVisible / selectVisibleChapter / selectPrevVisible /
  *   selectNextVisible —— 统一 join article 过滤「已发布 + 未删 + visibility IN (visibilities)」，
@@ -251,4 +254,37 @@ public interface BookChapterMapper extends BaseMapper<BookChapter> {
             )
             """)
     Boolean existsFollowersChapter(@Param("bookId") Long bookId);
+
+    /**
+     * 章节重排阶段①：整书全部章节序号统一偏移进临时区（批次5 2026-11-02）
+     *
+     * <p>`chapter_no += offset` 一次性挪开所有行（重排为全量提交，清单覆盖整书章节），
+     * 让阶段②落正值为 1..N 时不会撞 uk_book_chapter_no 唯一键；
+     * 禁止「先删后插」：章节行含文章挂载关系，删了重插会丢行且放大并发风险</p>
+     *
+     * @param bookId 书籍ID
+     * @param offset 临时区偏移量（ContentLimitConstant.BOOK_CHAPTER_REORDER_OFFSET，
+     *               Service 侧已预检存量序号 < offset，临时区与正序区不重叠）
+     * @return 受影响行数（=本书章节数）
+     */
+    @Update("update book_chapter set chapter_no = chapter_no + #{offset} where book_id = #{bookId}")
+    int shiftChapterNoToTempArea(@Param("bookId") Long bookId, @Param("offset") int offset);
+
+    /**
+     * 章节重排阶段②：按清单落正值为新序号（单条 CASE WHEN 批量 update，一次语句全量落位）
+     *
+     * <p>`case id when ? then ? ... end` 一次 UPDATE 覆盖全部章节行（清单已校验与本书章节一一对应），
+     * 落值 1..N 连续无重复，临时区偏移值被正序值覆盖还原</p>
+     *
+     * @param bookId 书籍ID
+     * @param items  重排清单（chapterId → newChapterNo，已在 Service 整单校验：覆盖整书且新序 1..N）
+     * @return 受影响行数（=本书章节数）
+     */
+    @Update("<script>"
+            + "update book_chapter set chapter_no = case id"
+            + "<foreach collection='items' item='it'> when #{it.chapterId} then #{it.newChapterNo}</foreach>"
+            + " end where book_id = #{bookId}"
+            + "</script>")
+    int applyChapterNo(@Param("bookId") Long bookId,
+                       @Param("items") List<BookChapterReorderDTO.ReorderItem> items);
 }

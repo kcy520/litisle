@@ -4,6 +4,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.config.FeignApiConfig;
 import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
+import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.fallback.ContentClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -102,4 +103,24 @@ public interface ContentClient {
      */
     @PostMapping("/api/feign/content/counters/update")
     Result<Void> updateCounters(@RequestBody ArticleCounterUpdateDTO dto);
+
+    /**
+     * 回查文章建索引所需的全量字段（search 索引同步专用）
+     *
+     * <p>【使用场景】search 消费 content.published / content.article-updated 事件后，
+     * 事件体只带 articleId 定位键，需按本文按 ID 回查标题/正文/标签/作者/分区/分类/计数等，
+     * 才能组装 article_idx 索引文档；字段不足时禁止在事件体塞大字段（事件轻量纪律）</p>
+     *
+     * <p>【设计说明】
+     * 1. 路径前缀 /api/feign/content 网关未路由，仅服务间可用；
+     * 2. 降级 fail-fast（见 ContentClientFallbackFactory）：回查失败不能静默返回空对象，
+     *    否则 search 会把「不存在的文章」当成可索引数据，由消费端不 ACK 进延迟重试；
+     * 3. 仅返回未删除文章（del_flag=0）；文章不存在或已删除时提供方返回 Result.fail，
+     *    调用方按 SEARCH_SOURCE_NOT_FOUND 处理（记录后丢弃，不重试）</p>
+     *
+     * @param articleId 文章 ID
+     * @return 文章索引回查 DTO（含标签名列表与作者昵称）
+     */
+    @GetMapping("/api/feign/content/article-index-doc")
+    Result<ArticleIndexDocDTO> getArticleIndexDoc(@RequestParam("articleId") Long articleId);
 }

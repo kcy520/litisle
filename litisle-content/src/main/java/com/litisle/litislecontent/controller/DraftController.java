@@ -47,7 +47,7 @@ public class DraftController {
     @SaCheckLogin
     @PostMapping("/save")
     public Result<DraftSaveVO> save(@RequestBody DraftSaveDTO dto) {
-        // Service 内归属校验 + 乐观锁比对 + 快照滚动清理
+        // Service 内归属校验 + 乐观锁比对 + 单行覆盖保存
         return Result.success(draftService.save(dto, StpUtil.getLoginIdAsLong()));
     }
 

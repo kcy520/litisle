@@ -61,7 +61,30 @@ public final class AcdatTextScanEngine implements TextScanEngine {
      */
     private static final int MAX_VARIANTS_PER_WORD = 128;
 
-    /** deny 自动机：pattern（归一化+变体展开）→ 词库规范词（原始业务词），命中后 Hit.value 直接带回规范词 */
+
+
+    //- `AhoCorasickDoubleArrayTrie` ：hankcs 的双数组 trie AC 自动机（词库全部 pattern 预先建好的状态机）；
+    // - `<String>` ： 载荷类型 ——每个 pattern 挂一个 String，这里挂的是 词库规范词 （原始业务词）；
+    // - `deny` 前缀：它只装 黑名单 pattern（归一化 + 变体展开后的形态），与 allowTrie （白名单，独立一棵）分开。
+
+// 构建期（引擎做）                          库做
+// 原始词 → normalize → 变体展开 ─┐
+//                               ├→ TreeMap<pattern,规范词> → build() → 双数组trie（只读）
+// allow 词 → normalize ─────────┘
+
+// 扫描期（引擎做）                          库做
+// 原文 → normalize → parseText(归一文本) → List<Hit{begin,end,规范词}>
+//      → allow区间裁决 → 最长优先去重 → value去重保序 → 返回规范词列表
+
+///存入的是 pattern ，不是敏感词原形：原始词先经`CharNormalizer.normalize` 归一化，再由 你引擎的代码`expandRepeatVariants` 展开出变体，逐个`putIfAbsent(pattern, 规范词)` 注册。 库本身不懂变体、不懂归一化 ，它只认注册进来的字符串
+/// 扫描前 文本侧也先归一化 （ scan() L235 ）。“变体也能命中”不是因为库聪明，而是因为两侧口径对齐了：文本侧归一化 ↔ 词库侧归一化+变体展开。库只做 精确 多模式匹配
+/// 库返回的是`Hit{begin, end, value}` （区间+载荷）。`value` 是你构建期挂进去的载荷—— “原型”是你放的，不是库算的 。引擎再把各 Hit 的`value` 收进 LinkedHashSet 去重保序（ L271-274 ），才得到最终返回的规范词列表
+
+    /** deny 自动机：pattern（归一化+变体展开）→ 词库规范词（原始业务词），命中后 Hit.value 直接带回规范词 
+     * 
+     * 扫描期把归一化文本喂给它，它一次遍历返回 文本上所有命中 （每个`Hit` 含 begin/end 区间 + 载荷规范词）
+     * ，且包含嵌套/重叠命中——这是后续 allow 区间裁决和最长优先去重的原料。
+    */
     private final AhoCorasickDoubleArrayTrie<String> denyTrie;
 
     /** allow 自动机：归一化 allow 原形 → 自身（载荷不参与裁决，裁决只用命中区间） */

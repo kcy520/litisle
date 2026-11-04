@@ -2,22 +2,34 @@ package com.litisle.litislecontent.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
+import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.user.UserDTO;
+import com.litisle.litisleapi.feign.UserClient;
 import com.litisle.litislecontent.domain.entity.Article;
 import com.litisle.litislecontent.domain.entity.ArticleImage;
+import com.litisle.litislecontent.domain.entity.ArticleTag;
+import com.litisle.litislecontent.domain.entity.Tag;
 import com.litisle.litislecontent.mapper.ArticleImageMapper;
 import com.litisle.litislecontent.mapper.ArticleMapper;
+import com.litisle.litislecontent.mapper.ArticleTagMapper;
+import com.litisle.litislecontent.mapper.TagMapper;
 import com.litisle.litislecontent.service.ContentInternalService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * content 内部服务实现（机审回查/配图反查/计数回写，板块三 [3.2]）。
@@ -40,6 +52,15 @@ public class ContentInternalServiceImpl implements ContentInternalService {
 
     /** 文章配图 Mapper（配图引用反查数据源） */
     private final ArticleImageMapper articleImageMapper;
+
+    /** 文章标签关联 Mapper（建索引回查标签名用） */
+    private final ArticleTagMapper articleTagMapper;
+
+    /** 标签 Mapper（建索引回查标签名用） */
+    private final TagMapper tagMapper;
+
+    /** 用户服务客户端（建索引回查作者昵称，best-effort） */
+    private final UserClient userClient;
 
     /**
      * 机审回查内容正文。
@@ -201,13 +222,16 @@ public class ContentInternalServiceImpl implements ContentInternalService {
             throw new BizException(ErrorCode.PARAM_ERROR);
         }
         // 步骤2：按传了哪些字段更新哪些（MyBatis-Plus not_null 策略：null 字段不进 SET 子句）；
-        // 更新行数=0 说明文章不存在 → 报 ARTICLE_NOT_FOUND（纯绝对值覆盖写，由 social 单点回写避免互相覆盖）
+        // 更新行数=0 说明文章不存在 → 报 ARTICLE_NOT_FOUND（纯绝对值覆盖写，由 social 单点回写避免互相覆盖）；
+        // stat_update_time 同步刷新（批次E P2 定案 D-1）：点赞/评论回写属热度信号，
+        // 热度榜增量灌榜按该列捞变更文章——浏览/点赞/评论之外的业务 UPDATE 不刷此列
         LambdaUpdateWrapper<Article> wrapper = new LambdaUpdateWrapper<Article>()
                 .eq(Article::getId, dto.getArticleId())
-                .eq(Article::getDelFlag, 0)
+                .eq(Article::getDelFlag, DelFlag.NOT_DELETED.getCode())
                 .set(dto.getViewCnt() != null, Article::getViewCnt, dto.getViewCnt())
                 .set(dto.getLikeCnt() != null, Article::getLikeCnt, dto.getLikeCnt())
-                .set(dto.getCommentCnt() != null, Article::getCommentCnt, dto.getCommentCnt());
+                .set(dto.getCommentCnt() != null, Article::getCommentCnt, dto.getCommentCnt())
+                .set(Article::getStatUpdateTime, java.time.LocalDateTime.now());
         int rows = articleMapper.update(null, wrapper);
         if (rows == 0) {
             throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
@@ -218,5 +242,118 @@ public class ContentInternalServiceImpl implements ContentInternalService {
         //  触发该文章热度分增量重算（ZADD 单成员更新，复用 FeedHotRankSupport#computeScore），
         //  消除 5min 全量灌榜造成的榜单滞后；
         //  回收项已登记 docs/next/Temporarily_not_implemented.md「推荐流热度榜 social 信号补齐与调参」
+    }
+
+    /**
+     * 回查文章建索引所需的全量字段（search 索引同步专用，批次二 2.1）。
+     *
+     * 作用：
+     * search 消费 content.published / content.article-updated 事件后按 articleId 回查，
+     * 组装 article_idx 索引文档所需的标题/正文/标签/作者/分区/分类/计数快照。
+     *
+     * 【字段不足结论（B6 缺口 G3）】原 ContentDTO 缺 tags/summary/authorName/publishTime/zone/category，
+     * 不足以建索引，故新增本端点（事件体仍只带定位键，不让事件体塞大字段）。
+     * 【审核终态/DFA 结论获取方式】不新增 review 查询：文章 status=2（已发布）本身就是
+     * 「审核终态 PASS 或免审直落且发布前 DFA 放行」的结果态（未通过的不会落 2），
+     * search 侧以 status=2 + visibility=1(PUBLIC) 作为入库门控，等价于原门控条件。
+     *
+     * @param articleId 文章 ID
+     * @return 文章索引回查 DTO（标签名列表 + 作者昵称；作者昵称取不到时为 null）
+     */
+    @Override
+    public ArticleIndexDocDTO getArticleIndexDoc(Long articleId) {
+
+        /**
+         * 建索引回查流程：
+         *
+         * ① 入参校验：articleId 必填。
+         * ② 查活跃文章：不存在/已软删直接报错（search 侧按 SEARCH_SOURCE_NOT_FOUND 丢弃消息）。
+         * ③ 查标签名：article_tag 关联 tag，只取未删除标签，保持登记顺序。
+         * ④ 查作者昵称：best-effort，用户服务不可用时不阻断建索引（作者名仅展示/联想用）。
+         * ⑤ 组装返回：计数字段为当前快照，供 search 初始化热度基数。
+         */
+
+        // 步骤1：articleId 必填校验（服务间契约 fail-fast）
+        if (articleId == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR);
+        }
+        // 步骤2：查未删除文章（显式 del_flag=0，防同 id 复活场景查出脏数据）
+        Article article = articleMapper.selectOne(new LambdaQueryWrapper<Article>()
+                .eq(Article::getId, articleId)
+                .eq(Article::getDelFlag, 0));
+        if (article == null) {
+            throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
+        }
+        // 步骤3：组装基础字段（status/visibility/zone 返回枚举 code，search 侧据此过可见性闸门）
+        ArticleIndexDocDTO dto = new ArticleIndexDocDTO();
+        dto.setArticleId(article.getId());
+        dto.setAuthorId(article.getAuthorId());
+        dto.setTitle(article.getTitle());
+        dto.setSummary(article.getSummary());
+        dto.setContentHtml(article.getContentHtml());
+        dto.setCategory(article.getCategory() == null ? null : article.getCategory().getName());
+        dto.setZone(article.getZone() == null ? null : article.getZone().getCode());
+        dto.setStatus(article.getStatus() == null ? null : article.getStatus().getCode());
+        dto.setVisibility(article.getVisibility() == null ? null : article.getVisibility().getCode());
+        dto.setPublishTime(article.getUpdateTime());
+        dto.setLikeCnt(article.getLikeCnt());
+        dto.setCommentCnt(article.getCommentCnt());
+        dto.setViewCnt(article.getViewCnt());
+        dto.setContentHash(article.getContentHash());
+        // 步骤4：查标签名列表（保持 article_tag 登记顺序）
+        dto.setTags(loadTagNames(articleId));
+        // 步骤5：查作者昵称（best-effort：失败仅告警，不回滚整个建索引流程）
+        dto.setAuthorName(loadAuthorName(article.getAuthorId()));
+        return dto;
+    }
+
+    /**
+     * 查询文章标签名列表（article_tag 关联 tag，仅未删除标签）。
+     *
+     * @param articleId 文章 ID
+     * @return 标签名列表（按登记顺序；无标签返回空列表）
+     */
+    private List<String> loadTagNames(Long articleId) {
+        // 步骤1：查文章标签关联（按主键升序近似登记顺序）
+        List<ArticleTag> relations = articleTagMapper.selectList(new LambdaQueryWrapper<ArticleTag>()
+                .eq(ArticleTag::getArticleId, articleId)
+                .orderByAsc(ArticleTag::getId));
+        if (relations.isEmpty()) {
+            return List.of();
+        }
+        // 步骤2：批量查未删除标签，建立 tagId → 名称映射
+        List<Long> tagIds = relations.stream().map(ArticleTag::getTagId).toList();
+        Map<Long, String> nameMap = tagMapper.selectList(new LambdaQueryWrapper<Tag>()
+                        .in(Tag::getId, tagIds)
+                        .eq(Tag::getDelFlag, 0))
+                .stream().collect(Collectors.toMap(Tag::getId, Tag::getName, (a, b) -> a));
+        // 步骤3：按关联顺序返回名称（关联到已删标签的条目自动跳过）
+        return relations.stream()
+                .map(relation -> nameMap.get(relation.getTagId()))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    /**
+     * 查询作者昵称（best-effort：用户服务异常时返回 null，不阻断索引同步）。
+     *
+     * @param authorId 作者 ID
+     * @return 作者昵称；查不到返回 null
+     */
+    private String loadAuthorName(Long authorId) {
+        // 作者 ID 为空时直接返回（无归属作者的文章）
+        if (authorId == null) {
+            return null;
+        }
+        try {
+            // 调用用户服务查昵称；网络/服务异常在此吞掉并告警（作者名非检索必需品）
+            Result<UserDTO> result = userClient.getUserById(authorId);
+            if (result != null && result.getData() != null) {
+                return result.getData().getNickname();
+            }
+        } catch (Exception e) {
+            log.warn("建索引回查作者昵称失败（不阻断索引同步），authorId={}", authorId, e);
+        }
+        return null;
     }
 }

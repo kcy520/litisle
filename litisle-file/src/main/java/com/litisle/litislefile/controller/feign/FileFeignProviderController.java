@@ -122,8 +122,8 @@ public class FileFeignProviderController implements FileClient {
     }
 
     /**
-     * 隔离图到期删除（review 侧 QuarantineSweeper 保留期收口）：委托 Service
-     * 前缀校验 + 删本体/缩略图 + 软删（幂等，重复指令安全）
+     * 隔离图到期软删（review 侧 QuarantineSweeper 保留期收口）：委托 Service
+     * 前缀校验 + 软删 + 解绑引用（不删对象，缓冲期内可恢复；幂等，重复指令安全）
      */
     @Override
     public Result<Void> deleteQuarantined(String fileId) {

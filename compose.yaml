@@ -328,8 +328,10 @@ services:
     command: >
       server -dir=/data -master -volume -filer -s3
       -master.port=9333 -volume.port=8080 -filer.port=8888 -s3.port=8333
-      -filer.recycleBinMaxHours=168
       -s3.config=/etc/seaweedfs/s3.json -volume.max=0
+    # 注：原 -filer.recycleBinMaxHours=168 已移除——该旗标为 SeaweedFS 企业版功能，
+    # 开源版 4.46 无此参数（无效旗标，曾误以为有回收站兜底）；
+    # 删除可恢复能力由应用层「软删 + 对账缓冲期满物理清理」承担（见 FileReconcileTask）
     ports:
       - "9333:9333"   # Master UI/API
       - "8333:8333"   # S3 API（业务入口）

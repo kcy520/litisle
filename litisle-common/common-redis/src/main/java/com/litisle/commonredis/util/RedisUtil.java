@@ -518,6 +518,26 @@ public class RedisUtil {
     }
 
     /**
+     * 移除 ZSet 中指定的一个或多个成员（按成员值删除，与按排名删除的 zRemoveRangeByRank 区分）
+     *
+     * 【使用场景】排行榜成员实时剔除：文章下架/转私密/软删后即时移出热度榜，
+     * 不等下一轮全量重灌（增量灌榜只升不降，靠本方法保证下架成员不出现在榜上）
+     *
+     * @param key     ZSet 的 Key
+     * @param members 待移除的成员（一个或多个）
+     * @return 实际移除的成员数（0=成员本就不在榜内；-1=Redis 异常，调用方按失败处理）
+     */
+    public long zRemove(String key, Object... members) {
+        try {
+            Long count = redisTemplate.opsForZSet().remove(key, members);
+            return count == null ? 0 : count;
+        } catch (Exception e) {
+            log.error("Redis zRemove 失败: key={}", key, e);
+            return -1;
+        }
+    }
+
+    /**
      * 按分数降序分页取 ZSet 成员（排行榜翻页；保持榜单顺序返回）
      *
      * @param key    ZSet 的 Key

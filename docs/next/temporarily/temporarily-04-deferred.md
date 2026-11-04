@@ -97,6 +97,20 @@ afterCommit 发事件失败时通用纪律仅定"失败重投"口径，实现载
 
 search 消费 content.published 建 article_idx/book_idx（Sql-Document §九：标题^4/标签^3/摘要^2/正文/dense_vector）需回查标题/摘要/正文/标签/作者聚合数据——published 事件体字段未定义、ContentClient 现有三端点（getContent/listArticleImages/updateCounters）分别服务 review/social，search 侧复用 getContent 还是新增带标签聚合的 detail 回查端点未定；content 文档按职责边界只保证"有契约可回查"，索引字段映射属 search 模块设计决策，不提前替其定死。触发条件：litisle-search 模块开发时定夺（与 search 索引 mapping 设计同步收口）。
 
+#### search 索引终态对账 EventReconcileJob（迁自 temp.md 内容模块缺口立项清单 批次3 遗留，2026-11-03）
+
+事件丢失兜底已随批次3 落路径A 本地 outbox（event_outbox 表 + EventOutboxResendJob 补发，兜「发送侧必达」）；本条为其上层演进——search 立项后新增 EventReconcileJob 做索引存在性终态对账（search 侧批量 exists(articleId, updateTime) 契约 + 差异补发 published/unpublished），outbox 兜发送侧、对账兜消费侧落库，两层互补；ai RAG 侧可复用同一 job 扩展比对。触发条件：litisle-search 立项后。
+
+#### article 计数拆表与刷回周期可选缓解（迁自 temp.md content 批次E E.3 🦴 预留，2026-11-03）
+
+暂不立项——可选缓解：刷回周期 5min → 10~15min（UPDATE 量减半以上，用户无感）/ 批量 UPDATE（JOIN VALUES，省 N 次 round trip）/ 读写分离。拆表评估口径（2026-11-03 复查定论）：article 21 列不拆——content_html 唯一大字段 longtext 行外存储且全链路列投影已排除，计数三列经批次E E.0 量化非瓶颈（167 条/s ≈ 单核 1~3%，无热点行锁竞争），拆计数表反引入 join/跨表事务复杂度。再评估触发条件：计数回写出现热点行锁等待、单行 UPDATE TPS 明显成为瓶颈、或热点文章计数行竞争可观测时，仅拆 `article_stats` 计数表（view/like/comment + stat_update_time 迁出），正文列不动。
+
+### search 模块
+
+#### heat 写路径升级——召回 + 精排分层（迁自 temp.md search 批次A A7 升级路径，2026-11-03）
+
+当前=ES Redis 累加 + 定时 `_bulk`（A7 定版，录 [archive/search/search-01-heat-write-path.md](../../archive/search/search-01-heat-write-path.md)）；升级路径——ES 只做 BM25/向量召回 Top ~1000，热度排序移到应用层用 content `CONTENT_FEED_HOT_ZSET` 重排（heat 字段退化为可选，彻底移出 ES 写路径），不走侧车索引（跨索引一致性 + enrich 复杂度高，当前量级不划算）；「heat 相对变化超阈值才推」维持一期不做（只减少写次数、不改变整文档重写本质）。触发条件：单轮 bulk 耗时逼近刷写周期 50%，或 ES 段合并/refresh 告警频繁。
+
 ### file 文件模块
 
 #### CDN 接入
@@ -110,6 +124,10 @@ public-url-base 已分离，届时仅改配置；随审核图片外链需求一�
 #### 存储 TTL
 
 quarantine 保留期（需按 appeal 待裁决态顺延）与对账清理（需 file_ref 活跃引用前置校验）均为业务条件删除，不适用存储 TTL；二期大文件分片的半途清理走 S3 桶生命周期规则（已定双保险方案）。
+
+#### 隔离图申诉 14 天发起窗口校验（迁自 temp.md file 模块删除语义统一立项清单 挂起项④，2026-11-03）
+
+`AppealServiceImpl.submitAppeal` 实现时加 14 天发起窗口校验（基准 review_task.decide_time；14 < 17 天软删+对账总窗口，留 3 天余量吸收对账延迟/重试——「申诉成功但图已物理删」策略上不可能发生）；⚠️ 实现时区分两个「7 天」：`appeal-timeout-days=7` 是申诉裁决超时（既有），14 天是申诉发起窗口——新增独立 window 配置键（预留错误码 70002 申诉窗口外），勿复用既有键。触发条件：随 submitAppeal 本体实现批次落地（详录见 [archive/file/file-01-delete-semantics.md](../../archive/file/file-01-delete-semantics.md) 方案A 改动点④）。
 
 ### 公共库模块
 

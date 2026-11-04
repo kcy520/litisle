@@ -5,7 +5,9 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.result.PageResult;
 import com.litisle.commoncore.result.Result;
+import com.litisle.commonredis.ratelimit.RateLimiter;
 import com.litisle.litislecontent.domain.dto.BookChapterQueryDTO;
+import com.litisle.litislecontent.domain.dto.BookChapterReorderDTO;
 import com.litisle.litislecontent.domain.dto.BookMyQueryDTO;
 import com.litisle.litislecontent.domain.dto.BookQueryDTO;
 import com.litisle.litislecontent.domain.dto.BookSaveDTO;
@@ -20,8 +22,14 @@ import com.litisle.litislecontent.service.support.ClientIpSupport;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.concurrent.TimeUnit;
+
+import static com.litisle.litislecontent.constant.ContentLimitConstant.LIMIT_WINDOW_SECONDS;
+import static com.litisle.litislecontent.constant.ContentLimitConstant.REORDER_MAX_COUNT;
 
 /**
  * REST 接口层——书籍/合集域：
@@ -33,6 +41,7 @@ import org.springframework.web.bind.annotation.*;
  * | DELETE          | /book/{id}                 | 软删书籍                 | owner |
  * | POST            | /book/{id}/chapter         | 挂载章节（文章归属校验） | owner |
  * | DELETE          | /book/{id}/chapter/{cid}   | 移除章节                 | owner |
+ * | PUT             | /book/{id}/chapters/reorder| 章节批量重排（全量新序，两阶段偏移落库） | owner |
  * | GET             | /book/{id}                 | 书籍详情（匿名可读/登录带上次阅读与收藏态） | 可选登录 |
  * | GET             | /book/{id}/chapters        | 章节列表分页（chapter_no 升序） | 可选登录 |
  * | GET             | /book/{id}/chapter/{cid}   | 章节详情（正文+相邻章导航；触发浏览计数与书籍历史） | 可选登录 |
@@ -101,6 +110,23 @@ public class BookController {
     @DeleteMapping("/{id}/chapter/{chapterId}")
     public Result<Void> removeChapter(@PathVariable("id") Long id, @PathVariable("chapterId") Long chapterId) {
         bookService.removeChapter(id, chapterId, StpUtil.getLoginIdAsLong());
+        return Result.success();
+    }
+
+    /**
+     * 章节批量重排（owner，批次5 2026-11-02）。
+     * <p>前端拖拽排序后全量提交新序 [{chapterId, newChapterNo}]；
+     * 清单与本书章节一一对应且新序号恰为 1..N（Service 整单校验）；
+     * uk(book_id, chapter_no) 冲突由两阶段偏移落库规避（禁先删后插）</p>
+     */
+    @Operation(summary = "章节批量重排", description = "owner；全量提交新序 1..N；限频 10/60s；并发重排抢锁失败按请求过频拒绝")
+    @SaCheckLogin
+    @RateLimiter(time = LIMIT_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = REORDER_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
+    @PutMapping("/{id}/chapters/reorder")
+    public Result<Void> reorderChapters(@PathVariable("id") Long id,
+                                        @Valid @RequestBody BookChapterReorderDTO dto) {
+        bookService.reorderChapters(id, dto, StpUtil.getLoginIdAsLong());
         return Result.success();
     }
 

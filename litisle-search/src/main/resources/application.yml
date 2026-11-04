@@ -1,0 +1,237 @@
+server:
+  # 服务端口（错开既有服务：gateway 8080 / user 8081 / auth 8082 / file 8083 / review 8084 / content 8085 → search 8086）
+  port: 8086
+
+spring:
+  application:
+    name: litisle-search
+
+  profiles:
+    active: local
+
+  main:
+    allow-circular-references: true
+    allow-bean-definition-overriding: true
+
+  # ================================
+  # Nacos 配置中心 + 服务注册发现
+  # ================================
+  config:
+    import:
+      # 服务专属配置（Data ID: litisle-search.yaml）
+      - optional:nacos:${spring.application.name}.yaml
+      # 公共共享配置模板（Data ID: litisle-shared.yaml，与 common 模块无关）
+      - optional:nacos:litisle-shared.yaml
+  cloud:
+    nacos:
+      # 连接信息：环境特定值在 application-local/dev.yaml 的 litisle.nacos 中定义
+      server-addr: ${litisle.nacos.server-addr:localhost:8848}
+      username: ${litisle.nacos.username:nacos}
+      password: ${litisle.nacos.password:nacos}
+      discovery:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+      config:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+        file-extension: yaml
+
+  # ================================
+  #  MySQL 数据源配置（litisle_search 库：唯一自有表 search_history）
+  #  search 无业务数据 MySQL 表（ES 索引文档为投影，状态 SSOT 在业务方 DB）
+  # ================================
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 字符集：characterEncoding 用大写 UTF-8，并追加 connectionCollation 强制 utf8mb4，
+    # 防止 Connector/J 8.x 回退到默认 latin1 导致中文乱码（与 file 模块口径一致）
+    url: "jdbc:mysql://${litisle.db.host:localhost}:${litisle.db.port:3306}/${litisle.db.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+    username: ${litisle.db.username:root}
+    password: ${litisle.db.password:123}
+
+  # ================================
+  # Redis 单机配置（热点查询缓存 hot-query）
+  # ================================
+  data:
+    redis:
+      host: ${litisle.redis.host:localhost}
+      port: ${litisle.redis.port:6380}
+      password: ${litisle.redis.password:123}
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-wait: -1ms
+          max-idle: 10
+          min-idle: 0
+
+  # ================================
+  # RabbitMQ（索引同步消费：content.published / content.unpublished /
+  # content.article-updated / content.view-count-flushed / social.liked / social.commented）
+  # 账号/vhost 与 docker compose rabbitmq 保持一致（litisle / litisle_pass / /litisle）
+  # ================================
+  rabbitmq:
+    host: ${litisle.rabbitmq.host:localhost}
+    port: ${litisle.rabbitmq.port:5672}
+    username: ${litisle.rabbitmq.username:litisle}
+    password: ${litisle.rabbitmq.password:litisle_pass}
+    virtual-host: /litisle
+    listener:
+      simple:
+        # 手动 ACK：消费成功 ack；业务异常 nack requeue=false 入 DLQ（防毒丸消息无限重投）
+        acknowledge-mode: manual
+        # 消费者预取上限（防一次拉取海量消息导致内存 OOM）
+        prefetch: 10
+
+# ================================
+# MyBatis-Plus 配置
+# ================================
+mybatis-plus:
+  configuration:
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    db-config:
+      update-strategy: not_null
+      id-type: auto
+
+# ================================
+# 日志配置
+# ================================
+logging:
+  level:
+    com.litisle.litislesearch: debug
+    com.litisle.litisleapi.feign: DEBUG
+  pattern:
+    dateformat: HH:mm:ss:SSS
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
+  file:
+    path: "logs/${spring.application.name}"
+
+# ================================
+# Actuator 监控端点（暴露给 Prometheus）
+# ================================
+management:
+  endpoints:
+    web:
+      exposure:
+        # health：健康检查（含 ES 连接观测）；prometheus：指标抓取端点
+        include: health,prometheus
+  metrics:
+    tags:
+      # 指标附加服务名标签，Prometheus 多服务区分数据来源
+      application: ${spring.application.name}
+
+# ================================
+# litisle-search 业务配置（架构文档 §六 配置表，参数外置 Nacos 可调）
+# ================================
+litisle:
+  search:
+    # Elasticsearch 集群连接（ES 8.18.8 + ik 分词器，compose 容器 litisle-elasticsearch）
+    es:
+      # 集群地址列表（host:port，多节点逗号分隔）
+      hosts: ${litisle.es.hosts:localhost:9200}
+      # ES 凭证（开发环境已关闭安全认证，留空跳过 Basic 认证；生产走环境变量注入）
+      username: ${LITISLE_ES_USERNAME:}
+      password: ${LITISLE_ES_PASSWORD:}
+      # 连接/查询超时（ai 侧 RAG 依赖此超时可容忍）
+      connect-timeout: 3s
+      socket-timeout: 10s
+    # 索引名（外置，便于分环境/重建迁移）
+    index:
+      article: article_idx
+      book: book_idx
+      user: user_idx
+      # RAG 知识库切片索引（search 摄入、ai 纯查询；批次一 1.1 随索引初始化创建）
+      chunk: article_chunks
+    # multi_match 字段权重（title^4 → tags^3 → summary^2 → content）
+    weight:
+      title: 4
+      tags: 3
+      summary: 2
+      # heat 公式权重 + 时间衰减半衰期（衰减后热度按半衰期折半，评论 > 点赞 > 浏览；批次A A5 定案）
+      heat:
+        like: 2
+        comment: 3
+        view: 0.1
+        time-decay-half-life: 168h
+    # 互动热度刷写（批次A A7：三事件消费仅累加 Redis pending 键，IndexHeatFlushJob 定时 _bulk；批次三 3.2 已落地）
+    heat:
+      flush:
+        # 刷写周期（15min，可调 15~30min，fixedDelay 不堆积）
+        interval-ms: 900000
+        # 首次执行延迟（1min，避开启动高峰）
+        initial-delay-ms: 60000
+        # 单次 _bulk 批量条数上限（企业主流区间 500~2000，超出自动分批防超大请求被 ES 拒绝）
+        batch-size: 1000
+        # bulk 并发度（主流区间 2~4）
+        concurrency: 2
+        # pending 键 TTL（≥2 个刷写周期，防 Redis 异常期未刷先清导致热度漂移；正常路径由任务原子取走：Lua HGETALL+DEL）
+        pending-key-ttl: 2h
+    # KNN 参数（dense_vector 相似推荐）
+    knn:
+      top-k: 10
+      num-candidates: 100
+      # 相似推荐阈值（默认不过滤；ai RAG 的 0.65 阈值属 ai 侧，不在此收敛）
+      similarity-threshold: 0.0
+    # 热点查询缓存（命中直返；兜底/降级结果不写缓存，防把兜底当真命中）
+    cache:
+      hot-query-enabled: true
+      ttl: 10m
+    # 搜索联想（ES completion/prefix suggester）
+    suggest:
+      enabled: true
+      size: 10
+    # 搜索历史（search_history 单表，单用户上限超限懒删最旧）
+    history:
+      max-per-user: 20
+    # 分页上限（超出抛 SEARCH_PAGE_EXCEEDED）
+    page:
+      max-page-size: 50
+      # 深分页结果窗口上限（必须与 ES 索引级 index.max_result_window 一致；pageNum×pageSize 不得超过本值）
+      max-result-window: 10000
+    # MQ 拓扑（本服务索引同步死信链路）
+    rabbit:
+      # 预留 key：索引同步实际为 MqConstant 声明的六个队列（content.published/unpublished/article-updated/
+      # view-count-flushed + social.liked/commented），拓扑声明读取 MqConstant，不读取此值
+      sync-queue: search.index.sync.queue
+      # 索引同步死信交换机（Direct，独立于业务交换机，防通配误吸；六个同步队列共用）
+      dlx: litisle.search.dlx
+    # 降级链路
+    fallback:
+      # 空结果兜底：查询词实时 Embedding 超时上限（超时/失败二级兜底 HEAT 热门列表；批次A A1 定案）
+      embedding-timeout: 1s
+      # ES 不可用降级开关（降级返回热门列表 + 前端提示搜索不可用，source=DEGRADED 不缓存；批次A A3 定案）
+      enabled: true
+    # 索引摄入（发布文章正文切片入 article_chunks，RAG 知识库；批次二）
+    ingest:
+      # 正文最小字数门槛（过短文章不入 RAG 知识库）
+      min-content-length: 200
+      # 单切片目标字数
+      chunk-size: 500
+      # 相邻切片重叠字数（防断章取义）
+      chunk-overlap: 50
+    # Embedding 向量化（提供方随批次七接入；关闭时 vec_dense/chunk_vector 不写入，索引其余字段不受影响）
+    embedding:
+      enabled: false
+    # 索引同步消费重试（异常按指数退避延迟重投，超次数 nack 入死信队列；批次二 2.4）
+    retry:
+      # 最大重试次数（含首发共 max-count + 1 次投递）
+      max-count: 5
+      # 首次重试延迟（后续按 2 的幂次递增）
+      base-delay-ms: 30000
+
+# ================================
+# Knife4j API 文档配置
+# ================================
+knife4j:
+  enable: true
+  openapi:
+    title: litisle-search 接口文档
+    description: "Litisle-search：站内检索统一收口（全文检索/联想/搜索历史/KNN 相似推荐）"
+    version: v1.0.0
+    group:
+      default:
+        group-name: default
+        api-rule: package
+        api-rule-resources:
+          - com.litisle.litislesearch.controller

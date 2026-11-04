@@ -76,17 +76,18 @@ public class ContentProperties {
         /** 分页大小上限（入参超过按本值收口，防恶意大分页拖垮缓存与 DB） */
         private int pageSize = 20;
 
-        /** 热度榜配置（阶段13 预留：social 落地前不启用） */
+        /** 热度榜配置（阶段14 已切流启用；social 未落地期间 like/comment 恒 0，排序退化为浏览量+时间衰减） */
         private Hot hot = new Hot();
     }
 
     /**
-     * 热度榜嵌套配置（阶段13 预留：like/comment 恒 0 期间不启用，enabled=false 时零影响）
+     * 热度榜嵌套配置（阶段14 已切流：application.yml 置 enabled=true 启用；
+     * 字段默认 false 仅作兜底——配置缺失时 /feed 安全降级时间倒序直查，零异常影响）
      */
     @Data
     public static class Hot {
 
-        /** 热度榜总开关（social 落地 + 灌榜任务上线后置 true 切流） */
+        /** 热度榜总开关（yml 已置 true；false 则 /feed 退回时间倒序直查。social 落地后 like/comment 权重随计数回写自动生效） */
         private boolean enabled = false;
 
         /** 点赞权重（热度分分子：互动信号最高） */
@@ -112,5 +113,9 @@ public class ContentProperties {
          * 时间衰减靠低频全量轮覆盖校正收敛；灌榜任务每轮判「距上次全量 ≥ 本值」决定走全量或增量
          */
         private long fullRefillIntervalMs = 3600000L;
+
+        /** 灌榜执行开关（默认开；多实例部署时分布式锁保证单点执行，也可只开一台再关其余。
+         *  开关关闭的实例：定时任务不灌，P7 异步重建触发同样被拦截——统一「谁有资格灌榜」口径） */
+        private boolean refillEnabled = true;
     }
 }

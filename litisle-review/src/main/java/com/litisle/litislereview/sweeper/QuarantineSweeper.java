@@ -1,6 +1,7 @@
 package com.litisle.litislereview.sweeper;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.feign.FileClient;
 import com.litisle.litislereview.domain.entity.Appeal;
@@ -35,17 +36,19 @@ import java.util.stream.Collectors;
  * 违规图隔离清理 sweeper（板块六 6-3，§4.4.5 隔离保留期收口）
  *
  * QuarantineSweeper 是一个定时补偿任务，负责扫描“超期且未被申诉推翻”的违规隔离图片，限速、
- * 安全地委派 file 服务物理删除，并通过 Redis 互斥锁和 Micrometer 指标保证多实例安全与可观测性。
+ * 安全地委派 file 服务到期软删，并通过 Redis 互斥锁和 Micrometer 指标保证多实例安全与可观测性。
  *
  * 【职责】隔离图（safe_flag=0，quarantine/ 前缀）仅作审核证据暂存，超保留期
  * （litisle.moderation.quarantine.retention-days）后由本 sweeper 委派 file 侧
- * FileClient.deleteQuarantined 物理删除（对象进 SeaweedFS 回收站兜底 7 天 +
- * 业务软删 del_flag=1）——隔离图不能永久占存储，也不能被 file 侧常规清理误删
+ * FileClient.deleteQuarantined 到期软删（业务软删 del_flag=1 + 按 fileId 解绑引用，
+ * 不删 SeaweedFS 对象）——隔离图不能永久占活跃池，也不能被 file 侧常规清理误删；
+ * 软删缓冲 7 天内可人工恢复（unquarantine 支持软删态恢复），期满由 file 侧对账任务
+ * 物理删除不可恢复
  *
  * 【为什么扫描源是 moderation_record 而非 file_meta】
  * - 保留期是审核语义（审核侧决定证据存多久），SSOT 收口本 sweeper；
- * - file 侧 7 天 delete_time 清理对 quarantine/ 前缀豁免（防两套清理打架，
- *   file 侧只响应本 sweeper 的显式删除指令）；
+ * - 到期软删指令由本 sweeper 显式发起（删除语义统一后 file 侧对账任务不再豁免 quarantine/
+ *   前缀，但物理清理只发生在软删缓冲期满后，与本 sweeper 的到期软删不冲突）；
  * - 留痕行 biz_type=6 + verdict=REJECT 天然带 fileId（biz_id）与判定时间
  *
  * 【保留期口径】以该图最新留痕行为准：最新行仍 REJECT 且超期才候选——
@@ -57,8 +60,9 @@ import java.util.stream.Collectors;
  * 裁决维持后下轮正常删除，改判 PASS 后 unquarantine 恢复（删除分支天然不再命中）；
  * 豁免集合一次 in 查询（防逐条 N+1）
  *
- * 【限速】批内按 delete-rate-per-minute 均摊 sleep，防批量物理删除打满 SeaweedFS
- * （回收站写入同样是 IO）；天级 cron（03:00，与 file 侧 02:00 常规清理错峰）
+ * 【限速】批内按 delete-rate-per-minute 均摊 sleep；到期软删已不删对象（打爆 SeaweedFS 的
+ * 理由减弱），限速主要保护 file 服务与 DB 写入，配置保留防误调大；
+ * 天级 cron（03:00，与 file 侧 02:00 常规清理错峰）
  *
  * 【失败语义】FileClient.deleteQuarantined 降级 fail-fast：单条失败 error 留痕
  * 不阻断整轮，下轮重扫兜底；删除动作幂等（file 侧前缀校验 + del_flag 已删跳过）
@@ -140,8 +144,8 @@ public class QuarantineSweeper {
     /**
      * 超期候选扫描 → 最新态过滤 → 申诉豁免 → 限速删除（6-3.1/6-3.2/6-3.3 主编排）
      *
-     * 扫描超期且未被申诉推翻的违规隔离图片，限速、幂等地委派 file 服务物理删除，并刷新积压指标。
-     * 超期：这张图片被判定为违规、放进隔离区（quarantine）之后，已经超过了配置的"保留天数"（retention-days），审核证据不再需要继续存着了，可以删了。
+     * 扫描超期且未被申诉推翻的违规隔离图片，限速、幂等地委派 file 服务到期软删，并刷新积压指标。
+     * 超期：这张图片被判定为违规、放进隔离区（quarantine）之后，已经超过了配置的"保留天数"（retention-days），审核证据不再需要继续存着了，可以进入软删了。
      *
      * <p>单条失败 error 留痕不阻断整轮，下轮重扫兜底；删除动作幂等
      * （file 侧前缀校验 + del_flag 已删跳过，重投/重扫安全）</p>
@@ -163,9 +167,11 @@ public class QuarantineSweeper {
 
 //        阶段三：限速逐条删除
 //        6. 按速率限制，一条一条调 file 服务
-//            遍历 toDelete，每条之间按 60000/rate 毫秒 sleep 限流，防止打爆 SeaweedFS。
+//            遍历 toDelete，每条之间按 60000/rate 毫秒 sleep 限流（打爆 SeaweedFS 的理由已减弱，
+//            限速主要保护 file 服务与 DB 写入）。
 //            调用 fileClient.deleteQuarantined(fileId)：
-//            file 侧执行物理删除 + 回收站兜底 7 天 + 业务软删
+//            file 侧执行业务软删 + 解绑引用（不删对象，软删缓冲 7 天内可人工恢复，
+//            期满由 file 侧对账任务物理删除不可恢复）
 //              容错：
 //            单条失败 → error 日志，跳过，下轮重扫兜底（删除幂等）
 //            线程中断 → 恢复中断位，终止本轮，剩余候选下轮处理
@@ -176,13 +182,15 @@ public class QuarantineSweeper {
 
         ModerationProperties.Quarantine cfg = properties.getQuarantine();
         // ===== 步骤1：扫超期 REJECT 留痕行（biz_type=FILE，create_time < now-retention-days，限批防全量扫描） =====
-        List<ModerationRecord> expiredRows = moderationRecordMapper.selectList(new LambdaQueryWrapper<ModerationRecord>()
-                .select(ModerationRecord::getBizId)
-                .eq(ModerationRecord::getBizType, ModerationBizTypeEnum.FILE)
-                .eq(ModerationRecord::getVerdict, VerdictEnum.REJECT)
-                .lt(ModerationRecord::getCreateTime, LocalDateTime.now().minusDays(cfg.getRetentionDays()))
-                .orderByAsc(ModerationRecord::getCreateTime)
-                .last("LIMIT " + cfg.getBatchLimit()));
+        // 用 Page 替代 .last("LIMIT")：分页拦截器标准方式，无裸 SQL 字符串（searchCount=false 跳过 COUNT）
+        List<ModerationRecord> expiredRows = moderationRecordMapper.selectList(
+                Page.of(1, cfg.getBatchLimit(), false),
+                new LambdaQueryWrapper<ModerationRecord>()
+                        .select(ModerationRecord::getBizId)
+                        .eq(ModerationRecord::getBizType, ModerationBizTypeEnum.FILE)
+                        .eq(ModerationRecord::getVerdict, VerdictEnum.REJECT)
+                        .lt(ModerationRecord::getCreateTime, LocalDateTime.now().minusDays(cfg.getRetentionDays()))
+                        .orderByAsc(ModerationRecord::getCreateTime));
         if (expiredRows.isEmpty()) {
             refreshGauges(0, 0);
             return 0;
@@ -225,7 +233,7 @@ public class QuarantineSweeper {
                 .stream().map(Appeal::getBizId).collect(Collectors.toSet());
         List<Long> toDelete = stillRejected.stream()
                 .filter(id -> !held.contains(id)).collect(Collectors.toList());
-        // ===== 步骤3：限速逐条委派 file 侧删除（批内按 60000/rate 毫秒均摊 sleep，防批量物理删除打满 SeaweedFS）；
+        // ===== 步骤3：限速逐条委派 file 侧到期软删（批内按 60000/rate 毫秒均摊 sleep，主要保护 file 服务与 DB 写入）；
         //  fallback fail-fast：resp 失败/异常均单条 error 留痕不阻断，下轮重扫兜底 =====
         long intervalMs = cfg.getDeleteRatePerMinute() > 0 ? 60000L / cfg.getDeleteRatePerMinute() : 0;
         int deleted = 0;

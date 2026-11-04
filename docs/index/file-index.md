@@ -73,14 +73,14 @@ REST 层已按业务域拆分：上表端点分别落在 FileUploadController / 
 - ✅ `POST /{fileId}/quarantine` · `/unquarantine` → `Result<Void>`（违规图隔离/恢复，fail-fast）
 - ✅ `POST /batch-safe-flags` → `Result<Map<String,Integer>>`（读，静默空 Map，缺失=未知态）
 - ✅ `GET /{fileId}/content` → `Result<FileContentDTO>`（机审取图唯一入口，不过 safe_flag 闸口，fail-fast）
-- ✅ `POST /{fileId}/delete-quarantined` → `Result<Void>`（隔离图到期删除：review 侧 QuarantineSweeper 保留期收口委托；前缀校验防误删 + 删本体/缩略图 + 软删，幂等）
+- ✅ `POST /{fileId}/delete-quarantined` → `Result<Void>`（隔离图到期软删：review 侧 QuarantineSweeper 保留期收口委托；前缀校验防误删 + 软删 + 解绑引用（不删对象，缓冲期内可恢复），幂等）
 
 ## 六、Service 能力（按业务域拆分，原 `FileService`/`FileServiceImpl` 整体注释保留）
 
 - `FileUploadService`（FileUploadServiceImpl）：`upload` / `uploadBatch`
 - `FileAccessService`（FileAccessServiceImpl）：`getUrl` / `batchGetUrls` / `download` / `presign` / `getMeta` / `getInternalMeta` / `getThumbnail`
 - `FileManageService`（FileManageServiceImpl）：`bindRef` / `unbindRef` / `delete`
-- `FileModerationService`（FileModerationServiceImpl）：`quarantine` / `unquarantine` / `deleteQuarantined` / `updateSafeFlag` / `batchGetSafeFlags` / `getInternalContent`
+- `FileModerationService`（FileModerationServiceImpl）：`quarantine` / `unquarantine`（含软删态恢复） / `deleteQuarantined`（到期软删） / `unbindAllRefs`（按 fileId 全删引用，审核终结专用） / `updateSafeFlag` / `batchGetSafeFlags` / `getInternalContent`
 - 跨域公共方法收敛至 `FileMetaSupport`：`getMetaOrThrow` / `buildPublicUrl`
 
 ## 七、数据模型
@@ -106,7 +106,7 @@ REST 层已按业务域拆分：上表端点分别落在 FileUploadController / 
 - `thumbnail.{enabled,width,height}` / `executor.{core=4,max=8,queue=64,keepAlive=60,asyncTimeout=600}`
 - `limit.{globalQpsWindowSeconds=1,globalQpsMaxCount=200}`
 - `moderation.{imageProvider,imageModelVersion,pendingPlaceholderUrl}`
-- `reconcileTask.{cron=0 0 2 * * ?,compensateThresholdMinutes=30,physicalCleanDelayDays=7,quarantinePrefix=quarantine/,skipQuarantineCleanup=true}`（cron 由 `@Scheduled` 占位符直读，不走 Bean）
+- `reconcileTask.{cron=0 0 2 * * ?,compensateThresholdMinutes=30,physicalCleanDelayDays=7,quarantinePrefix=quarantine/,skipQuarantineCleanup=true（已停用，保留仅为兼容）}`（cron 由 `@Scheduled` 占位符直读，不走 Bean）
 
 - 直链 = `publicUrlBase` + `/` + bucket + `/` + path（`public-url-base` 指 Filer :8888 的 `/buckets`，非 SDK endpoint :8333）
 - Multipart：`max-file-size=10MB` / `max-request-size=100MB`
@@ -143,7 +143,7 @@ REST 层已按业务域拆分：上表端点分别落在 FileUploadController / 
 ## 十二、对账任务（`FileReconcileTask`，每日 02:00，Redisson 锁互斥）
 
 - Step1 补偿：`status=0` 超 30min → head 存在置 1 / 不存在软删
-- Step2 清理：`del_flag=1` 超 7 天 → 跳过 `quarantine/` 前缀 → 校验 file_ref 无活跃引用 → 删对象+缩略图+元数据
+- Step2 清理：`del_flag=1` 超 7 天 → 校验 file_ref 无活跃引用 → 删对象+缩略图+元数据（删除语义统一后**不再豁免** `quarantine/` 前缀：隔离图软删与其他文件同一套「软删 → 缓冲 7 天 → 物理清理」纪律，缓冲期内可恢复，期满不可恢复）
 
 ## 十三、开发导航（按需求找落点）
 
@@ -155,7 +155,7 @@ REST 层已按业务域拆分：上表端点分别落在 FileUploadController / 
 | 改 safe_flag 闸口 | `FileModerationServiceImpl`（safe_flag 回写）+ `FileAccessServiceImpl`（占位图分流）+ `SafeFlagEnum` |
 | 改审核 MQ 拓扑 | `ModerationMqConfig` + `ModerationResultListener` |
 | 改对账/清理策略 | `FileReconcileTask` + `FileProperties.ReconcileTask` |
-| 改违规图隔离保留期/到期删除 | review 侧 `QuarantineSweeper`（§6-3）+ file 侧 `FileModerationServiceImpl.deleteQuarantined`；`quarantine/` 前缀 SSOT 同 `FileProperties.ReconcileTask.quarantinePrefix` |
+| 改违规图隔离保留期/到期软删 | review 侧 `QuarantineSweeper`（§6-3）+ file 侧 `FileModerationServiceImpl.deleteQuarantined`（软删 + 解绑引用，不删对象）；`quarantine/` 前缀 SSOT 同 `FileProperties.ReconcileTask.quarantinePrefix` |
 | 跨服务调用契约 | `litisle-api` 的 `FileClient`（Provider: `FileFeignProviderController`） |
 | 改跨域元数据公共方法 | `service/support/FileMetaSupport` |
 | 换存储后端 | `SeaweedFsClient`（唯一接触 AWS SDK 的门面） |

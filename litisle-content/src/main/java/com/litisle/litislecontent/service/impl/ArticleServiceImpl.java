@@ -3,82 +3,59 @@ package com.litisle.litislecontent.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.core.metadata.OrderItem;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.litisle.commoncore.constant.PageConstant;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commonsecurity.utils.SaRoleHelper;
-import com.litisle.litisleapi.constant.ModerationConstant;
-import com.litisle.litisleapi.dto.file.FileOwnerDTO;
-import com.litisle.litisleapi.dfa.DfaFacade;
-import com.litisle.litisleapi.dfa.DfaHitResult;
-import com.litisle.litisleapi.dfa.DfaScenes;
-import com.litisle.litisleapi.event.content.ContentPublishedEvent;
-import com.litisle.litisleapi.event.content.ContentUnpublishedEvent;
-import com.litisle.litisleapi.event.moderation.ImageSubmitEvent;
-import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
-import com.litisle.litisleapi.feign.FileClient;
-import com.litisle.litisleapi.moderation.DfaPublishGate;
-import com.litisle.litisleapi.moderation.LastHashExemptChecker;
-import com.litisle.litisleapi.moderation.LastHashStore;
-import com.litisle.litisleapi.moderation.PublishTextPrecheck;
-import com.litisle.litisleapi.moderation.SubmitTextAssembler;
-import com.litisle.commoncore.result.PageResult;
-import com.litisle.litislecontent.cache.FollowRelationCache;
-import com.litisle.litislecontent.cache.UnpublishedCacheCleaner;
 import com.litisle.litislecontent.constant.ContentBizConstant;
 import com.litisle.litislecontent.domain.dto.ArticleImageDTO;
-import com.litisle.litislecontent.domain.dto.ArticlePublishDTO;
 import com.litisle.litislecontent.domain.dto.ArticleMyQueryDTO;
 import com.litisle.litislecontent.domain.dto.ArticlePublicQueryDTO;
+import com.litisle.litislecontent.domain.dto.ArticlePublishDTO;
 import com.litisle.litislecontent.domain.dto.ArticleSaveDTO;
 import com.litisle.litislecontent.domain.dto.ArticleUpdateDTO;
 import com.litisle.litislecontent.domain.entity.Article;
-import com.litisle.litislecontent.domain.entity.ArticleDraft;
 import com.litisle.litislecontent.domain.entity.ArticleImage;
 import com.litisle.litislecontent.domain.router.ZoneRouter;
 import com.litisle.litislecontent.domain.statemachine.ArticleStateMachine;
-import com.litisle.litislecontent.enums.FavoriteTargetTypeEnum;
-import com.litisle.litislecontent.service.support.FavoriteStateSupport;
-import com.litisle.litislecontent.domain.vo.ArticleCardVO;
-import com.litisle.litislecontent.domain.vo.ArticleDetailVO;
-import com.litisle.litislecontent.domain.vo.ArticleImageVO;
-import com.litisle.litislecontent.enums.ArticleCategoryEnum;
 import com.litisle.litislecontent.enums.ArticleStatusEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
-import com.litisle.litislecontent.enums.ZoneEnum;
-import com.litisle.litislecontent.mapper.ArticleDraftMapper;
 import com.litisle.litislecontent.mapper.ArticleImageMapper;
 import com.litisle.litislecontent.mapper.ArticleMapper;
-import com.litisle.litislecontent.mq.ContentEventProducer;
+import com.litisle.litislecontent.cache.UnpublishedCacheCleaner;
 import com.litisle.litislecontent.service.ArticleService;
+import com.litisle.litislecontent.service.support.ArticleEventSupport;
 import com.litisle.litislecontent.service.support.ArticleImageRefSupport;
-import com.litisle.litislecontent.service.support.ArticleImageRenderSupport;
-import com.litisle.litislecontent.service.support.PublishDraftSnapshotSupport;
-import com.litisle.litislecontent.utils.LogSanitizeUtil;
+import com.litisle.litislecontent.service.support.ArticleImageSupport;
+import com.litisle.litislecontent.service.support.ArticlePublishSupport;
+import com.litisle.litislecontent.service.support.ArticleQuerySupport;
 import com.litisle.litislecontent.utils.ArticleHtmlSanitizer;
+import com.litisle.litislecontent.utils.ContentLengthGuard;
+import com.litisle.litislecontent.utils.LogSanitizeUtil;
+import com.litisle.commoncore.result.PageResult;
+import com.litisle.litislecontent.domain.vo.ArticleCardVO;
+import com.litisle.litislecontent.domain.vo.ArticleDetailVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-
 import java.util.stream.Collectors;
 
 /**
- * 文章域实现（CRUD/详情可见性判定链/软删/公开读）。
- * 
- * 作用：
- * 文章发布与可见性编排服务，负责发布/批量发布、敏感词预检和可见性变更，
- * 保证"先提交事务、后发消息"的顺序，重复执行无副作用，并发改状态都带"当前必须是什么状态"的条件。
+ * 文章域门面实现（薄委托：接口转发 + update/submit/delete 方法体 + requireArticle）。
  *
+ * 作用：
+ * 只承担 ArticleService 接口的请求转发，以及 update/submit/delete 三个写方法体的编排；
+ * 业务实现已按域拆分至 service/support/ 四个支撑组件（2026-11-03 拆分，行为与拆分前完全一致）：
+ *   - ArticlePublishSupport（发布写链路域）：createAndPublish/saveDraftRow 方法体 + 摘要 DFA 闸门
+ *     （checkSummarySensitiveWords 同时供本类 update 改摘要时复用）
+ *   - ArticleImageSupport（图片归属域）：插图归属校验/配图挂载/草稿→文章归属切换/封面引用交接/
+ *     配图聚合指纹/配图实体转 VO（本类 update 配图整体重挂注入复用前两项）
+ *   - ArticleEventSupport（事务后事件域）：content.submitted/image.submit/published/unpublished/
+ *     article-updated 五类事件的 afterCommit 注册（本类 update/submit/delete 注入复用）
+ *   - ArticleQuerySupport（读链路域）：listMy/listPublic/listHot/getDetail + toCardVO
+ *     （含批次E D-3 热榜逻辑与 FeedHotRankSupport/ContentProperties 依赖，整体随迁）
  * 【可见性判定链（§6.4）】getDetail 按 visibility 收口（阶段9：密码访问 4 已下线）：
  *   1-公开放行；2-仅自己（owner 校验，非本人按不存在处理，不暴露存在性）；
  *   3-仅关注者（回查 social 关注关系，降级=按非关注者处理——宁严勿松，结果加短 TTL 缓存±10%抖动）
@@ -90,89 +67,39 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ArticleServiceImpl implements ArticleService {
 
-    /** 文章 Mapper（文章 CRUD/列表数据源） */
+    /** 文章 Mapper（编辑条件更新/重提 CAS/软删/requireArticle 数据源） */
     private final ArticleMapper articleMapper;
 
-    /** 文章配图 Mapper（配图挂载/详情回显反查数据源） */
+    /** 文章配图 Mapper（编辑配图整体重挂查删旧行 + 软删查全量配图数据源） */
     private final ArticleImageMapper articleImageMapper;
 
-    /** 草稿快照 Mapper（阶段6：发布归属切换时草稿归属校验数据源） */
-    private final ArticleDraftMapper articleDraftMapper;
-
-    /** 文件服务 Feign 契约（插图归属校验/批量取 sha256/批量取 URL） */
-    private final FileClient fileClient;
-
-    /** 文章/草稿插图引用支撑组件（阶段6：批量归属校验 + file_ref bind/unbind 统一收口，消除双份重复实现） */
+    /** 文章/草稿插图引用支撑组件（编辑封面校验登记/重挂差集解绑 + 软删配图封面解绑统一收口） */
     private final ArticleImageRefSupport articleImageRefSupport;
-
-    /** 正文配图占位符渲染支撑组件（文章详情/草稿详情共用：fileId 批量换 URL + 占位符替换 <img>，消除双份重复实现） */
-    private final ArticleImageRenderSupport articleImageRenderSupport;
-
-    /** 内容事件生产者（submitted/published/unpublished/image.submit 事件发送） */
-    private final ContentEventProducer contentEventProducer;
 
     /** 文章状态机（送审/重提流转白名单预校验） */
     private final ArticleStateMachine articleStateMachine;
 
-    /** DFA 同步闸门门面（宿主本地 Bean，发布链路零网络） */
-    private final DfaFacade dfaFacade;
-
-    /** last-hash Redis 读写适配（契约层 RedisAdapter 宿主注入，免审判定用） */
-    private final LastHashStore.RedisAdapter lastHashRedisAdapter;
-
-    /** 分区路由权限校验（[3.3] 单点收口：发布/编辑分区变更统一走本组件） */
+    /** 分区路由权限校验（[3.3] 单点收口：编辑分区变更统一走本组件） */
     private final ZoneRouter zoneRouter;
 
     /** 下架审核缓存失效编排（[3.4] 方案 A：last-hash 精确删 + text/img-result SCAN 通配版本段） */
     private final UnpublishedCacheCleaner unpublishedCacheCleaner;
 
-    /** 关注关系回查缓存（[4.1] visibility=3：短 TTL 缓存 + miss 回查 SocialClient，fail-fast） */
-    private final FollowRelationCache followRelationCache;
+    /** 发布写链路域支撑组件（createAndPublish/saveDraftRow 委托目标；摘要 DFA 闸门供 update 复用） */
+    private final ArticlePublishSupport articlePublishSupport;
 
-    /** 收藏状态查询组件（getDetail 末尾回填 favorited 字段，阶段16） */
-    private final FavoriteStateSupport favoriteStateSupport;
+    /** 图片归属域支撑组件（update 配图整体重挂：插图归属校验 + 配图挂载复用） */
+    private final ArticleImageSupport articleImageSupport;
 
-    /** 发布入口草稿快照组件（P1 发布异常保稿：校验前 UPSERT 快照进 article_draft，REQUIRES_NEW 独立事务） */
-    private final PublishDraftSnapshotSupport publishDraftSnapshotSupport;
+    /** 事务后事件域支撑组件（update/submit/delete 的事务提交后事件注册复用） */
+    private final ArticleEventSupport articleEventSupport;
 
-    /** 摘要 DFA 扫描场景码（Q1 场景码外置：当前与正文共用 ARTICLE 词库；未来升级 2b 独立送审单元时仅调整本常量，调用方零改动） */
-    private static final String SUMMARY_DFA_SCENE = DfaScenes.ARTICLE;
-
-    /**
-     * 摘要敏感词同步扫描（Q1：摘要此前「从不审核+已发布可随意改」，补 DFA 同步闸门实现零暴露窗口）
-     *
-     * 作用：
-     * 对 stripTags 后的纯文本摘要独立跑 DFA 检查：命中黑名单词（HIGH）抛 70001 拦截，
-     * 命中观察词（MID）仅记日志留痕不拦截（与正文闸门同口径）。
-     * 摘要不进 SubmitTextAssembler.assemble 口径、不参与 content_hash——
-     * 存量文章免审缓存不受影响（摘要变更不会导致免审缓存失配）。
-     *
-     * @param summary  stripTags 后的摘要纯文本（null/空白直接跳过）
-     * @param authorId 作者用户ID（观察词留痕日志用）
-     * @throws BizException SENSITIVE_WORD_DETECTED 摘要命中黑名单词
-     */
-    private void checkSummarySensitiveWords(String summary, Long authorId) {
-        // 空/空白摘要无扫描意义，直接放行
-        if (summary == null || summary.isBlank()) {
-            return;
-        }
-        // 摘要独立扫描（场景码外置）：与正文闸门共用 DfaPublishGate 裁决口径（HIGH 拦/MID 标记）
-        DfaHitResult hitResult = dfaFacade.check(SUMMARY_DFA_SCENE, summary);
-        DfaPublishGate.DfaGateDecision gate = DfaPublishGate.decide(SUMMARY_DFA_SCENE, hitResult);
-        if (gate.blocked()) {
-            // 黑名单词同步拦截：改摘要唯一出路口径=同步扫描通过即可改（无需软删重发）
-            throw new BizException(ErrorCode.SENSITIVE_WORD_DETECTED);
-        }
-        if (gate.midMark()) {
-            // 观察词仅留痕：送审后最终处理由 review 审核端决定
-            log.info("摘要 DFA MID 命中仅标记不拦截：authorId={}，wordlibVer={}", authorId, hitResult.wordlibVer());
-        }
-    }
+    /** 读链路域支撑组件（listMy/getDetail/listPublic/listHot 委托目标） */
+    private final ArticleQuerySupport articleQuerySupport;
 
     /**
-     * 创建并发布（§2.4 发布编排）：A0 分区权限 → A1 图文同空校验+参数校验 → 内容清洗 →
-     * 敏感词同步扫描（严重词拦 70001 / 观察词仅留痕）→ 内容指纹落库（status=1 待审）→ 配图挂到文章下 →
-     * A2 免审判定三分支（直接通过 / 提示驳回 / 正常送审）→ A3 事务提交后发 content.submitted
+     * 创建并发布：薄委托 ArticlePublishSupport#createAndPublish 执行（发布编排全流程见该类）。
+     * 事务语义与拆分前一致：门面声明 @Transactional，委托调用经 Support 代理加入同一事务
      *
      * @param dto      发布入参（标题/正文/配图/分区/可见性等）
      * @param authorId 作者用户ID（插图归属校验基准）
@@ -182,238 +109,13 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createAndPublish(ArticlePublishDTO dto, Long authorId) {
-
-
-
-        /**
-         * 文章发布流程：
-         *
-         * ① 分区权限检查
-         *    不同分区有不同的门槛（作家区要作者身份、运营区要管理员），没权限直接拒绝。
-         *
-         * ② 内容合规校验
-         *    图文不能都为空；有正文就校验标题长度、正文是否有实质内容；
-         *    有配图就逐张检查是不是你自己上传的（防止引用别人的文件）；
-         *    封面图也做同样的归属检查，防止挂别人的图当封面。
-         *
-         * ③ 内容清洗（防XSS）
-         *    标题和摘要剥掉所有HTML标签变成纯文本；正文只保留白名单内的安全标签（脚本/危险属性全部过滤），占位符不受影响。
-         *
-         * ④ 敏感词扫描
-         *    所有分区统一走机审：命中严重敏感词直接拒绝发布（错误码70001）；
-         *    命中轻微观察词只记日志留痕，不拦截发布。
-         *
-         * ⑤ 落库（状态=待审核）
-         *    用"标题+正文"算一个内容指纹（contentHash），方便后续判断内容是否改动过；
-         *    文章状态标记为"待审核"，插入数据库拿到文章ID。
-         *
-         * ⑥ 配图与封面绑定（含旧图清理）
-         *    如果是从草稿发布的：对比草稿里的旧图和本次新选的图，只解绑那些"不再使用"的旧图，
-         *    继续沿用的图不解绑（差集口径，避免误伤）；
-         *    本次新选的配图逐张挂到文章ID下；
-         *    封面图也登记绑定到这篇文章；
-         *    如果换了新封面，旧草稿封面引用也会被解绑清理。
-         *    → 所有绑定操作在同一事务内，任一步失败立即整体回滚。
-         *
-         * ⑦ 免审判定（三分支）
-         *    - 直接通过：内容没改过 + 图片没换过 + 敏感词库没升级过 + 上次审核是通过状态
-         *      → 直接把状态从"待审核"改成"已发布"（CAS保证并发安全），不发审核通知，
-         *        事务提交后通知搜索引擎和AI向量库"这篇可以直接展示了"。
-         *    - 提示驳回：内容没改但上次审核是驳回状态
-         *      → 直接回滚事务，告诉用户"内容没改还是会被驳回，请修改后再发"，省去一次注定失败的机审。
-         *    - 正常送审：以上都不满足（内容改了/图换了/词库升级了/第一次发）
-         *      → 保持"待审核"状态，走第⑧步。
-         *    ※ 纯图文章直接走正常送审，不参与免审判定。
-         *    ※ "免文不免图"原则：文字可以免审，但图片只要换了就必须重新送审。
-         *
-         * ⑧ 送审通知（仅正常送审分支）
-         *    等数据库事务提交成功后，发消息通知审核系统"有新文章待审"；
-         *    如果有配图，额外发一条图片复审通知（附带图片聚合指纹，审核端会校验一致性）。
-         *    → 事务内不发送消息（铁律），防止事务回滚后消息已发出导致脏数据。
-         */
-
-
-        // 步骤A-（P1 发布异常保稿，方案B）：发布请求携带正文 → 所有校验前先把内容快照进 article_draft 单行表，
-        // 后续任何一步失败（图文校验/图片归属/敏感词/CAS）本次内容必已在草稿，用户不丢稿；
-        // REQUIRES_NEW 独立事务保证主链路失败回滚不连带快照回滚；fail-safe：快照失败仅 warn 不阻断发布主链路；
-        // snapshotDraftId=本次快照实际写入的草稿行ID（null=快照失败），发布建档成功后用于回填 article_id
-        Long snapshotDraftId = null;
-        try {
-            snapshotDraftId = publishDraftSnapshotSupport.snapshotForPublish(dto, authorId);
-        } catch (Exception e) {
-            log.warn("发布入口草稿快照失败（不阻断发布主链路）：authorId={}，draftId={}",
-                    authorId, dto.getDraftId(), e);
-        }
-
-        // 步骤A0：分区权限（ZoneRouter 单点收口 [3.3]：zone=2 需 AUTHOR；默认普通分区）
-        ZoneEnum zone = dto.getZone() == null ? ZoneEnum.NORMAL : dto.getZone();
-        zoneRouter.checkPublishPermission(zone);
-
-        // 步骤A1：图文同空校验——正文没有可见文字且没有配图时直接拒绝（纯图文章视为有内容，不走文字校验）
-        boolean hasText = PublishTextPrecheck.hasVisibleText(dto.getContentHtml());
-        boolean hasImg = dto.getImages() != null && !dto.getImages().isEmpty();
-        if (!hasText && !hasImg) {
-            throw new BizException(ErrorCode.CONTENT_EMPTY);
-        }
-
-        if (hasText) {
-            // 契约门面前置校验（标题 trim 非空/≤100 + 去标签可见文本非空；先于 contentHash 计算与落库）
-            PublishTextPrecheck.check(dto.getTitle(), dto.getContentHtml());
-        }
-
-        // 插图归属校验：fileId 归属本人且 bizType=ARTICLE_IMG（防引用他人文件/违规图）
-        if (hasImg) {
-            checkImageOwnership(dto.getImages(), authorId);
-        }
-        // 阶段8② 封面归属校验补口：coverFileId 可挂他人文件当封面的漏洞收口（阶段6 只查正文 images）
-        articleImageRefSupport.checkCoverOwnership(dto.getCoverFileId(), authorId);
-
-        // 内容清洗：标题/摘要剥掉所有标签变纯文本；正文按白名单过滤危险标签后入库（图片占位符原样保留）
-        String title = ArticleHtmlSanitizer.stripTags(dto.getTitle());
-        String summary = ArticleHtmlSanitizer.stripTags(dto.getSummary());
-        String contentHtml = hasText ? ArticleHtmlSanitizer.sanitize(dto.getContentHtml()) : dto.getContentHtml();
-
-        // Q1 摘要同步闸门：stripTags 后纯文本摘要独立过 DFA（黑名单拦截/观察词留痕）；
-        // 不受 hasText 限制（纯图文章同样有摘要）；不进 assemble 口径、不影响 content_hash
-        checkSummarySensitiveWords(summary, authorId);
-
-        // 敏感词同步扫描（§4.2.1 ①，所有分区统一走机审）：命中黑名单词拦截、命中观察词只记日志
-        String assembledText = SubmitTextAssembler.assemble(title, contentHtml == null ? "" : contentHtml);
-        if (hasText) {
-            DfaHitResult hitResult = dfaFacade.check(DfaScenes.ARTICLE, assembledText);
-            DfaPublishGate.DfaGateDecision gate = DfaPublishGate.decide(DfaScenes.ARTICLE, hitResult);
-            if (gate.blocked()) {
-                // HIGH（黑名单词）同步拦截，错误码统一 70001
-                throw new BizException(ErrorCode.SENSITIVE_WORD_DETECTED);
-            }
-            if (gate.midMark()) {
-                // MID（观察词）仅标记不拦截：记一条日志留痕，送审后的最终处理由 review 审核端决定
-                log.info("DFA MID 命中仅标记不拦截：authorId={}，wordlibVer={}", authorId, hitResult.wordlibVer());
-            }
-        }
-
-        // 落库主表：contentHash=SHA256(标题+\n+净化后正文)，与 review 端重算指纹用同一套规则
-        Article article = new Article()
-                .setAuthorId(authorId)
-                .setZone(zone)
-                .setTitle(title)
-                .setSummary(summary)
-                .setContentHtml(contentHtml)
-                .setCoverFileId(dto.getCoverFileId())
-                // 分类不传时缺省「散文」（与数据库默认值、BookServiceImpl 的缺省规则保持一致；仅新建时生效）
-                .setCategory(dto.getCategory() == null ? ArticleCategoryEnum.DEFAULT : dto.getCategory())
-                .setStatus(ArticleStatusEnum.PENDING_REVIEW)
-                .setVisibility(dto.getVisibility())
-                .setViewCnt(0L).setLikeCnt(0L).setCommentCnt(0L)
-                .setContentHash(SubmitTextAssembler.contentHash(assembledText));
-        articleMapper.insert(article);
-        // 步骤A+（P1 发布回填）：快照草稿行存在 → 回填 article_id，建立草稿与已发布文章的关联标识
-        // （草稿行保留；前端可据 article_id 展示「已发布」或过滤；直发场景快照新建的兜底行不再游离）。
-        // 回填在主事务内：后续任一步失败（免审提示/配图登记/CAS 并发）事务回滚连带回填回滚，
-        // 草稿行回到未关联状态——保证「仅发布成功才带已发布标识」，与 REQUIRES_NEW 已提交的快照内容互不影响
-        if (snapshotDraftId != null) {
-            articleDraftMapper.updateById(new ArticleDraft()
-                    .setId(snapshotDraftId)
-                    .setArticleId(article.getId()));
-        }
-        //  发布归属切换（阶段6，决策 D2）：dto.draftId 非空时删草稿维度的旧图行，事务提交后解绑草稿引用
-        // （旧列表减新列表：还在沿用的图不解绑；须在 saveArticleImages 前执行，避免误伤同事务新插的文章图行）
-        if (hasImg) {
-            switchDraftImageOwnership(dto.getDraftId(), dto.getImages(), authorId);
-        }
-        // 配图落 article_image（发布即挂到文章ID下）+ 同一事务内逐张登记文件引用（有问题立刻报错）
-        if (hasImg) {
-            saveArticleImages(dto.getImages(), article.getId(), null, authorId);
-        }
-        // 阶段8② 封面引用登记：同一事务内把封面登记到文章ID下（有问题立刻报错，与正文配图同一链路）
-        articleImageRefSupport.bindSingleRef(dto.getCoverFileId(),
-                ContentBizConstant.FILE_BIZ_TYPE_COVER, article.getId(), authorId);
-        // 发布归属切换联动（阶段8②）：dto.draftId 非空且草稿封面与新封面不同时，
-        // 事务提交后解绑草稿维度的旧封面引用（沿用同一个封面就不解绑）
-        //解绑草稿的封面引用
-        unbindDraftCoverIfReplaced(dto.getDraftId(), dto.getCoverFileId(), authorId);
-        // 步骤A2：免审判定三分支（§4.2.1 ②，纯图文章不判定直接送审；
-        // 含图文章还要连带校验图片（4-3.4）：把全部配图指纹排序拼接再整体哈希，免审记录存在 + 指纹一致 + 上次结论是通过，
-        // 三者齐备才免审——缺任何一个都照常送审（文字可以免审，图片换过必须重审，宁多审不漏审；
-        // 新文章首次发布没有历史记录，自然走送审）；文章必须处于"待审"而非驳回/下架状态、且未删除，才可能免审）
-
-        // ① 获取当前 DFA 词库版本号（用于判断「上次审核时的词库」是否还有效）
-        // 如果词库升级过，即使内容 hash 一样，也不能直接免审（新词可能命中）
-        long wordlibVer = dfaFacade.currentVersion(DfaScenes.ARTICLE);
-
-        // ② 计算配图聚合指纹（用于「免文不免图」判定）
-            // - 有图：按 fileId 顺序取 sha256 → 字典序排序拼接 → 再 SHA-256
-            // - 无图：null（后续判定会跳过图片复审分支）
-        String aggregatedImgHash = hasImg ? aggregatedImgHash(dto.getImages()) : null;
-
-        // ③ 核心判定：last-hash 免审三分支决策
-            // 触发条件：有正文（hasText），纯图文章直接走正常送审（SUBMIT）
-        LastHashExemptChecker.ExemptDecision exempt;
-
-            if (hasText) {
-                // 有正文 → 进入 last-hash 免审判定
-                boolean imgReReviewOk = !hasImg || LastHashExemptChecker.imgReReviewPassed(
-                        wordlibVer, article.getId(), aggregatedImgHash, lastHashRedisAdapter);
-
-                exempt = LastHashExemptChecker.decide(
-                        wordlibVer,
-                        ModerationConstant.BIZ_TYPE_ARTICLE,
-                        DfaScenes.ARTICLE,
-                        article.getId(),
-                        article.getContentHash(),
-                        ArticleStatusEnum.PENDING_REVIEW.getCode(),
-                        0,
-                        imgReReviewOk,
-                        lastHashRedisAdapter
-                );
-            } else {
-                // 纯图文章 → 直接走正常送审
-                exempt = LastHashExemptChecker.ExemptDecision.SUBMIT;
-            }
-
-
-        if (exempt == LastHashExemptChecker.ExemptDecision.REJECT_HINT) {
-            // 内容未修改仍将驳回：前置提示不落库不发 MQ（事务回滚连带 insert 回滚，省一次注定失败的机审）
-            throw new BizException(ErrorCode.REVIEW_REJECTED);
-        }
-
-        // 免审直接发布：带"当前必须是待审状态"的条件把状态改成已发布（文章ID是先插入才拿到的，所以从待审改起），不发 submitted；
-        if (exempt == LastHashExemptChecker.ExemptDecision.EXEMPT_PASS) {
-            // "免文不免图"已在前面图片复审校验把关（能走到这里说明图片也已通过，无需再发图片送审消息，
-            // 与 LastHashExemptChecker 约定一致：免审直落不发 submitted/image.submit）；
-            // content.published 必须发（阶段10 修复：免审直落与机审通过后发同一事件，search 索引/ai 向量/notification 都靠它；
-            // 免审直落不发 submitted → review 链路不会处理该文 → 不会与机审通过路径重复发送）
-            int rows = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
-                    .eq(Article::getId, article.getId())
-                    .eq(Article::getStatus, ArticleStatusEnum.PENDING_REVIEW)
-                    .set(Article::getStatus, ArticleStatusEnum.PUBLISHED));
-            // 并发兜底：状态没改成（已被并发请求变更）按参数非法拒绝，防止误报发布成功
-            if (rows == 0) {
-                throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
-            }
-            // 本地事务提交成功后再发 content.published（铁律：事务内不发消息，防回滚后消息已发出）
-            publishPublishedAfterCommit(article);
-            return article.getId();
-        }
-
-        // 步骤A3：照常送审——事务提交后发单条 content.submitted（事件体不含正文，review 端回查数据库拿内容）
-        registerSubmitEventAfterCommit(article.getId(), article.getContentHash());
-        // 含图文章发布复审（免文不免图）：afterCommit 发 image.submit（scene=ARTICLE_IMG_RE_REVIEW，
-        // contentHash=配图聚合指纹；review 消费端校验指纹一致性，错配事件直接丢弃）
-        if (hasImg) {
-            registerImageSubmitEventAfterCommit(article.getId(), aggregatedImgHash);
-        }
-        // TODO(标签系统)：tagNames 挂载（≤5，池中无命中走 DFA 闸门受控新建），随板块三标签链路落地
-        return article.getId();
+        // 一行委托：发布编排（快照保稿/分区权限/图文校验/清洗/敏感词/指纹落库/配图接线/免审判定/送审事件）
+        return articlePublishSupport.createAndPublish(dto, authorId);
     }
 
     /**
-     * 文章建档（不发布，先建档攒批 → publishBatch 批量送审链路的上游入口）。
-     *
-     * 作用：
-     * 与 createAndPublish 共享同一套加工链路（分区权限/图文校验/归属校验/净化/敏感词扫描/指纹/配图接线），
-     * 差异仅在落库状态与事件：落库 status=DRAFT(0)（草稿态行不对外）、不发任何 MQ 事件
-     * （送审事件由 publishBatch 的 doPublishSingle 在 0→1 后统一发送）。
+     * 文章建档（不发布）：薄委托 ArticlePublishSupport#saveDraftRow 执行（建档流程见该类）。
+     * 落库 status=0 草稿态行、不发任何 MQ 事件，供 publishBatch 批量送审链路使用
      *
      * @param dto      建档入参
      * @param authorId 作者用户ID（插图归属校验基准）
@@ -423,99 +125,13 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long saveDraftRow(ArticleSaveDTO dto, Long authorId) {
-
-        /**
-         * 文章建档流程（与发布同加工、异落库）：
-         *
-         * ① 分区权限检查（同发布 A0：zone=2 需 AUTHOR）。
-         * ② 图文同空校验 + 文本契约校验（同发布 A1：正文与配图不可同时为空；标题 trim 非空 ≤100）。
-         * ③ 归属校验：配图逐张校验本人文件；封面同款校验（防挂他人文件当封面）。
-         * ④ 内容净化（防XSS）：标题/摘要剥标签，正文白名单过滤（与发布同一套规则，保证指纹同源）。
-         * ⑤ 敏感词同步扫描：建档时即拦黑名单词（提前失败，避免攒批送审后逐篇注定被拒）。
-         * ⑥ 落库 status=DRAFT(0)：contentHash 与发布同口径计算；visibility 缺省 PRIVATE（草稿态行不对外）。
-         * ⑦ 配图/封面接线（与发布同款）：草稿归属切换 → 配图挂载 → 封面登记，全部同一事务。
-         * ⑧ 不发任何事件：草稿态不对外（无需 published 收录）；送审事件由 publishBatch 0→1 后发送。
-         */
-
-        // 步骤①：分区权限（与发布同款，ZoneRouter 单点收口 [3.3]）
-        ZoneEnum zone = dto.getZone() == null ? ZoneEnum.NORMAL : dto.getZone();
-        zoneRouter.checkPublishPermission(zone);
-
-        // 步骤②：图文同空校验 + 有正文时的文本契约校验（同发布 A1）
-        boolean hasText = PublishTextPrecheck.hasVisibleText(dto.getContentHtml());
-        boolean hasImg = dto.getImages() != null && !dto.getImages().isEmpty();
-        if (!hasText && !hasImg) {
-            throw new BizException(ErrorCode.CONTENT_EMPTY);
-        }
-        if (hasText) {
-            PublishTextPrecheck.check(dto.getTitle(), dto.getContentHtml());
-        }
-
-        // 步骤③：归属校验（配图逐张 + 封面，防引用他人文件）
-        if (hasImg) {
-            checkImageOwnership(dto.getImages(), authorId);
-        }
-        articleImageRefSupport.checkCoverOwnership(dto.getCoverFileId(), authorId);
-
-        // 步骤④：内容净化（与发布同一套规则，保证建档与发布的 contentHash 同源）
-        String title = ArticleHtmlSanitizer.stripTags(dto.getTitle());
-        String summary = ArticleHtmlSanitizer.stripTags(dto.getSummary());
-        String contentHtml = hasText ? ArticleHtmlSanitizer.sanitize(dto.getContentHtml()) : dto.getContentHtml();
-
-        // 步骤④+（Q1）：摘要过 DFA 同步闸门（黑名单建档即拦/观察词留痕——与发布摘要闸门同口径）
-        checkSummarySensitiveWords(summary, authorId);
-
-        // 步骤⑤：敏感词同步扫描（黑名单词建档即拦，观察词仅留痕——与发布闸门同口径）
-        String assembledText = SubmitTextAssembler.assemble(title, contentHtml == null ? "" : contentHtml);
-        if (hasText) {
-            DfaHitResult hitResult = dfaFacade.check(DfaScenes.ARTICLE, assembledText);
-            DfaPublishGate.DfaGateDecision gate = DfaPublishGate.decide(DfaScenes.ARTICLE, hitResult);
-            if (gate.blocked()) {
-                throw new BizException(ErrorCode.SENSITIVE_WORD_DETECTED);
-            }
-            if (gate.midMark()) {
-                log.info("DFA MID 命中仅标记不拦截：authorId={}，wordlibVer={}", authorId, hitResult.wordlibVer());
-            }
-        }
-
-        // 步骤⑥：落库（status=DRAFT 草稿态；visibility 缺省 PRIVATE——草稿态行不对外，送审通过后按建档值对外）
-        Article article = new Article()
-                .setAuthorId(authorId)
-                .setZone(zone)
-                .setTitle(title)
-                .setSummary(summary)
-                .setContentHtml(contentHtml)
-                .setCoverFileId(dto.getCoverFileId())
-                .setCategory(dto.getCategory() == null ? ArticleCategoryEnum.DEFAULT : dto.getCategory())
-                .setStatus(ArticleStatusEnum.DRAFT)
-                .setVisibility(dto.getVisibility() == null ? VisibilityEnum.PRIVATE : dto.getVisibility())
-                .setViewCnt(0L).setLikeCnt(0L).setCommentCnt(0L)
-                .setContentHash(SubmitTextAssembler.contentHash(assembledText));
-        articleMapper.insert(article);
-
-        // 步骤⑦：配图/封面接线（与发布同款，全部同一事务：任一步失败整体回滚）
-        if (hasImg) {
-            // 发布归属切换（阶段6）：先处理草稿维度的旧图行，再挂新文章图行（顺序同发布，防误伤）
-            switchDraftImageOwnership(dto.getDraftId(), dto.getImages(), authorId);
-            // 配图落 article_image + 同一事务内逐张登记文件引用（有问题立刻报错）
-            saveArticleImages(dto.getImages(), article.getId(), null, authorId);
-        }
-        // 封面引用登记（阶段8②）：同一事务内把封面登记到文章ID下
-        articleImageRefSupport.bindSingleRef(dto.getCoverFileId(),
-                ContentBizConstant.FILE_BIZ_TYPE_COVER, article.getId(), authorId);
-        // 换了封面才解绑草稿维度的旧封面引用（事务提交后执行，沿用同一个封面就不解绑）
-        unbindDraftCoverIfReplaced(dto.getDraftId(), dto.getCoverFileId(), authorId);
-
-        // 步骤⑧：不发任何事件（草稿态不对外；送审事件由 publishBatch 的 doPublishSingle 在 0→1 后发送）
-        return article.getId();
+        // 一行委托：建档编排（与发布同加工链路，差异仅在落库状态与不发事件）
+        return articlePublishSupport.saveDraftRow(dto, authorId);
     }
 
     /**
-     * 作者侧"我的文章"分页列表（建档→攒批→批量送审闭环的挑选篇目入口）。
-     *
-     * 作用：
-     * 按 author_id=当前登录人硬条件过滤，只返回本人文章；status 可选过滤
-     * （含 status=0 建档草稿态行，供批量送审前挑选篇目拿 ID 列表）。
+     * 作者侧"我的文章"分页列表：薄委托 ArticleQuerySupport#listMy 执行
+     * （author_id=本人硬条件 + status/published 二选一过滤，详见该类）
      *
      * @param query    查询条件（status/published 二选一/zone/category/keyword 可选；分页参数经 PageQuery 归一化）
      * @param authorId 当前登录作者ID
@@ -523,36 +139,8 @@ public class ArticleServiceImpl implements ArticleService {
      */
     @Override
     public PageResult<ArticleCardVO> listMy(ArticleMyQueryDTO query, Long authorId) {
-
-        /**
-         * 我的文章列表流程：
-         *
-         * ① 组装查询条件：author_id=本人（硬条件）；status/zone/category 可空=不过滤；
-         *    排除正文大字段（列表不加载 content_html，详情页才取）。
-         * ② MyBatis-Plus 分页查询：分页兑底由 PageQuery 收口；排序走 sortBy 白名单
-         *    （作者侧登录端点开放白名单内自定义排序，白名单外回退默认降序）。
-         * ③ 封装 PageResult 返回（total/totalPages/hasNext 供前端分页组件）。
-         */
-
-        // 步骤1：查询条件：本人文章（硬条件）；状态筛选三态：status 单值优先（细粒度）→
-        // published 二值（true=已发布 2；false=未发布 0/1/3/4 一把圈住）→ 都不传=全部状态；
-        // keyword 标题模糊匹配（作者侧找回文章用，传了才拼）
-        LambdaQueryWrapper<Article> wrapper = new LambdaQueryWrapper<Article>()
-                .select(Article.class, i -> !Article.COLUMN_CONTENT_HTML.equals(i.getColumn()))
-                .eq(Article::getAuthorId, authorId)
-                .eq(query.getStatus() != null, Article::getStatus, query.getStatus())
-                .eq(query.getStatus() == null && Boolean.TRUE.equals(query.getPublished()),
-                        Article::getStatus, ArticleStatusEnum.PUBLISHED)
-                .ne(query.getStatus() == null && Boolean.FALSE.equals(query.getPublished()),
-                        Article::getStatus, ArticleStatusEnum.PUBLISHED)
-                .eq(query.getZone() != null, Article::getZone, query.getZone())
-                .eq(query.getCategory() != null, Article::getCategory, query.getCategory())
-                .like(query.getKeyword() != null && !query.getKeyword().isBlank(),
-                        Article::getTitle, query.getKeyword());
-        // 步骤2：分页查询：排序走 PageQuery sortBy 白名单（作者侧登录端点，开放白名单内自定义排序）
-        Page<Article> page = articleMapper.selectPage(query.toMpPage(), wrapper);
-        // 步骤3：分页信息 + 记录转 VO 一行收敛
-        return PageResult.of(page, this::toCardVO);
+        // 一行委托：读链路（我的文章分页）
+        return articleQuerySupport.listMy(query, authorId);
     }
 
     /**
@@ -616,6 +204,23 @@ public class ArticleServiceImpl implements ArticleService {
         if (dto.getZone() != null) {
             zoneRouter.checkPublishPermission(dto.getZone());
         }
+        // 定时发布入参校验（项2）：设置/取消是否请求 + 互斥与状态门槛（仅 status=0 草稿态允许操作）
+        boolean wantSetSchedule = dto.getScheduledPublishTime() != null;
+        boolean wantCancelSchedule = Boolean.TRUE.equals(dto.getCancelScheduledPublish());
+        if ((wantSetSchedule || wantCancelSchedule) && article.getStatus() != ArticleStatusEnum.DRAFT) {
+            // 仅草稿态可设置/取消定时：待审/已发布/驳回/下架传参直接拒绝，不做静默丢弃
+            throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
+        }
+        if (wantSetSchedule && wantCancelSchedule) {
+            // 设置定时与取消定时互斥：同传无法区分作者意图，直接拒绝
+            throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
+        }
+        if (wantSetSchedule) {
+            // @Future 的 Service 侧实拦（Controller 未启 @Valid，DTO 注解仅作声明性契约）
+            if (!dto.getScheduledPublishTime().isAfter(java.time.LocalDateTime.now())) {
+                throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID, "定时发布时间必须晚于当前时间");
+            }
+        }
         Article upd = new Article().setId(id);
         if (dto.getTitle() != null) {
             upd.setTitle(ArticleHtmlSanitizer.stripTags(dto.getTitle()));
@@ -623,10 +228,12 @@ public class ArticleServiceImpl implements ArticleService {
         if (dto.getSummary() != null) {
             // Q1 摘要同步闸门：已发布态摘要放行可改，但改前必须过 DFA（黑名单拦截——改摘要唯一出路口径=扫描通过即可改）
             String summary = ArticleHtmlSanitizer.stripTags(dto.getSummary());
-            checkSummarySensitiveWords(summary, article.getAuthorId());
+            articlePublishSupport.checkSummarySensitiveWords(summary, article.getAuthorId());
             upd.setSummary(summary);
         }
         if (dto.getContentHtml() != null) {
+            // 正文长度硬上限（防滥用兜底，与发布/建档同上限）：编辑也是写正文路径，防借编辑灌入超大正文
+            ContentLengthGuard.checkContentLength(dto.getContentHtml());
             upd.setContentHtml(ArticleHtmlSanitizer.sanitize(dto.getContentHtml()));
         }
         upd.setCoverFileId(dto.getCoverFileId());
@@ -664,7 +271,7 @@ public class ArticleServiceImpl implements ArticleService {
             ///让 DB 里的图片列表 = 前端传来的列表。
         //删除原图片
         if (dto.getImages() != null) {
-            checkImageOwnership(dto.getImages(), article.getAuthorId());
+            articleImageSupport.checkImageOwnership(dto.getImages(), article.getAuthorId());
             // 阶段6：删前先查旧挂图 fileId（差集解绑基准，删后即无从比对）
             List<String> oldFileIds = articleImageMapper.selectList(new LambdaQueryWrapper<ArticleImage>()
                             .eq(ArticleImage::getArticleId, id))
@@ -673,7 +280,7 @@ public class ArticleServiceImpl implements ArticleService {
                     .eq(ArticleImage::getArticleId, id));
 
             // 重挂新图 + 同一事务内逐张登记引用（有问题立刻报错，不会出现"图挂上了但引用没登记"的中间状态）
-            saveArticleImages(dto.getImages(), id, null, article.getAuthorId());
+            articleImageSupport.saveArticleImages(dto.getImages(), id, null, article.getAuthorId());
 
             // 事务提交后把"旧列表减新列表"得到的弃用图逐个解绑（按 业务类型+文章ID+用户 精确匹配；
             // 失败只记 warn 日志不中断：残留引用最多晚删，保守方向不会误删别人的引用）
@@ -684,6 +291,29 @@ public class ArticleServiceImpl implements ArticleService {
         }
         //重新更新图片
         articleMapper.updateById(upd);
+        if (wantSetSchedule) {
+            // 设置/覆盖定时发布时间（单独条件更新，限定草稿态：并发下状态被流转则改不动直接报错；
+            // 不放进 upd 通用集合是为对齐 toPublic 先例，避免与 not_null 更新策略耦合）
+            int rows = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
+                    .eq(Article::getId, id)
+                    .eq(Article::getStatus, ArticleStatusEnum.DRAFT)
+                    .set(Article::getScheduledPublishTime, dto.getScheduledPublishTime()));
+            if (rows == 0) {
+                // 条件更新未命中=并发已流转（如刚好被手动发布），按参数错误回滚本次编辑
+                throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
+            }
+        }
+        if (wantCancelSchedule) {
+            // 取消定时：显式条件更新写 NULL（MP not_null 更新策略下 updateById 传 null 字段会被跳过，写不了 NULL）
+            int rows = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
+                    .eq(Article::getId, id)
+                    .eq(Article::getStatus, ArticleStatusEnum.DRAFT)
+                    .set(Article::getScheduledPublishTime, null));
+            if (rows == 0) {
+                // 条件更新未命中=并发已流转，按参数错误回滚本次编辑
+                throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
+            }
+        }
         if (toPublic) {
             // 转公开带条件更新（要求当前仍是已发布状态）：并发下架/删除时改不动，直接报错
             int rows = articleMapper.update(null, new LambdaUpdateWrapper<Article>()
@@ -694,14 +324,26 @@ public class ArticleServiceImpl implements ArticleService {
                 throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
             }
             // afterCommit 发 content.published（search/ai 重新收录；不重建/不重写任何审核缓存，原键仍有效）
-            publishPublishedAfterCommit(article);
+            articleEventSupport.publishPublishedAfterCommit(article);
         }
         if (toPrivate) {
             // 下架审核缓存失效（[3.4] 方案 A，事务内同步执行，fail-safe 不阻断主流程）
             unpublishedCacheCleaner.invalidateArticle(article.getId(), article.getContentHash());
             // afterCommit 发下架事件（search/ai 移除索引与向量，防隐私残留）；
             // 转公开不重审（content_hash 校验）随板块四 [4.2] 补 published 事件
-            publishUnpublishedAfterCommit(article, ContentBizConstant.UNPUBLISH_REASON_TO_PRIVATE);
+            articleEventSupport.publishUnpublishedAfterCommit(article, ContentBizConstant.UNPUBLISH_REASON_TO_PRIVATE);
+        }
+        // A2 元数据编辑同步（批次B B7 发布点）：已发布文章改了摘要/封面/分类/分区后，
+        // 事务提交后发 content.article-updated 让 search 局部刷新索引字段（不动向量与 chunks）；
+        // 转公开已发 content.published（全量重收录）、转私密已发 content.unpublished（文档移除），不再叠加本事件
+        boolean metaChanged = published && !toPublic && !toPrivate
+                && (dto.getSummary() != null                 // 摘要
+                || dto.getCategory() != null                 // 分类
+                || dto.getZone() != null                     // 分区
+                || (dto.getCoverFileId() != null             // 封面（有变更才发）
+                && !dto.getCoverFileId().equals(article.getCoverFileId())));
+        if (metaChanged) {
+            articleEventSupport.publishArticleUpdatedAfterCommit(article);
         }
     }
 
@@ -750,7 +392,7 @@ public class ArticleServiceImpl implements ArticleService {
             throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
         }
         // 驳回重提照常送审：afterCommit 发单条 content.submitted（事件体不含正文，review 回查）
-        registerSubmitEventAfterCommit(articleId, article.getContentHash());
+        articleEventSupport.registerSubmitEventAfterCommit(articleId, article.getContentHash());
     }
 
     /**
@@ -819,12 +461,12 @@ public class ArticleServiceImpl implements ArticleService {
         log.info("文章软删，articleId={}，operatorId={}，title={}",
                 articleId, operatorId, LogSanitizeUtil.sanitizeForLog(article.getTitle()));
         // 发布下架通知：软删隐私红线：afterCommit 必发 content.unpublished（search/ai 移除残留）
-        publishUnpublishedAfterCommit(article, ContentBizConstant.UNPUBLISH_REASON_DELETE);
+        articleEventSupport.publishUnpublishedAfterCommit(article, ContentBizConstant.UNPUBLISH_REASON_DELETE);
     }
 
     /**
-     * 文章详情（visibility 三级判定链，§6.4；阶段9：密码访问已下线）：非本人读非发布态按不存在处理不暴露存在性；
-     * PRIVATE 非本人拒 / FOLLOWERS 降级宁严勿松；配图占位符渲染回显
+     * 文章详情：薄委托 ArticleQuerySupport#getDetail 执行
+     * （visibility 三级判定链 + 配图占位符渲染 + 收藏回填，详见该类）
      *
      * @param articleId 文章ID
      * @param viewerId  查看者ID（null=匿名，仅可读发布态）
@@ -833,156 +475,34 @@ public class ArticleServiceImpl implements ArticleService {
      */
     @Override
     public ArticleDetailVO getDetail(Long articleId, Long viewerId) {
-
-        /**
-         * 详情查询流程（可见性判定链）：
-         *
-         * ① 查文章
-         *    已删/不存在直接按“文章不存在”处理。
-         *
-         * ② 非发布态拦截
-         *    非本人看未发布/驳回/下架的文章，一律按不存在处理，不暴露“这篇文章存在”的事实。
-         *
-         * ③ 可见性判定（仅非本人时）
-         *    - 匿名用户：非公开一律按不存在（省一次关注关系查询）；
-         *    - 仅自己(PRIVATE)：非本人按不存在；
-         *    - 仅关注者(FOLLOWERS)：回查关注关系（短 TTL 缓存），非关注者按不存在；
-         *    - 公开(PUBLIC)：直接放行。
-         *
-         * ④ 渲染回显
-         *    查配图列表 → 批量换 URL（防 N+1）→ 正文占位符替换成带对齐样式的 <img>；
-         *    数据不全的占位符原样保留降级，不破坏正文结构。
-         */
-
-        Article article = requireArticle(articleId);
-        boolean owner = viewerId != null && article.getAuthorId().equals(viewerId);
-        // 非本人读非发布态 → 按不存在处理（不暴露草稿/驳回/下架存在性）
-        if (!owner && article.getStatus() != ArticleStatusEnum.PUBLISHED) {
-            throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
-        }
-        VisibilityEnum visibility = article.getVisibility();
-        String contentHtml = article.getContentHtml();
-        if (!owner) {
-            // 匿名（viewerId=null）非公开一律按不存在处理：不回查关注关系（省一次跨服务调用），
-            // 也避免 ownerId:null 负缓存键污染
-            if (viewerId == null && visibility != VisibilityEnum.PUBLIC) {
-                throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
-            }
-            switch (visibility) {
-                case PRIVATE -> {
-                    // 仅自己：非本人按不存在，不暴露存在性
-                    throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
-                }
-                case FOLLOWERS -> {
-                    // 仅关注者（[4.1]）：回查 social 关注关系（短 TTL 缓存 ±10% 抖动，查不到不放行）；
-                    // 非关注者按不存在处理，不暴露存在性
-                    if (!followRelationCache.isFollowing(article.getAuthorId(), viewerId)) {
-                        throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
-                    }
-                }
-                default -> {
-                    // PUBLIC：放行
-                }
-            }
-        }
-        // 渲染：查配图 → 批量换 URL → 占位符替换为带对齐 class 的 <img>
-        List<ArticleImage> images = articleImageMapper.selectList(new LambdaQueryWrapper<ArticleImage>()
-                .eq(ArticleImage::getArticleId, articleId)
-                .orderByAsc(ArticleImage::getPositionOrder));
-        if (contentHtml != null && !contentHtml.isEmpty() && !images.isEmpty()) {
-            contentHtml = articleImageRenderSupport.renderImages(contentHtml, images);
-        }
-        // 收藏状态回填（阶段16）：匿名 false；登录用户 uk 等值查询（详情单条查询，无 N+1 问题）
-        boolean favorited = viewerId != null && favoriteStateSupport.isFavorited(
-                viewerId, FavoriteTargetTypeEnum.ARTICLE.getCode(), articleId);
-        return new ArticleDetailVO()
-                .setId(article.getId())
-                .setAuthorId(article.getAuthorId())
-                .setTitle(article.getTitle())
-                .setSummary(article.getSummary())
-                .setContentHtml(contentHtml)
-                .setCoverFileId(article.getCoverFileId())
-                .setCategory(article.getCategory())
-                .setZone(article.getZone())
-                .setStatus(owner ? article.getStatus() : ArticleStatusEnum.PUBLISHED)
-                .setVisibility(visibility)
-                .setViewCnt(article.getViewCnt())
-                .setLikeCnt(article.getLikeCnt())
-                .setCommentCnt(article.getCommentCnt())
-                .setTagNames(Collections.emptyList())
-                .setImages(images.stream().map(this::toImageVO).collect(Collectors.toList()))
-                .setCreateTime(article.getCreateTime())
-                .setUpdateTime(article.getUpdateTime())
-                .setFavorited(favorited);
+        // 一行委托：读链路（详情可见性判定链）
+        return articleQuerySupport.getDetail(articleId, viewerId);
     }
 
     /**
-     * 公开文章列表（匿名可读规则：status=2 且 visibility=1；select 排除 content_html 大字段延迟加载）
+     * 公开文章列表：薄委托 ArticleQuerySupport#listPublic 执行
+     * （匿名可读规则 status=2 且 visibility=1，排序固定 update_time 降序，详见该类）
      *
      * @param query 分页查询条件（zone/category 可空=全部；分页参数经 PageQuery 统一兜底钳制）
      * @return 分页结果（total/totalPages/hasNext 供前端分页组件渲染；卡片 publishTime 取 update_time）
      */
     @Override
     public PageResult<ArticleCardVO> listPublic(ArticlePublicQueryDTO query) {
-
-        /**
-         * 公开列表查询流程：
-         *
-         * ① 组装查询条件
-         *    仅“已发布+公开”的文章匿名可见；分区/分类按需过滤；
-         *    排除正文大字段（列表不加载 content_html，详情页才取，减少传输量）。
-         *    分类白名单校验已前移到参数绑定层（ArticlePublicQueryDTO.category 枚举 + 统一转换器，脏值 400）；
-         *    前端传的 status/published/keyword 在本端点一律忽略（匿名公开列表不接受状态过滤，实现为白名单式组装：只拼 zone/category）
-         *
-         * ② MyBatis-Plus 分页查询
-         *    页码/页大小兜底与上限钳制由 PageQuery 收口；count 由分页插件自动执行；
-         *    排序固定 update_time 降序（代码显式 OrderItem 优先级最高，不开放匿名前端自定义 sortBy）。
-         *
-         * ③ 封装 PageResult 返回（含 total/totalPages/hasNext）。
-         */
-
-        // 公开读仅 status=2 且 visibility=1（匿名可见）；列表查询不加载 content_html 大字段（详情页才取）
-        LambdaQueryWrapper<Article> wrapper = new LambdaQueryWrapper<Article>()
-                .select(Article.class, i -> !Article.COLUMN_CONTENT_HTML.equals(i.getColumn()))
-                .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
-                .eq(Article::getVisibility, VisibilityEnum.PUBLIC)
-                .eq(query.getZone() != null, Article::getZone, query.getZone())
-                .eq(query.getCategory() != null, Article::getCategory, query.getCategory());
-        // 分页兑底（页码≥1/页大小上限钳制）与排序由 PageQuery.toMpPage 收口；显式传 update_time 降序覆盖前端 sortBy
-        Page<Article> page = articleMapper.selectPage(query.toMpPage(OrderItem.desc(PageConstant.UPDATE_TIME)), wrapper);
-        // 分页信息 + 记录转 VO 一行收敛（PageResult.of(IPage, Function) 工厂）
-        return PageResult.of(page, this::toCardVO);
+        // 一行委托：读链路（公开列表）
+        return articleQuerySupport.listPublic(query);
     }
 
     /**
-     * 热门文章列表（view_cnt 倒序直查，公开读同一规则；缓存三防随板块五接入 Redis）
+     * 热门文章列表：薄委托 ArticleQuerySupport#listHot 执行
+     * （批次E D-3：主路径读 CONTENT_FEED_HOT_ZSET 热度榜，榜空/开关关闭回退 view_cnt 直查，详见该类）
      *
      * @param pageSize 取前 N 条
      * @return 文章卡片列表
      */
     @Override
     public List<ArticleCardVO> listHot(int pageSize) {
-
-        /**
-         * 热门列表查询流程：
-         *
-         * ① 组装查询条件
-         *    仅“已发布+公开”的文章；排除正文大字段延迟加载。
-         *
-         * ② 排序返回
-         *    按浏览量倒序取前 N 条，转卡片 VO 列表。
-         */
-
-        // 热门：view_cnt 倒序直查；缓存三防（互斥重建/空值短缓存/TTL±10%抖动）随板块五 feed 接入 Redis
-        LambdaQueryWrapper<Article> wrapper = new LambdaQueryWrapper<Article>()
-                .select(Article.class, i -> !Article.COLUMN_CONTENT_HTML.equals(i.getColumn()))
-                .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
-                .eq(Article::getVisibility, VisibilityEnum.PUBLIC)
-                .orderByDesc(Article::getViewCnt);
-        // TopN 无分页语义：取第一页即可，count 关闭省一次全表计数；pageSize 钳制到全局上限（防超大 N 拖垮数据库）
-        return articleMapper
-                .selectList(Page.of(1, Math.min(pageSize, PageConstant.MAX_PAGE_SIZE), false), wrapper)
-                .stream().map(this::toCardVO).collect(Collectors.toList());
+        // 一行委托：读链路（热榜，D-3 逻辑整体随迁 QuerySupport）
+        return articleQuerySupport.listHot(pageSize);
     }
 
     // ==================== 私有辅助 ====================
@@ -999,259 +519,5 @@ public class ArticleServiceImpl implements ArticleService {
             throw new BizException(ErrorCode.ARTICLE_NOT_FOUND);
         }
         return article;
-    }
-
-    /**
-     * 插图归属校验（阶段6 修 N+1 问题）：委托 ArticleImageRefSupport 批量校验
-     * （fileId 必须归属本人且是文章配图类型，有问题立刻报错，防引用他人文件/违规图）；
-     * 原来逐图远程查询（最多 50 次调用）改为批量查询一次往返
-     *
-     * @param images   待校验配图列表
-     * @param authorId 期望归属用户ID
-     */
-    private void checkImageOwnership(List<ArticleImageDTO> images, Long authorId) {
-        articleImageRefSupport.checkOwnership(images, authorId);
-    }
-
-    /**
-     * 配图批量落 article_image（article_id/draft_id 二选一）+ 同一事务内逐张登记引用
-     * （阶段6 方案C：登记失败立刻报错，随本地事务回滚，不会出现"图挂上了但引用没登记"的中间状态）
-     *
-     * @param images    配图列表
-     * @param articleId 正式文章ID（草稿场景传 null）
-     * @param draftId   草稿ID（发布场景传 null）
-     * @param ownerId   引用归属用户ID（引用登记四要素：业务类型+业务ID+文件ID+归属用户 之一）
-     */
-    private void saveArticleImages(List<ArticleImageDTO> images, Long articleId, Long draftId, Long ownerId) {
-        for (ArticleImageDTO item : images) {
-            articleImageMapper.insert(new ArticleImage()
-                    .setArticleId(articleId)
-                    .setDraftId(draftId)
-                    .setFileId(item.getFileId())
-                    .setPositionOrder(item.getPositionOrder())
-                    .setAlign(item.getAlign())
-                    .setWidth(item.getWidth())
-                    .setHeight(item.getHeight()));
-        }
-        // 同一事务内登记引用（重复登记无副作用）：文章维度 ARTICLE_IMG+文章ID；草稿维度 DRAFT_IMAGE+草稿ID
-        if (articleId != null) {
-            articleImageRefSupport.bindArticleRefs(images, articleId, ownerId);
-        } else {
-            articleImageRefSupport.bindDraftRefs(images, draftId, ownerId);
-        }
-    }
-
-    /**
-     * 发布链路归属切换（阶段6 补齐，决策 D2）：dto.draftId 非空时按草稿维度定位旧图行，
-     * 删 draft_id 图行（消除双行残留）→ afterCommit unbind DRAFT_IMAGE 旧引用（补偿性清理，warn 留痕）。
-     * <p>校验：草稿存在且归属本人（防传他人 draftId 悬空其引用）；草稿图与新文章图差集才解绑，
-     * 继续沿用的图引用不重复解绑</p>
-     *
-     * @param draftId  来源草稿ID（可空）
-     * @param images   新文章配图列表（差集计算基准）
-     * @param authorId 作者用户ID（草稿归属校验 + unbind ownerId）
-     */
-    private void switchDraftImageOwnership(Long draftId, List<ArticleImageDTO> images, Long authorId) {
-        if (draftId == null) {
-            return;
-        }
-        // 定位该草稿维度图行（发布时草稿图行原样残留即双行病灶，此处收口）
-        List<ArticleImage> draftImages = articleImageMapper.selectList(new LambdaQueryWrapper<ArticleImage>()
-                .eq(ArticleImage::getDraftId, draftId));
-        // 归属校验：草稿必须存在且归属本人（article_draft.author_id 比对，防传他人 draftId 悬空其引用）
-        ArticleDraft draft = articleDraftMapper.selectById(draftId);
-        if (draft == null || !authorId.equals(draft.getAuthorId())) {
-            throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
-        }
-        // 差集解绑：旧草稿图 − 新文章图 = 真正被弃用的图（继续沿用的不解绑，防引用计数误减）
-        List<String> newFileIds = images.stream().map(ArticleImageDTO::getFileId).toList();
-        List<String> removedFileIds = articleImageRefSupport.diffOldMinusNew(
-                draftImages.stream().map(ArticleImage::getFileId).collect(Collectors.toList()), newFileIds);
-        // 删 draft_id 图行（物理删，article_image 无 del_flag；文章行已由 saveArticleImages 新插）
-        articleImageMapper.delete(new LambdaQueryWrapper<ArticleImage>()
-                .eq(ArticleImage::getDraftId, draftId));
-        // afterCommit 补偿性解绑 DRAFT_IMAGE 维度旧引用（失败 warn 留痕，对账兑底）
-        articleImageRefSupport.unbindRefsAfterCommit(
-                removedFileIds, ContentBizConstant.FILE_BIZ_TYPE_DRAFT_IMG, draftId, authorId);
-    }
-
-    /**
-     * 发布归属切换联动（阶段8②）：草稿封面 → 文章封面的引用交接。
-     * <p>dto.draftId 非空且草稿归属本人时，若草稿原封面存在且与新封面不同（差集口径：
-不同（沿同一个封面就不解绑，
-     * 防引用计数误减），事务提交后解绑草稿维度的旧封面引用
-     * （失败只记 warn 日志，残留由对账兑底）</p>
-     *
-     * @param draftId     来源草稿ID（可空，空则无切换语义直接返回）
-     * @param newCoverId  新文章封面 fileId（可空，发布无封面则旧草稿封面整体弃用）
-     * @param authorId    作者用户ID（草稿归属校验 + unbind ownerId 四元组之一）
-     */
-    private void unbindDraftCoverIfReplaced(Long draftId, String newCoverId, Long authorId) {
-        if (draftId == null) {
-            return;
-        }
-        // 归属校验：草稿必须存在且归属本人（与 switchDraftImageOwnership 同一规则，防传他人 draftId 悬空其引用）
-        ArticleDraft draft = articleDraftMapper.selectById(draftId);
-        if (draft == null || !authorId.equals(draft.getAuthorId())) {
-            throw new BizException(ErrorCode.ARTICLE_PARAM_INVALID);
-        }
-        // 只有草稿原封面非空且与新封面不同才解绑（同一个封面继续沿用，两边都没有封面同样不解绑）
-        String oldCoverId = draft.getCoverFileId();
-        if (oldCoverId != null && !oldCoverId.equals(newCoverId)) {
-            articleImageRefSupport.unbindRefsAfterCommit(List.of(oldCoverId),
-                    ContentBizConstant.FILE_BIZ_TYPE_COVER, draftId, authorId);
-        }
-    }
-
-    /**
-     * 注册事务提交后发送 content.submitted（事务顺序铁律：本地事务提交 → 事件发送，失败重投/DLQ）；
-     * 事件体不含正文，review 消费端按 bizType+bizId+scene 定位任务后经 ContentClient 回查
-     *
-     * @param articleId   文章ID（事件 bizId）
-     * @param contentHash 送审文本指纹（SubmitTextAssembler 同一规则：标题+分隔符+正文 SHA-256）
-     */
-    private void registerSubmitEventAfterCommit(Long articleId, String contentHash) {
-        TextSubmitEvent event = new TextSubmitEvent();
-        event.setModType(ModerationConstant.MOD_TYPE_AUTO);
-        event.setBizType(ModerationConstant.BIZ_TYPE_ARTICLE);
-        event.setBizId(articleId);
-        event.setScene(DfaScenes.ARTICLE);
-        event.setContentHash(contentHash);
-        event.setRetryCount(0);
-        //在当前事务成功提交之后，再执行发送事件的逻辑。事务由事务管理器进行管理
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                contentEventProducer.sendSubmitted(event);
-            }
-        });
-    }
-
-    /**
-     * 计算配图聚合指纹（4-3.4 同一规则，必须与 review 侧复审任务的 content_hash 完全一致，错配事件会被消费端丢弃）：
-     * 按发布入参登记顺序取 fileId → FileClient 批量查 sha256（审核链路读失败立刻报错）→
-     * sha256 字符串排序拼接 → 再整体做一次 SHA-256（复用 SubmitTextAssembler.contentHash 的二次哈希规则）
-     *
-     * @param images 发布入参配图列表（fileId 登记顺序）
-     * @return 64 位小写十六进制聚合指纹
-     * @throws BizException ARTICLE_IMG_REFUSED 指纹缺图（脏数据聚合不完整会架空图片复审，fail-fast 拒绝发布）
-     */
-    private String aggregatedImgHash(List<ArticleImageDTO> images) {
-        List<String> fileIds = images.stream().map(ArticleImageDTO::getFileId).toList();
-        Map<String, String> shaMap = fileClient.batchGetSha256(fileIds).getData();
-        if (shaMap == null || shaMap.size() < fileIds.stream().distinct().count()) {
-            // 指纹缺一不可（缺失说明文件元数据是脏数据或文件已删，聚合结果不完整），有问题立刻报错拒绝发布；
-            // 报错携带缺失的 fileId 列表供前端定位（P1 发布异常保稿 2026-10-28）
-            List<String> missingFileIds = fileIds.stream()
-                    .filter(id -> shaMap == null || !shaMap.containsKey(id))
-                    .distinct()
-                    .toList();
-            throw new BizException(ErrorCode.ARTICLE_IMG_REFUSED,
-                    String.format(ContentBizConstant.IMG_HASH_MISSING_MSG, String.join(",", missingFileIds)));
-        }
-        // sha256 排序拼接后整体再做一次 SHA-256（与 LastHashExemptChecker/review 侧用同一套聚合规则）
-        String concatenated = shaMap.values().stream().sorted().collect(Collectors.joining());
-        return SubmitTextAssembler.contentHash(concatenated);
-    }
-
-    /**
-     * 注册事务提交后发送 image.submit（配图发布复审，事务顺序铁律：本地事务提交 → 事件发送，失败重投/DLQ）；
-     * bizType=1-文章、bizId=articleId、scene=ARTICLE_IMG_RE_REVIEW、contentHash=配图聚合指纹，
-     * review 消费端按 bizType+bizId+scene 定位文章级复审任务后反查配图逐张送审并聚合流转
-     *
-     * @param articleId         文章ID（事件 bizId）
-     * @param aggregatedImgHash 配图聚合指纹（事件 contentHash）
-     */
-    private void registerImageSubmitEventAfterCommit(Long articleId, String aggregatedImgHash) {
-        ImageSubmitEvent event = new ImageSubmitEvent();
-        event.setModType(ModerationConstant.MOD_TYPE_AUTO);
-        event.setBizType(ModerationConstant.BIZ_TYPE_ARTICLE);
-        event.setBizId(String.valueOf(articleId));
-        event.setScene(ModerationConstant.SCENE_ARTICLE_IMG_RE_REVIEW);
-        event.setContentHash(aggregatedImgHash);
-        event.setRetryCount(0);
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                contentEventProducer.sendImageSubmit(event);
-            }
-        });
-    }
-
-
-    /**
-     * 事务提交后发 content.unpublished（事务顺序铁律：本地事务提交 → 事件发送，失败重投/DLQ）
-     *
-     * @param article 触发下架的文章（取 id/contentHash 填事件体）
-     * @param reason  下架原因（ContentBizConstant.UNPUBLISH_REASON_* 字典）
-     */
-    private void publishUnpublishedAfterCommit(Article article, int reason) {
-        ContentUnpublishedEvent event = new ContentUnpublishedEvent();
-        event.setBizType(ModerationConstant.BIZ_TYPE_ARTICLE);
-        event.setBizId(article.getId());
-        event.setContentHash(article.getContentHash());
-        event.setReason(reason);
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                contentEventProducer.sendUnpublished(event);
-            }
-        });
-    }
-
-    /**
-     * 事务提交后发送 content.published（转公开不重审场景，[4.1]）：
-     * 事件体只带指纹（bizType/bizId/contentHash），消费方按需回查数据库确认当前真实状态
-     *
-     * @param article 已发布文章（contentHash 取库中现值，方案B 禁改正文故未变）
-     */
-    private void publishPublishedAfterCommit(Article article) {
-        ContentPublishedEvent event = new ContentPublishedEvent();
-        event.setBizType(ModerationConstant.BIZ_TYPE_ARTICLE);
-        event.setBizId(article.getId());
-        event.setContentHash(article.getContentHash());
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                contentEventProducer.sendPublished(event);
-            }
-        });
-    }
-
-
-    /**
-     * 配图实体 → VO（详情回显）
-     *
-     * @param image 配图实体
-     * @return 配图 VO
-     */
-    private ArticleImageVO toImageVO(ArticleImage image) {
-        return new ArticleImageVO()
-                .setFileId(image.getFileId())
-                .setPositionOrder(image.getPositionOrder())
-                .setAlign(image.getAlign())
-                .setWidth(image.getWidth())
-                .setHeight(image.getHeight());
-    }
-
-    /**
-     * 文章实体 → 卡片 VO（publishTime 取 update_time，即文章发布那一刻的时间）
-     *
-     * @param article 文章实体（不含 content_html 大字段）
-     * @return 卡片 VO
-     */
-    private ArticleCardVO toCardVO(Article article) {
-        return new ArticleCardVO()
-                .setId(article.getId())
-                .setTitle(article.getTitle())
-                .setSummary(article.getSummary())
-                .setCoverFileId(article.getCoverFileId())
-                .setCategory(article.getCategory())
-                .setZone(article.getZone())
-                .setAuthorId(article.getAuthorId())
-                .setViewCnt(article.getViewCnt())
-                .setLikeCnt(article.getLikeCnt())
-                .setCommentCnt(article.getCommentCnt())
-                .setPublishTime(article.getUpdateTime());
     }
 }

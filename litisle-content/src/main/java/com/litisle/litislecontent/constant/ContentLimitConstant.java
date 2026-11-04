@@ -53,4 +53,24 @@ public final class ContentLimitConstant {
 
     /** 热门标签缓存 TTL 基准（秒）：实际写入 ±10% 抖动防雪崩 */
     public static final long TAG_HOT_CACHE_TTL_SECONDS = 300;
+
+    /** 正文长度硬上限（字节）：content_html 为 LONGTEXT 无 DB 约束，应用层兜底拦截超大正文
+     * （防打爆送审回查/search 索引/ai RAG 摄入）；≈10 万字富文本 HTML，发布/建档/编辑/草稿保存四路共用同值 */
+    public static final int ARTICLE_CONTENT_MAX_BYTES = 256 * 1024;
+
+    /** 单用户阅读历史条数上限（按 biz_type 分开计，各 500 条）：写入时懒删最旧行（按最后阅读时间），
+     * 防 reading_history 无限增长；随写入路径走，零新增 job、零 yml 配置 */
+    public static final int HISTORY_MAX_PER_USER = 500;
+
+    /** 单本书章节数上限（防滥用兜底，防单书无限挂章拖垮章节列表/重排批量更新；
+     * Sql-Document book_chapter 建表注释同口径） */
+    public static final int BOOK_CHAPTER_MAX = 1000;
+
+    /** 章节重排（60s 10 次，批量写操作防频繁拖拽提交） */
+    public static final int REORDER_MAX_COUNT = 10;
+
+    /** 章节重排两阶段偏移的临时区偏移量：阶段①全部涉及行 chapter_no += 本值挪进临时区
+     * （避开 uk_book_chapter_no 唯一键冲突），阶段②再落正值为新序号；
+     * 取值远大于 BOOK_CHAPTER_MAX 且 Service 侧预检存量序号 < 本值，保证临时区不与正序区重叠 */
+    public static final int BOOK_CHAPTER_REORDER_OFFSET = 10_000_000;
 }

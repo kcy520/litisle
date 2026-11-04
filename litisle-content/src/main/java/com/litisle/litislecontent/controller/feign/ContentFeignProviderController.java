@@ -3,6 +3,7 @@ package com.litisle.litislecontent.controller.feign;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
+import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litislecontent.service.ContentInternalService;
@@ -71,5 +72,14 @@ public class ContentFeignProviderController implements ContentClient {
                 dto == null ? null : dto.getCommentCnt());
         contentInternalService.updateCounters(dto);
         return Result.success();
+    }
+
+    /**
+     * 回查文章建索引全量字段：委托 Service（search 索引同步核心读依赖，fail-fast）
+     */
+    @Override
+    public Result<ArticleIndexDocDTO> getArticleIndexDoc(Long articleId) {
+        log.info("远程api调用getArticleIndexDoc articleId:{}", articleId);
+        return Result.success(contentInternalService.getArticleIndexDoc(articleId));
     }
 }

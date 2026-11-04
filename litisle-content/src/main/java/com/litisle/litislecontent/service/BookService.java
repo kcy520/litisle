@@ -2,6 +2,7 @@ package com.litisle.litislecontent.service;
 
 
 import com.litisle.commoncore.result.PageResult;
+import com.litisle.litislecontent.domain.dto.BookChapterReorderDTO;
 import com.litisle.litislecontent.domain.dto.BookMyQueryDTO;
 import com.litisle.litislecontent.domain.dto.BookQueryDTO;
 import com.litisle.litislecontent.domain.dto.BookSaveDTO;
@@ -19,6 +20,7 @@ import com.litisle.litislecontent.domain.vo.BookDetailVO;
  * void delete(Long id, Long userId)                        // 软删
  * void addChapter(Long bookId, ChapterAddDTO, Long userId) // 挂载章节：文章归属本人校验 + uk(book_id, chapter_no) 序号防重
  * void removeChapter(Long bookId, Long chapterId, Long userId) // 移除章节
+ * void reorderChapters(Long bookId, BookChapterReorderDTO, Long userId) // 章节批量重排：全量新序两阶段偏移落库（批次5）
  * BookDetailVO getDetail(Long bookId, Long viewerId)       // 书籍详情（可选登录）：可见章节数/首尾章/上次阅读/收藏状态
  * PageResult<BookChapterVO> pageChapters(bookId, viewerId, pageNo, pageSize) // 章节列表（可选登录，chapter_no 升序分页）
  * BookChapterDetailVO getChapterDetail(bookId, chapterId, viewerId) // 章节详情（可选登录）：正文复用文章判定链 + 相邻章导航
@@ -75,6 +77,22 @@ public interface BookService {
      * @param userId    当前登录用户ID
      */
     void removeChapter(Long bookId, Long chapterId, Long userId);
+
+    /**
+     * 章节批量重排（仅 owner，批次5 2026-11-02）：前端拖拽后全量提交新序 [{chapterId, newChapterNo}]
+     * <p>整单校验：清单与本书章节一一对应（缺/多/跨书拒绝）+ 新序号恰好 1..N 连续无重复；
+     * uk(book_id, chapter_no) 冲突用两阶段偏移落库（①整书序号 += 偏移量进临时区 ②落正值为新序），
+     * 单事务 + book 粒度分布式锁防并发重排互踩；排序键即 chapter_no，重排后章节列表/相邻章导航自动生效</p>
+     *
+     * @param bookId 书籍ID
+     * @param dto    重排清单（全量）
+     * @param userId 当前登录用户ID
+     * @throws com.litisle.commoncore.exception.BizException
+     *         BOOK_NOT_FOUND 书籍不存在/已删 / NO_PERMISSION 非本人 / BOOK_STATUS_INVALID 下架书拒重排 /
+     *         BOOK_CHAPTER_REORDER_INVALID 清单与本书章节不一致或新序号非 1..N /
+     *         TOO_MANY_REQUESTS 并发重排抢锁失败
+     */
+    void reorderChapters(Long bookId, BookChapterReorderDTO dto, Long userId);
 
     /**
      * 书籍详情（可选登录，阶段17）

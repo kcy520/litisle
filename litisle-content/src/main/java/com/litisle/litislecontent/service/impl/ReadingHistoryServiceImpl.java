@@ -16,6 +16,7 @@ import com.litisle.litislecontent.mapper.BookChapterMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.ReadingHistoryMapper;
 import com.litisle.litislecontent.enums.BookStatusEnum;
+import com.litisle.litislecontent.constant.ContentLimitConstant;
 import com.litisle.litislecontent.service.ReadingHistoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +50,9 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
 
     /** 阅读对象类型：独立文章（biz_type=2，历史行 chapter_id 为 null） */
     private static final int BIZ_TYPE_ARTICLE = 2;
+
+    /** 单批懒删行数上限：正常每次写入只新增 1 行（超额至多几行），封顶 100 防异常数据导致一次大删 */
+    private static final int HISTORY_TRIM_BATCH = 100;
 
     /** 阅读历史 Mapper（历史 UPSERT/列表/续读数据源） */
     private final ReadingHistoryMapper historyMapper;
@@ -332,6 +336,8 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                     .setChapterId(chapterId);
             try {
                 historyMapper.insert(history);
+                // 新增一行后懒删超额最旧行（增长治理：单用户单类型上限 500 条，随写入清理）
+                trimOverflowHistory(userId, bizType);
                 return;
             } catch (DuplicateKeyException e) {
                 current = selectHistory(userId, bizType, bizId);
@@ -358,6 +364,27 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
         // 同章节/同文章重读无列变化，需显式 SET 才能刷新时间线位置
         upd.setUpdateTime(LocalDateTime.now());
         historyMapper.updateById(upd);
+    }
+
+    /**
+     * 阅读历史超额懒删（增长治理：单用户单类型上限 HISTORY_MAX_PER_USER=500 条，随写入触发）：
+     * 删除该用户该类型下「最新 500 条之外」的最旧行（按最后阅读时间倒序保留最新）。
+     * 只在新插入行后调用（更新行不新增条数，无需触发）。
+     * fail-safe：删除失败仅 warn，不影响本次落历史（下次写入继续兜底清理）。
+     *
+     * @param userId  读者ID
+     * @param bizType 阅读对象类型：1-书籍 2-独立文章
+     */
+    private void trimOverflowHistory(Long userId, int bizType) {
+        try {
+            // 保留最新 500 条，删除其后的行；单批封顶 100 行防异常数据一次大删
+            historyMapper.deleteOverflowOldest(userId, bizType,
+                    ContentLimitConstant.HISTORY_MAX_PER_USER, HISTORY_TRIM_BATCH);
+        } catch (Exception e) {
+            // 懒删非核心链路：失败不影响本次落历史，下轮写入继续清理
+            log.warn("阅读历史超额懒删失败（fail-safe 不影响本次落历史）：userId={}, bizType={}",
+                    userId, bizType, e);
+        }
     }
 
     /**

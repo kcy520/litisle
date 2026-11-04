@@ -85,13 +85,25 @@ litisle:
     publish:
       # 批量发布单批上限（§6.3，ContentProperties.publish.batchMax 绑定；超限抛 ARTICLE_BATCH_EXCEEDED——防批量刷审）
       batch-max: 20
+      scheduled:
+        # 定时发布任务（项2 2026-11-02，ArticleScheduledPublishJob 占位符直读，非 ContentProperties 绑定）
+        enabled: true                  # 任务开关（多实例部署时只开一台或靠分布式锁单点，对齐 feed.hot.refill 纪律）
+        interval-ms: 60000             # 扫描周期（1min；fixedDelay 上一轮结束才计下一轮，不堆积）
+        initial-delay-ms: 60000        # 启动延迟（避开启动高峰，对齐灌榜/刷回任务）
+    view:
+      # 浏览计数（阶段8① PV+去重窗口口径）：详情命中 INCR Redis pending 键，定时任务合并刷回 article.view_cnt
+      flush:
+        enabled: true                  # 刷回任务开关（多实例部署时只开一台或改用分布式锁单点，对齐 feed.hot.refill 纪律）
+        interval-ms: 300000            # 刷回周期（5min；fixedDelay 上一轮结束才计下一轮，不堆积）
+        initial-delay-ms: 60000        # 启动延迟（避开启动高峰，对齐灌榜任务）
+      dedup-ttl-seconds: 86400         # 去重窗口 TTL（24h；窗口期内同一访问者重复进入不计数，防刷）    
     feed:
       # 推荐流热度榜（阶段14 切流；social 未落地期间 like/comment 恒 0，榜=浏览量+时间衰减排序）
       hot:
         enabled: true                  # 总开关（false 则 /feed 退回时间倒序直查）
         top-n: 200                     # 榜容量上限（灌榜裁剪保留 top N，防 ZSet 无界增长）
         refill-enabled: true           # 灌榜任务开关（多实例部署时只开一台，对齐 view.flush 纪律）
-        refill-interval-ms: 300000     # 灌榜周期（5min 全量重算+影子键 rename 原子换榜）
+        refill-interval-ms: 300000     # 灌榜周期（5min 增量灌榜为主，水位增量 ZADD；距上次全量 ≥ full-refill-interval-ms(默认1h) 才走全量重算+影子键 rename 原子换榜）
         refill-initial-delay-ms: 60000 # 启动延迟
         # 权重/衰减参数走 ContentProperties 默认值（like=3/comment=2/view=0.2/decay=1.5/offset=2），
         # social 落地后按真实互动效果在此热调（无需发版）
@@ -102,6 +114,15 @@ litisle:
       retry:
         max-count: 5                 # 消费延迟重试上限，耗尽 nack 入 DLQ 兑底
         base-delay-ms: 30000         # 指数退避基数（30s→60s→120s→240s→480s）
+    outbox:
+      # 事件发件箱（批次3 2026-11-02，EventOutboxResendJob 占位符直读，非 ContentProperties 绑定）：
+      # ContentEventProducer 发送前落 event_outbox 表，发送失败/进程崩溃由本任务兜底重发，保证事件必达
+      resend-enabled: true           # 重发任务开关（多实例部署时靠分布式锁单点，对齐 feed.hot.refill 纪律）
+      resend-interval-ms: 60000      # 重发扫描周期（1min，fixedDelay 不堆积）
+      initial-delay-ms: 60000        # 启动延迟（避开启动高峰）
+      max-retry-count: 5             # 单行重发次数上限，超限置放弃态（status=3）留痕人工介入
+      resend-batch-size: 200         # 单轮重发批量上限（超限部分下一轮自然消化）
+      retain-days: 7                 # 已发送行保留天数，过期物理清理防表无界增长
   security:
     anonymous:
       paths:

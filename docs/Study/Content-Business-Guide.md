@@ -21,7 +21,7 @@
 ```
 litisle-content
 └─ com.litisle.litislecontent
-   ├─ controller              # HTTP 入口（文章/草稿/书籍/标签/推荐流/进度端点）
+   ├─ controller              # HTTP 入口（文章/发布编排/草稿/书籍/收藏/阅读历史/标签/推荐流端点）
    │  └─ feign                # 对外 Feign 提供方（review 回查原文等跨服务端点）
    ├─ service                 # 业务编排（发布/文章/草稿/书籍/进度/标签/推荐流/回写/内部）
    │  └─ impl                 # 接口实现
@@ -34,12 +34,12 @@ litisle-content
    ├─ mapper                  # 持久层 Mapper（发布 CAS/乐观锁/批量回查都在这层）
    ├─ enums                   # 领域枚举（文章状态/可见性/分区/对齐/书籍状态）
    ├─ mq
-   │  ├─ ContentEventProducer # 事件发布统一收口（published/unpublished/submitted）
+   │  ├─ ContentEventProducer # 事件发布统一收口（published/unpublished/submitted/image.submit）
    │  └─ consumer             # 结果/改判/封禁三消费者（板块七/八）
    ├─ cache                   # Redis 边界（推荐流 FollowRelationCache/下架缓存失效）
    ├─ dfa                     # 词库宿主侧：装载 SPI 实现/热更订阅/last-hash Redis 适配
    ├─ utils                   # 通用工具（HTML 白名单净化/日志脱敏）
-   ├─ job                     # 定时对账（TagCountReconcileJob 计数漂移校正）
+   ├─ job                     # 定时任务（TagCountReconcileJob 计数对账 / ViewCountFlushJob 浏览计数缓冲落库 / FeedHotRankRefillJob 热度榜灌榜 / ArticleScheduledPublishJob 定时发布 / EventOutboxResendJob 事件发件箱重发）
    ├─ constant                # 域内常量（业务常量/限额常量）
    └─ config                  # 参数外置 ContentProperties/Rabbit 声明/SaToken/Web
 
@@ -59,9 +59,9 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > - enums：状态与类型枚举，状态机白名单的代码化载体
 > - mq：事件边界——producer 统一补齐 base 字段后发布（禁各业务类直调 RabbitTemplate）；consumer 只做消费编排（traceId 恢复+ACK 纪律），业务委托回写服务
 > - cache：Redis 读写边界——推荐流三防缓存与关注关系缓存、下架四路径共用的三键失效编排
-> - dfa：板块一在 content 侧的宿主职责——词库装载 SPI 实现（Redis 优先+持久化兑底）、热更订阅 rebuild、契约层 last-hash 键的 Redis 适配
+> - dfa：板块一在 content 侧的宿主职责——词库装载 SPI 实现（Redis 优先+持久化兜底）、热更订阅 rebuild、契约层 last-hash 键的 Redis 适配
 > - utils：UGC 安全工具——HTML 白名单净化（存储型 XSS 防线）、日志脱敏
-> - job / constant / config：补偿与配置——标签计数对账定时任务、域内常量收敛、参数外置与 MQ 声明
+> - job / constant / config：补偿与配置——标签计数对账、浏览计数缓冲落库、热度榜灌榜、定时发布、事件发件箱重发五个定时任务，域内常量收敛、参数外置与 MQ 声明
 
 **各包作用说明（litisle-api，契约层参考）：**
 
@@ -74,12 +74,13 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 1. 保存草稿：
    `DraftServiceImpl` 快照 UPSERT——baseVersion 与 draft\_version 乐观锁比对，落后即拒（ARTICLE\_DRAFT\_CONFLICT 防两个标签页互相覆盖）；
    归属校验防横向越权；
-   超过 draft.keep-versions = 10 滚动清理最旧快照
+   正文同上限 256KB 校验（`ContentLengthGuard`，草稿为单行覆盖 LONGTEXT，防绕过发布口灌大草稿行）；
+   每个草稿仅一行、原地覆盖只存最新内容（draft\_version 递增仅作并发保护，历史版本不留存）
 2. 插入正文图片：校验 fileId 归属本人且 bizType = ARTICLE\_IMG（防引用他人文件/违规图）→ 写 article\_image（position\_order/align）；正文只存 `{img:file_id}` 占位符，图片对齐权威单独存表
 
 **阶段二 · 发布同步段（板块一，宿主本地执行，不依赖 review 可用性）**
 
-1. 单篇创建并发布（`ArticleServiceImpl`）：`ZoneRouter` 分区权限（zone = 2 需 AUTHOR；阶段12 后仅此一条分区权限）→ `ArticleStateMachine` 状态流转合法性 → `SubmitTextAssembler.assemble` 拼接标题+正文算 content\_hash → `PublishTextPrecheck` 空内容/标题 ≤100 → 正文 `ArticleHtmlSanitizer.sanitize` 白名单净化后落库
+1. 单篇创建并发布（`ArticleServiceImpl`）：`ZoneRouter` 分区权限（zone = 2 需 AUTHOR；阶段12 后仅此一条分区权限）→ `ArticleStateMachine` 状态流转合法性 → `PublishTextPrecheck` 空内容/标题 ≤100 → 正文长度硬上限 256KB（`ContentLengthGuard` 应用层兜底，超限 CONTENT\_TOO\_LONG=30018 拦截并提示拆分书籍章节；纯图文章正文残片同样受控）→ 正文 `ArticleHtmlSanitizer.sanitize` 白名单净化 → `SubmitTextAssembler.assemble` 拼接标题+正文 → `DfaFacade.check` DFA 同步闸门（正文与摘要分别判定：黑名单词拦截发布、观察词仅留痕；摘要不参与 content\_hash）→ 算 content\_hash 落库
 2. 免审判定 `LastHashExemptChecker.decide`：content\_hash 未变 + 上次 PASS + 非驳回态 → CAS 0→2 直落发 content.published（**免文不免图**——配图仍发 image.submit 复审）；未命中 → CAS 0→1 回填批次 ID → afterCommit `ContentEventProducer` 发 content.submitted（事件体不含正文，review 经 ContentClient 回查）→ 即时返回「审核中」，发布 RT 不被审核绑架
 3. 批量发布 `publishBatch`：单批 ≤20，`TransactionTemplate` 逐篇独立事务，失败不回滚已成功篇目，逐篇回执
 
@@ -101,7 +102,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 **阶段六 · 异议与连带（板块八）**
 
-1. 作者申诉 → review 改判裁决 → appeal.result 回流 → `ModerationAppealResultConsumer.handleAppeal`：删 last-hash 免审键 → 回查处罚权威态 `ReviewClient.getPunishStatus`（封禁中不放行）→ CAS 对称恢复 3→2 首发 / 4→2 下架（仅此两向、仅申诉来源）→ 连带逐张 `FileClient.unquarantine` 恢复隔离配图 → 发 content.published 恢复索引对称性
+1. 作者申诉 → review 改判裁决 → appeal.result 回流 → `ModerationAppealResultConsumer.handleAppeal`：删 last-hash 免审键 → 回查处罚权威态 `ReviewClient.getPunishStatus`（封禁中不放行）→ CAS 对称恢复 3→2 首发 / 4→2 下架（仅此两向、仅申诉来源）→ 连带逐张 `FileClient.unquarantine` 恢复隔离配图与封面 → 发 content.published 恢复索引对称性
 2. 用户被封 → `UserBannedConsumer.handleUserBanned`：查作者全部已发布+已下架未删文章 → 批量 CAS 2→4 → 逐篇发 content.unpublished + 三键失效 + 审计留痕 operator = system(mq)
 3. 全程兜底约束：下架四路径（软删/转私密/复审驳回/封禁连带）统一收口同一套动作；`TagCountReconcileJob` 定时校正标签计数漂移
 
@@ -117,7 +118,8 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 > **单篇创建并发布**
 >
-> - **前置校验**：可见文本非空、标题 ≤100、正文/配图至少其一非空；正文 HTML 白名单净化后入库
+> - **前置校验**：可见文本非空、标题 ≤100、正文/配图至少其一非空；正文硬上限 256KB（`ContentLengthGuard` 四路收口：发布/建档/编辑/草稿保存，超限错误信息含当前长度/上限并软引导拆分书籍章节发布）；正文 HTML 白名单净化后入库
+> - **DFA 同步闸门**：正文（assemble 后）与摘要（stripTags 后）分别过 DFA 判定——黑名单词直接拦截发布，观察词仅留痕；摘要不进 assemble 口径、不参与 content\_hash（存量免审缓存不失配）
 > - **免审分流**：内容指纹未变且上次结论为通过 → 直接发布；否则落库待审并异步送审，接口即时返回，不等审核结果
 >
 > **批量发布**
@@ -132,11 +134,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >
 > - 转公开要求文章已过审；已发布转私密触发下架收口（事件+缓存失效）
 
-**链路位置**：完整链路阶段二 · 发布同步段（宿主本地执行，不依赖 review 可用性）
-
-> 1. 单篇创建并发布（`ArticleServiceImpl`）：`ZoneRouter` 分区权限（zone = 2 需 AUTHOR；阶段12 后仅此一条分区权限）→ `ArticleStateMachine` 状态流转合法性 → `SubmitTextAssembler.assemble` 拼接标题+正文算 content\_hash → `PublishTextPrecheck` 空内容/标题 ≤100 → 正文 `ArticleHtmlSanitizer.sanitize` 白名单净化后落库
-> 2. 免审判定 `LastHashExemptChecker.decide`：content\_hash 未变 + 上次 PASS + 非驳回态 → CAS 0→2 直落发 content.published（**免文不免图**——配图仍发 image.submit 复审）；未命中 → CAS 0→1 回填批次 ID → afterCommit `ContentEventProducer` 发 content.submitted（事件体不含正文，review 经 ContentClient 回查）→ 即时返回「审核中」，发布 RT 不被审核绑架
-> 3. 批量发布 `publishBatch`：单批 ≤20，`TransactionTemplate` 逐篇独立事务，失败不回滚已成功篇目，逐篇回执
+**链路位置**：完整链路阶段二 · 发布同步段（宿主本地执行，不依赖 review 可用性；逐步编排细节见上方「阶段二 · 发布同步段」，不在此重复）
 
 <br />
 
@@ -155,6 +153,11 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
   不替代发布闸门
 - 改可见性：转公开限定 status = 2（未过审内容禁公开）且不重审；\
   已发布转私密必发 content.unpublished + 失效缓存（fail-safe 不阻断批量主流程）
+- 定时发布 `publishDueScheduled`（项2 2026-11-02）：\
+  草稿态文章经 PUT /article/{id} 设 `scheduledPublishTime`（仅 status=0、须未来时间；`cancelScheduledPublish=true` 取消，两者互斥）；\
+  `ArticleScheduledPublishJob` 每 1min 扫描到点草稿（status=0 && scheduled\_publish\_time≤now && 未软删，单轮 ≤100 篇），逐篇复用 publishBatch 走既有送审链路——**作者意志的延迟执行，零新增状态机分支**；\
+  多实例分布式锁单点扫描 + 单篇 CAS 0→1 幂等防重；\
+  发布成功或失败均清空定时字段：失败不静默（warn 留痕，文章停留草稿态作者在"我的文章"可见，重试无意义故不重扫）
 
 <br />
 
@@ -171,11 +174,15 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > - ArticlePublishService.java：
 >   litisle\_content\service\ArticlePublishService.java：
 >   作用：
->   发布编排接口，声明批量发布、批量改可见性、发布前预检等入口契约
+>   发布编排接口，声明批量发布、批量改可见性、发布前预检、定时发布到点扫描等入口契约
 > - ArticlePublishServiceImpl.java：
 >   litisle\_content\service\impl\ArticlePublishServiceImpl.java：
 >   作用：
->   发布编排实现——批量发布（单批上限/逐篇独立事务/逐篇回执）、批量改可见性（转公开限已发布、转私密发下架事件）、预检（DFA 只回 hit/risk）
+>   发布编排实现——批量发布（单批上限/逐篇独立事务/逐篇回执）、批量改可见性（转公开限已发布、转私密发下架事件）、预检（DFA 只回 hit/risk）、定时发布到点扫描（复用 publishBatch 送审链路，发布/失败均清定时字段）
+> - ArticleScheduledPublishJob.java：
+>   litisle\_content\job\ArticleScheduledPublishJob.java：
+>   作用：
+>   定时发布任务（项2 2026-11-02）——@Scheduled 固定周期（默认 1min）+ enabled 开关 + 分布式锁单点 + fail-safe 吞异常下轮重试，范式对齐 FeedHotRankRefillJob；扫描逻辑收口在 ArticlePublishService#publishDueScheduled，job 只做开关/锁/调用/日志
 > - ArticleServiceImpl.java：
 >   litisle\_content\service\impl\ArticleServiceImpl.java：
 >   作用：
@@ -313,12 +320,12 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >
 > - **归属校验**：按 draft/article 的 author\_id 与当前登录用户比对，非本人拒绝——防横向越权改写他人草稿
 > - **并发冲突**：请求携带 baseVersion 与 draft\_version 比对：相等 →UPSERT 递增；落后 → 返回冲突提示刷新（乐观锁拒绝后写覆盖先写，防丢更新）；同版本重复提交幂等跳过
-> - **快照保留**：同一草稿仅保留最近 N 版（litisle.content.draft.keep-versions，默认 10），超限滚动清理最旧快照，防 longtext 快照无限膨胀
-> - 草稿图片暂存 article\_image.draft\_id；发布时切换归属，废弃草稿的孤儿图片由 file 对账链路兑底
+> - **单行覆盖**：每个草稿仅一行，每次保存原地覆盖、只存最新内容（历史版本不留存，防 longtext 正文把表撑大）；draft\_version 递增仅作多端并发保护的乐观锁计数，不是版本历史
+> - 草稿图片暂存 article\_image.draft\_id；发布时切换归属，废弃草稿的孤儿图片由 file 对账链路兜底
 
 **功能描述：**
 
-> - 草稿保存/草稿箱/详情/删除：版本冲突拒绝，历史快照滚动保留
+> - 草稿保存/草稿箱/详情/删除：版本冲突拒绝，单行覆盖只存最新版（无历史版本）
 > - 正文插图：校验归属与业务类型，占位符+对齐信息分离存储
 > - 渲染期占位符替换为带对齐样式的图片标签
 
@@ -326,7 +333,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 > 1. 保存草稿（`DraftServiceImpl` 快照 UPSERT）：\
 >    baseVersion 与 draft\_version 乐观锁比对，落后即拒（ARTICLE\_DRAFT\_CONFLICT 防两个标签页互相覆盖）\
->    归属校验防横向越权；超过 draft.keep-versions = 10 滚动清理最旧快照
+>    归属校验防横向越权；单行 UPSERT 原地覆盖只保留最新版本（无历史版本留存）
 > 2. 插入正文图片：\
 >    校验 fileId 归属本人且 bizType = ARTICLE\_IMG（防引用他人文件/违规图）\
 >    写 article\_image（position\_order/align）；正文只存 `{img:file_id}` 占位符，图片对齐权威单独存表
@@ -337,7 +344,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 - 草稿快照 UPSERT：\
   baseVersion 与 draft\_version 乐观锁比对，落后即拒（ARTICLE\_DRAFT\_CONFLICT 防后写覆盖先写）；归属校验防横向越权；\
-  draft.keep-versions = 10 滚动清理最旧快照；草稿独立表隔离高频写低频读
+  单行 UPSERT 原地覆盖只存最新内容（不保留历史版本）；草稿独立表隔离高频写低频读
 - 正文只存 `{img:file_id}` 占位符，对齐权威在 article\_image（align 5 种）；\
   插图校验 fileId 归属本人且 bizType = ARTICLE\_IMG（防引用他人文件/违规图，ARTICLE\_IMG\_REFUSED）；\
   发布时归属切换 draft\_id→article\_id
@@ -354,7 +361,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > - DraftService.java / DraftServiceImpl.java：\
 >   litisle\_content\service\DraftService.java、service\impl\DraftServiceImpl.java：\
 >   作用：\
->   草稿域接口与实现——快照 UPSERT、baseVersion 乐观锁冲突拒绝、归属校验、超限滚动清理最旧版本、发布时回填 article\_id
+>   草稿域接口与实现——快照 UPSERT、baseVersion 乐观锁冲突拒绝、归属校验、发布时回填 article\_id
 > - DraftController.java：\
 >   litisle\_content\controller\DraftController.java：\
 >   作用：\
@@ -362,7 +369,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > - ArticleDraft.java：\
 >   litisle\_content\domain\entity\ArticleDraft.java：\
 >   作用：\
->   草稿快照实体，draft\_version 递增留痕，新草稿 article\_id 为空、发布时回填
+>   草稿快照实体，draft\_version 递增作多端并发编辑的乐观锁计数，新草稿 article\_id 为空、发布时回填
 > - ArticleImage.java：\
 >   litisle\_content\domain\entity\ArticleImage.java：\
 >   作用：\
@@ -384,22 +391,30 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 **功能描述：**
 
 > - 建书、章节挂载/卸载（仅本人文章、序号唯一）、书籍状态流转（连载中/完结/下架）
-> - 阅读历史上报：单表双类型按人按对象唯一、节流限频、PUT 仅前进不回退；阅读文章详情即自动落历史
+> - 章节批量重排（PUT /book/{id}/chapters/reorder）：拖拽后全量提交新序 1..N，两阶段偏移解唯一键冲突（下架书拒重排）
+> - 阅读历史上报：单表双类型按人按对象唯一、节流限频、PUT 仅前进不回退；阅读文章详情即自动落历史；单用户每类型上限 500 条（写入时懒删最旧行）
 
 **详细版**：
 
 - book + book\_chapter：\
   `uk(book_id, chapter_no)` 章节序号不重复、序号即排序键；\
   章节挂载校验文章归属本人（BOOK\_CHAPTER\_MISMATCH 防伪造跨书章节）；\
-  book.status 0-连载中/1-已完结/2-下架
+  book.status 0-连载中/1-已完结/2-下架；\
+  章节批量重排（批次5 2026-11-02）：全量提交新序（清单与本书章节一一对应 + 新序恰 1..N 连续无重复，违者 BOOK\_CHAPTER\_REORDER\_INVALID(30019) 整单拒绝）；\
+  唯一键冲突用**两阶段偏移**落库——①整书序号 += 1千万进临时区 ②CASE WHEN 单语句落正值，禁先删后插（章节行含挂载关系）；单事务 + book 粒度分布式锁防并发互踩；下架书拒重排；排序键即 chapter\_no，重排后章节列表/上一章下一章导航自动生效
 - reading\_history（单表双类型）：\
   书籍历史 biz\_type=1（含最后章节）/ 独立文章历史 biz\_type=2，`uk_user_biz(user_id, biz_type, biz_id)` 每人每类型每对象一行；\
-  PUT 上报：章节归属校验 + @RateLimiter 2/60s 配合前端 + **仅前进不回退**；\
-  阅读即落历史：文章详情命中自动落（归属判定：无挂载→文章历史 / 唯一挂载→书籍历史 / 多书歧义不自动落），自动路径按「最后一次阅读」刷新可回退
+  PUT 上报：章节归属校验 + @RateLimiter 2/60s 配合前端 + **仅前进不回退**（防多端乱序上报把进度拖回去）；\
+  阅读即落历史：文章详情命中自动落（归属判定：无挂载→文章历史 / 唯一挂载→书籍历史 / 多书歧义不自动落）+ 章节详情读章自动落书籍历史（recordBookRead）；\
+  自动路径均按「最后一次阅读」刷新，回读旧章进度可回退——「仅前进」只约束 PUT 手动上报；\
+  增长治理：单用户每类型上限 500 条（HISTORY\_MAX\_PER\_USER），新插入行后懒删最旧行（按最后阅读时间，idx\_user\_time 支撑，fail-safe 删失败不影响落历史，零 job 零 yml 配置）
 
 **通俗版**：\
 书籍是文章的「目录容器」，同本书章节号不能重复、序号就是排序，挂进书的章节必须是自己写的文章。\
-阅读历史分书籍历史（记住你看到哪一章，30 秒最多上报一次、只能往后翻不能往回退）和文章历史（读过的文章详情就自动记下），同一本书/文章只记最新一次。
+想给章节调顺序？在目录页拖好顺序后一键保存即可，系统会整单核对后安全落库（不会出现序号断档或两章撞号）；书被下架期间不能调顺序。\
+阅读历史分书籍历史（记住你看到哪一章）和文章历史（读过的文章详情就自动记下），同一本书/文章只记最新一次。\
+历史不是无限攒的：每类最多记 500 条，记满后最旧的那条会被自动清掉，腾位置给新记录。\
+手动「上报进度」只能往后翻不能往回退（防多端乱序把进度拖回去，60 秒最多报 2 次）；但实际读章节/读文章是按「最后一次阅读」自动刷新的，回读旧章进度会跟着回退。
 
 代码部分:
 
@@ -410,7 +425,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > - ReadingHistoryService.java / ReadingHistoryServiceImpl.java：\
 >   litisle\_content\service\ReadingHistoryService.java、service\impl\ReadingHistoryServiceImpl.java：\
 >   作用：\
->   阅读历史——单表双类型 UPSERT、章节归属校验、PUT 仅前进不回退、阅读即落历史、历史列表分页装配
+>   阅读历史——单表双类型 UPSERT、章节归属校验、PUT 仅前进不回退（只约束`PUT /reading-history` 手动上报 ：新章节序号 > 当前记录序号才更新，否则忽略，防多端乱序回退进度）、阅读即落历史、历史列表分页装配
 > - Book.java / BookChapter.java / ReadingHistory.java：\
 >   litisle\_content\domain\entity\Book.java、entity\BookChapter.java、entity\ReadingHistory.java：\
 >   作用：\
@@ -438,6 +453,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 看到喜欢的文章或书点个「收藏」，再点一次取消；「我的收藏」里能翻到自己收藏过的全部内容（被删的不显示，转私密的还留着但点开要过详情那关）。
 
 > 代码清单：
+>
 > - FavoriteService.java / FavoriteServiceImpl.java / FavoriteStateSupport.java：\
 >   litisle\_content\service\FavoriteService.java、service\impl\FavoriteServiceImpl.java、service\support\FavoriteStateSupport.java：\
 >   作用：\
@@ -460,18 +476,19 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 - 书籍详情（GET /book/{id}）：元数据 + 可见章节数 + 首章/最新章定位 + 上次阅读信息（登录且历史章节当前可见才回填）+ 收藏状态；匿名可读公开书籍
 - 章节列表（GET /book/{id}/chapters）：chapter\_no 升序分页（默认 50/页上限 100），SQL 层过滤「已发布+未删+查看者可见」；「上次读到」高亮由前端用详情 lastReadChapterId 对比
 - 章节详情（GET /book/{id}/chapter/{chapterId}）：正文复用文章可见性判定链 + 相邻章导航（prev/next 随详情返回，SQL 按 visibilities 过滤自动跳过不可见章）；成功后触发浏览计数（所有访问者，按文章维度）+ 书籍阅读历史（登录非作者，uk\_user\_biz 幂等，fail-safe）
-- 可见性范围：作者 [1,2,3] 全可见 / 匿名 [1] / 登录非作者按书内是否有关注者章节决定是否回查关注关系，social 不可用降级仅公开
+- 可见性范围：作者 \[1,2,3] 全可见 / 匿名 \[1] / 登录非作者按书内是否有关注者章节决定是否回查关注关系，social 不可用降级仅公开
 
 **功能描述——通俗版：**
 
 进书页能看到「继续阅读 第N章」（上次读到哪从第几章继续）；目录按章节号排好分页给；读某章直接看正文，页底「上一章/下一章」直接点（被删的或你没权限看的章节自动跳过）；你看过的每一章都默默记进阅读历史。
 
 > 代码清单：
+>
 > - BookChapterDetailVO.java / BookReadSupport.java：\
 >   litisle\_content\domain\vo\BookChapterDetailVO.java、service\support\BookReadSupport.java：\
 >   作用：\
 >   章节详情出参（书籍上下文+正文+相邻章导航）与阅读副作用收口（计数+历史，fail-safe）
-> - BookChapterMapper 新方法（selectVisibleChapterPage 等 8 个）：\
+> - BookChapterMapper 新方法（selectVisibleChapterPage 等 11 个，含批次5 重排 shiftChapterNoToTempArea/applyChapterNo）：\
 >   litisle\_content\mapper\BookChapterMapper.java：\
 >   作用：\
 >   统一 join article 过滤「已发布+未删+visibility IN」的章节分页/首尾章/相邻章/关注章节存在性查询
@@ -526,12 +543,13 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >   作用：\
 >   标签全局池（name 唯一/use\_count 冗余/status 封禁位）与文章-标签多对多关联实体
 
-## 六、推荐流与缓存三防（FeedServiceImpl + FollowRelationCache）
+## 六、推荐流与缓存三防（FeedServiceImpl + FeedHotRankSupport + FollowRelationCache）
 
 **功能描述：**
 
-> - 登录用户推荐流分页查询：缓存三防保障稳定，展示前回查权威态剔除已下线内容
+> - 登录用户推荐流分页查询：热度榜排序（榜空/开关关自动降级时间倒序），缓存三防保障稳定，展示前回查权威态剔除已下线内容
 > - 仅关注者可见内容过滤，social 降级时宁严勿松
+> - 热度榜灌榜：定时任务 5min 增量灌榜 + 1h 全量校正，榜缺失自动全量重建（social 未落地期间 like/comment 恒 0，排序退化为浏览量+时间衰减）
 
 **功能描述——详细版：**
 
@@ -557,12 +575,20 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 - 展示前回查：\
   缓存 TTL 内文章可能已下架/转私密/软删——渲染前批量回查权威态 status = 2 且 visibility = 1，已下线即时剔除；\
   feed.cache-ttl-seconds = 300 / feed.page-size = 20，@RateLimiter 60/60s
+- 热度榜排序（阶段14 已落地）：\
+  灌榜任务 FeedHotRankRefillJob 5min 周期 + 分布式锁单点，refillAuto 三分支编排——榜缺失全量重建 / 距上次全量 ≥1h 全量校正分数衰减 / 其余增量灌榜（读增量水位只捞 stat\_update\_time ≥ 水位的变更文章——该列仅由浏览/点赞/评论计数回写刷新，update\_time 保持「编辑才变」的业务语义，2026-11-03 批次E 修正，防浏览老文章被误顶到最新列表，重复 ZADD 幂等）；\
+  全量轮影子键灌榜 + rename 原子换榜（灌榜期间读方无空榜窗口）；增量轮 ZADD 后裁剪保 top N 防无界增长；\
+  榜 TTL 30min，任务连续异常死亡后榜自动过期，/feed 自动降级时间倒序（自愈闭环，无补偿逻辑）；\
+  热度分 = (like×3 + comment×2 + view×0.2)/(小时数+2)^1.5，权重 yml 外置；social 未落地期间 like/comment 恒 0，公式退化为浏览量+时间衰减，链路先行跑通
+- 回源读榜：\
+  hot.enabled 且榜非空 → 按 ZSet 榜序组装（in 查询不保序，按榜返回顺序重排）；榜空/开关关 → 时间倒序直查兜底
 - 仅关注者内容回查 `FollowRelationCache`，降级宁严勿松
 
 **通俗版**：\
 推荐流列表先走缓存：缓存失效瞬间只放一个请求去数据库重建，其余等结果（防击穿）；\
 查不到的页也短暂记住「没有」（防穿透）；过期时间加随机抖动（防雪崩）。\
-缓存里的文章可能在过期前被下架，所以展示前还要批量核实一遍「现在还能看吗」，不能看的立刻撤下。
+缓存里的文章可能在过期前被下架，所以展示前还要批量核实一遍「现在还能看吗」，不能看的立刻撤下。\
+排序不是简单的时间倒序，而是定时任务维护的热度榜（互动加权+时间衰减算分）；榜单出问题会自动退回时间倒序，不会开天窗。
 
 代码部分:
 
@@ -574,6 +600,14 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >   litisle\_content\cache\FollowRelationCache.java：\
 >   作用：\
 >   仅关注者可见性的关注关系缓存，social 回查结果短 TTL 缓存 ±10% 抖动，降级按非关注者处理（宁严勿松）
+> - FeedHotRankSupport.java：\
+>   litisle\_content\service\support\FeedHotRankSupport.java：\
+>   作用：\
+>   热度榜读写——算分与影子键全量灌榜+rename 原子换榜、增量灌榜（水位读取+幂等 ZADD+裁剪）、榜序回源组装、榜空降级判定
+> - FeedHotRankRefillJob.java：\
+>   litisle\_content\job\FeedHotRankRefillJob.java：\
+>   作用：\
+>   灌榜定时任务（5min 周期+分布式锁单点），refillAuto 按榜/水位状态自动选择全量重建或增量灌榜
 > - FeedController.java：\
 >   litisle\_content\controller\FeedController.java：\
 >   作用：\
@@ -670,7 +704,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 **功能描述：**
 
-> - 申诉改判恢复：平反文章（3→2/4→2 仅申诉来源）并连带恢复隔离配图
+> - 申诉改判恢复：平反文章（3→2/4→2 仅申诉来源）并连带恢复隔离配图与封面
 > - 封禁连带下架：用户被封时名下文章批量下架并清缓存
 > - 下架四路径统一收口：软删/转私密/复审驳回/封禁连带同一套动作，禁只写不失效
 
@@ -679,7 +713,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > **申诉改判恢复**
 >
 > - 仅申诉来源可 3→2 / 4→2 恢复；恢复前回查作者处罚状态，封禁中不放行（防晚到申诉翻转封禁结果）
-> - 平反时连带恢复被隔离配图；恢复发布后重建搜索/AI 索引对称
+> - 平反时连带恢复被隔离配图与封面；恢复发布后重建搜索/AI 索引对称
 >
 > **封禁连带下架**
 >
@@ -689,11 +723,11 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 **链路位置**：完整链路阶段六 · 异议与连带
 
-> 1. 作者申诉 → review 改判裁决 → appeal.result 回流 → `ModerationAppealResultConsumer.handleAppeal`\
+> 1. 作者申诉 → review 改判裁决 → appeal.result 回流 → `ModerationAppealResultConsumer` 消费委托 `ArticleReviewWriteBackServiceImpl#handleAppeal`\
 >    删 last-hash 免审键 → 回查处罚权威态 `ReviewClient.getPunishStatus`（封禁中不放行）\
 >    CAS 对称恢复 3→2 首发 / 4→2 下架（仅此两向、仅申诉来源）\
->    连带逐张 `FileClient.unquarantine` 恢复隔离配图 → 发 content.published 恢复索引对称性
-> 2. 用户被封 → `UserBannedConsumer.handleUserBanned`\
+>    连带逐张 `FileClient.unquarantine` 恢复隔离配图与封面 → 发 content.published 恢复索引对称性
+> 2. 用户被封 → `UserBannedConsumer` 消费委托 `handleUserBanned`\
 >    查作者全部已发布+已下架未删文章 → 批量 CAS 2→4\
 >    逐篇发 content.unpublished + 三键失效 + 审计留痕 operator = system(mq)
 
@@ -706,7 +740,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
   **删 last-hash 免审键**（键里可能存 REJECT 结论，不清则发布侧误提示；fail-safe 不阻断）；\
   改判前回查处罚权威态 `reviewClient.getPunishStatus`（封禁中拒绝放行，防晚到申诉翻转封禁连带结果；回查异常穿透交延迟重试，禁静默吞错）；\
   CAS allow-list 对称恢复 **3→2 首发 / 4→2 下架（仅此两向、仅申诉来源）**；\
-  4→2 连带逐张 `fileClient.unquarantine` 恢复隔离配图（幂等，单张失败留痕不阻断）；\
+  4→2 连带逐张 `fileClient.unquarantine` 恢复隔离配图与封面（幂等，单张失败留痕不阻断；封面恢复成功单独按 COVER 四元组补登记引用）；\
   发 content.published 恢复 search/ai(RAG) 索引对称性
 - 封禁连带 `handleUserBanned`：\
   查作者全部已发布+已下架未删文章（含已下架 = 重试补发自愈窗口）→ 批量 CAS 2→4；\
@@ -718,7 +752,8 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 **通俗版**：\
 作者申诉成功后，平台「以最新结论为准」恢复文章——但恢复前先确认作者本人没被封禁（防止晚到的申诉把被封用户的违规内容翻回来）；\
-如果当初连配图一起被隔离了，平反时配图也一并恢复。\
+如果当初连配图或封面一起被隔离了，平反时也一并恢复。\
+配图恢复窗口：隔离图（正文配图与封面）到期软删后仍有 7 天缓冲期，期内改判可完整恢复（含引用计数补登记）；缓冲期满被物理清理后才改判的，配图/封面永久丢失，文章照常恢复、图片呈死链（申诉发起窗口 ≤ 留存窗口，策略上不会出现）。\
 用户被封号时，名下所有已发布文章连带下架，并清掉一切可能让旧内容继续可见的缓存。\
 所有下线路径（自己删、转私密、复审驳回、封禁）走同一套收口动作，防止搜索结果或向量库留残留。
 
@@ -739,7 +774,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 > - FileClient.java：\
 >   litisle\_api\feign\FileClient.java：\
 >   作用：\
->   file 服务 Feign 客户端——4→2 平反后逐张恢复被隔离配图（unquarantine 幂等）
+>   file 服务 Feign 客户端——4→2 平反后逐张恢复被隔离配图与封面（unquarantine 幂等）
 > - UnpublishedCacheCleaner.java：\
 >   litisle\_content\cache\UnpublishedCacheCleaner.java：\
 >   作用：\

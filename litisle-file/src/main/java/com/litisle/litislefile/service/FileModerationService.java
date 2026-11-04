@@ -12,8 +12,9 @@ import java.util.Map;
  * 由 ModerationResultListener（MQ）与 FileFeignProviderController 消费）：
  *
  * void quarantine(String fileId)      // 违规图隔离（moderation 侧 REJECT 时经 Feign 调用）
- * void unquarantine(String fileId)    // 隔离恢复（申诉改判 PASS 时经 Feign 调用）
- * void deleteQuarantined(String fileId) // 隔离图到期删除（review 侧 QuarantineSweeper 保留期收口经 Feign 委派）
+ * void unquarantine(String fileId)    // 隔离恢复（申诉改判 PASS 时经 Feign 调用，含软删态恢复）
+ * void deleteQuarantined(String fileId) // 隔离图到期软删（review 侧 QuarantineSweeper 保留期收口经 Feign 委派）
+ * void unbindAllRefs(String fileId)   // 按 fileId 解绑全部引用（审核终结证据专用）
  * void updateSafeFlag(String fileId, SafeFlagEnum safeFlag) // 审核结果回写 safe_flag
  * Map<String, Integer> batchGetSafeFlags(List<String> fileIds) // 批量读取 safe_flag
  * Map<String, String> batchGetSha256(List<String> fileIds)     // 批量查询 sha256（3.2 配图聚合指纹用）
@@ -30,17 +31,28 @@ public interface FileModerationService {
 
     /**
      * 隔离恢复（申诉链路：改判 PASS 时经 Feign 调用）：
-     * 对象从 quarantine/ 前缀移回原前缀，safe_flag 回 1；幂等（不在隔离前缀则跳过）
+     * 对象从 quarantine/ 前缀移回原前缀，safe_flag 回 1；
+     * 到期软删记录（del_flag=1，缓冲期内）支持完整恢复（对象验在 → 前缀移回 → 解除软删）；
+     * 幂等（不在隔离前缀则跳过）
      */
     void unquarantine(String fileId);
 
     /**
-     * 隔离图到期删除（6-3.2，review 侧 QuarantineSweeper 保留期收口经 Feign 委派）：
-     * 前缀校验（必须已在 quarantine/ 前缀，防误删正常文件）→ 删本体 + 缩略图
-     * （SeaweedFS 回收站兑底 7 天）→ 软删 del_flag=1 退出活跃池/秒传判重池；
-     * 幂等（记录不存在/已软删直接跳过，重复指令与重扫安全）
+     * 隔离图到期软删（6-3.2，review 侧 QuarantineSweeper 保留期收口经 Feign 委派）：
+     * 前缀校验（必须已在 quarantine/ 前缀，防误删正常文件）→ 软删 del_flag=1 退出活跃池/秒传判重池
+     * + 按 fileId 解绑全部引用，不删 SeaweedFS 对象；对象在软删缓冲期（7 天）内保留可恢复，
+     * 期满由对账任务统一物理清理；幂等（记录不存在/已软删直接跳过，重复指令与重扫安全）
      */
     void deleteQuarantined(String fileId);
+
+    /**
+     * 按 fileId 解绑全部引用（审核侧专用，隔离图到期软删时调用）：
+     * <p>突破「四元组精确解绑」铁律按 fileId 全删——铁律保护的是正常业务流防误删他人引用；
+     * 审核终结违规证据属管理动作，file_ref 为纯计数登记，按 fileId 全删不伤业务数据</p>
+     *
+     * @param fileId 文件ID
+     */
+    void unbindAllRefs(String fileId);
 
     /**
      * 审核结果回写 safe_flag（仅元数据更新，不移动对象）

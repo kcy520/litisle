@@ -22,6 +22,13 @@ CREATE DATABASE IF NOT EXISTS litisle_review
   DEFAULT CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
+-- search 域数据库（表结构由 search-schema.sql 创建：
+--   search_history 唯一自有表——用户搜索词记录；
+--   00 脚本必须先授权，否则 search 服务启动报 Access denied）
+CREATE DATABASE IF NOT EXISTS litisle_search
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
 -- Nacos 配置中心数据库（表结构由挂载的官方 mysql-schema.sql 创建：
 --   ./docker/init/nacos/mysql-schema.sql → 容器内 10-nacos-schema.sql，
 --   该脚本只有 CREATE TABLE，库必须在这里提前建好，否则首次初始化报 No database selected）
@@ -50,6 +57,7 @@ GRANT ALL PRIVILEGES ON litisle_user.*   TO 'test_k.1'@'%';
 GRANT ALL PRIVILEGES ON litisle_content.* TO 'test_k.1'@'%';
 GRANT ALL PRIVILEGES ON litisle_file.*    TO 'test_k.1'@'%';
 GRANT ALL PRIVILEGES ON litisle_review.*  TO 'test_k.1'@'%';
+GRANT ALL PRIVILEGES ON litisle_search.*  TO 'test_k.1'@'%';
 
 -- Seata 专用账号（最小权限：仅 seata_server 库，含 DDL——首启建表需要）
 -- 注意：密码硬编码在此处，必须与 .env 中 SEATA_DB_PASSWORD 保持一致

@@ -38,7 +38,7 @@ llm: temperature=0; fewShotVersion=v1; maxTextChars=6000; chunkStepChars=5500; c
 cache: ttlHours=72; ttlJitterRatio=0.1(±10%抖动); dedup.lockSeconds=60; wordlib.snapshotDir=~/.litisle/review/dfa-snapshot
 qps: 全站QPS护栏（Redis不可用切本地兑底）  ｜  retry: 消费端指数退避（max-count/间隔，sweeper 阈值须大于退避总时长）
 sweeper: claimTimeoutMinutes=30; appealTimeoutDays=7; stuckResubmitMinutes=30; stuckResubmitEveryRounds=30; batchLimit=100; lockSeconds=30
-quarantine: retentionDays=30; batchLimit=100; deleteRatePerMinute=30; lockSeconds=300
+quarantine: retentionDays=10(⚠️ 2026-11-02 过期值修正，原文档误记 30); batchLimit=100; deleteRatePerMinute=30; lockSeconds=300（到期软删由 Sweeper 委派 file 侧，物理清理统一交 file 侧对账任务，可恢复窗口=10+7=17 天）
 record: retentionMonths=6; archiveEnabled=false(默认关); batchLimit=500; lockSeconds=300
 rejectBlacklist.ttlDays=30(默认值归 shared.yaml)  ｜  claim.maxActivePerReviewer=20  ｜  report.abuseThreshold=3
 alert: suspiciousBacklogThreshold=50; dlqBacklogThreshold=100; moderationFailRate=0.2; passRateDropRatio=0.3; cacheHitDropRatio=0.5
@@ -69,7 +69,7 @@ Controller：ReportController / ReviewTaskController / AppealController / Punish
 
 ## Sweeper（sweeper 包，板块六）
 ReviewTaskSweeper：认领超时回池 / 申诉超时维持原判 / 三态 Gauge+DLQ 监控 / 任务内分频 stuck 重投（dedup 短锁防双投，retryCount 不归零）
-QuarantineSweeper：违规图隔离清理，申诉豁免、限速删除、双标签 Gauge
+QuarantineSweeper：违规图到期软删（委派 file 侧软删+解绑引用，不删对象；缓冲 7 天内可恢复，期满物理清理），申诉豁免、限速删除、双标签 Gauge
 ModerationRecordArchiveSweeper：留痕归档（archiveEnabled=false 占位，id 区间推进，引用保护跳过）
 PunishReconcileSweeper：处罚双向对账，复用 forceLogout 契约正向补踢，反向仅回查覆盖
 
