@@ -60,9 +60,11 @@ public class SuggestServiceImpl implements SuggestService {
         if (!properties.getSuggest().isEnabled()) {
             return List.of();
         }
-        // 步骤2：关键词归一化，空/超长直接返回空（联想不做强校验报错）
+        // 步骤2：关键词归一化，空串/单字/超长直接返回空（联想不做强校验报错）
         String normalized = keyword == null ? "" : keyword.trim();
         if (normalized.isEmpty()
+                // 最小长度门槛：单字输入命中率低且放大 completion/标签池查询，企业优化清单 1.1
+                || normalized.length() < SearchBizConstant.SUGGEST_MIN_KEYWORD_LENGTH
                 || normalized.length() > SearchBizConstant.SEARCH_KEYWORD_MAX_LENGTH) {
             return List.of();
         }

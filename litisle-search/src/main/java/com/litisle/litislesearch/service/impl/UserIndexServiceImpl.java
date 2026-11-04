@@ -9,6 +9,7 @@ import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.domain.entity.UserIndexDoc;
 import com.litisle.litislesearch.service.UserIndexService;
+import com.litisle.litislesearch.service.support.IndexVersionGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,9 @@ public class UserIndexServiceImpl implements UserIndexService {
     /** search 配置（索引名等） */
     private final SearchProperties properties;
 
+    /** 索引版本守卫（企业优化清单 2.1：旧快照迟到时跳过写入，防覆盖新快照） */
+    private final IndexVersionGuard indexVersionGuard;
+
     /**
      * 处理用户索引同步：回查 → 门控 → upsert 或删除。
      *
@@ -62,7 +66,12 @@ public class UserIndexServiceImpl implements UserIndexService {
                     userId, dto.getStatus(), dto.getDelFlag());
             return;
         }
-        // 步骤4：组装并 upsert 索引文档（按 userId 幂等覆盖）
+        // 步骤4：版本比较——旧快照迟到（现有 updateTime 不早于本次）时跳过写入，防资料回退（清单 2.1）
+        if (indexVersionGuard.isStale(properties.getIndex().getUser(), String.valueOf(userId),
+                dto.getUpdateTime(), UserIndexDoc.class, UserIndexDoc::getUpdateTime)) {
+            return;
+        }
+        // 步骤5：组装并 upsert 索引文档（按 userId 幂等覆盖）
         upsertUserDoc(buildIndexDoc(dto));
         log.info("[索引同步] 用户索引写入完成：userId={}", userId);
     }

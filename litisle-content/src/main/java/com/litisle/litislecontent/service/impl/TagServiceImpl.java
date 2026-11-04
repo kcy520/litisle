@@ -53,6 +53,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TagServiceImpl implements TagService {
 
+    /** 缓存 TTL 抖动比例（±10%）：同一批写入的缓存键分散过期，防集中回源雪崩 */
+    private static final double CACHE_TTL_JITTER_RATIO = 0.1;
+
     private final TagMapper tagMapper;
 
     private final ArticleTagMapper articleTagMapper;
@@ -80,24 +83,40 @@ public class TagServiceImpl implements TagService {
          * 前缀搜索流程：
          *
          * ① 空参直接返回空列表（前端联想空串不查池）。
-         * ② 前缀匹配：按标签名前缀搜索，只出正常态未删除的标签
-         *    （封禁/已删不聚合展示，不给违规词引流）；
+         * ② 读短缓存：命中直接返回（企业优化清单 1.2，前缀联想为高频只读，避免每次直查标签池）。
+         * ③ 未命中查库：前缀匹配，只出正常态未删除的标签（封禁/已删不聚合展示，不给违规词引流）；
          *    LIKE 通配符转义（防用户输入 %/_ 全池拖出），按使用次数倒序取前 N。
+         * ④ 回填缓存：有结果按基准 TTL ±10% 抖动；空结果短 TTL 防穿透。
          */
 
         // 空参直接返回空列表（前端联想空串不查池）
         if (keyword == null || keyword.isBlank()) {
             return Collections.emptyList();
         }
+        // 规范化前缀（去首尾空白）：缓存键与查询条件共用同一份值，避免 " a" / "a" 各存一份缓存
+        String normalized = keyword.trim();
+        // 缓存键 = 固定前缀 + 规范化关键词；只读聚合不主动失效，靠短 TTL 收敛
+        String cacheKey = CacheConstant.CONTENT_TAG_SUGGEST + normalized;
+        // 缓存命中直接返回（值与 hotTags 同类型：TagVO 列表 JSON）
+        String cached = redisUtil.get(cacheKey);
+        if (cached != null) {
+            return Arrays.asList(JsonUtil.fromJson(cached, TagVO[].class));
+        }
         // 前缀搜索：按标签名前缀匹配；只出正常使用中且未删除的标签（被封禁/已删除的不展示，不给违规词引流）
         // 用 Page 替代手拼 LIMIT：分页插件标准方式（searchCount=false 不触发 COUNT），只取前 N 条联想结果
         List<Tag> tags = tagMapper.selectList(Page.of(1, ContentLimitConstant.TAG_SEARCH_RESULT_LIMIT, false),
                 new LambdaQueryWrapper<Tag>()
-                        .likeRight(Tag::getName, escapeLike(keyword.trim()))
+                        .likeRight(Tag::getName, escapeLike(normalized))
                         .eq(Tag::getStatus, TagStatusEnum.NORMAL)
                         .eq(Tag::getDelFlag, DelFlag.NOT_DELETED)
                         .orderByDesc(Tag::getUseCount));
-        return tags.stream().map(TagServiceImpl::toVO).toList();
+        List<TagVO> voList = tags.stream().map(TagServiceImpl::toVO).toList();
+        // 空结果走 60s 短缓存防穿透；有结果走 8 分钟基准 ±10% 抖动，兼顾新鲜度与防雪崩
+        long cacheTtlSeconds = voList.isEmpty()
+                ? ContentLimitConstant.TAG_SUGGEST_CACHE_TTL_EMPTY_SECONDS
+                : jitteredSuggestTtl();
+        redisUtil.set(cacheKey, JsonUtil.toJson(voList), cacheTtlSeconds, TimeUnit.SECONDS);
+        return voList;
     }
 
 
@@ -418,7 +437,21 @@ public class TagServiceImpl implements TagService {
      */
     private static long jitteredTtl() {
         long base = ContentLimitConstant.TAG_HOT_CACHE_TTL_SECONDS;
-        long jitter = (long) (base * 0.1);
+        long jitter = (long) (base * CACHE_TTL_JITTER_RATIO);
+        return base + ThreadLocalRandom.current().nextLong(-jitter, jitter + 1);
+    }
+
+    /**
+     * 标签联想缓存 TTL（基准 8 分钟，±10% 抖动）。
+     *
+     * 作用：与热门标签缓存同一套防雪崩策略——同一前缀被高频输入时，
+     * 让不同前缀的缓存键分散过期，避免同一时刻集中回源标签池。
+     *
+     * @return 实际缓存秒数（基准值 ±10% 区间内随机）
+     */
+    private static long jitteredSuggestTtl() {
+        long base = ContentLimitConstant.TAG_SUGGEST_CACHE_TTL_SECONDS;
+        long jitter = (long) (base * CACHE_TTL_JITTER_RATIO);
         return base + ThreadLocalRandom.current().nextLong(-jitter, jitter + 1);
     }
 }

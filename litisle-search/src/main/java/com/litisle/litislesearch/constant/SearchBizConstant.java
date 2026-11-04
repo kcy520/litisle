@@ -340,6 +340,17 @@ public final class SearchBizConstant {
     /** 作者 completion suggester 名称（响应按名称分组解析） */
     public static final String SUGGESTER_NAME_AUTHOR = "author_suggest";
 
+    // ==================== 联想风控（企业优化清单 1.1 / 1.3） ====================
+
+    /** 联想最小输入长度（字符）：单字/空串不触发联想，砍掉无效的 completion/标签池查询（1.1） */
+    public static final int SUGGEST_MIN_KEYWORD_LENGTH = 2;
+
+    /** 联想匿名限流窗口（秒）：与内容服务限流矩阵统一 60s（1.3） */
+    public static final int SUGGEST_RATE_WINDOW_SECONDS = 60;
+
+    /** 联想匿名限流阈值（次/窗口/IP）：输入联想为匿名只读接口，按 IP 防爬（1.3） */
+    public static final int SUGGEST_IP_MAX_COUNT = 20;
+
     // ==================== 搜索历史（批次六 6.2） ====================
 
     /** search_history 表名（search 唯一自有表） */

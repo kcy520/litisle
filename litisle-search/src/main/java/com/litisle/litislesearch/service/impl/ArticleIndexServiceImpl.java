@@ -13,10 +13,13 @@ import com.litisle.litislesearch.domain.entity.ArticleMetaDoc;
 import com.litisle.litislesearch.service.ArticleChunkService;
 import com.litisle.litislesearch.service.ArticleIndexService;
 import com.litisle.litislesearch.service.VectorService;
+import com.litisle.litislesearch.service.support.IndexVersionGuard;
 import com.litisle.litislesearch.utils.SearchTextUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
 
 /**
  * 文章索引同步服务实现（批次二 2.2/2.3）。
@@ -52,6 +55,9 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
     /** 向量化服务（模型未接入时返回 null，向量字段缺省） */
     private final VectorService vectorService;
 
+    /** 索引版本守卫（企业优化清单 2.1：旧快照迟到时跳过写入，防覆盖新快照） */
+    private final IndexVersionGuard indexVersionGuard;
+
     /**
      * 处理文章发布：回查 → 门控 → upsert 索引文档 → 重建切片。
      *
@@ -67,10 +73,15 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
                     articleId, dto.getStatus(), dto.getVisibility());
             return;
         }
-        // 步骤3：组装并写入文章索引文档（按 articleId 幂等 upsert）
+        // 步骤3：版本比较——旧快照迟到（现有 updateTime 不早于本次）时跳过整篇写入与切片重建，
+        // 防旧标题/旧正文覆盖新内容（企业优化清单 2.1；等版本按幂等跳过）
+        if (isStaleVersion(articleId, dto.getPublishTime())) {
+            return;
+        }
+        // 步骤4：组装并写入文章索引文档（按 articleId 幂等 upsert）
         ArticleIndexDoc doc = buildIndexDoc(dto);
         upsertArticleDoc(doc);
-        // 步骤4：重建 RAG 知识库切片（正文长度门槛在切片服务内判断）
+        // 步骤5：重建 RAG 知识库切片（正文长度门槛在切片服务内判断）
         articleChunkService.rebuild(doc, doc.getContent());
         log.info("[索引同步] 文章发布写入完成：articleId={}", articleId);
     }
@@ -106,7 +117,11 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
             handleUnpublished(articleId);
             return;
         }
-        // 步骤3：组装元数据局部更新文档（null 字段不序列化，避免清空未变更字段）
+        // 步骤3：版本比较——旧元数据快照迟到时跳过 partial update，防元数据回退（企业优化清单 2.1）
+        if (isStaleVersion(articleId, dto.getPublishTime())) {
+            return;
+        }
+        // 步骤4：组装元数据局部更新文档（null 字段不序列化，避免清空未变更字段）
         ArticleMetaDoc metaDoc = new ArticleMetaDoc();
         metaDoc.setTitle(dto.getTitle());
         metaDoc.setTags(dto.getTags());
@@ -114,7 +129,7 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
         metaDoc.setZone(dto.getZone() == null ? null : String.valueOf(dto.getZone()));
         metaDoc.setCategory(dto.getCategory());
         metaDoc.setUpdateTime(dto.getPublishTime());
-        // 步骤4：partial update（文档不存在说明首发消息丢失，告警并跳过，由后续重发/重建补齐）
+        // 步骤5：partial update（文档不存在说明首发消息丢失，告警并跳过，由后续重发/重建补齐）
         updateArticleMeta(articleId, metaDoc);
         log.info("[索引同步] 文章元数据更新完成：articleId={}", articleId);
     }
@@ -139,6 +154,18 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
         }
         // 其余（远程服务异常/未知错误）属可恢复故障 → 非 BizException，触发延迟重试
         throw new IllegalStateException("回查文章失败（可重试），articleId=" + articleId + ", code=" + code);
+    }
+
+    /**
+     * 判断文章快照是否已过期（供发布/元数据更新两条写路径共用）。
+     *
+     * @param articleId 文章 ID
+     * @param updateTime 快照版本时间（回查 DTO 的 publishTime，content 侧即文章 updateTime）
+     * @return true=现有索引版本不早于本快照，应跳过写入
+     */
+    private boolean isStaleVersion(Long articleId, LocalDateTime updateTime) {
+        return indexVersionGuard.isStale(properties.getIndex().getArticle(), String.valueOf(articleId),
+                updateTime, ArticleIndexDoc.class, ArticleIndexDoc::getUpdateTime);
     }
 
     /**

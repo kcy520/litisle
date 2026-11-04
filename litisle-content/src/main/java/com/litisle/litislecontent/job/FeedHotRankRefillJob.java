@@ -47,6 +47,7 @@ public class FeedHotRankRefillJob {
     /** 灌榜锁键：与 P7 异步重建触发共用（统一收口在 FeedHotRankSupport 常量） */
     private static final String REFILL_LOCK_KEY = FeedHotRankSupport.REFILL_LOCK_KEY;
 
+
     /**
      * 定时灌榜。
      *

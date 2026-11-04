@@ -149,10 +149,11 @@
   - ✅ 2026-11-04：新建实体 `ArticleIndexDoc`/`ArticleMetaDoc`/`ArticleChunkDoc`（字段名用 `@JsonProperty(SearchBizConstant.FIELD_*)`，`@JsonInclude(NON_NULL)` 保证局部更新与空向量不写脏值）
 - [x] 消费 `content.unpublished`：删 article_idx 文档（404 视为成功幂等）+ 删 article_chunks 旧块 + 失效热点查询缓存（四条下架路径全量覆盖，隐私红线）
   - ✅ 2026-11-04：`ArticleIndexServiceImpl#handleUnpublished`——先 `exists` 判断再 delete（不存在按幂等成功跳过，避免 404 误判触发重试）→ `ArticleChunkService#deleteByArticleId`（索引未建时跳过）；四条下架路径统一按删除处理，不按 reason 分流
-  - ⏳ 遗留批次四：热点查询缓存尚未落地（本服务当前无查询缓存），缓存失效随批次四缓存实现接入（实现位置已在代码注释标记）
+  - ⏳ 遗留批次四：热点查询缓存尚未落地（本服务当前无查询缓存），缓存失效随批次四缓存实现接入（实现位置已在代码注释标记）（状态详见批次九 9.3：代码已接线，标注待清理）
 - [x] 消费 `content.article-updated`（A2 定案）：轻量回查 → partial update 元数据字段（title/tags/summary/cover），不动向量与 chunks
   - ✅ 2026-11-04：`ArticleIndexServiceImpl#handleArticleUpdated`——回查后二次门控（文章已下架/转私密则转 `handleUnpublished` 清理）→ 组装 `ArticleMetaDoc`（title/tags/summary/zone/category/updateTime，null 字段不序列化）→ `update + doc` 局部更新；索引文档不存在时 warn 跳过（首发消息可能丢失，待重发/重建补齐）
   - ✅ 2026-11-04：偏差说明——cover 不在本批次索引字段（同 2.1）
+  - ✅ 2026-11-04（企业优化清单 2.1）：`ArticleIndexServiceImpl` 发布路径与元数据更新路径写入前统一走 `IndexVersionGuard` 版本比较（现有 `updateTime` >= 新快照则跳过；发布路径跳过时同步跳过切片重建；读 ES 失败抛可恢复异常交 MQ 重试），book_idx/user_idx 同口径跟进
 - [x] 消费可靠性范式（对齐 review/content 规范）：手动 ACK（MqAckHelper）+ MqIdempotentHelper 幂等 + 业务失败 warn 后 ack 防毒丸 + 异常指数退避延迟重投，耗尽 nack 入 DLQ（SearchMqConfig 已声明拓扑）+ DLQ Consumer 告警留痕
   - ✅ 2026-11-04：新建 `mq/IndexSyncConsumer`（三个 `@RabbitListener`：QUEUE_CONTENT_PUBLISHED/UNPUBLISHED/ARTICLE_UPDATED）——`MqTraceSupport.restore` + `MqAckHelper.executeWithRetry`，bizType≠1 或 bizId 缺失时 warn 后正常返回（ack 丢弃，不浪费重试次数）；异常按指数退避重投到 `litisle.search.delay.exchange`（routingKey=队列名）
   - ✅ 2026-11-04：`SearchMqConfig` 补延迟重投拓扑——`searchDelayExchange`（CustomExchange，x-delayed-message + x-delayed-type=direct）+ 六条延迟绑定（绑定键=队列名）；同时修复既有死信拓扑 bug：六条 DLX→DLQ 绑定键由业务路由键改为队列名，与各队列 `deadLetterRoutingKey(queueName)` 对齐（Direct 精确匹配，原写法死信进不了 DLQ）
@@ -181,7 +182,7 @@
   - ✅ 2026-11-04：衰减基准取文档 `updateTime`（当前实现中兼具发布时间语义，批次二建索引时由 content publishTime 赋值）；缺失时按不衰减(1.0)，半衰期做 0/负值下限防御
   - ✅ 2026-11-04：容错闭环——空键/无有效增量跳过不写 ES；单键取走或解析异常只跳过该键；回查或 `_bulk` 整体异常 → 已取走增量 `mergeBack` 回灌 Redis（点赞/评论 HINCRBY 追加、浏览量 putIfAbsent 保留新值）等下一轮，不静默丢数；`_bulk` 逐条失败单独回灌 + error 留痕，成功条目照常生效
   - ✅ 2026-11-04：`LitisleSearchApplication` 补 `@EnableScheduling`；`litisle.search.weight.heat.*`（like=2/comment=3/view=0.1/time-decay-half-life=168h）与 `heat.flush.*` 沿用既有 SearchProperties + yml（注释同步为「批次三 3.2 已落地」）
-  - ⏳ 遗留批次四：热点查询缓存失效仅留带注释接入标记（`IndexHeatFlushJob` 内），本批次不提前实现缓存
+  - ⏳ 遗留批次四：热点查询缓存失效仅留带注释接入标记（`IndexHeatFlushJob` 内），本批次不提前实现缓存（状态详见批次九 9.3：已接入 evictAll，标注待清理）
 
 ##### 批次四：全文检索（依赖批次一/二；对齐批次D D3）
 
@@ -232,6 +233,7 @@
 - [x] `GET /search/suggest?q=`：article_idx `title.completion` / `authorName.completion` suggester + 聚合 content `GET /tags?keyword=` 标签联想 → 去重合并返回 `SuggestVO{type(KEYWORD/TAG/AUTHOR), text}`；**不建标签索引**（标签池 SSOT 在 content，防双写漂移）；开关/条数走 `litisle.search.suggest.*`
   - ✅ 2026-11-04：新增 `SuggestService/Impl` + `GET /api/search/suggest?q=&size=`（联想端点并入 `SearchController`，未单建 Controller）。实现要点：completion suggester 复用批次一已建的 `title.completion`/`authorName.completion`（**不改 mapping、不建标签索引**）；内容依次取书名→作者→标签，按文本去重、总数封顶；`suggest.enabled` 总开关关闭返回空，词空/超 64 返回空；ES 故障只丢书名/作者联想，content 故障只丢标签联想（降级互不影响）
   - ✅ 2026-11-04：契约层新增 `SuggestVO`、`TagSuggestDTO`；`ContentClient#getTagSuggestions`（降级返回空列表，fail-open）+ content 侧 `ContentInternalService#searchTagSuggestions`（复用 `TagService#searchByPrefix`）+ `/api/feign/content/tag-suggest` 内部端点
+  - ✅ 2026-11-04（企业优化清单 1.1/1.2/1.3）：联想最小输入长度 2 字（`SUGGEST_MIN_KEYWORD_LENGTH`）；`/search/suggest` 补 IP 维度限流 20 次/60s（`RateLimiter.KeyType.IP`）；content `TagServiceImpl#searchByPrefix` 增加 Redis 短缓存（非空 TTL 480s ±10% 抖动、空结果 60s 防穿透），详见 temp.md 批次一
 
 ###### 6.2 SearchHistoryService
 
@@ -258,7 +260,7 @@
   - ✅ 2026-11-04：新增 `SimilarController`（`GET /api/search/similar/{articleId}?topK=`，网关白名单既有 `/api/search/similar/**` 已放行，无额外网关改动）；`SimilarArticleVO` 复用既有契约
   - ✅ 2026-11-04：Embedding 接入骨架——新增 `embedding/EmbeddingProvider` SPI（providerName/modelName/available/embed/embedBatch，禁止硬编码、仅做本地配置判断）；`SearchProperties.embedding` 扩展 provider/model/dimension/base-url/api-key/timeout/batch-size/rebuild-batch-size（yml 同步，密钥用 `${LITISLE_EMBEDDING_API_KEY:}` 环境变量占位符）；`VectorServiceImpl` 改为按 `embedding.provider` 精确匹配提供方，未接入返回 null（开关关闭不告警、未接入仅告警一次）、调用失败/维度不一致返回 null 不阻断索引写入；`VectorService` 新增 `available()`
   - ✅ 2026-11-04：向量全量重建框架——新增 `VectorRebuildService/Impl`（`rebuildArticleVectors` / `rebuildChunkVectors`）：提供方未就绪整体跳过；`search_after` 按主键升序分页（规避 from+size 深分页窗口）→ 逐条向量化 → bulk partial update 只写 `vec_dense`/`chunk_vector`；文章输入与发布链路共用 `SearchTextUtils#buildEmbeddingInput`（标题+摘要+正文截断 2000 字，避免口径漂移），切片直接用 `chunk_text` 原文；**触发方式（管理端点/一次性任务/开关）待确认，本次仅落框架不含自动触发**
-  - ⚠️ 待确认：Embedding 提供方/模型/服务地址/密钥注入方式未定（清单未给选型），本次不写任何提供方适配器，`embedding.enabled=false`、`provider=none` 时行为与现网一致（不写向量字段）
+  - ⚠️ 待确认：Embedding 提供方/模型/服务地址/密钥注入方式未定（清单未给选型），本次不写任何提供方适配器，`embedding.enabled=false`、`provider=none` 时行为与现网一致（不写向量字段）（已由下方选型确认 ✅ 覆盖，状态详见批次九 9.3）
   - ✅ 2026-11-04（选型确认后落地）：OpenAI 兼容主适配器 `OpenAiCompatibleEmbeddingProvider`——`POST {base-url}/v1/embeddings`，批量 16 / 超时 10s / Bearer 密钥（`LITISLE_EMBEDDING_API_KEY`，为空则不发鉴权头）/ 失败返回 null 不阻断索引写入 / 维度由 VectorService 统一校验；模型、地址、密钥、维度全部读 `litisle.search.embedding.*`
   - ✅ 2026-11-04（选型确认后落地）：Ollama 备选适配器 `OllamaEmbeddingProvider`——`POST {base-url}/api/embed`，按 `embedding.provider=ollama` 条件装配（不开主线）；与 OpenAI 适配器共用批量/超时/失败降级骨架
   - ✅ 2026-11-04（选型确认后落地）：新增管理端点 `POST /api/search/admin/rebuild-vectors`（`SaRoleHelper.checkAdmin()` 收口 ADMIN/SUPER_ADMIN，网关未放行需登录态），复用 `VectorRebuildService`；重建成功后把 article_idx + article_chunks 的 `_meta.embedding_model`/`_meta.embedding_dims` 更新为配置中的真实模型名与维度；不做启动自动重建

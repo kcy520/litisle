@@ -16,6 +16,6 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 public class ReadingHistoryQueryDTO extends PageQuery {
 
-    /** 阅读对象类型过滤（可空=全部）：1-书籍 2-独立文章 */
+    /** 阅读对象类型过滤（可空=全部）：1-书籍 2-独立文章；取值与 ReadingTargetTypeEnum 的 code 一致，由 Service 统一 resolve 校验 */
     private Integer bizType;
 }

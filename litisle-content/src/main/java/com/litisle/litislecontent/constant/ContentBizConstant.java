@@ -75,6 +75,23 @@ public final class ContentBizConstant {
     /** 下架原因：3-转私密 */
     public static final int UNPUBLISH_REASON_TO_PRIVATE = 3;
 
+    // ==================== 阅读历史：阅读对象类型（reading_history.biz_type） ====================
+
+    /**
+     * 阅读对象类型：1-书籍（历史行含 chapter_id）
+     * <p>编译期常量：供 Mapper 注解 SQL 做字符串拼接（注解值必须是常量表达式）；
+     * 业务代码统一使用 {@link com.litisle.litislecontent.enums.ReadingTargetTypeEnum}，
+     * 勿在业务层直接引用本常量</p>
+     */
+    public static final int READING_BIZ_TYPE_BOOK = 1;
+
+    /**
+     * 阅读对象类型：2-独立文章（历史行 chapter_id 为 null）
+     * <p>编译期常量：供 Mapper 注解 SQL 做字符串拼接；业务代码统一使用
+     * {@link com.litisle.litislecontent.enums.ReadingTargetTypeEnum}</p>
+     */
+    public static final int READING_BIZ_TYPE_ARTICLE = 2;
+
     // ==================== 定时发布（项2 2026-11-02） ====================
 
     /**

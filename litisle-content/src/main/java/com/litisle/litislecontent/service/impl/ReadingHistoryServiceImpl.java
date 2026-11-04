@@ -16,6 +16,7 @@ import com.litisle.litislecontent.mapper.BookChapterMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.ReadingHistoryMapper;
 import com.litisle.litislecontent.enums.BookStatusEnum;
+import com.litisle.litislecontent.enums.ReadingTargetTypeEnum;
 import com.litisle.litislecontent.constant.ContentLimitConstant;
 import com.litisle.litislecontent.service.ReadingHistoryService;
 import lombok.RequiredArgsConstructor;
@@ -45,12 +46,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ReadingHistoryServiceImpl implements ReadingHistoryService {
 
-    /** 阅读对象类型：书籍（biz_type=1，历史行含 chapter_id） */
-    private static final int BIZ_TYPE_BOOK = 1;
-
-    /** 阅读对象类型：独立文章（biz_type=2，历史行 chapter_id 为 null） */
-    private static final int BIZ_TYPE_ARTICLE = 2;
-
     /** 单批懒删行数上限：正常每次写入只新增 1 行（超额至多几行），封顶 100 防异常数据导致一次大删 */
     private static final int HISTORY_TRIM_BATCH = 100;
 
@@ -66,6 +61,13 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
     /** 文章 Mapper（列表文章行与章节标题批量装配） */
     private final ArticleMapper articleMapper;
 
+    /**
+     * 书籍阅读进度显式上报（章节归属校验 + 仅前进 UPSERT）。
+     *
+     * @param userId    读者 ID
+     * @param bookId    书籍 ID
+     * @param chapterId 当前阅读章节 ID（必须挂在该书下）
+     */
     @Override
     public void report(Long userId, Long bookId, Long chapterId) {
 
@@ -93,9 +95,16 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
             throw new BizException(ErrorCode.BOOK_STATUS_INVALID);
         }
         // 步骤2：共用 UPSERT（仅前进不回退，防多端乱序上报把进度拖回去）
-        upsertHistory(userId, BIZ_TYPE_BOOK, bookId, chapterId, chapter, true);
+        upsertHistory(userId, ReadingTargetTypeEnum.BOOK, bookId, chapterId, chapter, true);
     }
 
+    /**
+     * 查询书籍续读章节（无历史或历史章节已移除时返回 null，前端落到第一章）。
+     *
+     * @param userId 读者 ID
+     * @param bookId 书籍 ID
+     * @return 最后阅读章节 ID；无有效续读返回 null
+     */
     @Override
     public Long getLastChapter(Long userId, Long bookId) {
 
@@ -106,8 +115,8 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
          * ② 兜底容错：历史指向的章节已被退章移除时，同样按无历史处理。
          */
 
-        // 步骤1：查书籍历史（uk_user_biz 定位，固定 biz_type=1）
-        ReadingHistory history = selectHistory(userId, BIZ_TYPE_BOOK, bookId);
+        // 步骤1：查书籍历史（uk_user_biz 定位，固定书籍类型）
+        ReadingHistory history = selectHistory(userId, ReadingTargetTypeEnum.BOOK, bookId);
         if (history == null || history.getChapterId() == null) {
             return null;
         }
@@ -116,6 +125,13 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                 ? null : history.getChapterId();
     }
 
+    /**
+     * 查询书籍「上次阅读」详情（书名详情页展示最后章节号/标题/阅读时间）。
+     *
+     * @param userId 读者 ID
+     * @param bookId 书籍 ID
+     * @return 上次阅读详情；无历史、章节已删或章节文章已删时返回 null
+     */
     @Override
     public ReadingHistoryVO getLastRead(Long userId, Long bookId) {
 
@@ -129,7 +145,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
          */
 
         // 步骤1：查书籍历史
-        ReadingHistory history = selectHistory(userId, BIZ_TYPE_BOOK, bookId);
+        ReadingHistory history = selectHistory(userId, ReadingTargetTypeEnum.BOOK, bookId);
         if (history == null || history.getChapterId() == null) {
             return null;
         }
@@ -152,6 +168,15 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                 .setLastReadTime(history.getUpdateTime());
     }
 
+    /**
+     * 我的阅读历史分页查询（bizType 可选 1-书籍 / 2-独立文章，对象信息 in 批装防 N+1）。
+     *
+     * @param userId   读者 ID
+     * @param bizType  阅读对象类型筛选（null=全部；非法值抛 PARAM_ERROR）
+     * @param pageNo   页码（从 1 开始）
+     * @param pageSize 每页条数
+     * @return 阅读历史分页结果（对象已软删的历史行静默跳过，不物理删历史行）
+     */
     @Override
     public Page<ReadingHistoryItemVO> pageMyHistory(Long userId, Integer bizType, long pageNo, long pageSize) {
 
@@ -167,13 +192,15 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
          * ④ 组装出参并按 ① 的顺序重排（in 批查结果会乱序）。
          */
 
-        // 步骤0：bizType 白名单校验（非法值直接拒绝）
-        if (bizType != null && bizType != BIZ_TYPE_BOOK && bizType != BIZ_TYPE_ARTICLE) {
+        // 步骤0：bizType 白名单校验（请求侧 Integer 统一 resolve；非法值直接拒绝）
+        ReadingTargetTypeEnum targetType = ReadingTargetTypeEnum.resolve(bizType);
+        if (bizType != null && targetType == null) {
             throw new BizException(ErrorCode.PARAM_ERROR);
         }
-        // 步骤1：SQL 层分页查询（total 只统计可见行）
+        // 步骤1：SQL 层分页查询（total 只统计可见行；Mapper 入参统一传入库编码）
         Page<ReadingHistory> historyPage = historyMapper.selectMyHistoryPage(
-                Page.of(pageNo, pageSize), userId, bizType);
+                Page.of(pageNo, pageSize), userId,
+                targetType == null ? null : targetType.getCode());
         List<ReadingHistory> rows = historyPage.getRecords();
         Page<ReadingHistoryItemVO> result = new Page<>(
                 historyPage.getCurrent(), historyPage.getSize(), historyPage.getTotal());
@@ -184,21 +211,21 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
         // 步骤2：书籍行对象信息批装（防御性过滤软删行）
         Map<Long, Book> bookMap = batchToMap(
                 rows.stream()
-                        .filter(r -> r.getBizType() == BIZ_TYPE_BOOK)
+                        .filter(r -> ReadingTargetTypeEnum.BOOK == r.getBizType())
                         .map(ReadingHistory::getBizId)
                         .toList(),
                 bookMapper::selectBatchIds, Book::getId);
         // 步骤3：文章行对象信息批装
         Map<Long, Article> articleMap = batchToMap(
                 rows.stream()
-                        .filter(r -> r.getBizType() == BIZ_TYPE_ARTICLE)
+                        .filter(r -> ReadingTargetTypeEnum.ARTICLE == r.getBizType())
                         .map(ReadingHistory::getBizId)
                         .toList(),
                 articleMapper::selectBatchIds, Article::getId);
-        // 步骤4：书籍行章节信息批装（章节行 + 章节文章标题，仅 biz_type=1 行需要）
+        // 步骤4：书籍行章节信息批装（章节行 + 章节文章标题，仅书籍类型行需要）
         Map<Long, BookChapter> chapterMap = batchToMap(
                 rows.stream()
-                        .filter(r -> r.getBizType() == BIZ_TYPE_BOOK && r.getChapterId() != null)
+                        .filter(r -> ReadingTargetTypeEnum.BOOK == r.getBizType() && r.getChapterId() != null)
                         .map(ReadingHistory::getChapterId)
                         .toList(),
                 bookChapterMapper::selectBatchIds, BookChapter::getId);
@@ -211,7 +238,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
         // 步骤5：组装出参并按步骤1 顺序重排
         List<ReadingHistoryItemVO> items = new ArrayList<>(rows.size());
         for (ReadingHistory row : rows) {
-            if (row.getBizType() == BIZ_TYPE_BOOK) {
+            if (ReadingTargetTypeEnum.BOOK == row.getBizType()) {
                 Book book = bookMap.get(row.getBizId());
                 if (book == null) {
                     // 对象已软删：静默跳过（历史行保留，不物理删）
@@ -222,7 +249,8 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                 Article chapterArticle = chapter == null
                         ? null : chapterArticleMap.get(chapter.getArticleId());
                 items.add(new ReadingHistoryItemVO()
-                        .setBizType(BIZ_TYPE_BOOK)
+                        .setBizType(ReadingTargetTypeEnum.BOOK.getCode())
+                        .setBizTypeDesc(row.getBizType() == null ? null : row.getBizType().getDesc())
                         .setBizId(row.getBizId())
                         .setTitle(book.getTitle())
                         .setCoverFileId(book.getCoverFileId())
@@ -239,7 +267,8 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                     continue;
                 }
                 items.add(new ReadingHistoryItemVO()
-                        .setBizType(BIZ_TYPE_ARTICLE)
+                        .setBizType(ReadingTargetTypeEnum.ARTICLE.getCode())
+                        .setBizTypeDesc(row.getBizType() == null ? null : row.getBizType().getDesc())
                         .setBizId(row.getBizId())
                         .setTitle(article.getTitle())
                         .setCoverFileId(article.getCoverFileId())
@@ -250,6 +279,12 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
         return result;
     }
 
+    /**
+     * 文章详情命中后自动落历史（归属判定：0 挂载=独立文章、1 挂载=书籍章节、多挂载跳过交显式上报）。
+     *
+     * @param userId    读者 ID
+     * @param articleId 文章 ID
+     */
     @Override
     public void recordFromArticle(Long userId, Long articleId) {
 
@@ -265,18 +300,25 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
         // 步骤1：归属判定——一篇文章挂多本书时禁止「取最早挂载那条」猜书（会把历史记到错误书籍）
         List<BookChapter> mounts = bookChapterMapper.selectByArticleId(articleId);
         if (mounts.isEmpty()) {
-            // 步骤2：独立文章 → biz_type=2，无章节
-            upsertHistory(userId, BIZ_TYPE_ARTICLE, articleId, null, null, false);
+            // 步骤2：独立文章 → 文章类型历史，无章节
+            upsertHistory(userId, ReadingTargetTypeEnum.ARTICLE, articleId, null, null, false);
         } else if (mounts.size() == 1) {
             // 步骤3：唯一挂载 → 落该书书籍历史（章节信息随行）
             BookChapter chapter = mounts.get(0);
-            upsertHistory(userId, BIZ_TYPE_BOOK, chapter.getBookId(), chapter.getId(), chapter, false);
+            upsertHistory(userId, ReadingTargetTypeEnum.BOOK, chapter.getBookId(), chapter.getId(), chapter, false);
         } else {
             // 步骤4：多书挂载歧义 → 不自动落历史，debug 留痕
             log.debug("文章多书挂载，跳过自动落历史：articleId={}, mountCount={}", articleId, mounts.size());
         }
     }
 
+    /**
+     * 章节阅读页自动落书籍历史（显式 book 上下文，校验章节归属后按最后一次阅读 UPSERT）。
+     *
+     * @param userId    读者 ID
+     * @param bookId    书籍 ID
+     * @param chapterId 章节 ID
+     */
     @Override
     public void recordBookRead(Long userId, Long bookId, Long chapterId) {
 
@@ -293,21 +335,22 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
             throw new BizException(ErrorCode.BOOK_CHAPTER_MISMATCH);
         }
         // 步骤2：UPSERT（最后一次阅读语义）
-        upsertHistory(userId, BIZ_TYPE_BOOK, bookId, chapterId, chapter, false);
+        upsertHistory(userId, ReadingTargetTypeEnum.BOOK, bookId, chapterId, chapter, false);
     }
 
     /**
      * 历史行定位查询（uk_user_biz 三段键 selectOne）
      *
      * @param userId  读者ID
-     * @param bizType 阅读对象类型：1-书籍 2-独立文章
+     * @param bizType 阅读对象类型（书籍/独立文章）
      * @param bizId   阅读对象ID
      * @return 历史行（无则 null）
      */
-    private ReadingHistory selectHistory(Long userId, int bizType, Long bizId) {
+    private ReadingHistory selectHistory(Long userId, ReadingTargetTypeEnum bizType, Long bizId) {
         return historyMapper.selectOne(new LambdaQueryWrapper<ReadingHistory>()
                 .eq(ReadingHistory::getUserId, userId)
-                .eq(ReadingHistory::getBizType, bizType)
+                // 条件值统一传入库编码，交由普通 Integer 参数绑定（@EnumValue 仅用于实体字段映射）
+                .eq(ReadingHistory::getBizType, bizType.getCode())
                 .eq(ReadingHistory::getBizId, bizId));
     }
 
@@ -318,14 +361,14 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
      * 有历史更新 chapter_id 并显式刷新 update_time。
      *
      * @param userId      读者ID
-     * @param bizType     阅读对象类型：1-书籍 2-独立文章
+     * @param bizType     阅读对象类型（书籍/独立文章）
      * @param bizId       阅读对象ID
-     * @param chapterId   最后阅读章节ID（biz_type=2 传 null）
-     * @param chapter     本次阅读的章节行（仅前进序号比对复用，免重复查；biz_type=2 传 null）
+     * @param chapterId   最后阅读章节ID（独立文章传 null）
+     * @param chapter     本次阅读的章节行（仅前进序号比对复用，免重复查；独立文章传 null）
      * @param onlyForward true=仅前进不回退（report 显式上报，防多端乱序回退）；
      *                    false=最后一次阅读语义（自动落历史，回读旧章可回退）
      */
-    private void upsertHistory(Long userId, int bizType, Long bizId,
+    private void upsertHistory(Long userId, ReadingTargetTypeEnum bizType, Long bizId,
                                Long chapterId, BookChapter chapter, boolean onlyForward) {
         ReadingHistory current = selectHistory(userId, bizType, bizId);
         if (current == null) {
@@ -380,12 +423,12 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
      * fail-safe：删除失败仅 warn，不影响本次落历史（下次写入继续兜底清理）。
      *
      * @param userId  读者ID
-     * @param bizType 阅读对象类型：1-书籍 2-独立文章
+     * @param bizType 阅读对象类型（书籍/独立文章）
      */
-    private void trimOverflowHistory(Long userId, int bizType) {
+    private void trimOverflowHistory(Long userId, ReadingTargetTypeEnum bizType) {
         try {
             // 保留最新 500 条，删除其后的行；单批封顶 100 行防异常数据一次大删
-            historyMapper.deleteOverflowOldest(userId, bizType,
+            historyMapper.deleteOverflowOldest(userId, bizType.getCode(),
                     ContentLimitConstant.HISTORY_MAX_PER_USER, HISTORY_TRIM_BATCH);
         } catch (Exception e) {
             // 懒删非核心链路：失败不影响本次落历史，下轮写入继续清理

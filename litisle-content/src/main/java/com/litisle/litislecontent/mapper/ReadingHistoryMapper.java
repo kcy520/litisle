@@ -2,6 +2,7 @@ package com.litisle.litislecontent.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.litisle.litislecontent.constant.ContentBizConstant;
 import com.litisle.litislecontent.domain.entity.ReadingHistory;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
@@ -46,13 +47,16 @@ public interface ReadingHistoryMapper extends BaseMapper<ReadingHistory> {
      * @param bizType 阅读对象类型过滤：null-全部 1-书籍 2-独立文章（非法值由 Service 层白名单校验拦截）
      * @return 历史行分页结果（chapter_id 仅 biz_type=1 有值；title/cover 等对象信息由 Service 层批量装配）
      */
+    // 多态关联/可见性过滤中的 1/2 统一拼接 ContentBizConstant.READING_BIZ_TYPE_* 编译期常量，
+    // 与 ReadingTargetTypeEnum 的 code 保持同源，禁止再写裸数字
     @Select("<script>"
             + "select rh.* from reading_history rh "
-            + "left join book b on rh.biz_type = 1 and b.id = rh.biz_id "
-            + "left join article a on rh.biz_type = 2 and a.id = rh.biz_id "
+            + "left join book b on rh.biz_type = " + ContentBizConstant.READING_BIZ_TYPE_BOOK + " and b.id = rh.biz_id "
+            + "left join article a on rh.biz_type = " + ContentBizConstant.READING_BIZ_TYPE_ARTICLE + " and a.id = rh.biz_id "
             + "where rh.user_id = #{userId} "
             + "<if test='bizType != null'>and rh.biz_type = #{bizType} </if>"
-            + "and ((rh.biz_type = 1 and b.del_flag = 0) or (rh.biz_type = 2 and a.del_flag = 0)) "
+            + "and ((rh.biz_type = " + ContentBizConstant.READING_BIZ_TYPE_BOOK + " and b.del_flag = 0) "
+            + "or (rh.biz_type = " + ContentBizConstant.READING_BIZ_TYPE_ARTICLE + " and a.del_flag = 0)) "
             + "order by rh.update_time desc, rh.id desc"
             + "</script>")
     Page<ReadingHistory> selectMyHistoryPage(Page<ReadingHistory> page,

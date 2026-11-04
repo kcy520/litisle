@@ -1,9 +1,11 @@
 package com.litisle.litislesearch.controller;
 
 import com.litisle.commoncore.result.Result;
+import com.litisle.commonredis.ratelimit.RateLimiter;
 import com.litisle.litisleapi.dto.search.SearchRequestDTO;
 import com.litisle.litisleapi.vo.search.SearchResultVO;
 import com.litisle.litisleapi.vo.search.SuggestVO;
+import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.service.SearchService;
 import com.litisle.litislesearch.service.SuggestService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 站内检索 REST 接口（批次四 4.1，路径前缀 /api/search，网关匿名白名单放行）。
@@ -64,7 +67,9 @@ public class SearchController {
      * @param size 期望返回条数（可选，越界取配置默认值并封顶）
      * @return 联想列表（type=KEYWORD/AUTHOR/TAG）
      */
-    @Operation(summary = "输入联想", description = "q 为输入前缀；size 可选；返回书名/作者/标签联想，按文本去重")
+    @Operation(summary = "输入联想", description = "q 为输入前缀（至少 2 字）；size 可选；按 IP 限频 20/60s")
+    @RateLimiter(time = SearchBizConstant.SUGGEST_RATE_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = SearchBizConstant.SUGGEST_IP_MAX_COUNT, keyType = RateLimiter.KeyType.IP)
     @GetMapping("/suggest")
     public Result<List<SuggestVO>> suggest(
             @Parameter(description = "输入前缀", required = true)

@@ -90,6 +90,9 @@ public class CacheConstant {
     /** 热门标签 TOP N 缓存（值：TagVO 列表 JSON；TTL 短缓存 + 抖动，防穿透/雪崩） */
     public static final String CONTENT_TAG_HOT = "content:tag:hot:";
 
+    /** 标签前缀联想缓存（key 追加规范化前缀；值：TagVO 列表 JSON；短 TTL + 抖动，只读聚合不主动失效） */
+    public static final String CONTENT_TAG_SUGGEST = "content:tag:suggest:";
+
     /** 推荐流分页缓存（key 追加 {pageNo}:{pageSize}；值：FeedItemVO 列表 JSON；空结果短缓存防穿透）；v2=阶段14 热度榜切流，防换排序口径后新旧缓存混存 */
     public static final String CONTENT_FEED = "content:feed:page:v2:";
 

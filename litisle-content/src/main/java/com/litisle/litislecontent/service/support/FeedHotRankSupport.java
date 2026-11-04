@@ -191,6 +191,7 @@ public class FeedHotRankSupport {
         return top.size();
     }
 
+
     /**
      * 灌榜编排入口（由 FeedHotRankRefillJob 每轮调用）：按榜/水位状态自动选择全量或增量。
      *

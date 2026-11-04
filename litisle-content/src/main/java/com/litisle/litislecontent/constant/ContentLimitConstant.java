@@ -54,6 +54,12 @@ public final class ContentLimitConstant {
     /** 热门标签缓存 TTL 基准（秒）：实际写入 ±10% 抖动防雪崩 */
     public static final long TAG_HOT_CACHE_TTL_SECONDS = 300;
 
+    /** 标签联想缓存 TTL 基准（秒）：8 分钟（±10% 抖动后落在清单要求的 5~10 分钟区间） */
+    public static final long TAG_SUGGEST_CACHE_TTL_SECONDS = 480;
+
+    /** 标签联想空结果缓存 TTL（秒）：短缓存 60s 防穿透，又不长期占住「当时无结果」的旧结论 */
+    public static final long TAG_SUGGEST_CACHE_TTL_EMPTY_SECONDS = 60;
+
     /** 正文长度硬上限（字节）：content_html 为 LONGTEXT 无 DB 约束，应用层兜底拦截超大正文
      * （防打爆送审回查/search 索引/ai RAG 摄入）；≈10 万字富文本 HTML，发布/建档/编辑/草稿保存四路共用同值 */
     public static final int ARTICLE_CONTENT_MAX_BYTES = 256 * 1024;

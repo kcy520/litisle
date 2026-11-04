@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.litisle.litislecontent.enums.ReadingTargetTypeEnum;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
@@ -37,10 +38,11 @@ public class ReadingHistory implements Serializable {
 
     /**
      * 阅读对象类型
-     * <p>tinyint，1-书籍 2-独立文章，联合唯一键 uk_user_biz 之一</p>
+     * <p>tinyint，BOOK(1)-书籍 / ARTICLE(2)-独立文章，联合唯一键 uk_user_biz 之一；
+     * 枚举按 @EnumValue 映射入库编码（与收藏/审核的同名字段语义不同，勿混用）</p>
      */
     @TableField("biz_type")
-    private Integer bizType;
+    private ReadingTargetTypeEnum bizType;
 
     /**
      * 阅读对象ID

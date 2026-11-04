@@ -21,8 +21,11 @@ public class ReadingHistoryItemVO implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    /** 阅读对象类型：1-书籍 2-独立文章 */
+    /** 阅读对象类型：1-书籍 2-独立文章（编码取自 ReadingTargetTypeEnum，对外仍用 Integer 保持前端契约不变） */
     private Integer bizType;
+
+    /** 展示用类型描述：书籍/独立文章（取自 ReadingTargetTypeEnum 的 desc；bizType 仍保留编码供前端做逻辑判断） */
+    private String bizTypeDesc;
 
     /** 阅读对象ID（biz_type=1→book.id，biz_type=2→article.id） */
     private Long bizId;
