@@ -3,6 +3,7 @@ package com.litisle.litislesearch;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.openfeign.EnableFeignClients;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -15,9 +16,11 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * 本服务同时是 SearchClient 的提供方（/api/feign/search/** 由本服务实现，Provider 侧无需额外注解）
  * @EnableScheduling：启用定时任务（批次三 3.2 IndexHeatFlushJob 热度刷写；
  * 批次四起热点缓存清理等任务同样复用此开关）
+ * @EnableAsync：启用异步执行（批次六 6.2 搜索历史异步落库，避免拖慢检索主链路）
  */
 @EnableFeignClients(basePackages = "com.litisle.litisleapi.feign")
 @EnableScheduling
+@EnableAsync
 @SpringBootApplication
 public class LitisleSearchApplication {
 

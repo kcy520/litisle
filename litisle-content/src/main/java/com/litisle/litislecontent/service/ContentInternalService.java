@@ -6,6 +6,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 
 import java.util.List;
 
@@ -68,4 +69,15 @@ public interface ContentInternalService {
      * @return 书籍索引回查 DTO（含作者 ID 与作者昵称；作者昵称取不到为 null）
      */
     BookIndexDocDTO getBookIndexDoc(Long bookId);
+
+    /**
+     * 前缀搜索标签池（search 联想接口聚合用，批次六 6.1）。
+     *
+     * 作用：标签池 SSOT 在 content，search 不建标签索引；本方法仅按前缀查标签并以轻量 DTO 返回，
+     * 供 search 与 ES completion 联想合并去重。
+     *
+     * @param keyword 关键词前缀
+     * @return 标签联想列表（关键词为空/过长时返回空列表）
+     */
+    List<TagSuggestDTO> searchTagSuggestions(String keyword);
 }

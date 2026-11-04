@@ -8,6 +8,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
@@ -82,6 +83,19 @@ public class ContentClientFallbackFactory implements FallbackFactory<ContentClie
             public Result<BookIndexDocDTO> getBookIndexDoc(Long bookId) {
                 log.error("远程调用 content 模块 getBookIndexDoc 失败！bookId = {}", bookId, cause);
                 throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);
+            }
+
+            /**
+             * 标签联想为 best-effort 聚合：content 不可用时降级返回空列表，
+             * 不让标签源故障拖垮整个联想接口（ES completion 结果仍正常返回）
+             *
+             * @param keyword 关键词前缀
+             * @return 空标签列表（降级）
+             */
+            @Override
+            public Result<List<TagSuggestDTO>> getTagSuggestions(String keyword) {
+                log.warn("远程调用 content 模块 getTagSuggestions 失败，标签联想降级为空列表！keyword = {}", keyword, cause);
+                return Result.success(List.of());
             }
         };
     }

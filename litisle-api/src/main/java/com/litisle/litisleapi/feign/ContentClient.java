@@ -7,6 +7,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.fallback.ContentClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -144,4 +145,18 @@ public interface ContentClient {
      */
     @GetMapping("/api/feign/content/book-index-doc")
     Result<BookIndexDocDTO> getBookIndexDoc(@RequestParam("bookId") Long bookId);
+
+    /**
+     * 前缀搜索 content 标签池（search 联想接口聚合用，批次六 6.1）。
+     *
+     * <p>【设计口径】标签池唯一数据源在 content，search 不建标签索引、不写标签表；
+     * 本接口只读聚合，避免标签双写漂移。</p>
+     * <p>【降级语义】联想场景为 best-effort：content 不可用时降级返回空列表，
+     * 不影响 ES completion 联想主结果（见 ContentClientFallbackFactory）。</p>
+     *
+     * @param keyword 关键词前缀（非空，长度上限与查询词一致）
+     * @return 标签联想列表（无命中返回空列表）
+     */
+    @GetMapping("/api/feign/content/tag-suggest")
+    Result<List<TagSuggestDTO>> getTagSuggestions(@RequestParam("keyword") String keyword);
 }

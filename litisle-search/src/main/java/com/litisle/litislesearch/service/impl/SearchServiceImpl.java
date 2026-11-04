@@ -21,6 +21,7 @@ import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Highlight;
 import co.elastic.clients.elasticsearch.core.search.HighlightField;
 import co.elastic.clients.elasticsearch.core.search.Hit;
+import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litisleapi.dto.search.SearchRequestDTO;
@@ -30,6 +31,7 @@ import com.litisle.litisleapi.vo.search.SearchResultVO;
 import com.litisle.litisleapi.vo.search.UserDocVO;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.service.SearchHistoryService;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.domain.entity.BookIndexDoc;
 import com.litisle.litislesearch.domain.entity.UserIndexDoc;
@@ -108,6 +110,9 @@ public class SearchServiceImpl implements SearchService {
     /** 热点查询缓存（命中直返 + 常规结果写缓存 + 索引变更失效） */
     private final HotQueryCacheService hotQueryCacheService;
 
+    /** 搜索历史服务（批次六 6.2：检索成功后异步记录，仅本人可见） */
+    private final SearchHistoryService searchHistoryService;
+
     /**
      * 兜底 Embedding 线程池：VectorService 可能阻塞在远程模型调用，
      * 用独立线程池承载并配合 Future 超时，避免拖垮 Web 请求线程
@@ -143,6 +148,8 @@ public class SearchServiceImpl implements SearchService {
                 query.getSort().getCode(), query.getPageNum(), query.getPageSize(), query.getKeyword());
         SearchResultVO cached = hotQueryCacheService.read(cacheKey);
         if (cached != null) {
+            // 缓存命中同样是有效检索：异步记录历史（未登录自动跳过）
+            recordHistory(query);
             return cached;
         }
 
@@ -151,12 +158,37 @@ public class SearchServiceImpl implements SearchService {
 
         // 步骤4：无命中进入兜底链路
         if (result.getTotal() == null || result.getTotal() <= 0) {
+            // 兜底结果也是有效检索：异步记录历史（未登录自动跳过）
+            recordHistory(query);
             return fallback(query);
         }
 
         // 步骤5：写热点缓存（write 内部再次校验 source=ES，兜底/降级结果不会写入）
         hotQueryCacheService.write(cacheKey, result);
+        // 步骤6：异步记录搜索历史（仅登录用户；历史记录为辅助能力，失败不影响检索）
+        recordHistory(query);
         return result;
+    }
+
+    /**
+     * 异步记录搜索历史（批次六 6.2）。
+     *
+     * <p>仅登录用户记录：未登录请求没有归属人，历史不落库；
+     * 这里只取 userId 并委托 SearchHistoryService（方法内部 @Async + 吞异常）。</p>
+     *
+     * @param query 归一化后的检索参数（关键词已校验）
+     */
+    private void recordHistory(SearchQuery query) {
+        if (!StpUtil.isLogin()) {
+            return;
+        }
+        try {
+            // getLoginIdAsLong 在登录态下返回当前用户 ID
+            searchHistoryService.recordAsync(StpUtil.getLoginIdAsLong(), query.getKeyword());
+        } catch (Exception e) {
+            // 登录态解析失败等极端情况只告警，不影响检索结果返回
+            log.warn("[搜索历史] 记录入口异常（不影响检索），keyword={}", query.getKeyword(), e);
+        }
     }
 
     // ==================== 参数校验与归一化 ====================

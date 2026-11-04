@@ -12,6 +12,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.dto.user.UserDTO;
 import com.litisle.litisleapi.feign.UserClient;
 import com.litisle.litislecontent.domain.entity.Article;
@@ -25,10 +26,12 @@ import com.litisle.litislecontent.mapper.ArticleTagMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.TagMapper;
 import com.litisle.litislecontent.service.ContentInternalService;
+import com.litisle.litislecontent.service.TagService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,6 +53,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ContentInternalServiceImpl implements ContentInternalService {
 
+    /** 标签联想关键词最大长度（与检索词上限保持一致，超长直接返回空，防止异常输入打爆查询） */
+    private static final int TAG_SUGGEST_KEYWORD_MAX_LENGTH = 64;
+
     /** 文章 Mapper（机审回查/计数回写数据源） */
     private final ArticleMapper articleMapper;
 
@@ -67,6 +73,9 @@ public class ContentInternalServiceImpl implements ContentInternalService {
 
     /** 书籍 Mapper（书籍建索引回查数据源，批次五 B4） */
     private final BookMapper bookMapper;
+
+    /** 标签服务（标签池前缀联想，批次六 6.1；标签 SSOT 只在 content） */
+    private final TagService tagService;
 
     /**
      * 机审回查内容正文。
@@ -362,6 +371,38 @@ public class ContentInternalServiceImpl implements ContentInternalService {
         // 步骤4：查作者昵称（best-effort：失败仅告警，不回滚整个建索引流程）
         dto.setAuthorName(loadAuthorName(book.getAuthorId()));
         return dto;
+    }
+
+    /**
+     * 前缀搜索标签池（search 联想接口聚合用，批次六 6.1）。
+     *
+     * 作用：按前缀查 content 标签池并转轻量 DTO；search 侧把标签联想与 ES
+     * completion 结果合并去重返回。
+     *
+     * 【容错口径】联想为只读 best-effort：关键词为空或超过查询词长度上限时直接返回空列表，
+     * 不抛异常（避免非法联想词影响前端输入提示）。
+     *
+     * @param keyword 关键词前缀
+     * @return 标签联想列表（默认空列表，不返回 null）
+     */
+    @Override
+    public List<TagSuggestDTO> searchTagSuggestions(String keyword) {
+        // 步骤1：关键词空/超长直接返回空（联想场景不做强校验）
+        String normalized = keyword == null ? "" : keyword.trim();
+        if (normalized.isEmpty()
+                || normalized.length() > TAG_SUGGEST_KEYWORD_MAX_LENGTH) {
+            return Collections.emptyList();
+        }
+        // 步骤2：按前缀查标签池（content 侧已有拼音/前缀匹配逻辑，直接复用）
+        return tagService.searchByPrefix(normalized).stream()
+                // 步骤3：转轻量 DTO（只保留前端联想需要的 id/name）
+                .map(tag -> {
+                    TagSuggestDTO dto = new TagSuggestDTO();
+                    dto.setId(tag.getId());
+                    dto.setName(tag.getName());
+                    return dto;
+                })
+                .toList();
     }
 
     /**

@@ -6,6 +6,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litislecontent.service.ContentInternalService;
 import lombok.RequiredArgsConstructor;
@@ -94,5 +95,17 @@ public class ContentFeignProviderController implements ContentClient {
     public Result<BookIndexDocDTO> getBookIndexDoc(Long bookId) {
         log.info("远程api调用getBookIndexDoc bookId:{}", bookId);
         return Result.success(contentInternalService.getBookIndexDoc(bookId));
+    }
+
+    /**
+     * 前缀搜索标签池：委托 Service（search 联想聚合只读依赖，best-effort 由调用方降级）
+     *
+     * @param keyword 关键词前缀
+     * @return 标签联想列表（无命中为空列表）
+     */
+    @Override
+    public Result<List<TagSuggestDTO>> getTagSuggestions(String keyword) {
+        log.info("远程api调用getTagSuggestions keyword:{}", keyword);
+        return Result.success(contentInternalService.searchTagSuggestions(keyword));
     }
 }

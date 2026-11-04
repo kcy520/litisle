@@ -229,11 +229,16 @@
 
 ###### 6.1 suggest 联想接口
 
-- [ ] `GET /search/suggest?q=`：article_idx `title.completion` / `authorName.completion` suggester + 聚合 content `GET /tags?keyword=` 标签联想 → 去重合并返回 `SuggestVO{type(KEYWORD/TAG/AUTHOR), text}`；**不建标签索引**（标签池 SSOT 在 content，防双写漂移）；开关/条数走 `litisle.search.suggest.*`
+- [x] `GET /search/suggest?q=`：article_idx `title.completion` / `authorName.completion` suggester + 聚合 content `GET /tags?keyword=` 标签联想 → 去重合并返回 `SuggestVO{type(KEYWORD/TAG/AUTHOR), text}`；**不建标签索引**（标签池 SSOT 在 content，防双写漂移）；开关/条数走 `litisle.search.suggest.*`
+  - ✅ 2026-11-04：新增 `SuggestService/Impl` + `GET /api/search/suggest?q=&size=`（联想端点并入 `SearchController`，未单建 Controller）。实现要点：completion suggester 复用批次一已建的 `title.completion`/`authorName.completion`（**不改 mapping、不建标签索引**）；内容依次取书名→作者→标签，按文本去重、总数封顶；`suggest.enabled` 总开关关闭返回空，词空/超 64 返回空；ES 故障只丢书名/作者联想，content 故障只丢标签联想（降级互不影响）
+  - ✅ 2026-11-04：契约层新增 `SuggestVO`、`TagSuggestDTO`；`ContentClient#getTagSuggestions`（降级返回空列表，fail-open）+ content 侧 `ContentInternalService#searchTagSuggestions`（复用 `TagService#searchByPrefix`）+ `/api/feign/content/tag-suggest` 内部端点
 
 ###### 6.2 SearchHistoryService
 
-- [ ] `GET /search/history` 分页 / `DELETE /search/history` 清空；搜索成功后异步记录 → search_history UPSERT（uk(user_id,keyword) 同词仅前进 updated_at）→ 超 `history.max-per-user`（默认 20）懒删最旧；**隐私纪律：keyword 不写入任何 ES 索引文档/向量库**
+- [x] `GET /search/history` 分页 / `DELETE /search/history` 清空；搜索成功后异步记录 → search_history UPSERT（uk(user_id,keyword) 同词仅前进 updated_at）→ 超 `history.max-per-user`（默认 20）懒删最旧；**隐私纪律：keyword 不写入任何 ES 索引文档/向量库**
+  - ✅ 2026-11-04：新增 `SearchHistory` 实体 + `SearchHistoryMapper` + `SearchHistoryService/Impl` + `SearchHistoryController`（`/api/search/history` GET/DELETE，均按 `StpUtil` 当前登录用户 ID 收口，无 userId 入参防越权）
+  - ✅ 2026-11-04：记录链路——检索成功后（含缓存命中/兜底结果）在 `SearchServiceImpl#recordHistory` 仅对登录用户调用 `recordAsync`（`@Async` + 内部吞异常，失败不影响检索，启动类补 `@EnableAsync`）；同词 UPSERT 命中仅前进 `updated_at`，唯一键并发冲突退化为更新；超 `max-per-user` 用 `Page` 保留最新 N 条并删除其余（**未使用 `QueryWrapper#last()`**）；分页统一 `Page` 对象
+  - ✅ 2026-11-04：隐私纪律已落实——关键词只落 MySQL `search_history`，不写任何 ES 索引文档/向量库
 
 ##### 批次七：相似推荐与 Feign 提供方（依赖批次二/三；对齐批次D D5）
 
