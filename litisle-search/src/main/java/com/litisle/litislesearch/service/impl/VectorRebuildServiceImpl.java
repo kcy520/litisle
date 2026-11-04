@@ -13,6 +13,7 @@ import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.elasticsearch.core.bulk.UpdateAction;
 import co.elastic.clients.elasticsearch.core.search.Hit;
+import co.elastic.clients.json.JsonData;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.domain.entity.ArticleChunkDoc;
@@ -36,6 +37,8 @@ import java.util.Map;
  * → 逐条向量化 → bulk partial update 只写向量字段。
  * 【口径】文章向量输入与发布写入共用 {@link SearchTextUtils#buildEmbeddingInput}；
  * 切片向量直接使用 chunk_text 原文，保证重建结果与事件链路一致。
+ * 【元信息】单类重建成功后把两索引 `_meta.embedding_model`/`embedding_dims` 更新为配置中的真实
+ * 模型名与维度（批次七选型定案），便于运维确认当前索引向量语义版本。
  *
  * @author litisle
  */
@@ -105,6 +108,8 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
             }
         }
         log.info("[向量重建] article_idx 完成：updated={}", updated);
+        // 重建成功后同步索引 _meta，登记当前向量语义版本（失败仅告警，不影响已重建数据）
+        updateEmbeddingMeta();
         return updated;
     }
 
@@ -158,7 +163,39 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
             }
         }
         log.info("[向量重建] article_chunks 完成：updated={}", updated);
+        // 重建成功后同步索引 _meta（与文章索引同一口径）
+        updateEmbeddingMeta();
         return updated;
+    }
+
+    /**
+     * 把两索引的 `_meta.embedding_model` / `_meta.embedding_dims` 更新为配置中的真实值。
+     *
+     * <p>只写 meta 不动字段 mapping（`_meta` 为只读元信息，putMapping 幂等）；
+     * 失败仅告警：向量数据已重建成功，meta 登记失败不阻断运维流程，可稍后重跑一次重建刷新。</p>
+     */
+    private void updateEmbeddingMeta() {
+        String model = properties.getEmbedding().getModel();
+        // 模型未配置时不写 meta，避免把空值/占位值误登记为真实模型
+        if (!StringUtils.hasText(model)) {
+            log.warn("[向量重建] embedding.model 未配置，跳过索引 _meta 更新");
+            return;
+        }
+        int dimension = properties.getEmbedding().getDimension();
+        for (String index : List.of(properties.getIndex().getArticle(), properties.getIndex().getChunk())) {
+            try {
+                // 只更新 _meta 元信息：模型名 + 维度（JsonData 包装，保持索引元信息类型一致）
+                Map<String, JsonData> meta = Map.of(
+                        SearchBizConstant.META_EMBEDDING_MODEL, JsonData.of(model),
+                        SearchBizConstant.META_EMBEDDING_DIMS, JsonData.of(dimension));
+                // putMapping + meta：ES 对已存在索引幂等，可重复执行
+                elasticsearchClient.indices().putMapping(p -> p.index(index).meta(meta));
+                log.info("[向量重建] 索引 _meta 已更新：index={}, model={}, dims={}", index, model, dimension);
+            } catch (Exception e) {
+                // meta 更新失败仅告警（重建数据已生效，可人工重跑刷新）
+                log.error("[向量重建] 索引 _meta 更新失败（不影响已重建向量）：index={}", index, e);
+            }
+        }
     }
 
     /**

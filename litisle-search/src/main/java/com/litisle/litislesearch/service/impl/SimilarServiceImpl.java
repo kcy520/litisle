@@ -181,7 +181,7 @@ public class SimilarServiceImpl implements SimilarService {
      */
     private List<SimilarArticleVO> fuseAndLimit(List<Hit<ArticleIndexDoc>> hits, ArticleIndexDoc source, int topK) {
         SearchProperties.Knn knnConfig = properties.getKnn();
-        // 原始相似度阈值（cosine 分，0.0 表示不过滤负相似）
+        // 原始相似度阈值（cosine 分，批次七默认 0.4；配置为 0.0 时表示不过滤）
         double threshold = knnConfig.getSimilarityThreshold();
         // 权重按总和归一化，配置允许任意比例（全 0 时退化为纯向量分）
         double[] weights = normalizeWeights(knnConfig);

@@ -54,7 +54,7 @@ public class FollowRelationCache {
             String cached = stringRedisTemplate.opsForValue().get(key);
             if (cached != null) {
                 // 命中：1-关注 0-非关注（负缓存同样生效，防高频穿透回查）
-                return "1".equals(cached);
+                return "1".equals(cached); //todo 硬编码的关注“1”，需要优化
             }
         } catch (Exception e) {
             // Redis 读失败降级直查 social（不阻断判定链；fail-fast 语义由 social 回查侧保证）

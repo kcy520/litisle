@@ -139,8 +139,8 @@ public class SearchProperties {
         private int topK = 10;
         /** 候选数量（默认 100，越大召回越准、开销越高） */
         private int numCandidates = 100;
-        /** 相似度阈值（默认 0.0 不过滤；ai RAG 的 0.65 阈值属 ai 侧） */
-        private double similarityThreshold = 0.0;
+        /** 相似度阈值（批次七选型定案默认 0.4：过滤明显不相关候选；ai RAG 的 0.65 阈值仍属 ai 侧） */
+        private double similarityThreshold = 0.4;
         /** 相似推荐返回条数上限（默认 50，REST/Feign 传入 topK 超过则截断） */
         private int maxTopK = 50;
         /**
@@ -303,11 +303,11 @@ public class SearchProperties {
         /** 鉴权密钥（禁止硬编码；用环境变量占位符注入，如 ${LITISLE_EMBEDDING_API_KEY:}） */
         private String apiKey;
 
-        /** 单次向量化请求超时（提供方适配器使用；查询侧兜底另有 fallback.embedding-timeout） */
-        private Duration timeout = Duration.ofSeconds(5);
+        /** 单次向量化请求超时（批次七选型定案默认 10s；查询侧兜底另有 fallback.embedding-timeout） */
+        private Duration timeout = Duration.ofSeconds(10);
 
-        /** 单批向量化条数（提供方支持批量接口时使用，降低网络往返） */
-        private int batchSize = 32;
+        /** 单批向量化条数（批次七选型定案默认 16，提供方批量接口按此分批） */
+        private int batchSize = 16;
 
         /** 全量重建扫描批量（search_after 每批拉取文档数，默认 100） */
         private int rebuildBatchSize = 100;

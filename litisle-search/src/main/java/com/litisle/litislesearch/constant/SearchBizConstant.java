@@ -114,6 +114,18 @@ public final class SearchBizConstant {
      */
     public static final String EMBEDDING_PROVIDER_NONE = "none";
 
+    /** Embedding 配置前缀（提供方适配器条件装配用，批次七选型定案） */
+    public static final String EMBEDDING_PROPERTY_PREFIX = "litisle.search.embedding";
+
+    /** Embedding 配置项名：提供方类型（条件装配 + 日志定位用） */
+    public static final String EMBEDDING_PROPERTY_PROVIDER_NAME = "provider";
+
+    /** Embedding 提供方：OpenAI 兼容 /v1/embeddings（批次七主适配器，覆盖 SiliconFlow/百炼兼容入口/TEI） */
+    public static final String EMBEDDING_PROVIDER_OPENAI_COMPATIBLE = "openai-compatible";
+
+    /** Embedding 提供方：Ollama /api/embed（批次七备选适配器，不做主线） */
+    public static final String EMBEDDING_PROVIDER_OLLAMA = "ollama";
+
     /** ik 中文分词器：细粒度切分（写入侧 analyzer，索引时尽量多切词提升召回） */
     public static final String ANALYZER_IK_MAX_WORD = "ik_max_word";
 
