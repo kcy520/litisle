@@ -10,9 +10,9 @@ import java.time.LocalDateTime;
 /**
  * 书籍索引文档（book_idx 的 ES 文档映射实体，非 MySQL 实体，批次四 4.1 读侧投影）。
  *
- * 【说明】字段与 EsIndexInitializer#bookMapping 一一对应，仅用于检索结果反序列化；
- * 书籍索引写入链路（同步事件）批次五落地，本类不承担写入职责。
- * 【字段口径】book_idx 当前 mapping 未包含 authorId，故不在此定义该字段（VO 侧 authorId 暂为 null）。
+ * 【说明】字段与 EsIndexInitializer#bookMapping 一一对应，同时承担读侧反序列化与
+ * 批次五 B4 事件同步写入（键 = bookId）。
+ * 【字段口径】批次五已补齐 authorId 映射，BookDocVO.authorId 由本字段解析回填。
  *
  * @author litisle
  */
@@ -27,6 +27,10 @@ public class BookIndexDoc {
     /** 书名（multi_match 检索字段） */
     @JsonProperty(SearchBizConstant.FIELD_TITLE)
     private String title;
+
+    /** 作者 ID（keyword，批次五补映射；供 BookDocVO.authorId 回填与作者维度筛选） */
+    @JsonProperty(SearchBizConstant.FIELD_AUTHOR_ID)
+    private String authorId;
 
     /** 作者名（multi_match 检索字段） */
     @JsonProperty(SearchBizConstant.FIELD_AUTHOR_NAME)

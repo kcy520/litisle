@@ -1,5 +1,7 @@
 package com.litisle.litisleapi.event.user;
 
+import lombok.Data;
+
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
@@ -35,6 +37,32 @@ import java.time.LocalDateTime;
  *    - 用 eventId 做幂等（Redis SETNX 或唯一索引，重复投递直接 ACK 丢弃）
  *    - 消费失败重试耗尽后入死信队列，不阻塞主流程
  */
-public class UserRegisteredEvent {
+@Data
+public class UserRegisteredEvent implements Serializable {
 
+    private static final long serialVersionUID = 1L;
+
+    /** 事件唯一 ID（UUID，消费端幂等去重） */
+    private String eventId;
+
+    /** 事件发生时间 */
+    private LocalDateTime eventTime;
+
+    /** 链路追踪 ID（从 MDC 透传，串联 user → MQ → 下游全链路日志） */
+    private String traceId;
+
+    /** Schema 版本号（当前固定 1） */
+    private Integer version;
+
+    /** 用户 ID（下游回查权威资料/发送欢迎消息的定位键） */
+    private Long userId;
+
+    /** 用户名（展示用；值以 user.getUsername 为准） */
+    private String username;
+
+    /** 对外 UID（用户间搜索唯一标识，随机生成且永久不变） */
+    private String uid;
+
+    /** 注册来源（RegisterSourceEnum 的 code，可为空表示来源未知） */
+    private String registerSource;
 }

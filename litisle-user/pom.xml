@@ -79,6 +79,13 @@
             <artifactId>common-security</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- common-mq（批次五 B5）：用户注册/资料更新事件发布（MqSendUtil + RabbitTemplate，
+             传递引入 spring-boot-starter-amqp；搜索索引同步依赖此事件） -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-mq</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!--服务熔断-->
         <dependency>

@@ -868,7 +868,8 @@ public class SearchServiceImpl implements SearchService {
             vo.setSummary(doc.getSummary());
             vo.setCategory(doc.getCategory());
             vo.setAuthorName(doc.getAuthorName());
-            // book_idx mapping 当前未含 authorId（批次五补），契约字段暂为 null
+            // 批次五 B4 已补 book_idx.authorId 映射：解析回填作者 ID（存量未回填文档为 null）
+            vo.setAuthorId(parseId(doc.getAuthorId(), SearchBizConstant.FIELD_AUTHOR_ID));
             vo.setUpdateTime(doc.getUpdateTime());
             vo.setHighlight(firstHighlight(hit.highlight(), List.of(
                     SearchBizConstant.FIELD_SUMMARY, SearchBizConstant.FIELD_TITLE,

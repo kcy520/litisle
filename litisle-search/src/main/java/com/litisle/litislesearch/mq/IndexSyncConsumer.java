@@ -6,12 +6,17 @@ import com.litisle.commonmq.send.MqSendUtil;
 import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.event.content.ContentArticleUpdatedEvent;
+import com.litisle.litisleapi.event.content.ContentBookChangedEvent;
 import com.litisle.litisleapi.event.content.ContentPublishedEvent;
 import com.litisle.litisleapi.event.content.ContentUnpublishedEvent;
+import com.litisle.litisleapi.event.user.UserProfileUpdatedEvent;
+import com.litisle.litisleapi.event.user.UserRegisteredEvent;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.service.ArticleIndexService;
+import com.litisle.litislesearch.service.BookIndexService;
 import com.litisle.litislesearch.service.HotQueryCacheService;
+import com.litisle.litislesearch.service.UserIndexService;
 import com.rabbitmq.client.Channel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +27,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 
 /**
- * 文章索引同步消费者（批次二 2.2 / 2.3 / 2.4）。
+ * 索引同步消费者（批次二文章 / 批次五书籍 B4 + 用户 B5）。
  *
  * 【职责】监听 content 侧三个文章事件队列，把消息转成 article_idx / article_chunks 的写入动作，
  * 业务逻辑全部委托 {@link ArticleIndexService}，本类只做「消费编排」：
@@ -52,6 +57,12 @@ public class IndexSyncConsumer {
 
     /** 文章索引同步编排服务（回查、门控、写入/删除/局部更新的业务载体） */
     private final ArticleIndexService articleIndexService;
+
+    /** 书籍索引同步服务（批次五 B4：book_idx 回查后 upsert/删除） */
+    private final BookIndexService bookIndexService;
+
+    /** 用户索引同步服务（批次五 B5：user_idx 回查后 upsert/删除） */
+    private final UserIndexService userIndexService;
 
     /** search 配置（消费重试参数：最大次数与退避基数，外置 yml/Nacos 可调） */
     private final SearchProperties properties;
@@ -159,6 +170,111 @@ public class IndexSyncConsumer {
                         hotQueryCacheService.evictAll();
                     });
         } finally {
+            MqTraceSupport.clear();
+        }
+    }
+
+    /**
+     * 消费书籍索引变更事件（批次五 B4）：回查书籍权威数据后 upsert 或删除 book_idx。
+     *
+     * <p>事件体只带 bookId；书籍创建/编辑/完结/下架/删除统一走本监听，
+     * 消费端门控（未删除且非下架）决定写入还是删除。</p>
+     *
+     * @param event   书籍变更事件
+     * @param message 原始消息（取 deliveryTag 与 traceId、retryCount 消息头）
+     * @param channel 消费通道（ack/nack）
+     * @throws IOException ack/nack 失败向上抛出
+     */
+    @RabbitListener(queues = MqConstant.QUEUE_CONTENT_BOOK_CHANGED)
+    public void onBookChanged(ContentBookChangedEvent event, Message message, Channel channel) throws IOException {
+        // 恢复 traceId，串联 content → MQ → search 全链路日志
+        MqTraceSupport.restore(message);
+        try {
+            MqAckHelper.executeWithRetry(MqConstant.QUEUE_CONTENT_BOOK_CHANGED, message, channel,
+                    properties.getRetry().getMaxCount(),
+                    properties.getRetry().getBaseDelayMs(),
+                    // 延迟重投动作：重试次数只通过消息头双写传递
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                            MqConstant.QUEUE_CONTENT_BOOK_CHANGED, event, delayMs, newRetryCount),
+                    () -> {
+                        // 定位键缺失属于发送侧契约违约，重试无意义 → warn 后正常返回（ack 丢弃）
+                        if (event.getBookId() == null) {
+                            log.warn("[索引同步] 书籍事件缺少 bookId，跳过处理：eventId={}", event.getEventId());
+                            return;
+                        }
+                        // 委托业务服务：回查、门控、upsert / 删除
+                        bookIndexService.handleChanged(event.getBookId());
+                        // 书籍索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交延迟重试）
+                        hotQueryCacheService.evictAll();
+                    });
+        } finally {
+            // 清理 MDC，防消费线程复用导致 traceId 串扰
+            MqTraceSupport.clear();
+        }
+    }
+
+    /**
+     * 消费用户注册事件（批次五 B5）：回查用户公开资料，满足门控才建 user_idx 文档。
+     *
+     * <p>新用户通常尚无笔名/简介，门控不通过即删除（幂等空操作），
+     * 待资料更新事件再正式入索引。</p>
+     *
+     * @param event   用户注册事件
+     * @param message 原始消息
+     * @param channel 消费通道
+     * @throws IOException ack/nack 失败向上抛出
+     */
+    @RabbitListener(queues = MqConstant.QUEUE_USER_REGISTERED_INDEX)
+    public void onUserRegistered(UserRegisteredEvent event, Message message, Channel channel) throws IOException {
+        consumeUserIndex(MqConstant.QUEUE_USER_REGISTERED_INDEX, event.getUserId(), event, message, channel);
+    }
+
+    /**
+     * 消费用户资料更新事件（批次五 B5）：回查用户公开资料，upsert 或删除 user_idx。
+     *
+     * @param event   用户资料更新事件
+     * @param message 原始消息
+     * @param channel 消费通道
+     * @throws IOException ack/nack 失败向上抛出
+     */
+    @RabbitListener(queues = MqConstant.QUEUE_USER_PROFILE_UPDATED_INDEX)
+    public void onUserProfileUpdated(UserProfileUpdatedEvent event, Message message, Channel channel) throws IOException {
+        consumeUserIndex(MqConstant.QUEUE_USER_PROFILE_UPDATED_INDEX, event.getUserId(), event, message, channel);
+    }
+
+    /**
+     * 用户索引同步消费统一模板（注册/资料更新共用，避免两份重复的 ACK/重试编排）。
+     *
+     * @param queueName 源队列名（用于延迟重投路由键与重试计数消息头）
+     * @param userId    用户 ID（定位键）
+     * @param event     事件体（延迟重投时原样回投）
+     * @param message   原始消息
+     * @param channel   消费通道
+     * @throws IOException ack/nack 失败向上抛出
+     */
+    private void consumeUserIndex(String queueName, Long userId, Object event, Message message, Channel channel)
+            throws IOException {
+        MqTraceSupport.restore(message);
+        try {
+            MqAckHelper.executeWithRetry(queueName, message, channel,
+                    properties.getRetry().getMaxCount(),
+                    properties.getRetry().getBaseDelayMs(),
+                    // 延迟重投动作：重试次数只通过消息头双写传递
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                            queueName, event, delayMs, newRetryCount),
+                    () -> {
+                        // 定位键缺失属于发送侧契约违约，重试无意义 → warn 后正常返回（ack 丢弃）
+                        if (userId == null) {
+                            log.warn("[索引同步] 用户事件缺少 userId，跳过处理：queue={}", queueName);
+                            return;
+                        }
+                        // 委托业务服务：回查、门控、upsert / 删除
+                        userIndexService.handleUpsert(userId);
+                        // 用户索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交延迟重试）
+                        hotQueryCacheService.evictAll();
+                    });
+        } finally {
+            // 清理 MDC，防消费线程复用导致 traceId 串扰
             MqTraceSupport.clear();
         }
     }

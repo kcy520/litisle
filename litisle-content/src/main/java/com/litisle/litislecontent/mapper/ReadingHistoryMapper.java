@@ -28,6 +28,9 @@ public interface ReadingHistoryMapper extends BaseMapper<ReadingHistory> {
     /**
      * 分页查询当前用户阅读历史（SQL 层完成软删过滤、排序、分页与 total）
      *
+     * 查询当前用户阅读历史分页列表，在 SQL 层直接完成「软删过滤 + 多态 JOIN + 动态类型过滤 + 稳定排序」，
+     * 返回给前端的是干净的、可直接展示的数据。
+     *
      * <p>查询口径：
      * <ul>
      *   <li>左连 book / article 并过滤 del_flag=0：对象已软删（或不存在）的历史行不出现在结果与 total 中；
@@ -58,6 +61,9 @@ public interface ReadingHistoryMapper extends BaseMapper<ReadingHistory> {
 
     /**
      * 删除单用户单类型下超出保留条数的最旧行（阅读历史增长治理懒删）
+     *
+     * 在 reading_history 表中，删除某个用户、某种业务类型下，超出保留数量的最旧阅读记录，
+     * 并且每次最多只删 batchSize 条，防止一次删太多。
      *
      * <p>实现说明：
      * <ul>

@@ -110,8 +110,8 @@
 > **搜索归属核查结论（2026-11-03，精准扫描 content 控制器）**：
 > - 不迁移（保留 content）：`GET /article/my`、`GET /book/my` 的 keyword 过滤（作者管理侧列表，author_id 硬收口，DB 直查合理）；`GET /tags?keyword=` 前缀搜索（tag 池为 content 域元数据，SearchTypeEnum 无 TAG，标签搜索≠全文检索）；`GET /article/list`、`/article/hot`（结构化筛选列表，无关键词）。
 > - 归属 search（既定设计，`BookController` `/book/list` 注释已声明「一期不做 keyword 搜索（search 模块书籍索引为外部依赖）」）：公开文章/书籍/用户的全文与多维度检索 + 相似推荐。
-> - **发现的遗漏**：book_idx / user_idx 无索引同步事件来源（书籍创建/变更/完结/下架无事件、UserRegisteredEvent 为空类未发布）；详见批次五 / 暂不实现汇总。
-> **优先级口径（2026-11-03 定）**：优先 content 文章与书籍相关链路（批次一~五），联想/相似/降级随后；user_idx 同步链路依赖批次B B5 契约（未落地），暂缓迁入「暂不实现汇总」，触发条件见该处登记。
+> - ~~**发现的遗漏**：book_idx / user_idx 无索引同步事件来源（书籍创建/变更/完结/下架无事件、UserRegisteredEvent 为空类未发布）~~：**2026-11-04 已随批次五收口**（书籍事件 B4 + 用户事件 B5 + book_idx/user_idx 消费）。
+> **优先级口径（2026-11-03 定）**：优先 content 文章与书籍相关链路（批次一~五），联想/相似/降级随后；user_idx 同步链路已于 2026-11-04 随批次五 5.3 落地（见批次五）。
 > **批次A（缺陷修正定版 A1~A7）/ 批次B 契约 B1/B2/B3/B7（SearchClient、social 事件、SEARCH_* 错误码、article-updated/view-count-flushed 事件）/ 批次C 决策（C1~C4）已于 2026-11-03 完成**；批次B 余项 B6（回查字段核对）已于 2026-11-04 随批次二 2.1 收口，B4（书籍事件）/B5（用户事件）随批次五 收口。
 
 ##### 批次一：基础骨架收尾（对齐批次D D1 余项）
@@ -207,11 +207,23 @@
 
 ###### 5.1 书籍索引变更事件契约（B4）
 
-- [ ] litisle-api 定义书籍创建/变更/完结/下架事件 + MqConstant 路由键/队列（对齐 ContentPublishedEvent 定位键纪律：事件体仅 bizType/bizId/contentHash）；content 侧书籍变更点 afterCommit 发布接入
+- [x] litisle-api 定义书籍创建/变更/完结/下架事件 + MqConstant 路由键/队列（对齐 ContentPublishedEvent 定位键纪律：事件体仅 bizType/bizId/contentHash）；content 侧书籍变更点 afterCommit 发布接入
+  - ✅ 2026-11-04：新增 `ContentBookChangedEvent`（基座四字段 + `bookId` 定位键）与 `MqConstant.ROUTING_CONTENT_BOOK_CHANGED/QUEUE_CONTENT_BOOK_CHANGED`；创建/编辑/完结/下架/删除统一走一条 `content.book-changed`，消费端回查权威态后收敛（完结当前无独立端点，端点落地时复用同事件）。content 侧新增 `ContentEventProducer#sendBookChanged`（复用 outbox + sendCritical），`BookServiceImpl.create/update/delete` 接入发布：create/update 无事务即时发送，delete 的 `@Transactional` 注册 afterCommit 后发送
+  - ✅ 2026-11-04：新增 `BookIndexDocDTO` + `ContentClient#getBookIndexDoc`（fail-fast 降级）+ `ContentInternalService/Impl#getBookIndexDoc`（显式 del_flag=0，不存在/已软删抛 `BOOK_NOT_FOUND`，作者昵称 best-effort）+ `ContentFeignProviderController` 端点 `/api/feign/content/book-index-doc`
 
 ###### 5.2 book_idx 同步消费
 
-- [ ] IndexSyncConsumer 扩展书籍事件消费：回查 → 门控 → 幂等 upsert/删除 book_idx（书名/作者/简介/分类；书籍不入 article_chunks，C2 定版）；V1 可见性红线验证覆盖 book_idx
+- [x] IndexSyncConsumer 扩展书籍事件消费：回查 → 门控 → 幂等 upsert/删除 book_idx（书名/作者/简介/分类；书籍不入 article_chunks，C2 定版）；V1 可见性红线验证覆盖 book_idx
+  - ✅ 2026-11-04：新增 `BookIndexService/Impl`：`getBookIndexDoc` 回查 → 门控（`delFlag=0` 且 `status≠TAKEN_DOWN`）→ 按 bookId upsert / delete（删除前判存在，幂等）；`BOOK_NOT_FOUND` 收敛为删索引，ES/远程异常抛 `IllegalStateException` 交延迟重试
+  - ✅ 2026-11-04：`SearchMqConfig` 补 `content.book-changed` 队列/绑定/延迟重投/DLX-DLQ；`IndexSyncConsumer#onBookChanged` 接入成功后 `evictAll` 失效热点缓存；书籍不入 `article_chunks`
+  - ✅ 2026-11-04（批次四遗留）：`book_idx` mapping 补 `authorId`（keyword），`BookIndexDoc` 增字段，`SearchServiceImpl#toBookResult` 解析回填 `BookDocVO.authorId`；`EsIndexInitializer` 启动时对已存在索引幂等 `putMapping` 补字段。**存量影响**：新增字段可热更新 mapping、无需重建索引；但存量文档不回填，需事件重放/全量重建后 `authorId` 才有值，此前检索结果为 null（不影响命中与排序）
+
+###### 5.3 用户索引同步（原批次B B5，本次随批次五一并落地）
+
+- [x] 用户事件契约 + user 侧发布点 + user_idx 同步消费
+  - ✅ 2026-11-04：`UserRegisteredEvent` 补业务字段（userId/username/uid/registerSource）；新增 `UserProfileUpdatedEvent`（userId 定位键）与 `MqConstant.ROUTING_USER_PROFILE_UPDATED/QUEUE_USER_REGISTERED_INDEX/QUEUE_USER_PROFILE_UPDATED_INDEX`；新增 `UserIndexDocDTO` + `UserClient#getUserIndexDoc`（fail-fast 降级）
+  - ✅ 2026-11-04：`litisle-user` 引入 `common-mq`、补 `spring.rabbitmq` 配置、新增 `UserMqConfig`（声明 `EXCHANGE_USER`）与 `UserEventProducer`；`UserFeignProviderController#createUser` 成功后发 `user.registered`，`UserProfileServiceImpl#updateCurrentUserProfile` 在笔名/简介变更后发 `user.profile-updated`（均为写库后 best-effort）；新增 `/api/feign/user/index-doc` 回查端点（仅公开字段）
+  - ✅ 2026-11-04：新增 `UserIndexService/Impl`：回查 → 门控（`status=NORMAL`、`delFlag=0`、笔名/简介至少一项非空）→ 按 userId upsert/delete；`USER_NOT_FOUND` 收敛为删索引；`SearchMqConfig` 补 user 两队列/绑定/延迟重投/DLX-DLQ，`IndexSyncConsumer#onUserRegistered/onUserProfileUpdated` 接入。说明：新注册用户通常无公开资料，注册事件按门控「删索引」幂等空操作，待资料更新事件再正式入索引
 
 ##### 批次六：搜索联想与搜索历史（依赖批次一/四；对齐批次D D4）
 
@@ -263,4 +275,4 @@
 
 #### search模块
 
-- user_idx 索引同步链路（原批次B B5 + 批次D D2 用户部分）：UserRegisteredEvent 为空类未发布，用户注册/资料修改事件契约未落地。**触发条件**：批次B B5 契约落地后迁回待办部分（新建批次：用户事件契约 + content/user 侧发布点 + IndexSyncConsumer 扩展 user_idx 消费）；user_idx mapping 已在批次一 1.1 随索引初始化一并创建，仅消费链路暂缓
+- ~~user_idx 索引同步链路（原批次B B5 + 批次D D2 用户部分）~~：**已于 2026-11-04 随批次五 5.3 落地**（用户注册/资料更新事件契约 + user 侧发布点 + search 消费同步 user_idx），此项从「暂不实现汇总」移出，原触发条件已满足

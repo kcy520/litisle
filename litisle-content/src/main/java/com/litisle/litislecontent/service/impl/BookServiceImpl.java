@@ -38,11 +38,15 @@ import com.litisle.litislecontent.service.ReadingHistoryService;
 import com.litisle.litislecontent.service.support.FavoriteStateSupport;
 import com.litisle.commonredis.constant.CacheConstant;
 import com.litisle.commonredis.lock.DistributedLock;
+import com.litisle.litisleapi.event.content.ContentBookChangedEvent;
+import com.litisle.litislecontent.mq.ContentEventProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.HashSet;
 import java.util.List;
@@ -90,6 +94,9 @@ public class BookServiceImpl implements BookService {
     /** 分布式锁（章节重排 book 粒度并发防护，批次5 2026-11-02） */
     private final DistributedLock distributedLock;
 
+    /** content 域 MQ 事件生产收口（批次五 B4：书籍索引变更事件，事务提交后发送） */
+    private final ContentEventProducer contentEventProducer;
+
     /** 分类缺省值（BookSaveDTO.category 可空，落库默认「小说」） */
     private static final String DEFAULT_CATEGORY = "小说";
 
@@ -125,6 +132,8 @@ public class BookServiceImpl implements BookService {
                 .setDelFlag(DelFlag.NOT_DELETED);
         // 步骤2：落库并返回主键
         bookMapper.insert(book);
+        // 步骤3（批次五 B4）：发布书籍索引变更事件（create 无事务包裹，insert 即提交，可立即发送）
+        publishBookChangedAfterCommit(book.getId());
         return book.getId();
     }
 
@@ -171,6 +180,8 @@ public class BookServiceImpl implements BookService {
             upd.setCategory(dto.getCategory());
         }
         bookMapper.updateById(upd);
+        // 步骤3（批次五 B4）：发布书籍索引变更事件（update 无事务包裹，updateById 即提交，可立即发送）
+        publishBookChangedAfterCommit(id);
     }
 
     /**
@@ -204,6 +215,52 @@ public class BookServiceImpl implements BookService {
                 .set(Book::getDelFlag, DelFlag.DELETED));
         bookChapterMapper.delete(new LambdaQueryWrapper<BookChapter>()
                 .eq(BookChapter::getBookId, id));
+        // 步骤3（批次五 B4）：发布书籍索引变更事件——本方法有事务，注册到 afterCommit 再发送，
+        // 防止事务回滚后事件已飞出；消费端回查不到书籍（已软删）会自动删除 book_idx 文档
+        publishBookChangedAfterCommit(id);
+    }
+
+    /**
+     * 书籍索引变更事件发布（批次五 B4，BookServiceImpl 内部统一收口）。
+     *
+     * 作用：书籍创建/编辑/删除后通知 search 同步 book_idx；事件体只带 bookId，
+     * 消费端回查书籍权威态后 upsert 或删除索引文档（完结状态复用同一条链路）。
+     *
+     * 【发送时机】有事务时注册到 afterCommit（防回滚产生脏事件）；无事务时直接发送。
+     * 【失败语义】发送失败仅告警，不阻断书籍主流程（search 索引可重同步/重建兜底）。
+     *
+     * @param bookId 书籍 ID
+     */
+    private void publishBookChangedAfterCommit(Long bookId) {
+        // 入参兜底：bookId 为空直接跳过（正常流程不会出现）
+        if (bookId == null) {
+            return;
+        }
+        // 组装事件体（基座字段由 ContentEventProducer.fillBase 统一填充）
+        ContentBookChangedEvent event = new ContentBookChangedEvent();
+        event.setBookId(bookId);
+        // 发送动作：异常内部吞掉仅告警，不影响书籍写操作返回
+        Runnable publisher = () -> {
+            try {
+                contentEventProducer.sendBookChanged(event);
+            } catch (Exception e) {
+                log.warn("书籍索引变更事件发送失败（不阻断书籍写操作），bookId={}", bookId, e);
+            }
+        };
+        // 存在活动事务 → 注册 afterCommit；否则（create/update 无事务）立即发送
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                /**
+                 * 事务提交成功后触发索引事件发送
+                 */
+                @Override
+                public void afterCommit() {
+                    publisher.run();
+                }
+            });
+        } else {
+            publisher.run();
+        }
     }
 
     /**

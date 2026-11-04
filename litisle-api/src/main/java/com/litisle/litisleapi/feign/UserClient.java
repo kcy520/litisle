@@ -6,6 +6,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.user.AuthUserDTO;
 import com.litisle.litisleapi.dto.user.RegisterUserDTO;
 import com.litisle.litisleapi.dto.user.UserDTO;
+import com.litisle.litisleapi.dto.user.UserIndexDocDTO;
 import com.litisle.litisleapi.config.FeignApiConfig;
 import com.litisle.litisleapi.fallback.UserClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 
 /**
  * 用户服务 Feign 客户端
@@ -63,6 +65,26 @@ public interface UserClient {
      */
     @GetMapping("/api/feign/user/auth/{userId}")
     Result<AuthUserDTO> getAuthUserInfo(@PathVariable("userId") Long userId);
+
+    /**
+     * 回查用户建索引所需的公开资料（search 索引同步专用，批次五 B5）
+     *
+     * <p>【使用场景】search 消费 user.registered / user.profile-updated 事件后，
+     * 事件体只带 userId 定位键，需回查笔名/简介与状态门控字段来维护 user_idx；
+     * 只返回可公开的字段，不含手机号/邮箱等隐私数据</p>
+     *
+     * <p>【设计说明】
+     * 1. 路径前缀 /api/feign/user 网关未路由，仅服务间可用；
+     * 2. 降级 fail-fast（见 UserClientFallbackFactory）：回查失败不能静默返回空对象，
+     *    否则 search 会误删索引文档，由消费端不 ACK 进延迟重试；
+     * 3. 用户不存在或已删除时提供方返回 Result.fail(USER_NOT_FOUND)，
+     *    调用方据此删除 user_idx 文档（注销/删除事件的正常收敛路径）</p>
+     *
+     * @param userId 用户 ID
+     * @return 用户索引回查 DTO（笔名/简介/状态/删除标志/更新时间）
+     */
+    @GetMapping("/api/feign/user/index-doc")
+    Result<UserIndexDocDTO> getUserIndexDoc(@RequestParam("userId") Long userId);
 
 //  自定义安全模块的auth的第三方登录需要接口  // 1. 根据 provider + openId 查询已绑定的用户
 //    Result<UserDTO> findByOAuth(@RequestParam("provider") String provider,

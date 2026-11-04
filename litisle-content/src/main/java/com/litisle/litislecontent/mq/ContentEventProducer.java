@@ -6,6 +6,7 @@ import com.litisle.commonmq.send.MqSendUtil;
 import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.event.content.ContentArticleUpdatedEvent;
+import com.litisle.litisleapi.event.content.ContentBookChangedEvent;
 import com.litisle.litisleapi.event.content.ContentPublishedEvent;
 import com.litisle.litisleapi.event.content.ContentUnpublishedEvent;
 import com.litisle.litisleapi.event.content.ContentViewCountFlushedEvent;
@@ -151,6 +152,21 @@ public class ContentEventProducer {
         dispatch(MqConstant.EXCHANGE_CONTENT, MqConstant.ROUTING_CONTENT_VIEW_COUNT_FLUSHED, event, event.getEventId());
         log.debug("content.view-count-flushed 已发布，bizId={}，viewCount={}",
                 event.getBizId(), event.getViewCount());
+    }
+
+    /**
+     * 发送 content.book-changed（书籍索引变更统一收口，批次五 B4）
+     * <p>消费方：search（回查书籍权威数据后 upsert 或删除 book_idx 索引文档）</p>
+     * <p>书籍创建/编辑/完结/下架/删除统一走本事件：事件体只带 bookId，消费端回查权威态后收敛，
+     * 避免按「变更类型」拆分多条路由造成消费端分支爆炸</p>
+     * <p>调用时机铁律：业务事务提交后（afterCommit）调用，防回滚产生脏事件</p>
+     *
+     * @param event 书籍变更事件（bookId 由调用方填充）
+     */
+    public void sendBookChanged(ContentBookChangedEvent event) {
+        fillBase(event);
+        dispatch(MqConstant.EXCHANGE_CONTENT, MqConstant.ROUTING_CONTENT_BOOK_CHANGED, event, event.getEventId());
+        log.info("content.book-changed 已发布，bookId={}", event.getBookId());
     }
 
     /**
@@ -316,6 +332,19 @@ public class ContentEventProducer {
         event.setEventId(UUID.randomUUID().toString());
         event.setEventTime(LocalDateTime.now());
         // traceId 从 MDC 透传（定时任务场景通常为 null 属正常）
+        event.setTraceId(MDC.get(HeaderConstant.TRACE_ID));
+        event.setVersion(1);
+    }
+
+    /**
+     * 填充 ContentBookChangedEvent Schema 基座四字段（重载：事件体无公共基类，禁各自拼装基座字段）
+     *
+     * @param event 书籍变更事件
+     */
+    private void fillBase(ContentBookChangedEvent event) {
+        event.setEventId(UUID.randomUUID().toString());
+        event.setEventTime(LocalDateTime.now());
+        // traceId 从 MDC 透传（HTTP 入口由 TraceIdFilter 生成）
         event.setTraceId(MDC.get(HeaderConstant.TRACE_ID));
         event.setVersion(1);
     }

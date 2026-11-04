@@ -5,6 +5,7 @@ import com.litisle.litisleapi.config.FeignApiConfig;
 import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
+import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.fallback.ContentClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -123,4 +124,24 @@ public interface ContentClient {
      */
     @GetMapping("/api/feign/content/article-index-doc")
     Result<ArticleIndexDocDTO> getArticleIndexDoc(@RequestParam("articleId") Long articleId);
+
+    /**
+     * 回查书籍建索引所需的全量字段（search 索引同步专用，批次五 B4）
+     *
+     * <p>【使用场景】search 消费 content.book-changed 事件后，事件体只带 bookId 定位键，
+     * 需按 bookId 回查书名/作者/简介/分类/状态/删除标志，才能组装 book_idx 索引文档；
+     * 字段不足时禁止在事件体塞大字段（事件轻量纪律）</p>
+     *
+     * <p>【设计说明】
+     * 1. 路径前缀 /api/feign/content 网关未路由，仅服务间可用；
+     * 2. 降级 fail-fast（见 ContentClientFallbackFactory）：回查失败不能静默返回空对象，
+     *    否则 search 会把「不存在的书」当成可索引数据，由消费端不 ACK 进延迟重试；
+     * 3. 书籍不存在或已软删时提供方返回 Result.fail(BOOK_NOT_FOUND)，
+     *    调用方据此删除 book_idx 文档（下架/删除事件的正常收敛路径）</p>
+     *
+     * @param bookId 书籍 ID
+     * @return 书籍索引回查 DTO（含作者 ID 与作者名）
+     */
+    @GetMapping("/api/feign/content/book-index-doc")
+    Result<BookIndexDocDTO> getBookIndexDoc(@RequestParam("bookId") Long bookId);
 }

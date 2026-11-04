@@ -55,6 +55,12 @@ public class SearchMqConfig {
         return new TopicExchange(MqConstant.EXCHANGE_SOCIAL, true, false);
     }
 
+    /** 用户模块交换机（Topic，durable；幂等声明，与 user 侧 UserMqConfig 参数一致，批次五 B5） */
+    @Bean
+    public TopicExchange userExchange() {
+        return new TopicExchange(MqConstant.EXCHANGE_USER, true, false);
+    }
+
     // ==================== 死信交换机 + 死信队列 ====================
 
     /** 独立死信交换机（Direct，durable）：索引同步死信链路专用，与业务交换机隔离 */
@@ -125,6 +131,27 @@ public class SearchMqConfig {
         return indexSyncQueue(MqConstant.QUEUE_SOCIAL_COMMENTED);
     }
 
+    /** 书籍索引变更队列（批次五 B4：回查后 upsert 或删除 book_idx） */
+    @Bean
+    public Queue contentBookChangedQueue() {
+        return indexSyncQueue(MqConstant.QUEUE_CONTENT_BOOK_CHANGED);
+    }
+
+    /**
+     * 用户注册索引同步队列（批次五 B5）：
+     * 独立于 notification 的同路由键队列（同一路由键 fanout 到多队列，避免同队列多消费者抢占丢消息）
+     */
+    @Bean
+    public Queue userRegisteredIndexQueue() {
+        return indexSyncQueue(MqConstant.QUEUE_USER_REGISTERED_INDEX);
+    }
+
+    /** 用户资料更新索引同步队列（批次五 B5：回查后 upsert 或删除 user_idx） */
+    @Bean
+    public Queue userProfileUpdatedIndexQueue() {
+        return indexSyncQueue(MqConstant.QUEUE_USER_PROFILE_UPDATED_INDEX);
+    }
+
     /**
      * 构建索引同步队列（durable + 指向死信交换机）：死信按「队列名」投递到 DLX，
      * DLQ 以六条同名绑定收全（见下方 searchIndexDlqBinding*）
@@ -187,6 +214,27 @@ public class SearchMqConfig {
                 .with(MqConstant.ROUTING_SOCIAL_COMMENTED);
     }
 
+    /** 绑定：content.book-changed → 书籍索引变更队列（批次五 B4） */
+    @Bean
+    public Binding contentBookChangedBinding(TopicExchange contentExchange, Queue contentBookChangedQueue) {
+        return BindingBuilder.bind(contentBookChangedQueue).to(contentExchange)
+                .with(MqConstant.ROUTING_CONTENT_BOOK_CHANGED);
+    }
+
+    /** 绑定：user.registered → 用户注册索引同步队列（批次五 B5） */
+    @Bean
+    public Binding userRegisteredIndexBinding(TopicExchange userExchange, Queue userRegisteredIndexQueue) {
+        return BindingBuilder.bind(userRegisteredIndexQueue).to(userExchange)
+                .with(MqConstant.ROUTING_USER_REGISTERED);
+    }
+
+    /** 绑定：user.profile-updated → 用户资料更新索引同步队列（批次五 B5） */
+    @Bean
+    public Binding userProfileUpdatedIndexBinding(TopicExchange userExchange, Queue userProfileUpdatedIndexQueue) {
+        return BindingBuilder.bind(userProfileUpdatedIndexQueue).to(userExchange)
+                .with(MqConstant.ROUTING_USER_PROFILE_UPDATED);
+    }
+
     // ==================== 绑定：延迟交换机 → 同步队列（批次二 2.4 指数退避重试） ====================
 
     /**
@@ -242,6 +290,24 @@ public class SearchMqConfig {
         return delayBinding(socialCommentedQueue, searchDelayExchange);
     }
 
+    /** 延迟重投绑定：→ 书籍索引变更队列（批次五 B4） */
+    @Bean
+    public Binding searchDelayBindingBookChanged(CustomExchange searchDelayExchange, Queue contentBookChangedQueue) {
+        return delayBinding(contentBookChangedQueue, searchDelayExchange);
+    }
+
+    /** 延迟重投绑定：→ 用户注册索引同步队列（批次五 B5） */
+    @Bean
+    public Binding searchDelayBindingUserRegistered(CustomExchange searchDelayExchange, Queue userRegisteredIndexQueue) {
+        return delayBinding(userRegisteredIndexQueue, searchDelayExchange);
+    }
+
+    /** 延迟重投绑定：→ 用户资料更新索引同步队列（批次五 B5） */
+    @Bean
+    public Binding searchDelayBindingUserProfileUpdated(CustomExchange searchDelayExchange, Queue userProfileUpdatedIndexQueue) {
+        return delayBinding(userProfileUpdatedIndexQueue, searchDelayExchange);
+    }
+
     // ==================== 绑定：死信交换机 → 死信队列 ====================
 
     /**
@@ -287,6 +353,27 @@ public class SearchMqConfig {
     public Binding searchIndexDlqBindingCommented(DirectExchange searchDlx, Queue searchIndexDlq) {
         return BindingBuilder.bind(searchIndexDlq).to(searchDlx)
                 .with(MqConstant.QUEUE_SOCIAL_COMMENTED);
+    }
+
+    /** 绑定：DLX ← 书籍索引变更队列死信（批次五 B4） */
+    @Bean
+    public Binding searchIndexDlqBindingBookChanged(DirectExchange searchDlx, Queue searchIndexDlq) {
+        return BindingBuilder.bind(searchIndexDlq).to(searchDlx)
+                .with(MqConstant.QUEUE_CONTENT_BOOK_CHANGED);
+    }
+
+    /** 绑定：DLX ← 用户注册索引同步队列死信（批次五 B5） */
+    @Bean
+    public Binding searchIndexDlqBindingUserRegistered(DirectExchange searchDlx, Queue searchIndexDlq) {
+        return BindingBuilder.bind(searchIndexDlq).to(searchDlx)
+                .with(MqConstant.QUEUE_USER_REGISTERED_INDEX);
+    }
+
+    /** 绑定：DLX ← 用户资料更新索引同步队列死信（批次五 B5） */
+    @Bean
+    public Binding searchIndexDlqBindingUserProfileUpdated(DirectExchange searchDlx, Queue searchIndexDlq) {
+        return BindingBuilder.bind(searchIndexDlq).to(searchDlx)
+                .with(MqConstant.QUEUE_USER_PROFILE_UPDATED_INDEX);
     }
 
     // 事件体 JSON 序列化（Jackson2JsonMessageConverter）已由 common-mq 统一注册，

@@ -12,7 +12,10 @@ import com.litisle.commonsecurity.utils.SaRoleHelper;
 import com.litisle.litisleapi.dto.user.AuthUserDTO;
 import com.litisle.litisleapi.dto.user.RegisterUserDTO;
 import com.litisle.litisleapi.dto.user.UserDTO;
+import com.litisle.litisleapi.dto.user.UserIndexDocDTO;
+import com.litisle.litisleapi.event.user.UserRegisteredEvent;
 import com.litisle.litisleapi.feign.UserClient;
+import com.litisle.litisleuser.mq.UserEventProducer;
 import com.litisle.litisleuser.domain.entity.Permission;
 import com.litisle.litisleuser.domain.entity.Role;
 import com.litisle.litisleuser.domain.entity.RolePermission;
@@ -55,6 +58,9 @@ public class UserFeignProviderController implements UserClient {
     private final RolePermissionService rolePermissionService;
     private final PermissionService permissionService;
     private final UserProfileService userProfileService;
+
+    /** user 域事件生产收口（批次五 B5：注册/资料更新事件，search 同步 user_idx） */
+    private final UserEventProducer userEventProducer;
 
     /**
      * 测试-id查询用户
@@ -130,7 +136,16 @@ public class UserFeignProviderController implements UserClient {
             userRoleService.save(userRole);
         }
 
-        // 6. 构建返回 DTO
+        // 6. 发布用户注册事件（批次五 B5，best-effort：发送失败仅告警，不影响注册结果）
+        //    注：新用户尚无笔名/简介，search 侧门控会判定「无可索引公开资料」而不建文档；
+        //    待资料更新事件（user.profile-updated）再正式入索引
+        UserRegisteredEvent registeredEvent = new UserRegisteredEvent();
+        registeredEvent.setUserId(user.getId());
+        registeredEvent.setUsername(user.getUsername());
+        registeredEvent.setUid(user.getUid());
+        userEventProducer.sendRegistered(registeredEvent);
+
+        // 7. 构建返回 DTO
         AuthUserDTO authUser = new AuthUserDTO();
         authUser.setUserId(user.getId());
         authUser.setUsername(user.getUsername());
@@ -241,6 +256,41 @@ public class UserFeignProviderController implements UserClient {
         }
 
         return Result.success(authUser);
+    }
+
+    /**
+     * 回查用户建索引所需的公开资料（批次五 B5，search 同步 user_idx 用）。
+     *
+     * 作用：只返回可公开字段（笔名/简介）与状态门控字段；用户不存在或已删除时抛
+     * USER_NOT_FOUND，search 消费端据此删除索引文档（注销/删除的正常收敛路径）。
+     *
+     * @param userId 用户 ID
+     * @return 用户索引回查 DTO（笔名/简介/状态/删除标志/更新时间）
+     */
+    @Override
+    public Result<UserIndexDocDTO> getUserIndexDoc(Long userId) {
+        log.info("Feign 查询用户索引资料: userId={}", userId);
+
+        // 1. 查用户（不带 del_flag 过滤：已删除也按不存在返回，供 search 删索引）
+        User user = userService.getById(userId);
+        if (user == null || user.getDelFlag() == DelFlag.DELETED) {
+            throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        // 2. 查作者扩展资料（笔名为对外展示名，普通用户可能没有档案行）
+        UserProfile profile = userProfileService.lambdaQuery()
+                .eq(UserProfile::getUserId, userId)
+                .one();
+
+        // 3. 组装 DTO（仅公开字段：不含手机号/邮箱/密码等隐私数据）
+        UserIndexDocDTO dto = new UserIndexDocDTO();
+        dto.setUserId(user.getId());
+        dto.setPenName(profile == null ? null : profile.getPenName());
+        dto.setBio(user.getBio());
+        dto.setStatus(user.getStatus() == null ? null : user.getStatus().getCode());
+        dto.setDelFlag(user.getDelFlag() == null ? null : user.getDelFlag().getCode());
+        dto.setUpdateTime(user.getUpdateTime());
+        return Result.success(dto);
     }
 
     // ==================== 私有方法 ====================

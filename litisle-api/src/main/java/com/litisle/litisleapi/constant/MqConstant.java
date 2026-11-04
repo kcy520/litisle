@@ -57,6 +57,21 @@ public class MqConstant {
     /** 用户注册路由键 */
     public static final String ROUTING_USER_REGISTERED = "user.registered";
 
+    /**
+     * 用户资料更新路由键（批次五 B5，发布至 EXCHANGE_USER，事件体 UserProfileUpdatedEvent）：
+     * user 资料修改（笔名/简介）落库后发布，search 消费回查权威资料后同步 user_idx
+     */
+    public static final String ROUTING_USER_PROFILE_UPDATED = "user.profile-updated";
+
+    /**
+     * 用户注册索引同步队列（search 侧消费）：与 notification 的 QUEUE_USER_REGISTERED 是两个独立队列，
+     * 同一路由键 fanout 到多个队列，避免同队列多消费者变成「抢占消费」导致通知/索引丢失一方
+     */
+    public static final String QUEUE_USER_REGISTERED_INDEX = "litisle.user.registered.index.queue";
+
+    /** 用户资料更新索引同步队列（search 侧消费，配 DLQ 兜底由 search 拓扑声明时落实） */
+    public static final String QUEUE_USER_PROFILE_UPDATED_INDEX = "litisle.user.profile.updated.index.queue";
+
     /** 用户封禁路由键（板块八 8.2，发布至 EXCHANGE_USER，事件体 UserBannedEvent） */
     public static final String ROUTING_USER_BANNED = "user.banned";
 
@@ -88,6 +103,16 @@ public class MqConstant {
 
     /** 文章浏览量落库事件队列（search 侧消费，配 DLQ 兜底由 search 拓扑声明时落实） */
     public static final String QUEUE_CONTENT_VIEW_COUNT_FLUSHED = "litisle.content.view.count.flushed.queue";
+
+    /**
+     * 书籍索引变更路由键（批次五 B4，发布至 EXCHANGE_CONTENT，事件体 ContentBookChangedEvent）：
+     * 书籍创建/编辑/完结/下架/删除统一走本键（事件体只带 bookId），search 消费回查权威态后
+     * upsert 或删除 book_idx（消费端门控 status≠下架 且 del_flag=未删除）
+     */
+    public static final String ROUTING_CONTENT_BOOK_CHANGED = "content.book-changed";
+
+    /** 书籍索引变更事件队列（search 侧消费，配 DLQ 兜底由 search 拓扑声明时落实） */
+    public static final String QUEUE_CONTENT_BOOK_CHANGED = "litisle.content.book.changed.queue";
 
     // ==================== 审核模块（moderation）====================
 

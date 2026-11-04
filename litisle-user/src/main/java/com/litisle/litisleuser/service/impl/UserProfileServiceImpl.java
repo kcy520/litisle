@@ -15,6 +15,7 @@ import com.litisle.litisleapi.dto.captcha.ChangeEmailVerifyDTO;
 import com.litisle.litisleapi.dto.file.FileOwnerDTO;
 import com.litisle.litisleapi.dto.file.FileRefDTO;
 import com.litisle.litisleapi.dfa.DfaFacade;
+import com.litisle.litisleapi.event.user.UserProfileUpdatedEvent;
 import com.litisle.litisleapi.feign.AuthClient;
 import com.litisle.litisleapi.feign.FileClient;
 import com.litisle.litisleapi.moderation.BioModerationGate;
@@ -32,6 +33,7 @@ import com.litisle.litisleuser.domain.vo.UserUpdateProfileVO;
 import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.litisleuser.mapper.UserMapper;
 import com.litisle.litisleuser.mapper.UserProfileMapper;
+import com.litisle.litisleuser.mq.UserEventProducer;
 import com.litisle.litisleuser.service.UserProfileService;
 import com.litisle.litisleuser.utils.RoleUtils;
 import lombok.RequiredArgsConstructor;
@@ -66,6 +68,9 @@ public class UserProfileServiceImpl
 
     /** 用户名拒绝取证适配器（HIGH 拒绝落 moderation_record，经 review 侧） */
     private final UsernameRejectRecordAdapter usernameRejectRecordAdapter;
+
+    /** user 域事件生产收口（批次五 B5：资料更新后通知 search 同步 user_idx） */
+    private final UserEventProducer userEventProducer;
 
     /** 头像引用的业务类型（BizTypeEnum 定义在 litisle-file，api 模块不可反向依赖，此处用常量字符串） */
     private static final String BIZ_TYPE_AVATAR = "AVATAR";
@@ -454,6 +459,15 @@ public class UserProfileServiceImpl
             if (dto.getMasterpiece() != null) profile.setMasterpiece(dto.getMasterpiece());
 
             userProfileMapper.insertOrUpdate(profile);
+        }
+
+        // ===== 4.1 发布用户资料更新事件（批次五 B5）=====
+        // 只有 user_idx 索引字段变化才发：简介（bio，主表）或笔名（penName，作者档案）；
+        // 方法无事务包裹，写库即提交，可立即发送（best-effort，失败不阻断资料更新）
+        if (dto.getBio() != null || (SaRoleHelper.isAuthor() && dto.getPenName() != null)) {
+            UserProfileUpdatedEvent updatedEvent = new UserProfileUpdatedEvent();
+            updatedEvent.setUserId(userId);
+            userEventProducer.sendProfileUpdated(updatedEvent);
         }
 
         // ===== 5. 回显：有 profile 才 JOIN =====

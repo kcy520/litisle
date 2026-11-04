@@ -138,6 +138,26 @@ public final class SearchBizConstant {
     /** 书籍分类（keyword，筛选维度） */
     public static final String FIELD_CATEGORY = "category";
 
+    /**
+     * 书籍下架状态 code（content BookStatusEnum.TAKEN_DOWN=2）：
+     * 下架=对外终止态，回查后命中即删除 book_idx 文档（与软删删除同一收敛路径）
+     */
+    public static final Integer BOOK_STATUS_TAKEN_DOWN = 2;
+
+    // ==================== book_idx / user_idx 写入门控值（批次五 B4/B5） ====================
+
+    /**
+     * 用户正常状态 code（common UserStatus.NORMAL=1）：
+     * 仅正常状态用户入 user_idx（禁用/注销用户删除索引文档）
+     */
+    public static final Integer USER_STATUS_NORMAL = 1;
+
+    /**
+     * 未删除标志 code（common DelFlag.NOT_DELETED=0）：
+     * 已删除的书籍/用户一律不入索引（回查命中已删除即删索引文档）
+     */
+    public static final Integer DEL_FLAG_NOT_DELETED = 0;
+
     // ==================== user_idx 字段名（ES mapping 字段名收口，架构文档 §四） ====================
 
     /** 用户笔名（text + ik，模糊匹配检索） */

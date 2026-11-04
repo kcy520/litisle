@@ -4,6 +4,7 @@ package com.litisle.litislecontent.service;
 import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
+import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 
 import java.util.List;
@@ -55,4 +56,16 @@ public interface ContentInternalService {
      * @return 文章索引回查 DTO（含标签名列表与作者昵称）
      */
     ArticleIndexDocDTO getArticleIndexDoc(Long articleId);
+
+    /**
+     * 回查书籍建索引所需的全量字段（search 索引同步专用，批次五 B4）
+     *
+     * 作用：search 消费 content.book-changed 事件后按 bookId 回查书名/作者/简介/分类/状态，
+     * 组装 book_idx 索引文档；事件体只带定位键，书籍不存在或已软删时抛 BOOK_NOT_FOUND，
+     * 由 search 消费端删除索引文档（下架/删除的正常收敛路径）。
+     *
+     * @param bookId 书籍 ID
+     * @return 书籍索引回查 DTO（含作者 ID 与作者昵称；作者昵称取不到为 null）
+     */
+    BookIndexDocDTO getBookIndexDoc(Long bookId);
 }

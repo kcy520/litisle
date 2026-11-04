@@ -48,6 +48,16 @@ spring:
     password: ${litisle.db.password:123}
 
   # ================================
+  # RabbitMQ 配置（批次五 B5：用户注册/资料更新事件发布，search 消费同步 user_idx）
+  # ================================
+  rabbitmq:
+    host: ${litisle.rabbitmq.host:localhost}
+    port: ${litisle.rabbitmq.port:5672}
+    username: ${litisle.rabbitmq.username:litisle}
+    password: ${litisle.rabbitmq.password:litisle_pass}
+    virtual-host: ${litisle.rabbitmq.vhost:/litisle}
+
+  # ================================
   # Redis 单机配置
   # ================================
   data:

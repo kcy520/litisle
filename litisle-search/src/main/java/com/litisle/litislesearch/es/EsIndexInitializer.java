@@ -19,8 +19,8 @@ import java.util.Map;
  * ES 索引 mapping 初始化器（批次一 1.1，架构文档 §四 索引设计）：
  * 服务启动时幂等创建四个索引（已存在则跳过，绝不覆盖既有 mapping）：
  * - article_idx：文章索引（ik 分词 + 可见性闸门字段 + completion 联想子字段 + vec_dense 向量）
- * - book_idx：书籍索引（书名/作者/简介 ik + 分类 keyword；同步事件随批次五落地）
- * - user_idx：用户索引（笔名/简介 ik；同步事件契约批次B B5 未落地，仅先建索引）
+ * - book_idx：书籍索引（书名/作者/简介 ik + 分类 keyword + authorId keyword；批次五 B4 同步事件落地）
+ * - user_idx：用户索引（笔名/简介 ik；批次五 B5 同步事件落地）
  * - article_chunks：RAG 知识库切片索引（search 摄入、ai 纯查询，架构文档 §四）
  *
  * 容错约定：单个索引创建失败仅告警不阻断启动（ES 不可用属设计的降级场景，
@@ -56,6 +56,43 @@ public class EsIndexInitializer implements ApplicationRunner {
 
         // 遍历：已存在则跳过（幂等，防覆盖线上 mapping），否则创建
         indexMappings.forEach(this::createIndexIfAbsent);
+        // 批次五 B4 遗留收口：给「已存在的 book_idx」幂等补 authorId 字段映射
+        // （新增字段可热更新 mapping，无需重建索引；但存量文档不回填，需重同步或全量重建后才能取到 authorId）
+        upgradeBookMappingIfNeeded();
+    }
+
+    /**
+     * 幂等升级 book_idx mapping：补齐 authorId 字段（批次五 B4，批次四遗留）。
+     *
+     * 作用：book_idx 首次创建时就带 authorId（见 bookMapping）；本方法只处理「索引已存在但
+     * mapping 还是旧版（无 authorId）」的存量环境，启动时补一次 putMapping。
+     *
+     * 【影响说明】
+     * - ES 允许对已存在索引新增字段，添加同定义字段也是幂等操作，可重复执行；
+     * - 补 mapping 只让「新写入/更新」的文档带 authorId，存量文档该字段仍缺失，
+     *   需对存量书籍执行事件重放或全量重建索引才能回填；
+     * - 未回填前检索结果 BookDocVO.authorId 为 null（不影响检索命中与排序）。
+     *
+     * 失败仅告警不阻断启动（与索引创建容错口径一致）。
+     */
+    private void upgradeBookMappingIfNeeded() {
+        String indexName = properties.getIndex().getBook();
+        try {
+            // 索引不存在则跳过（下次创建会带 authorId）
+            boolean exists = elasticsearchClient.indices()
+                    .exists(e -> e.index(indexName)).value();
+            if (!exists) {
+                return;
+            }
+            // 幂等补字段映射（已存在同名字段时 ES 不报错）
+            elasticsearchClient.indices().putMapping(p -> p
+                    .index(indexName)
+                    .properties(Map.of(SearchBizConstant.FIELD_AUTHOR_ID, keywordProperty())));
+            log.info("[ES索引初始化] book_idx 已幂等补齐 authorId 字段映射：{}", indexName);
+        } catch (Exception e) {
+            // 容错：升级失败仅告警（旧 mapping 仍可检索，authorId 待人工重建时回填）
+            log.error("[ES索引初始化] book_idx 补 authorId 映射失败（服务继续启动）：{}", indexName, e);
+        }
     }
 
     /**
@@ -128,8 +165,8 @@ public class EsIndexInitializer implements ApplicationRunner {
     }
 
     /**
-     * book_idx mapping（架构文档 §四）：书名/作者/简介（text + ik）+ 分类 keyword；
-     * 无向量字段（书籍一期不做相似推荐）；索引同步事件随批次五落地（B4）
+     * book_idx mapping（架构文档 §四）：书名/作者/简介（text + ik）+ 分类 keyword + authorId keyword；
+     * 无向量字段（书籍一期不做相似推荐）；批次五 B4 已补 authorId（BookDocVO.authorId 回填依据）
      *
      * @return 书籍索引 mapping 定义
      */
@@ -140,6 +177,8 @@ public class EsIndexInitializer implements ApplicationRunner {
                         SearchBizConstant.FIELD_ID, keywordProperty(),
                         // 书名：ik 分词
                         SearchBizConstant.FIELD_TITLE, ikTextProperty(),
+                        // 作者 ID：keyword，作者维度筛选 + BookDocVO.authorId 回填（批次五 B4 新增）
+                        SearchBizConstant.FIELD_AUTHOR_ID, keywordProperty(),
                         // 作者名：ik 分词
                         SearchBizConstant.FIELD_AUTHOR_NAME, ikTextProperty(),
                         // 简介：ik 分词
@@ -152,7 +191,7 @@ public class EsIndexInitializer implements ApplicationRunner {
 
     /**
      * user_idx mapping（架构文档 §四）：笔名（text + ik，模糊匹配）+ 简介；
-     * 索引同步事件契约批次B B5 未落地（见暂不实现汇总），仅先建索引占位
+     * 索引同步事件（user.registered / user.profile-updated）已于批次五 B5 落地，写入见 UserIndexServiceImpl
      *
      * @return 用户索引 mapping 定义
      */

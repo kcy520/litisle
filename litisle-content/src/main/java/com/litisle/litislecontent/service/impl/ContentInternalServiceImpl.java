@@ -10,16 +10,19 @@ import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
+import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.dto.user.UserDTO;
 import com.litisle.litisleapi.feign.UserClient;
 import com.litisle.litislecontent.domain.entity.Article;
 import com.litisle.litislecontent.domain.entity.ArticleImage;
 import com.litisle.litislecontent.domain.entity.ArticleTag;
+import com.litisle.litislecontent.domain.entity.Book;
 import com.litisle.litislecontent.domain.entity.Tag;
 import com.litisle.litislecontent.mapper.ArticleImageMapper;
 import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.mapper.ArticleTagMapper;
+import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.TagMapper;
 import com.litisle.litislecontent.service.ContentInternalService;
 import lombok.RequiredArgsConstructor;
@@ -61,6 +64,9 @@ public class ContentInternalServiceImpl implements ContentInternalService {
 
     /** 用户服务客户端（建索引回查作者昵称，best-effort） */
     private final UserClient userClient;
+
+    /** 书籍 Mapper（书籍建索引回查数据源，批次五 B4） */
+    private final BookMapper bookMapper;
 
     /**
      * 机审回查内容正文。
@@ -304,6 +310,57 @@ public class ContentInternalServiceImpl implements ContentInternalService {
         dto.setTags(loadTagNames(articleId));
         // 步骤5：查作者昵称（best-effort：失败仅告警，不回滚整个建索引流程）
         dto.setAuthorName(loadAuthorName(article.getAuthorId()));
+        return dto;
+    }
+
+    /**
+     * 回查书籍建索引所需的全量字段（search 索引同步专用，批次五 B4）。
+     *
+     * 作用：
+     * search 消费 content.book-changed 事件后按 bookId 回查，组装 book_idx 索引文档；
+     * 事件体只带 bookId 定位键，书名/作者/简介/分类/状态一律以本方法返回的权威值为准。
+     *
+     * 【软删过滤】显式带 del_flag=0：书籍不存在或已软删统一抛 BOOK_NOT_FOUND，
+     * 由 search 消费端删除索引文档（下架/删除事件的正常收敛路径，非异常）；
+     * 【状态透传】下架状态（TAKEN_DOWN）原样返回，由 search 侧门控决定不入索引。
+     *
+     * @param bookId 书籍 ID
+     * @return 书籍索引回查 DTO（作者昵称 best-effort，取不到时为 null）
+     */
+    @Override
+    public BookIndexDocDTO getBookIndexDoc(Long bookId) {
+
+        /**
+         * 书籍建索引回查流程：
+         *
+         * ① 入参校验：bookId 必填。
+         * ② 查未删除书籍：不存在/已软删直接报 BOOK_NOT_FOUND（消费端收敛为删索引）。
+         * ③ 组装返回：作者 ID/状态/删除标志透传，作者昵称 best-effort 回查。
+         */
+
+        // 步骤1：bookId 必填校验（服务间契约 fail-fast）
+        if (bookId == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR);
+        }
+        // 步骤2：查未删除书籍（显式 del_flag=0，已软删等同不存在，search 侧据此删索引）
+        Book book = bookMapper.selectOne(new LambdaQueryWrapper<Book>()
+                .eq(Book::getId, bookId)
+                .eq(Book::getDelFlag, DelFlag.NOT_DELETED.getCode()));
+        if (book == null) {
+            throw new BizException(ErrorCode.BOOK_NOT_FOUND);
+        }
+        // 步骤3：组装索引回查 DTO（枚举字段返回 code，search 侧据此过状态门控）
+        BookIndexDocDTO dto = new BookIndexDocDTO();
+        dto.setBookId(book.getId());
+        dto.setAuthorId(book.getAuthorId());
+        dto.setTitle(book.getTitle());
+        dto.setSummary(book.getIntro());
+        dto.setCategory(book.getCategory());
+        dto.setStatus(book.getStatus() == null ? null : book.getStatus().getCode());
+        dto.setDelFlag(book.getDelFlag() == null ? null : book.getDelFlag().getCode());
+        dto.setUpdateTime(book.getUpdateTime());
+        // 步骤4：查作者昵称（best-effort：失败仅告警，不回滚整个建索引流程）
+        dto.setAuthorName(loadAuthorName(book.getAuthorId()));
         return dto;
     }
 

@@ -4,6 +4,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.content.ArticleCounterUpdateDTO;
 import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
+import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litislecontent.service.ContentInternalService;
@@ -81,5 +82,17 @@ public class ContentFeignProviderController implements ContentClient {
     public Result<ArticleIndexDocDTO> getArticleIndexDoc(Long articleId) {
         log.info("远程api调用getArticleIndexDoc articleId:{}", articleId);
         return Result.success(contentInternalService.getArticleIndexDoc(articleId));
+    }
+
+    /**
+     * 回查书籍建索引全量字段：委托 Service（search book_idx 同步核心读依赖，fail-fast）
+     *
+     * @param bookId 书籍 ID
+     * @return 书籍索引回查 DTO（书籍不存在/已软删时 Result.fail(BOOK_NOT_FOUND)）
+     */
+    @Override
+    public Result<BookIndexDocDTO> getBookIndexDoc(Long bookId) {
+        log.info("远程api调用getBookIndexDoc bookId:{}", bookId);
+        return Result.success(contentInternalService.getBookIndexDoc(bookId));
     }
 }

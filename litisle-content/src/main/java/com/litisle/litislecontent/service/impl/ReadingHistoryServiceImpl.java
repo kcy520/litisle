@@ -311,6 +311,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                 .eq(ReadingHistory::getBizId, bizId));
     }
 
+
     /**
      * 历史 UPSERT（report / recordFromArticle / recordBookRead 三路径共用，防三份逻辑漂移）：
      * 无历史插入（两端并发首写撞 uk_user_biz 唯一键，捕获后转更新分支），
@@ -347,9 +348,12 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                 }
             }
         }
+
+        //当前此条历史记录，如果上述插入成功，会直接返回return，如果没有插入成功，说明上述阅读历史存在，在此处做当前词条历史记录的更新处理
         if (onlyForward) {
             // 仅前进不回退：经章节表反查双方序号比对，新序号 ≤ 当前序号 → 多端乱序，忽略；
             // 当前章节行缺失（被退章重排）：无法比对，容错放行更新
+            // 文章没有章节id，文章的章节id直接返回null，不需要考虑章节前进与否
             BookChapter lastChapter = current.getChapterId() == null
                     ? null : bookChapterMapper.selectById(current.getChapterId());
             if (lastChapter != null && chapter != null
@@ -357,6 +361,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                 return;
             }
         }
+
         ReadingHistory upd = new ReadingHistory();
         upd.setId(current.getId());
         upd.setChapterId(chapterId);

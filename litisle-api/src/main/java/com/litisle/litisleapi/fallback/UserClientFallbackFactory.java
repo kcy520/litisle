@@ -7,6 +7,7 @@ import com.litisle.litisleapi.dto.user.AuthUserDTO;
 import com.litisle.litisleapi.dto.user.RegisterUserDTO;
 import com.litisle.litisleapi.feign.UserClient;
 import com.litisle.litisleapi.dto.user.UserDTO;
+import com.litisle.litisleapi.dto.user.UserIndexDocDTO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
 
@@ -84,6 +85,19 @@ public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
             @Override
             public Result<AuthUserDTO> getAuthUserInfo(Long userId) {
                 log.error("远程调用 user 模块 getAuthUserInfo 失败！userId = {}", userId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "用户服务暂不可用，请稍后重试", cause);
+            }
+
+            /**
+             * 用户建索引回查为 search 索引同步核心读依赖 fail-fast：静默返回空数据会导致
+             * search 误删 user_idx 文档，异常穿透到消费端由延迟重试兜底
+             *
+             * @param userId 用户 ID
+             * @return 永不返回（异常穿透）
+             */
+            @Override
+            public Result<UserIndexDocDTO> getUserIndexDoc(Long userId) {
+                log.error("远程调用 user 模块 getUserIndexDoc 失败！userId = {}", userId, cause);
                 throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "用户服务暂不可用，请稍后重试", cause);
             }
 
