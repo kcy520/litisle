@@ -24,7 +24,7 @@ public interface HotQueryCacheService {
     SearchResultVO read(String cacheKey);
 
     /**
-     * 写入缓存结果（仅 source=es 的常规命中结果生效）。
+     * 写入缓存结果（仅 source=ES 的常规命中结果生效）。
      *
      * @param cacheKey 缓存键
      * @param result   检索结果（兜底/降级结果会被忽略）

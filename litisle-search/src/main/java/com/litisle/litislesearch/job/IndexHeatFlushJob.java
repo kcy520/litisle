@@ -12,6 +12,7 @@ import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.domain.entity.ArticleHeatDoc;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.service.HeatPendingService;
+import com.litisle.litislesearch.service.HotQueryCacheService;
 import jakarta.annotation.PreDestroy;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +53,9 @@ import java.util.stream.Collectors;
  *
  * 【与 3.1 的衔接】3.1 消费端只做 Redis 累加，pending 键 TTL 2h 兜底；
  * 本任务取走后 Redis 键即删除，失败回灌会重新建键并刷新 TTL，保证「取走—刷写—回灌」闭环。
+ *
+ * 【热点缓存失效（批次四接入）】本轮存在待刷新键时，刷写完成后全量清理 search:hotquery:*，
+ * 防热度排序/加权结果在缓存 TTL 内继续返回旧榜；清理失败仅告警（缓存有 TTL 兜底，不阻断刷写）。
  */
 @Slf4j
 @Component
@@ -66,22 +70,28 @@ public class IndexHeatFlushJob {
     /** 热度待刷新键服务（扫描 / 原子取走 / 失败回灌） */
     private final HeatPendingService heatPendingService;
 
+    /** 热点查询缓存服务（刷写完成后失效榜单类缓存，批次四接入） */
+    private final HotQueryCacheService hotQueryCacheService;
+
     /** 刷写并发线程池（大小取 heat.flush.concurrency，任务级共享，避免每轮重复建池） */
     private final ExecutorService flushExecutor;
 
     /**
      * 构造任务并初始化刷写线程池。
      *
-     * @param elasticsearchClient ES 客户端
-     * @param properties          search 配置
-     * @param heatPendingService  热度待刷新键服务
+     * @param elasticsearchClient  ES 客户端
+     * @param properties           search 配置
+     * @param heatPendingService   热度待刷新键服务
+     * @param hotQueryCacheService 热点查询缓存服务
      */
     public IndexHeatFlushJob(ElasticsearchClient elasticsearchClient,
                              SearchProperties properties,
-                             HeatPendingService heatPendingService) {
+                             HeatPendingService heatPendingService,
+                             HotQueryCacheService hotQueryCacheService) {
         this.elasticsearchClient = elasticsearchClient;
         this.properties = properties;
         this.heatPendingService = heatPendingService;
+        this.hotQueryCacheService = hotQueryCacheService;
         // 并发度做下限防御：配置非法（0/负数）时退化为单线程，避免建池失败
         int concurrency = Math.max(1, properties.getHeat().getFlush().getConcurrency());
         this.flushExecutor = Executors.newFixedThreadPool(concurrency);
@@ -135,8 +145,13 @@ public class IndexHeatFlushJob {
             }
         }
 
-        // 【批次四接入标记】热点查询缓存失效在此接入（search:hotquery:* 相关键按榜单/标签维度失效），
-        // 本批次仅留标记，不提前实现批次四缓存内容；接入时须放在「刷写完成后」，保证读到的 heat 已更新。
+        // 步骤5：刷写完成后失效热点查询缓存（批次四接入）：
+        // 放在「刷写完成后」保证下一次检索读到的 heat 已更新；失败仅告警，缓存 TTL 兜底
+        try {
+            hotQueryCacheService.evictAll();
+        } catch (Exception e) {
+            log.error("[热度刷写] 热点查询缓存失效失败（缓存有 TTL 兜底，不阻断本轮刷写）", e);
+        }
 
         log.info("[热度刷写] 本轮完成：扫描键数={}，分片数={}，批量上限={}", keys.size(), futures.size(), batchSize);
     }

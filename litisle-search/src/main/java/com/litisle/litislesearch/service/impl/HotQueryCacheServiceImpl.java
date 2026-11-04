@@ -24,7 +24,7 @@ import java.util.List;
  *
  * 【缓存结构】String 类型，值为 SearchResultVO 的 JSON（保留分页/来源/命中列表完整信息）；
  * key = search:hotquery:{type}:{sort}:{pageNum}:{pageSize}:{关键词+筛选条件 MD5}，TTL 取 cache.ttl（默认 10m）。
- * 【写入约束】只有 source=es 的常规命中才写缓存；fallback / DEGRADED 结果一律不写。
+ * 【写入约束】只有 source=ES 的常规命中才写缓存；fallback / DEGRADED 结果一律不写。
  * 【容错】读/写异常只告警并放行（fail-open），缓存故障不得阻塞检索主链路；
  * 失效（evictAll）异常抛 IllegalStateException，交给 MQ 重试保证最终一致。
  *

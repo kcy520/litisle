@@ -176,7 +176,12 @@ litisle:
         - /api/user/public/**        # 公开用户信息（作者主页等）
 
         # ---------- 搜索服务 ----------
-        - /api/search/**             # 公开搜索
+        # 公开检索/联想/相似推荐匿名放行；/api/search/history 需登录（user_id 硬收口，批次四 4.3）
+        # Sa-Token 匹配器用 * 单段通配，不支持 Spring {id} 语法，故相似推荐用 ** 覆盖多层路径
+        - /api/search                 # 公开全文检索（GET /api/search）
+        - /api/search/suggest         # 搜索联想（批次六）
+        - /api/search/similar/**      # 相似推荐（批次七）
+        # 注意：/api/search/history 故意不列入白名单，由登录态取当前用户 ID，防越权查询他人历史
 
         # ---------- 文件服务 ----------
         - /api/file/download/**      # 公开文件下载

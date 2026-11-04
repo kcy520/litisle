@@ -366,8 +366,10 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
         historyMapper.updateById(upd);
     }
 
+
     /**
-     * 阅读历史超额懒删（增长治理：单用户单类型上限 HISTORY_MAX_PER_USER=500 条，随写入触发）：
+     * 阅读历史超额懒删
+     * （增长治理：单用户单类型上限 HISTORY_MAX_PER_USER=500 条，随写入触发）：
      * 删除该用户该类型下「最新 500 条之外」的最旧行（按最后阅读时间倒序保留最新）。
      * 只在新插入行后调用（更新行不新增条数，无需触发）。
      * fail-safe：删除失败仅 warn，不影响本次落历史（下次写入继续兜底清理）。

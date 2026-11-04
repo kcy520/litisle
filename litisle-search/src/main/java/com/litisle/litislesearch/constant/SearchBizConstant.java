@@ -221,8 +221,8 @@ public final class SearchBizConstant {
     /** 检索默认每页条数（请求未传 pageSize 时使用，且不超过 page.max-page-size） */
     public static final int SEARCH_DEFAULT_PAGE_SIZE = 10;
 
-    /** 结果来源标记：常规 ES 检索命中（可写入热点查询缓存） */
-    public static final String SEARCH_SOURCE_ES = "es";
+    /** 结果来源标记：常规 ES 检索命中（与 SearchResultVO.source 契约一致，可写入热点查询缓存） */
+    public static final String SEARCH_SOURCE_ES = "ES";
 
     /**
      * 结果来源标记：空结果兜底（查询词实时 Embedding + KNN，或二级 HEAT 热门列表）：
@@ -235,6 +235,12 @@ public final class SearchBizConstant {
 
     /** 高亮片段数量（每字段只取 1 段，保持 VO 单 highlight 字段语义） */
     public static final int HIGHLIGHT_FRAGMENT_COUNT = 1;
+
+    /** 发布时间筛选支持的第一格式：纯日期（yyyy-MM-dd） */
+    public static final String PUBLISH_TIME_DATE_PATTERN = "yyyy-MM-dd";
+
+    /** 纯日期字符串长度（用于区分「纯日期」与「日期时间」两种输入格式） */
+    public static final int PUBLISH_TIME_DATE_LENGTH = 10;
 
     /** 发布时间筛选支持的第二格式（第一批为 ISO-8601，另兼容「yyyy-MM-dd HH:mm:ss」） */
     public static final String PUBLISH_TIME_DATETIME_PATTERN = "yyyy-MM-dd HH:mm:ss";

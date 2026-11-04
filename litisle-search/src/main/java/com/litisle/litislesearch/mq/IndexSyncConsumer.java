@@ -11,6 +11,7 @@ import com.litisle.litisleapi.event.content.ContentUnpublishedEvent;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.service.ArticleIndexService;
+import com.litisle.litislesearch.service.HotQueryCacheService;
 import com.rabbitmq.client.Channel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,10 @@ import java.io.IOException;
  *
  * 【幂等】三类处理都以 articleId 为幂等键（upsert / delete / partial update），
  * 重复消费结果一致，因此不额外使用 SETNX 去重（占位会误伤失败重试的消息）。
+ *
+ * 【热点缓存失效（批次四接入）】三个事件处理成功后都调用 HotQueryCacheService#evictAll：
+ * 发布/下架/元数据更新都会改变检索结果，缓存不清会让前端在 TTL 内看到旧数据；
+ * 其中下架属隐私红线，失效失败抛 IllegalStateException 交由 MQ 延迟重试，保证缓存最终被清理。
  */
 @Slf4j
 @Component
@@ -53,6 +58,9 @@ public class IndexSyncConsumer {
 
     /** MQ 发送工具（异常时向延迟交换机重投，由 x-delayed 插件按 x-delay 头延迟投递） */
     private final MqSendUtil mqSendUtil;
+
+    /** 热点查询缓存服务（索引变更后全量失效，批次四接入） */
+    private final HotQueryCacheService hotQueryCacheService;
 
     /**
      * 消费文章发布事件：写文章索引文档 + 重建 RAG 切片。
@@ -82,6 +90,8 @@ public class IndexSyncConsumer {
                         }
                         // 步骤4：委托业务服务（内部完成回查、乱序门控、upsert 与切片重建）
                         articleIndexService.handlePublished(articleId);
+                        // 步骤5：索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交由延迟重试）
+                        hotQueryCacheService.evictAll();
                     });
         } finally {
             // 步骤5：清理 MDC，防消费线程复用导致 traceId 串扰下一条消息
@@ -113,6 +123,8 @@ public class IndexSyncConsumer {
                         }
                         // 下架删除不区分 reason：任何一条下架路径都必须让索引与切片消失（隐私红线）
                         articleIndexService.handleUnpublished(articleId);
+                        // 索引已删除，必须同步失效热点缓存（失败抛出触发重试，防已下架内容在缓存中残留）
+                        hotQueryCacheService.evictAll();
                     });
         } finally {
             MqTraceSupport.clear();
@@ -143,6 +155,8 @@ public class IndexSyncConsumer {
                         }
                         // 业务服务内部会二次回查门控：文章已下架/转私密则转为清理处理
                         articleIndexService.handleArticleUpdated(articleId);
+                        // 元数据已更新，失效热点查询缓存，保证检索结果与索引一致
+                        hotQueryCacheService.evictAll();
                     });
         } finally {
             MqTraceSupport.clear();
