@@ -3,7 +3,9 @@ package com.litisle.litislesearch.mq;
 import com.litisle.commonmq.consume.MqAckHelper;
 import com.litisle.commonmq.consume.MqTraceSupport;
 import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.metrics.SearchMetrics;
 import com.rabbitmq.client.Channel;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -28,6 +30,7 @@ import java.util.Map;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class IndexDlqConsumer {
 
     /** x-death 消息头键（RabbitMQ 死信审计信息：原队列、原因、次数） */
@@ -35,6 +38,9 @@ public class IndexDlqConsumer {
 
     /** 日志中消息体最大打印字符数（防超长正文刷屏，只留排查定位片段） */
     private static final int BODY_LOG_MAX_CHARS = 500;
+
+    /** 死信指标埋点（批次八 8.2：按原队列计数，与 error 日志共同构成告警留痕） */
+    private final SearchMetrics searchMetrics;
 
     /**
      * 消费索引同步死信：记录告警日志后确认出队。
@@ -66,6 +72,8 @@ public class IndexDlqConsumer {
         // x-death 里记录了死信来源队列与原因，取最近一条用于定位是哪条同步队列失败
         String originQueue = extractOriginQueue(message);
         String body = truncateBody(message);
+        // 先记指标再打日志：告警面板按 originQueue 聚合，日志保留消息体供人工排查/重投
+        searchMetrics.recordIndexDlq(originQueue);
         log.error("[索引同步死信] 消息重试耗尽，需人工排查/重投：originQueue={}, body={}", originQueue, body);
     }
 

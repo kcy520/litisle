@@ -11,6 +11,7 @@ import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.domain.entity.ArticleHeatDoc;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
+import com.litisle.litislesearch.metrics.SearchMetrics;
 import com.litisle.litislesearch.service.HeatPendingService;
 import com.litisle.litislesearch.service.HotQueryCacheService;
 import jakarta.annotation.PreDestroy;
@@ -73,6 +74,9 @@ public class IndexHeatFlushJob {
     /** 热点查询缓存服务（刷写完成后失效榜单类缓存，批次四接入） */
     private final HotQueryCacheService hotQueryCacheService;
 
+    /** 观测指标埋点（批次八 8.2：刷写轮次/条目成功失败计数） */
+    private final SearchMetrics searchMetrics;
+
     /** 刷写并发线程池（大小取 heat.flush.concurrency，任务级共享，避免每轮重复建池） */
     private final ExecutorService flushExecutor;
 
@@ -83,15 +87,18 @@ public class IndexHeatFlushJob {
      * @param properties           search 配置
      * @param heatPendingService   热度待刷新键服务
      * @param hotQueryCacheService 热点查询缓存服务
+     * @param searchMetrics        观测指标埋点
      */
     public IndexHeatFlushJob(ElasticsearchClient elasticsearchClient,
                              SearchProperties properties,
                              HeatPendingService heatPendingService,
-                             HotQueryCacheService hotQueryCacheService) {
+                             HotQueryCacheService hotQueryCacheService,
+                             SearchMetrics searchMetrics) {
         this.elasticsearchClient = elasticsearchClient;
         this.properties = properties;
         this.heatPendingService = heatPendingService;
         this.hotQueryCacheService = hotQueryCacheService;
+        this.searchMetrics = searchMetrics;
         // 并发度做下限防御：配置非法（0/负数）时退化为单线程，避免建池失败
         int concurrency = Math.max(1, properties.getHeat().getFlush().getConcurrency());
         this.flushExecutor = Executors.newFixedThreadPool(concurrency);
@@ -125,6 +132,8 @@ public class IndexHeatFlushJob {
             log.debug("[热度刷写] 本窗口无待刷新热度，跳过");
             return;
         }
+        // 指标：本轮扫描到的待刷新键数（空闲周期已在上面提前返回，不产生无意义增量）
+        searchMetrics.recordHeatFlushRound(keys.size());
 
         // 步骤2：按批量上限切片，提交到固定并发池并行执行（单批过大易被 ES 拒绝）
         int batchSize = Math.max(1, properties.getHeat().getFlush().getBatchSize());
@@ -203,7 +212,11 @@ public class IndexHeatFlushJob {
         // 步骤4：执行 _bulk 局部更新；整体异常则整批回灌（ES 抖动仅跳过本轮）
         try {
             bulkUpdate(updates);
+            // 指标：本分片条目刷写成功（部分失败由 bulkUpdate 内部回灌并 error 留痕）
+            searchMetrics.recordHeatFlushBatch(updates.size(), true);
         } catch (Exception e) {
+            // 指标：本分片整体失败（条目已回灌，下一轮重试）
+            searchMetrics.recordHeatFlushBatch(updates.size(), false);
             log.error("[热度刷写] _bulk 执行异常，回灌本批增量等下一轮：size={}", updates.size(), e);
             for (HeatUpdate update : updates) {
                 restore(update);

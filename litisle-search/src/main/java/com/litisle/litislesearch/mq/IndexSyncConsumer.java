@@ -1,7 +1,9 @@
 package com.litisle.litislesearch.mq;
 
+import com.litisle.commoncore.exception.BizException;
 import com.litisle.commonmq.consume.MqAckHelper;
 import com.litisle.commonmq.consume.MqTraceSupport;
+import com.litisle.commonmq.metrics.MqMetrics;
 import com.litisle.commonmq.send.MqSendUtil;
 import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.constant.MqConstant;
@@ -73,6 +75,9 @@ public class IndexSyncConsumer {
     /** 热点查询缓存服务（索引变更后全量失效，批次四接入） */
     private final HotQueryCacheService hotQueryCacheService;
 
+    /** MQ 消费指标（批次八 8.2：按队列与消费结果记账，MeterRegistry 缺失时静默空转） */
+    private final MqMetrics mqMetrics;
+
     /**
      * 消费文章发布事件：写文章索引文档 + 重建 RAG 切片。
      *
@@ -99,10 +104,13 @@ public class IndexSyncConsumer {
                         if (articleId == null) {
                             return;
                         }
-                        // 步骤4：委托业务服务（内部完成回查、乱序门控、upsert 与切片重建）
-                        articleIndexService.handlePublished(articleId);
-                        // 步骤5：索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交由延迟重试）
-                        hotQueryCacheService.evictAll();
+                        // 步骤4-5：委托业务服务 + 缓存失效，并按消费结果记账（成功/业务丢弃/非预期）
+                        runWithMetrics(MqConstant.QUEUE_CONTENT_PUBLISHED, () -> {
+                            // 内部完成回查、乱序门控、upsert 与切片重建
+                            articleIndexService.handlePublished(articleId);
+                            // 索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交由延迟重试）
+                            hotQueryCacheService.evictAll();
+                        });
                     });
         } finally {
             // 步骤5：清理 MDC，防消费线程复用导致 traceId 串扰下一条消息
@@ -132,10 +140,13 @@ public class IndexSyncConsumer {
                         if (articleId == null) {
                             return;
                         }
-                        // 下架删除不区分 reason：任何一条下架路径都必须让索引与切片消失（隐私红线）
-                        articleIndexService.handleUnpublished(articleId);
-                        // 索引已删除，必须同步失效热点缓存（失败抛出触发重试，防已下架内容在缓存中残留）
-                        hotQueryCacheService.evictAll();
+                        // 下架删除不区分 reason：任何一条下架路径都必须让索引与切片消失（隐私红线）；
+                        // 索引删除与缓存失效一起按消费结果记账
+                        runWithMetrics(MqConstant.QUEUE_CONTENT_UNPUBLISHED, () -> {
+                            articleIndexService.handleUnpublished(articleId);
+                            // 索引已删除，必须同步失效热点缓存（失败抛出触发重试，防已下架内容在缓存中残留）
+                            hotQueryCacheService.evictAll();
+                        });
                     });
         } finally {
             MqTraceSupport.clear();
@@ -164,10 +175,13 @@ public class IndexSyncConsumer {
                         if (articleId == null) {
                             return;
                         }
-                        // 业务服务内部会二次回查门控：文章已下架/转私密则转为清理处理
-                        articleIndexService.handleArticleUpdated(articleId);
-                        // 元数据已更新，失效热点查询缓存，保证检索结果与索引一致
-                        hotQueryCacheService.evictAll();
+                        // 元数据更新与缓存失效一起按消费结果记账；业务服务内部会二次回查门控：
+                        // 文章已下架/转私密则转为清理处理
+                        runWithMetrics(MqConstant.QUEUE_CONTENT_ARTICLE_UPDATED, () -> {
+                            articleIndexService.handleArticleUpdated(articleId);
+                            // 元数据已更新，失效热点查询缓存，保证检索结果与索引一致
+                            hotQueryCacheService.evictAll();
+                        });
                     });
         } finally {
             MqTraceSupport.clear();
@@ -202,10 +216,12 @@ public class IndexSyncConsumer {
                             log.warn("[索引同步] 书籍事件缺少 bookId，跳过处理：eventId={}", event.getEventId());
                             return;
                         }
-                        // 委托业务服务：回查、门控、upsert / 删除
-                        bookIndexService.handleChanged(event.getBookId());
-                        // 书籍索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交延迟重试）
-                        hotQueryCacheService.evictAll();
+                        // 委托业务服务：回查、门控、upsert / 删除；与缓存失效一起按消费结果记账
+                        runWithMetrics(MqConstant.QUEUE_CONTENT_BOOK_CHANGED, () -> {
+                            bookIndexService.handleChanged(event.getBookId());
+                            // 书籍索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交延迟重试）
+                            hotQueryCacheService.evictAll();
+                        });
                     });
         } finally {
             // 清理 MDC，防消费线程复用导致 traceId 串扰
@@ -268,14 +284,42 @@ public class IndexSyncConsumer {
                             log.warn("[索引同步] 用户事件缺少 userId，跳过处理：queue={}", queueName);
                             return;
                         }
-                        // 委托业务服务：回查、门控、upsert / 删除
-                        userIndexService.handleUpsert(userId);
-                        // 用户索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交延迟重试）
-                        hotQueryCacheService.evictAll();
+                        // 委托业务服务：回查、门控、upsert / 删除；与缓存失效一起按消费结果记账
+                        runWithMetrics(queueName, () -> {
+                            userIndexService.handleUpsert(userId);
+                            // 用户索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交延迟重试）
+                            hotQueryCacheService.evictAll();
+                        });
                     });
         } finally {
             // 清理 MDC，防消费线程复用导致 traceId 串扰
             MqTraceSupport.clear();
+        }
+    }
+
+    /**
+     * 执行索引同步动作并按消费结果记录 MQ 指标（批次八 8.2）。
+     *
+     * <p>指标口径与 MqAckHelper 的 ACK 三分支对齐：正常完成=SUCCESS；
+     * 抛 BizException=业务性失败（随后 ack 丢弃）=BIZ_DROP；
+     * 抛其他异常=非预期故障（随后延迟重试/最终入 DLQ）=UNEXPECTED。
+     * 异常原样抛出，不改变 MqAckHelper 原有的 ACK/重试分流。</p>
+     *
+     * @param queue  当前消费队列（MqConstant 常量，指标标签基数有限）
+     * @param action 索引同步业务动作（含缓存失效）
+     */
+    private void runWithMetrics(String queue, Runnable action) {
+        try {
+            action.run();
+            mqMetrics.recordConsume(queue, MqMetrics.ConsumeResult.SUCCESS);
+        } catch (BizException e) {
+            // 业务性失败：MqAckHelper 会 ack 丢弃，这里先记账再原样抛出
+            mqMetrics.recordConsume(queue, MqMetrics.ConsumeResult.BIZ_DROP);
+            throw e;
+        } catch (RuntimeException e) {
+            // 非预期异常：MqAckHelper 会延迟重投或入 DLQ，这里先记账再原样抛出
+            mqMetrics.recordConsume(queue, MqMetrics.ConsumeResult.UNEXPECTED);
+            throw e;
         }
     }
 

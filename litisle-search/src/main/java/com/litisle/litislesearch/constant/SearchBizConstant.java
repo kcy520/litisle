@@ -268,6 +268,14 @@ public final class SearchBizConstant {
      */
     public static final String SEARCH_SOURCE_FALLBACK = "fallback";
 
+    /**
+     * 结果来源标记：ES 整体不可用时的热门列表降级（批次A A3 定案 / 批次八 8.1）：
+     * 数据来自 content 热门榜（与 /article/hot 同源），与查询词无关；
+     * 禁止写入热点查询缓存——按查询键缓存会把同一份热门复制到每个关键词下白占内存，
+     * 且 ES 恢复后缓存 TTL 内仍会返回降级结果，掩盖服务已恢复的事实
+     */
+    public static final String SEARCH_SOURCE_DEGRADED = "DEGRADED";
+
     /** 高亮片段目标字符数（单片段，前端摘要卡片展示足够） */
     public static final int HIGHLIGHT_FRAGMENT_SIZE = 80;
 

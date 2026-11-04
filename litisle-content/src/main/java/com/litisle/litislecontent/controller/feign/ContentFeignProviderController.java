@@ -6,6 +6,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.HotArticleDTO;
 import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litislecontent.service.ContentInternalService;
@@ -107,5 +108,21 @@ public class ContentFeignProviderController implements ContentClient {
     public Result<List<TagSuggestDTO>> getTagSuggestions(String keyword) {
         log.info("远程api调用getTagSuggestions keyword:{}", keyword);
         return Result.success(contentInternalService.searchTagSuggestions(keyword));
+    }
+
+    /**
+     * 查询热门文章：委托 Service（search ES 不可用降级链路数据源，fail-fast）
+     *
+     * <p>ES 整体不可用时 search 退化为热门推荐，热门榜 SSOT 在 content；
+     * 本端点复用 /article/hot 读链路（热度榜 + 榜空回退 view_cnt），
+     * 调用失败即降级失败（降级工厂 fail-fast），由 search 返回 SEARCH_ES_UNAVAILABLE。</p>
+     *
+     * @param limit 取前 N 条（null/非正数返回空列表）
+     * @return 热门文章轻量列表（按热榜序）
+     */
+    @Override
+    public Result<List<HotArticleDTO>> getHotArticles(Integer limit) {
+        log.info("远程api调用getHotArticles limit:{}", limit);
+        return Result.success(contentInternalService.listHotArticles(limit == null ? 0 : limit));
     }
 }

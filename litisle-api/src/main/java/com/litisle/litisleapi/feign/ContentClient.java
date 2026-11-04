@@ -7,6 +7,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.HotArticleDTO;
 import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.fallback.ContentClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -159,4 +160,25 @@ public interface ContentClient {
      */
     @GetMapping("/api/feign/content/tag-suggest")
     Result<List<TagSuggestDTO>> getTagSuggestions(@RequestParam("keyword") String keyword);
+
+    /**
+     * 查询热门文章列表（search ES 不可用降级链路的数据源，批次八 8.1）。
+     *
+     * <p>【使用场景】search 检测到 ES 整体不可用且 `litisle.search.fallback.enabled=true` 时，
+     * 退化为返回热门推荐列表（source=DEGRADED）；热门榜唯一数据源在 content，
+     * 与对外 `/article/hot` 同源（批次E P5 起主路径为 CONTENT_FEED_HOT_ZSET 热度榜，榜空回退 view_cnt 直查），
+     * search 不复制热榜逻辑、不直连 content 数据库。</p>
+     *
+     * <p>【设计说明】
+     * 1. 路径前缀 /api/feign/content 网关未路由，仅服务间可用；
+     * 2. 降级语义 fail-fast（见 ContentClientFallbackFactory）：热门列表是 ES 不可用时的唯一保底数据，
+     *    静默返回空列表会让用户误以为「搜索无结果」，因此调用失败即降级失败，由 search 返回
+     *    SEARCH_ES_UNAVAILABLE；
+     * 3. 返回轻量字段（不含正文/封面），与列表不取大字段纪律一致。</p>
+     *
+     * @param limit 取前 N 条（search 传当前 pageSize，提供方再按全局分页上限钳制）
+     * @return 热门文章轻量列表（按热榜序；无数据返回空列表）
+     */
+    @GetMapping("/api/feign/content/hot-articles")
+    Result<List<HotArticleDTO>> getHotArticles(@RequestParam("limit") Integer limit);
 }

@@ -6,6 +6,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.HotArticleDTO;
 import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 
 import java.util.List;
@@ -80,4 +81,17 @@ public interface ContentInternalService {
      * @return 标签联想列表（关键词为空/过长时返回空列表）
      */
     List<TagSuggestDTO> searchTagSuggestions(String keyword);
+
+    /**
+     * 查询热门文章列表（search ES 不可用降级链路的数据源，批次八 8.1）。
+     *
+     * 作用：ES 整体不可用时 search 退化为返回热门推荐；热门榜唯一数据源在 content，
+     * 本方法复用对外 `/article/hot` 的读链路（content 批次E P5 起主路径为热度榜
+     * CONTENT_FEED_HOT_ZSET，榜空回退 view_cnt 直查），以轻量 DTO 返回给 search，
+     * 避免 search 复制热榜逻辑或直连 content 数据库。
+     *
+     * @param limit 取前 N 条（非正数返回空列表；内部再按全局分页上限钳制）
+     * @return 热门文章轻量列表（按热榜序；无数据返回空列表）
+     */
+    List<HotArticleDTO> listHotArticles(int limit);
 }

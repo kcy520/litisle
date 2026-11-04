@@ -24,7 +24,10 @@ import co.elastic.clients.elasticsearch.core.search.Hit;
 import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.commoncore.result.Result;
+import com.litisle.litisleapi.dto.content.HotArticleDTO;
 import com.litisle.litisleapi.dto.search.SearchRequestDTO;
+import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litisleapi.vo.search.ArticleDocVO;
 import com.litisle.litisleapi.vo.search.BookDocVO;
 import com.litisle.litisleapi.vo.search.SearchResultVO;
@@ -37,6 +40,7 @@ import com.litisle.litislesearch.domain.entity.BookIndexDoc;
 import com.litisle.litislesearch.domain.entity.UserIndexDoc;
 import com.litisle.litislesearch.enums.SearchSortEnum;
 import com.litisle.litislesearch.enums.SearchTypeEnum;
+import com.litisle.litislesearch.metrics.SearchMetrics;
 import com.litisle.litislesearch.service.HotQueryCacheService;
 import com.litisle.litislesearch.service.SearchService;
 import com.litisle.litislesearch.service.VectorService;
@@ -113,6 +117,12 @@ public class SearchServiceImpl implements SearchService {
     /** 搜索历史服务（批次六 6.2：检索成功后异步记录，仅本人可见） */
     private final SearchHistoryService searchHistoryService;
 
+    /** content 服务客户端（批次八 8.1：ES 不可用时取热门榜作为降级数据源） */
+    private final ContentClient contentClient;
+
+    /** 观测指标埋点（批次八 8.2：检索路径/ES 异常/降级计数） */
+    private final SearchMetrics searchMetrics;
+
     /**
      * 兜底 Embedding 线程池：VectorService 可能阻塞在远程模型调用，
      * 用独立线程池承载并配合 Future 超时，避免拖垮 Web 请求线程
@@ -148,22 +158,43 @@ public class SearchServiceImpl implements SearchService {
                 query.getSort().getCode(), query.getPageNum(), query.getPageSize(), query.getKeyword());
         SearchResultVO cached = hotQueryCacheService.read(cacheKey);
         if (cached != null) {
-            // 缓存命中同样是有效检索：异步记录历史（未登录自动跳过）
+            // 缓存命中同样是有效检索：异步记录历史（未登录自动跳过）；指标按 cache 路径记账
+            searchMetrics.recordSearch(query.getType().getCode(), SearchMetrics.OUTCOME_CACHE);
             recordHistory(query);
             return cached;
         }
 
-        // 步骤3：执行 ES 检索（异常包装为 SEARCH_ES_UNAVAILABLE，降级链路批次八接入）
-        SearchResultVO result = executeSearch(query);
+        // 步骤3：执行 ES 检索；ES 整体不可用时按 A3 定案降级为 content 热门列表（source=DEGRADED）
+        SearchResultVO result;
+        try {
+            result = executeSearch(query);
+        } catch (BizException e) {
+            // 仅 ES 不可用错误码参与降级；参数校验等业务异常原样抛出
+            if (ErrorCode.SEARCH_ES_UNAVAILABLE.getCode() != e.getCode()) {
+                throw e;
+            }
+            searchMetrics.recordEsError(query.getType().getCode());
+            // 降级开关关闭：不降级，直接返回服务不可用（批次八 V3 验证口径）
+            if (!properties.getFallback().isEnabled()) {
+                searchMetrics.recordSearch(query.getType().getCode(), SearchMetrics.OUTCOME_ERROR);
+                throw e;
+            }
+            // 降级结果不写热点缓存（理由见 degradedResult 注释）；降级仍属有效检索，照常记录历史
+            searchMetrics.recordSearch(query.getType().getCode(), SearchMetrics.OUTCOME_DEGRADED);
+            recordHistory(query);
+            return degradedResult(query);
+        }
 
         // 步骤4：无命中进入兜底链路
         if (result.getTotal() == null || result.getTotal() <= 0) {
             // 兜底结果也是有效检索：异步记录历史（未登录自动跳过）
+            searchMetrics.recordSearch(query.getType().getCode(), SearchMetrics.OUTCOME_FALLBACK);
             recordHistory(query);
             return fallback(query);
         }
 
         // 步骤5：写热点缓存（write 内部再次校验 source=ES，兜底/降级结果不会写入）
+        searchMetrics.recordSearch(query.getType().getCode(), SearchMetrics.OUTCOME_ES);
         hotQueryCacheService.write(cacheKey, result);
         // 步骤6：异步记录搜索历史（仅登录用户；历史记录为辅助能力，失败不影响检索）
         recordHistory(query);
@@ -734,6 +765,77 @@ public class SearchServiceImpl implements SearchService {
             log.error("[检索兜底] HEAT 热门列表失败，返回空页：q={}", query.getKeyword(), e);
             return emptyResult(query.getPageNum(), query.getPageSize());
         }
+    }
+
+    /**
+     * ES 整体不可用时的热门降级（批次A A3 定案 / 批次八 8.1）。
+     *
+     * 【数据来源】content 热门榜（Feign `/api/feign/content/hot-articles`，与对外 `/article/hot` 同源：
+     * content 批次E P5 起主路径为 CONTENT_FEED_HOT_ZSET 热度榜，榜空回退 view_cnt 直查）。
+     * 与批次四空结果兜底不同：兜底仍查 article_idx（ES 尚可用），本降级在 ES 不可用时必须换数据源。
+     *
+     * 【缓存策略】降级结果不写热点查询缓存（也不设短 TTL）：
+     * ① 热门列表与查询词无关，按查询键缓存会把同一份热门复制到每个关键词下，白占内存且无收益；
+     * ② 一旦写入，ES 恢复后缓存 TTL 内仍会持续返回降级结果，掩盖服务已恢复的事实；
+     * ③ 现有 HotQueryCacheService#write 只缓存 source=ES 结果，本分支直接返回、不经过写缓存，
+     * 与兜底链路保持同一口径。
+     *
+     * 【失败语义】content 热门获取失败（网络故障/非成功响应/数据为空）→ 抛 SEARCH_ES_UNAVAILABLE，
+     * 不静默返回空列表（否则用户会误以为「搜索无结果」，无法感知服务不可用）。
+     *
+     * 【分页语义】热门榜只有 TopN、没有深分页能力，降级固定返回第一页（pageNum=1）；
+     * total 取本次返回条数（无法得知热榜全量，前端据此隐藏后续翻页）。
+     *
+     * @param query 检索参数
+     * @return 降级结果（source=DEGRADED，不写缓存）
+     */
+    private SearchResultVO degradedResult(SearchQuery query) {
+        // book/user 检索没有对应热门数据源：返回空页 + DEGRADED 标记，前端据此提示「搜索不可用」
+        if (query.getType() != SearchTypeEnum.ARTICLE) {
+            log.warn("[检索降级] book/user 无热门降级数据源，返回空页：type={}, q={}",
+                    query.getType().getCode(), query.getKeyword());
+            return buildResult(1, query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_DEGRADED,
+                    0L, null, null, null);
+        }
+        List<HotArticleDTO> hotList;
+        try {
+            // 取当前页条数的热门文章（暂不支持降级分页，理由见方法注释）
+            Result<List<HotArticleDTO>> response = contentClient.getHotArticles(query.getPageSize());
+            // 远程返回非成功码或 data 为 null：视为热门获取失败（Feign 网络故障由降级工厂抛 BizException）
+            if (response == null || !response.isSuccess() || response.getData() == null) {
+                throw new BizException(ErrorCode.SEARCH_ES_UNAVAILABLE, "搜索服务暂不可用，请稍后重试");
+            }
+            hotList = response.getData();
+        } catch (BizException e) {
+            // 已是 SEARCH_ES_UNAVAILABLE（远程业务失败）或降级工厂抛出的远程异常：统一收敛为搜索不可用
+            if (ErrorCode.SEARCH_ES_UNAVAILABLE.getCode() == e.getCode()) {
+                throw e;
+            }
+            log.error("[检索降级] 获取 content 热门列表失败，降级失败：q={}", query.getKeyword(), e);
+            throw new BizException(ErrorCode.SEARCH_ES_UNAVAILABLE, "搜索服务暂不可用，请稍后重试", e);
+        } catch (Exception e) {
+            log.error("[检索降级] 获取 content 热门列表异常，降级失败：q={}", query.getKeyword(), e);
+            throw new BizException(ErrorCode.SEARCH_ES_UNAVAILABLE, "搜索服务暂不可用，请稍后重试", e);
+        }
+        // 热门条目转检索契约 VO：高亮/热度/tags 等 ES 专有字段没有对应数据，保持 null，前端按普通卡片渲染
+        List<ArticleDocVO> articles = new ArrayList<>(hotList.size());
+        for (HotArticleDTO hot : hotList) {
+            // 脏数据（空条目/缺主键）跳过，不让单条数据失败整页降级结果
+            if (hot == null || hot.getArticleId() == null) {
+                continue;
+            }
+            ArticleDocVO vo = new ArticleDocVO();
+            vo.setArticleId(hot.getArticleId());
+            vo.setTitle(hot.getTitle());
+            vo.setSummary(hot.getSummary());
+            vo.setAuthorId(hot.getAuthorId());
+            // publishTime 映射为检索契约的 updateTime（与正常检索结果的展示字段保持一致）
+            vo.setUpdateTime(hot.getPublishTime());
+            articles.add(vo);
+        }
+        log.warn("[检索降级] ES 不可用，返回 content 热门列表：q={}, size={}", query.getKeyword(), articles.size());
+        return buildResult(1, query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_DEGRADED,
+                (long) articles.size(), articles, null, null);
     }
 
     /**

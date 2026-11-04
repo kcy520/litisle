@@ -12,6 +12,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.HotArticleDTO;
 import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.dto.user.UserDTO;
 import com.litisle.litisleapi.feign.UserClient;
@@ -20,12 +21,14 @@ import com.litisle.litislecontent.domain.entity.ArticleImage;
 import com.litisle.litislecontent.domain.entity.ArticleTag;
 import com.litisle.litislecontent.domain.entity.Book;
 import com.litisle.litislecontent.domain.entity.Tag;
+import com.litisle.litislecontent.domain.vo.ArticleCardVO;
 import com.litisle.litislecontent.mapper.ArticleImageMapper;
 import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.mapper.ArticleTagMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.TagMapper;
 import com.litisle.litislecontent.service.ContentInternalService;
+import com.litisle.litislecontent.service.ArticleService;
 import com.litisle.litislecontent.service.TagService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -76,6 +79,9 @@ public class ContentInternalServiceImpl implements ContentInternalService {
 
     /** 标签服务（标签池前缀联想，批次六 6.1；标签 SSOT 只在 content） */
     private final TagService tagService;
+
+    /** 文章服务（热门列表降级数据源复用 /article/hot 读链路，批次八 8.1） */
+    private final ArticleService articleService;
 
     /**
      * 机审回查内容正文。
@@ -453,5 +459,49 @@ public class ContentInternalServiceImpl implements ContentInternalService {
             log.warn("建索引回查作者昵称失败（不阻断索引同步），authorId={}", authorId, e);
         }
         return null;
+    }
+
+    
+    /**
+     * 查询热门文章列表（search ES 不可用降级数据源，批次八 8.1）。
+     *
+     * 作用：复用 /article/hot 的读链路（批次E P5：热度榜 CONTENT_FEED_HOT_ZSET 主路径、
+     * 榜空回退 view_cnt 直查），把 ArticleCardVO 映射为 search 降级契约的轻量 DTO。
+     * 只读聚合，不复制热榜逻辑，避免热度口径在 search/content 两处漂移。
+     *
+     * @param limit 取前 N 条（非正数返回空列表；listHot 内部再按全局分页上限钳制）
+     * @return 热门文章轻量列表（按热榜序；无数据返回空列表）
+     */
+    @Override
+    public List<HotArticleDTO> listHotArticles(int limit) {
+        // 非正数无需查询：search 侧正常传 pageSize，此处防御异常入参
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+        // 复用对外热门读链路：热度榜主路径 + 榜空回退 view_cnt，口径与 /article/hot 完全一致
+        List<ArticleCardVO> hotList = articleService.listHot(limit);
+        if (hotList == null || hotList.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // 逐条映射为轻量 DTO（不再补作者昵称/标签，降级链路不叠加额外远程调用）
+        return hotList.stream().map(this::toHotArticleDTO).collect(Collectors.toList());
+    }
+
+    /**
+     * 热门卡片转 search 降级 DTO（只取检索结果卡片渲染所需字段）。
+     *
+     * @param card 热门文章卡片（content 读链路输出）
+     * @return 降级 DTO（articleId 为空时仍返回，由 search 侧跳过脏数据）
+     */
+    private HotArticleDTO toHotArticleDTO(ArticleCardVO card) {
+        HotArticleDTO dto = new HotArticleDTO();
+        // 卡片 id 即文章主键，映射为检索契约 articleId
+        dto.setArticleId(card.getId());
+        dto.setTitle(card.getTitle());
+        dto.setSummary(card.getSummary());
+        dto.setAuthorId(card.getAuthorId());
+        // 卡片 publishTime 是列表展示的发布时间，映射检索契约 updateTime（前端无需区分降级来源）
+        dto.setPublishTime(card.getPublishTime());
+        return dto;
     }
 }

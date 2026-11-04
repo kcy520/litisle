@@ -8,6 +8,7 @@ import com.litisle.litisleapi.dto.content.ArticleImageRefDTO;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.dto.content.ContentDTO;
+import com.litisle.litisleapi.dto.content.HotArticleDTO;
 import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import lombok.extern.slf4j.Slf4j;
@@ -96,6 +97,20 @@ public class ContentClientFallbackFactory implements FallbackFactory<ContentClie
             public Result<List<TagSuggestDTO>> getTagSuggestions(String keyword) {
                 log.warn("远程调用 content 模块 getTagSuggestions 失败，标签联想降级为空列表！keyword = {}", keyword, cause);
                 return Result.success(List.of());
+            }
+
+            /**
+             * 热门列表是 ES 不可用降级链路的唯一保底数据源：调用失败即降级失败，
+             * 异常穿透由 search 返回 SEARCH_ES_UNAVAILABLE；静默返回空列表会让用户
+             * 误以为「搜索无结果」，掩盖服务不可用状态
+             *
+             * @param limit 取前 N 条
+             * @return 不返回（直接抛出）
+             */
+            @Override
+            public Result<List<HotArticleDTO>> getHotArticles(Integer limit) {
+                log.error("远程调用 content 模块 getHotArticles 失败！limit = {}", limit, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);
             }
         };
     }
