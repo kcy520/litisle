@@ -27,6 +27,7 @@ import java.util.List;
  * - ingest：RAG 切片门槛与粒度（正文最小 200 字 / 每片 500 字 / 重叠 50 字）
  * - embedding：向量提供方（开关 / 提供方类型 / 模型 / 维度 / 服务地址 / 密钥 / 超时 / 批量，批次七）
  * - retry：索引同步消费失败重试（最大次数 / 首次退避延迟）
+ * - metrics：观测指标采集（索引同步队列积压采集间隔与首次延迟，批次九 9.9-F）
  */
 @Data
 @Component
@@ -75,6 +76,9 @@ public class SearchProperties {
     /** 消费重试（对应 yml: litisle.search.retry，批次二：延迟重投退避参数） */
     private Retry retry = new Retry();
 
+    /** 观测指标采集（对应 yml: litisle.search.metrics，批次九 9.9-F：索引同步队列积压） */
+    private Metrics metrics = new Metrics();
+
     /** Elasticsearch 连接配置（对应 yml: litisle.search.es） */
     @Data
     public static class Es {
@@ -101,6 +105,12 @@ public class SearchProperties {
         private String user = "user_idx";
         /** RAG 知识库切片索引名（article_chunks，search 摄入、ai 纯查询，架构文档 §四） */
         private String chunk = "article_chunks";
+        /**
+         * 文章下架墓碑 TTL（默认 10 分钟）。
+         * <p>取值依据：消费端最多 5 次延迟重投 × 30 秒退避 ≈ 150 秒，再加处理与网络余量；
+         * 10 分钟可覆盖最大重投窗口，同时避免墓碑长期残留。</p>
+         */
+        private Duration tombstoneTtl = Duration.ofMinutes(10);
     }
 
     /** 权重配置（对应 yml: litisle.search.weight） */
@@ -161,6 +171,12 @@ public class SearchProperties {
         private boolean hotQueryEnabled = true;
         /** 缓存 TTL（默认 10 分钟） */
         private Duration ttl = Duration.ofMinutes(10);
+        /**
+         * 缓存失效合并间隔（毫秒，默认 1000）：索引事件只打脏标记，
+         * 由定时任务按本间隔合并执行一次全量失效，避免每条事件都 SCAN 清缓存。
+         * <p>与定时任务占位符 `${litisle.search.cache.evict-merge-interval-ms:1000}` 同源，便于配置读取与文档化。</p>
+         */
+        private long evictMergeIntervalMs = 1000L;
     }
 
     /** 搜索联想配置（对应 yml: litisle.search.suggest） */
@@ -326,5 +342,28 @@ public class SearchProperties {
 
         /** 首次重试延迟（毫秒，默认 30000 = 30s；后续按 2 的幂次递增） */
         private long baseDelayMs = 30000L;
+    }
+
+    /**
+     * 观测指标采集配置（对应 yml: litisle.search.metrics，批次九 9.9-F）：
+     * 定时读取索引同步队列消息数并写入 gauge litisle_search_index_backlog{queue}，
+     * 供「积压持续 >5 分钟」类告警与并发/扩容决策使用
+     */
+    @Data
+    public static class Metrics {
+
+        /**
+         * 索引同步队列积压采集间隔（毫秒，默认 15000 = 15s）。
+         * <p>与定时任务占位符 `${litisle.search.metrics.backlog-collect-interval-ms:15000}` 同源；
+         * fixedDelay 语义——上一轮采集结束后再等待该间隔，MQ 卡顿时不会造成任务堆积。</p>
+         */
+        private long backlogCollectIntervalMs = 15000L;
+
+        /**
+         * 积压采集首次执行延迟（毫秒，默认 15000 = 15s）。
+         * <p>与占位符 `${litisle.search.metrics.backlog-collect-initial-delay-ms:15000}` 同源；
+         * 避开启动阶段队列声明与 MQ 连接建立，避免首轮采集误报 0 积压。</p>
+         */
+        private long backlogCollectInitialDelayMs = 15000L;
     }
 }

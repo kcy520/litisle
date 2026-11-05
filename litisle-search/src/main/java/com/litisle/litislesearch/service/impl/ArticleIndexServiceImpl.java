@@ -10,8 +10,10 @@ import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.domain.entity.ArticleMetaDoc;
+import com.litisle.litislesearch.enums.SearchTypeEnum;
 import com.litisle.litislesearch.service.ArticleChunkService;
 import com.litisle.litislesearch.service.ArticleIndexService;
+import com.litisle.litislesearch.service.ArticleTombstoneService;
 import com.litisle.litislesearch.service.VectorService;
 import com.litisle.litislesearch.service.support.IndexVersionGuard;
 import com.litisle.litislesearch.utils.SearchTextUtils;
@@ -58,6 +60,9 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
     /** 索引版本守卫（企业优化清单 2.1：旧快照迟到时跳过写入，防覆盖新快照） */
     private final IndexVersionGuard indexVersionGuard;
 
+    /** 文章下架墓碑（批次九 P0-D：跨队列发布/下架竞态的隐私兜底） */
+    private final ArticleTombstoneService articleTombstoneService;
+
     /**
      * 处理文章发布：回查 → 门控 → upsert 索引文档 → 重建切片。
      *
@@ -72,6 +77,19 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
             log.info("[索引同步] 发布门控未通过，跳过写入：articleId={}, status={}, visibility={}",
                     articleId, dto.getStatus(), dto.getVisibility());
             return;
+        }
+        // 步骤2.5：下架墓碑兜底（隐私红线）——命中说明该文章在下架重投窗口内被清理过；
+        // 旧发布事件可能带着「下架前」的快照迟到，此处强制重新回查权威态：当前仍非公开则丢弃，
+        // 已重新公开则改用最新快照继续（不阻塞合法的二次发布）
+        if (articleTombstoneService.exists(articleId)) {
+            ArticleIndexDocDTO fresh = fetchArticle(articleId);
+            if (!isPublicPublished(fresh)) {
+                log.info("[索引同步] 命中下架墓碑且当前非公开，跳过发布写入：articleId={}, status={}, visibility={}",
+                        articleId, fresh.getStatus(), fresh.getVisibility());
+                return;
+            }
+            dto = fresh;
+            log.info("[索引同步] 命中下架墓碑但文章已重新公开，改用最新快照写入：articleId={}", articleId);
         }
         // 步骤3：版本比较——旧快照迟到（现有 updateTime 不早于本次）时跳过整篇写入与切片重建，
         // 防旧标题/旧正文覆盖新内容（企业优化清单 2.1；等版本按幂等跳过）
@@ -95,6 +113,10 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
     public void handleUnpublished(Long articleId) {
         // 步骤1：删除文章索引文档（不存在视为成功，幂等）
         deleteArticleDoc(articleId);
+        // 步骤1.5：写文章下架墓碑（隐私兜底）——跨队列旧发布事件可能在删除后把文档写回，
+        // 发布/元数据写路径命中墓碑会强制重新门控；写入失败抛可恢复异常，交 MQ 延迟重投
+        // （删除与再打标均幂等，重放无副作用）
+        articleTombstoneService.markUnpublished(articleId);
         // 步骤2：删除该文章全部切片（防下架内容继续被 RAG 引用）
         articleChunkService.deleteByArticleId(articleId);
         // 说明：热点查询缓存失效随批次四缓存落地接入（当前无缓存）
@@ -116,6 +138,18 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
                     articleId, dto.getStatus(), dto.getVisibility());
             handleUnpublished(articleId);
             return;
+        }
+        // 步骤2.5：下架墓碑兜底——命中则重新回查：仍非公开按清理收敛，已重新公开用新快照继续
+        if (articleTombstoneService.exists(articleId)) {
+            ArticleIndexDocDTO fresh = fetchArticle(articleId);
+            if (!isPublicPublished(fresh)) {
+                log.info("[索引同步] 命中下架墓碑且当前非公开，转为清理：articleId={}, status={}, visibility={}",
+                        articleId, fresh.getStatus(), fresh.getVisibility());
+                handleUnpublished(articleId);
+                return;
+            }
+            dto = fresh;
+            log.info("[索引同步] 命中下架墓碑但文章已重新公开，改用最新快照更新元数据：articleId={}", articleId);
         }
         // 步骤3：版本比较——旧元数据快照迟到时跳过 partial update，防元数据回退（企业优化清单 2.1）
         if (isStaleVersion(articleId, dto.getPublishTime())) {
@@ -165,7 +199,7 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
      */
     private boolean isStaleVersion(Long articleId, LocalDateTime updateTime) {
         return indexVersionGuard.isStale(properties.getIndex().getArticle(), String.valueOf(articleId),
-                updateTime, ArticleIndexDoc.class, ArticleIndexDoc::getUpdateTime);
+                updateTime, SearchTypeEnum.ARTICLE.getCode(), ArticleIndexDoc.class, ArticleIndexDoc::getUpdateTime);
     }
 
     /**

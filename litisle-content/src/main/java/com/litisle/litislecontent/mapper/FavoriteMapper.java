@@ -2,11 +2,15 @@ package com.litisle.litislecontent.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.litisle.litislecontent.domain.dto.IdCountDTO;
 import com.litisle.litislecontent.domain.entity.Favorite;
 import com.litisle.litislecontent.domain.vo.FavoriteItemVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+
+import java.util.Collection;
+import java.util.List;
 
 /**
  * favorite 收藏表 Mapper（阶段16：一期 content 临时承载单层收藏）
@@ -59,4 +63,25 @@ public interface FavoriteMapper extends BaseMapper<Favorite> {
     Page<FavoriteItemVO> selectMyFavorites(Page<FavoriteItemVO> page,
                                            @Param("userId") Long userId,
                                            @Param("targetType") Integer targetType);
+
+    /**
+     * 批量统计书籍收藏数（批次十 10.4 书籍流排序输入）
+     *
+     * <p>口径：target_type=2（书籍）按 target_id 分组计数，一次查询覆盖整页候选，
+     * 避免逐本查询造成 N+1；调用方保证 bookIds 非空。</p>
+     *
+     * @param bookIds 书籍 ID 集合（非空）
+     * @return 每本书的收藏数（无收藏的书不在结果中，调用方按 0 处理）
+     */
+    @Select("""
+            <script>
+            select target_id as id, count(*) as cnt
+            from favorite
+            where target_type = 2
+              and target_id in
+              <foreach collection="bookIds" item="bookId" open="(" separator="," close=")">#{bookId}</foreach>
+            group by target_id
+            </script>
+            """)
+    List<IdCountDTO> countBookCollects(@Param("bookIds") Collection<Long> bookIds);
 }

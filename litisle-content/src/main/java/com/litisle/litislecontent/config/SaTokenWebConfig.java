@@ -60,7 +60,15 @@ public class SaTokenWebConfig implements WebMvcConfigurer {
                 return;
             }
 
-            // 3. 其余路径一律登录校验
+            // 3. 推荐流匿名放行（批次十 10.2）：仅 GET 且路径精确匹配两条新流端点
+            //    旧 /api/content/feed 不在此列，保持登录限定；精确匹配避免把其他 /feed 子路径误放行
+            if ("GET".equalsIgnoreCase(method)
+                    && ("/api/content/feed/articles".equals(path)
+                    || "/api/content/feed/books".equals(path))) {
+                return;
+            }
+
+            // 4. 其余路径一律登录校验
             StpUtil.checkLogin();
         }))
                 .addPathPatterns("/**")

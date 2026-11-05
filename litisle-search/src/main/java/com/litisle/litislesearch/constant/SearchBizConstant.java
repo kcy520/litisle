@@ -143,6 +143,8 @@ public final class SearchBizConstant {
     /**
      * 一期 Embedding 模型占位标识（批次C C1：具体选型随 VectorService 落地定，维度先行收口 1024；
      * 模型确定后改写本值并触发全量重建索引）
+     * <p>2026-11-05 起索引 _meta 直接写配置项 embedding.model，本常量已无代码引用；
+     * 保留作历史占位/兼容旧索引识别用途，勿删。</p>
      */
     public static final String EMBEDDING_MODEL_PLACEHOLDER = "unset-1024d";
 
@@ -308,6 +310,34 @@ public final class SearchBizConstant {
 
     /** 热点查询缓存全量失效时单次 SCAN 建议返回条数（降低批量删除时的往返次数） */
     public static final int HOT_QUERY_EVICT_SCAN_COUNT = 500;
+
+    /**
+     * 热点查询缓存「待失效」脏标记键。
+     * <p>刻意不用 search:hotquery: 前缀：evictAll 按 search:hotquery:* 扫描，
+     * 若脏标记也落在这个前缀内会被一并删除，导致合并任务漏掉一次失效。</p>
+     */
+    public static final String HOT_QUERY_DIRTY_KEY = "search:hotquery-dirty";
+
+    /**
+     * 脏标记 TTL（秒）：防合并任务长时间宕机或 Redis 抖动时标记永久丢失；
+     * 过期后最多再延迟一个间隔即可由后续事件重新打标。
+     */
+    public static final long HOT_QUERY_DIRTY_TTL_SECONDS = 300;
+
+    /**
+     * 文章「下架墓碑」键前缀（后缀为 articleId）。
+     * <p>用途：下架事件删除索引后写一个短 TTL 标记，发布/元数据路径写入前查此标记并强制重新门控，
+     * 防止跨队列竞态下旧发布事件把已下架文章重新写回索引（隐私红线兜底）。</p>
+     * <p>只对文章生效：书籍/用户没有「下架」语义，删除即最终态。</p>
+     */
+    public static final String ARTICLE_TOMBSTONE_KEY_PREFIX = "search:index:tombstone:article:";
+
+    /**
+     * ES date 字段统一格式（批次九 9.9-A）：
+     * 严格 ISO-8601（date_optional_time 允许省略时间部分）+ epoch 毫秒兜底。
+     * <p>与 ES 客户端专用 ObjectMapper 的 ISO 序列化口径一致；显式声明避免依赖集群默认格式。</p>
+     */
+    public static final String ES_DATE_FORMAT = "strict_date_optional_time||epoch_millis";
 
     // ==================== 搜索联想（批次六 6.1） ====================
 

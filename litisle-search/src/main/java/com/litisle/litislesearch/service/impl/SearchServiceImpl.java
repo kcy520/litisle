@@ -732,13 +732,13 @@ public class SearchServiceImpl implements SearchService {
     // ==================== 空结果兜底（批次四 4.2） ====================
 
     /**
-     * 空结果兜底：实时 Embedding → KNN；失败再退 HEAT 热门列表；仍失败返回空页。
+     * 空结果兜底：实时 Embedding → KNN；失败再退 content 热门榜（getHotArticles）；仍失败返回空页。
      *
      * @param query 检索参数
      * @return 兜底结果（source=fallback，不写缓存）
      */
     private SearchResultVO fallback(SearchQuery query) {
-        // 仅文章索引有 vec_dense / heat 字段；book/user 无可用兜底数据，直接返回空页
+        // 仅文章索引有 vec_dense 向量兜底能力；book/user 无可用兜底数据，直接返回空页
         if (query.getType() != SearchTypeEnum.ARTICLE) {
             log.info("[检索兜底] book/user 无兜底数据源，返回空页：type={}, q={}",
                     query.getType().getCode(), query.getKeyword());
@@ -754,15 +754,15 @@ public class SearchServiceImpl implements SearchService {
                 }
             } catch (Exception e) {
                 // KNN 失败（ES 抖动/查询异常）继续走二级兜底，不阻塞主链路
-                log.warn("[检索兜底] KNN 检索失败，转 HEAT 热门列表：q={}", query.getKeyword(), e);
+                log.warn("[检索兜底] KNN 检索失败，转 content 热门榜：q={}", query.getKeyword(), e);
             }
         }
-        // 二级兜底：article_idx 按 heat 降序（与批次八 A3 降级链路热门列表同口径）
+        // 二级兜底：复用 content 热门榜（与批次八 ES 不可用降级同源，但触发语义不同）
         try {
-            return heatFallback(query);
+            return hotArticleFallback(query);
         } catch (Exception e) {
             // 热门列表也失败：返回空页（兜底失败不阻塞主链路）
-            log.error("[检索兜底] HEAT 热门列表失败，返回空页：q={}", query.getKeyword(), e);
+            log.error("[检索兜底] content 热门榜获取失败，返回空页：q={}", query.getKeyword(), e);
             return emptyResult(query.getPageNum(), query.getPageSize());
         }
     }
@@ -772,7 +772,8 @@ public class SearchServiceImpl implements SearchService {
      *
      * 【数据来源】content 热门榜（Feign `/api/feign/content/hot-articles`，与对外 `/article/hot` 同源：
      * content 批次E P5 起主路径为 CONTENT_FEED_HOT_ZSET 热度榜，榜空回退 view_cnt 直查）。
-     * 与批次四空结果兜底不同：兜底仍查 article_idx（ES 尚可用），本降级在 ES 不可用时必须换数据源。
+     * 与批次四空结果兜底的区别在「触发条件」而非数据源：兜底仅用于 ES 正常但检索无命中（source=fallback），
+     * 本降级用于 ES 整体不可用（source=DEGRADED）；两者现已统一复用同一 content 热门端点。
      *
      * 【缓存策略】降级结果不写热点查询缓存（也不设短 TTL）：
      * ① 热门列表与查询词无关，按查询键缓存会把同一份热门复制到每个关键词下，白占内存且无收益；
@@ -817,10 +818,25 @@ public class SearchServiceImpl implements SearchService {
             log.error("[检索降级] 获取 content 热门列表异常，降级失败：q={}", query.getKeyword(), e);
             throw new BizException(ErrorCode.SEARCH_ES_UNAVAILABLE, "搜索服务暂不可用，请稍后重试", e);
         }
-        // 热门条目转检索契约 VO：高亮/热度/tags 等 ES 专有字段没有对应数据，保持 null，前端按普通卡片渲染
+        // 热门条目转检索契约 VO（与空结果兜底共用同一转换，保证两种链路字段口径一致）
+        List<ArticleDocVO> articles = toArticleDocs(hotList);
+        log.warn("[检索降级] ES 不可用，返回 content 热门列表：q={}, size={}", query.getKeyword(), articles.size());
+        return buildResult(1, query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_DEGRADED,
+                (long) articles.size(), articles, null, null);
+    }
+
+    /**
+     * content 热门条目 → 文章检索契约 VO（空结果兜底与 ES 不可用降级共用）。
+     * <p>高亮/热度/tags 等 ES 专有字段没有对应数据，保持 null，前端按普通卡片渲染；
+     * 空条目或缺主键的脏数据直接跳过，不让单条数据拖垮整页。</p>
+     *
+     * @param hotList content 热门文章列表（可为空集合）
+     * @return 文章结果 VO 列表
+     */
+    private List<ArticleDocVO> toArticleDocs(List<HotArticleDTO> hotList) {
         List<ArticleDocVO> articles = new ArrayList<>(hotList.size());
         for (HotArticleDTO hot : hotList) {
-            // 脏数据（空条目/缺主键）跳过，不让单条数据失败整页降级结果
+            // 脏数据（空条目/缺主键）跳过，避免单条异常导致整页失败
             if (hot == null || hot.getArticleId() == null) {
                 continue;
             }
@@ -833,9 +849,7 @@ public class SearchServiceImpl implements SearchService {
             vo.setUpdateTime(hot.getPublishTime());
             articles.add(vo);
         }
-        log.warn("[检索降级] ES 不可用，返回 content 热门列表：q={}, size={}", query.getKeyword(), articles.size());
-        return buildResult(1, query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_DEGRADED,
-                (long) articles.size(), articles, null, null);
+        return articles;
     }
 
     /**
@@ -853,16 +867,16 @@ public class SearchServiceImpl implements SearchService {
         } catch (TimeoutException e) {
             // 超时：取消任务并转入二级兜底
             future.cancel(true);
-            log.warn("[检索兜底] 查询词向量化超时（{}ms），转 HEAT 热门列表：q={}", timeoutMs, text);
+            log.warn("[检索兜底] 查询词向量化超时（{}ms），转 content 热门榜：q={}", timeoutMs, text);
             return null;
         } catch (InterruptedException e) {
             // 线程中断：恢复中断标记后转入二级兜底
             Thread.currentThread().interrupt();
-            log.warn("[检索兜底] 查询词向量化被中断，转 HEAT 热门列表：q={}", text);
+            log.warn("[检索兜底] 查询词向量化被中断，转 content 热门榜：q={}", text);
             return null;
         } catch (Exception e) {
             // 模型调用失败/提供方未接入（返回 null 属正常降级路径）：转二级兜底
-            log.warn("[检索兜底] 查询词向量化失败，转 HEAT 热门列表：q={}", text, e);
+            log.warn("[检索兜底] 查询词向量化失败，转 content 热门榜：q={}", text, e);
             return null;
         }
     }
@@ -904,27 +918,31 @@ public class SearchServiceImpl implements SearchService {
     }
 
     /**
-     * 二级兜底：article_idx 按 heat 降序取热门文章。
+     * 二级兜底：复用 content 热门榜（Feign `/api/feign/content/hot-articles`）。
+     *
+     * <p>【触发语义】仅在 ES 正常但检索无命中（以及 KNN 无结果）时进入；
+     * ES 整体不可用走 {@link #degradedResult(SearchQuery)}，不经过本方法。</p>
+     * <p>【数据源】与批次八降级同源（CONTENT_FEED_HOT_ZSET，榜空回退 view_cnt），口径一致。</p>
+     * <p>【缓存策略】与降级一致：source 仍为 fallback（非 ES），不写热点查询缓存；
+     * 热门结果与查询词无关，按查询键缓存只会重复占内存并掩盖 ES 恢复。</p>
+     * <p>【分页语义】热门榜只有 TopN，无深分页能力：固定返回第一页、total=当页条数，
+     * 与降级一致；调用方按 source=fallback 的既有契约处理。</p>
      *
      * @param query 检索参数
-     * @return 热门列表（source=fallback）
-     * @throws Exception ES 访问异常
+     * @return 热门列表（source=fallback，不写缓存）
+     * @throws Exception content 远程异常（由 fallback 调用方收敛为空页）
      */
-    private SearchResultVO heatFallback(SearchQuery query) throws Exception {
-        SearchRequest request = new SearchRequest.Builder()
-                .index(properties.getIndex().getArticle())
-                .from(query.getFrom())
-                .size(query.getPageSize())
-                .trackTotalHits(t -> t.enabled(true))
-                .query(termFilter(SearchBizConstant.FIELD_VISIBILITY, SearchBizConstant.VISIBILITY_PUBLIC))
-                .sort(List.of(fieldSort(SearchBizConstant.FIELD_HEAT)))
-                .highlight(buildArticleHighlight())
-                .build();
-        SearchResponse<ArticleIndexDoc> response =
-                elasticsearchClient.search(request, ArticleIndexDoc.class);
-        SearchResultVO result = toArticleResult(response, query);
-        result.setSource(SearchBizConstant.SEARCH_SOURCE_FALLBACK);
-        return result;
+    private SearchResultVO hotArticleFallback(SearchQuery query) throws Exception {
+        // 取当前页条数的热门文章（暂不支持分页，理由见方法注释）
+        Result<List<HotArticleDTO>> response = contentClient.getHotArticles(query.getPageSize());
+        // 非成功响应：兜底失败但 ES 仍可用，不抛 SEARCH_ES_UNAVAILABLE（与降级失败语义区分）
+        if (response == null || !response.isSuccess() || response.getData() == null) {
+            throw new IllegalStateException("content 热门列表获取失败");
+        }
+        // 热门条目转检索契约 VO（与降级共用转换，字段口径一致）
+        List<ArticleDocVO> articles = toArticleDocs(response.getData());
+        return buildResult(1, query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_FALLBACK,
+                (long) articles.size(), articles, null, null);
     }
 
     /**

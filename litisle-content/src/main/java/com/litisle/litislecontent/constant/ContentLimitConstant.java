@@ -33,8 +33,11 @@ public final class ContentLimitConstant {
     /** 收藏/取消收藏（60s 20 次，防刷收藏写库；取消收藏同限频） */
     public static final int FAVORITE_MAX_COUNT = 20;
 
-    /** 推荐流（60s 60 次，读多） */
+    /** 推荐流（60s 60 次，读多；登录用户按 userId 维度，批次十需求条款 9） */
     public static final int FEED_MAX_COUNT = 60;
+
+    /** 推荐流匿名上限（60s 20 次，按客户端 IP 维度；防匿名刷量，批次十需求条款 9） */
+    public static final int FEED_ANON_MAX_COUNT = 20;
 
     /** 标签前缀搜索（60s 30 次，矩阵外补充防爬） */
     public static final int TAG_SEARCH_MAX_COUNT = 30;

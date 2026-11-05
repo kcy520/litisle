@@ -3,6 +3,7 @@ package com.litisle.litislecontent.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.litislecontent.domain.dto.BookChapterReorderDTO;
+import com.litisle.litislecontent.domain.dto.IdCountDTO;
 import com.litisle.litislecontent.domain.entity.BookChapter;
 import com.litisle.litislecontent.domain.vo.BookChapterVO;
 import org.apache.ibatis.annotations.Mapper;
@@ -287,4 +288,25 @@ public interface BookChapterMapper extends BaseMapper<BookChapter> {
             + "</script>")
     int applyChapterNo(@Param("bookId") Long bookId,
                        @Param("items") List<BookChapterReorderDTO.ReorderItem> items);
+
+    /**
+     * 批量统计书籍章节数（批次十 10.4 书籍卡片 chapterCount 回填）
+     *
+     * <p>口径：按 book_id 分组 count(*)，统计全部章节（含仅关注者可见章节），
+     * 与详情页「可见章节数」口径不同——推荐流只展示总数，不参与可见性判断。
+     * 调用方保证 bookIds 非空。</p>
+     *
+     * @param bookIds 书籍 ID 集合（非空）
+     * @return 每本书的章节数（无章节的书不在结果中，调用方按 null 处理）
+     */
+    @Select("""
+            <script>
+            select book_id as id, count(*) as cnt
+            from book_chapter
+            where book_id in
+              <foreach collection="bookIds" item="bookId" open="(" separator="," close=")">#{bookId}</foreach>
+            group by book_id
+            </script>
+            """)
+    List<IdCountDTO> countBookChapters(@Param("bookIds") Collection<Long> bookIds);
 }

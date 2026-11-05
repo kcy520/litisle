@@ -8,6 +8,7 @@ import com.litisle.litisleapi.feign.UserClient;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.domain.entity.UserIndexDoc;
+import com.litisle.litislesearch.enums.SearchTypeEnum;
 import com.litisle.litislesearch.service.UserIndexService;
 import com.litisle.litislesearch.service.support.IndexVersionGuard;
 import lombok.RequiredArgsConstructor;
@@ -68,7 +69,8 @@ public class UserIndexServiceImpl implements UserIndexService {
         }
         // 步骤4：版本比较——旧快照迟到（现有 updateTime 不早于本次）时跳过写入，防资料回退（清单 2.1）
         if (indexVersionGuard.isStale(properties.getIndex().getUser(), String.valueOf(userId),
-                dto.getUpdateTime(), UserIndexDoc.class, UserIndexDoc::getUpdateTime)) {
+                dto.getUpdateTime(), SearchTypeEnum.USER.getCode(),
+                UserIndexDoc.class, UserIndexDoc::getUpdateTime)) {
             return;
         }
         // 步骤5：组装并 upsert 索引文档（按 userId 幂等覆盖）

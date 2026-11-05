@@ -13,6 +13,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -59,6 +60,8 @@ public class EsIndexInitializer implements ApplicationRunner {
         // 批次五 B4 遗留收口：给「已存在的 book_idx」幂等补 authorId 字段映射
         // （新增字段可热更新 mapping，无需重建索引；但存量文档不回填，需重同步或全量重建后才能取到 authorId）
         upgradeBookMappingIfNeeded();
+        // 批次九 9.9-A：校验既有索引的 date 字段 format（ES 不允许原地修改，仅作提示，不重建索引）
+        checkExistingDateFormat();
     }
 
     /**
@@ -246,12 +249,17 @@ public class EsIndexInitializer implements ApplicationRunner {
 
     /**
      * 构建向量索引的 _meta 元信息：Embedding 模型标识 + 维度（批次C C1 防漂移）
+     * <p>模型标识统一取配置项 litisle.search.embedding.model（批次七定案 bge-m3），
+     * 初始建索引与重建后写入同源，不再使用占位值；维度与 mapping dims 同源。</p>
      *
      * @return _meta 键值对（写入 mappings.meta）
      */
     private Map<String, JsonData> vectorModelMeta() {
+        // 变量：当前配置的 Embedding 模型标识（空配置时退化为空串，避免写入与真实模型不符的占位名）
+        String embeddingModel = properties.getEmbedding().getModel() == null
+                ? "" : properties.getEmbedding().getModel();
         return Map.of(
-                SearchBizConstant.META_EMBEDDING_MODEL, JsonData.of(SearchBizConstant.EMBEDDING_MODEL_PLACEHOLDER),
+                SearchBizConstant.META_EMBEDDING_MODEL, JsonData.of(embeddingModel),
                 SearchBizConstant.META_EMBEDDING_DIMS, JsonData.of(SearchBizConstant.EMBEDDING_DIMS));
     }
 
@@ -322,11 +330,70 @@ public class EsIndexInitializer implements ApplicationRunner {
     }
 
     /**
-     * 构建 date 属性（默认格式：epoch_millis 与 ISO 日期均兼容，兼容 Jackson 序列化 LocalDateTime）
+     * 构建 date 属性（批次九 9.9-A）：
+     * 显式声明 strict_date_optional_time||epoch_millis，与 ES 客户端专用 ObjectMapper 的
+     * ISO-8601 序列化口径一致；显式 format 只对新建索引生效（ES 不允许修改既有字段 format）。
      *
      * @return date 字段属性
      */
     private Property dateProperty() {
-        return Property.of(p -> p.date(d -> d));
+        return Property.of(p -> p.date(d -> d.format(SearchBizConstant.ES_DATE_FORMAT)));
+    }
+
+    /**
+     * 校验既有索引的 date 字段是否显式声明 format（批次九 9.9-A）。
+     *
+     * 【为什么只校验不修改】ES 不允许对已存在字段原地修改 format（会返回 mapper 冲突）；
+     * 新建索引已通过 dateProperty() 带 ES_DATE_FORMAT，既有索引使用集群默认格式
+     * （strict_date_optional_time||epoch_millis），与 ES 客户端 ISO 序列化口径兼容，
+     * 因此无需重建索引；这里仅在缺失 format 时打印提示，便于排查历史索引差异。
+     */
+    private void checkExistingDateFormat() {
+        // 变量：待校验索引名（三业务索引 + 切片索引，统一 date 口径）
+        List<String> indexNames = List.of(
+                properties.getIndex().getArticle(),
+                properties.getIndex().getBook(),
+                properties.getIndex().getUser(),
+                properties.getIndex().getChunk());
+        for (String indexName : indexNames) {
+            try {
+                // 分支：索引不存在则跳过（下次创建会带显式 format）
+                boolean exists = elasticsearchClient.indices()
+                        .exists(e -> e.index(indexName)).value();
+                if (!exists) {
+                    continue;
+                }
+                // 变量：既有 mapping（索引名 → mapping 记录）
+                var mappings = elasticsearchClient.indices()
+                        .getMapping(g -> g.index(indexName)).result();
+                // 防御：mapping 为空时跳过
+                if (mappings.isEmpty()) {
+                    continue;
+                }
+                // 变量：当前索引的字段属性表（单索引查询，取唯一一条记录）
+                Map<String, Property> fieldProperties = mappings.values().iterator().next().mappings().properties();
+                // 变量：需校验的 date 字段清单（updateTime 三索引共用；publishTime/ingestTime 仅切片索引）
+                List<String> dateFields = List.of(SearchBizConstant.FIELD_UPDATE_TIME,
+                        SearchBizConstant.FIELD_PUBLISH_TIME, SearchBizConstant.FIELD_INGEST_TIME);
+                for (String field : dateFields) {
+                    Property property = fieldProperties.get(field);
+                    // 分支：字段不存在或不是 date 类型则跳过
+                    if (property == null || !property.isDate()) {
+                        continue;
+                    }
+                    // 变量：既有字段的 format 声明（可能为 null/空串）
+                    String format = property.date().format();
+                    // 分支：未显式声明 → 仅提示（ES 禁止原地改 format，默认格式与本项目 ISO 写入兼容）
+                    if (format == null || format.isBlank()) {
+                        log.warn("[ES索引初始化] {} 的 {} 未显式声明 format：ES 不允许原地修改既有字段 format，"
+                                + "默认格式 strict_date_optional_time||epoch_millis 与 ISO 写入兼容，无需重建；"
+                                + "如需显式 format 请重建索引。", indexName, field);
+                    }
+                }
+            } catch (Exception e) {
+                // 容错：校验失败仅告警，不影响启动与检索
+                log.warn("[ES索引初始化] 校验 {} 的 date 字段格式失败（忽略）：{}", indexName, e.getMessage());
+            }
+        }
     }
 }

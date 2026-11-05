@@ -3,6 +3,7 @@ package com.litisle.litislesearch.service.support;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.GetResponse;
 import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.metrics.SearchMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -36,18 +37,22 @@ public class IndexVersionGuard {
     /** ES 客户端（只按主键读取 updateTime 字段，sourceIncludes 限制返回体积） */
     private final ElasticsearchClient elasticsearchClient;
 
+    /** 观测指标（批次九 9.9-D：记录版本跳过次数，用于量化同秒折叠频率） */
+    private final SearchMetrics searchMetrics;
+
     /**
      * 判断新快照是否已过期（过期则调用方跳过写入）。
      *
      * @param index             索引名
      * @param id                文档主键
      * @param newUpdateTime     新快照的版本时间（上游 updateTime/publishTime，可能为 null）
+     * @param type              索引类型（article/book/user，用于版本跳过指标标签）
      * @param docType           索引文档类型（决定 ES 反序列化目标）
      * @param updateTimeGetter  从索引文档中取版本时间的方法引用
      * @param <T>               索引文档类型
      * @return true=现有文档版本不落后于新快照，应跳过写入；false=应写入
      */
-    public <T> boolean isStale(String index, String id, LocalDateTime newUpdateTime,
+    public <T> boolean isStale(String index, String id, LocalDateTime newUpdateTime, String type,
                                Class<T> docType, Function<T, LocalDateTime> updateTimeGetter) {
         // 新快照没有版本时间：无法比较，不跳过（保证至少完成一次同步）
         if (newUpdateTime == null) {
@@ -77,6 +82,8 @@ public class IndexVersionGuard {
         // 相等也跳过：同一版本重复投递按幂等处理，避免重复写入与重复重建切片
         boolean stale = !currentUpdateTime.isBefore(newUpdateTime);
         if (stale) {
+            // 观测：累加跳过次数（type 为有限枚举，避免指标基数膨胀）
+            searchMetrics.recordIndexVersionSkip(type);
             log.info("[索引同步] 版本未前进，跳过写入：index={}, id={}, current={}, incoming={}",
                     index, id, currentUpdateTime, newUpdateTime);
         }

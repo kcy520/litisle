@@ -8,6 +8,7 @@ import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.domain.entity.BookIndexDoc;
+import com.litisle.litislesearch.enums.SearchTypeEnum;
 import com.litisle.litislesearch.service.BookIndexService;
 import com.litisle.litislesearch.service.support.IndexVersionGuard;
 import lombok.RequiredArgsConstructor;
@@ -67,7 +68,8 @@ public class BookIndexServiceImpl implements BookIndexService {
         }
         // 步骤4：版本比较——旧快照迟到（现有 updateTime 不早于本次）时跳过写入，防书籍信息回退（清单 2.1）
         if (indexVersionGuard.isStale(properties.getIndex().getBook(), String.valueOf(bookId),
-                dto.getUpdateTime(), BookIndexDoc.class, BookIndexDoc::getUpdateTime)) {
+                dto.getUpdateTime(), SearchTypeEnum.BOOK.getCode(),
+                BookIndexDoc.class, BookIndexDoc::getUpdateTime)) {
             return;
         }
         // 步骤5：组装并 upsert 索引文档（按 bookId 幂等覆盖）

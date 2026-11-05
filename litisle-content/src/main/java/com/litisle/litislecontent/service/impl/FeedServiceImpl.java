@@ -8,15 +8,16 @@ import com.litisle.commonredis.constant.CacheConstant;
 import com.litisle.commonredis.lock.DistributedLock;
 import com.litisle.commonredis.util.RedisUtil;
 import com.litisle.litislecontent.config.ContentProperties;
+import com.litisle.litislecontent.constant.FeedConstant;
 import com.litisle.litislecontent.domain.entity.Article;
 import com.litisle.litislecontent.domain.vo.FeedItemVO;
 import com.litisle.litislecontent.enums.ArticleStatusEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
-import com.litisle.litislecontent.enums.ZoneEnum;
 import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.service.FeedService;
 import com.litisle.litislecontent.service.support.FeedHotRankSupport;
 import com.litisle.litislecontent.service.support.FeedLocalFallbackSupport;
+import com.litisle.litislecontent.support.FeedItemAssembler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -224,6 +225,7 @@ public class FeedServiceImpl implements FeedService {
 
     }
 
+    
     /**
      * 缓存回源查询（阶段14 已切流）：hot.enabled 且榜非空时优先读热度榜
      * （FeedHotRankSupport#topArticleIds），榜空（灌榜任务未跑/已过期）或开关关闭时
@@ -238,24 +240,55 @@ public class FeedServiceImpl implements FeedService {
      * @return 推荐流条目列表
      */
     private List<FeedItemVO> loadFromDb(String cacheKey, int pageNo, int pageSize) {
-        // 热度榜优先：开关开启且榜非空走榜序；榜空/开关关闭降级时间倒序（兜底契约，防榜异常空流）
+        // ========== 业务流程：决定"这一页数据从哪来、按什么顺序排" ==========
+        // 主规则：热度榜优先（按热度分排序展示）；榜不可用时降级时间倒序（保证推荐流永远有数据，不开天窗）
+
         List<FeedItemVO> items;
+
+        // 第 1 步：判断热度榜总开关（feed.hot.enabled，yml 配置）
+        // 开关关闭 = 明确不用榜，直接走时间倒序，连 Redis 都不碰
         if (contentProperties.getFeed().getHot().isEnabled()) {
+
+            // 第 2 步：取榜——调 FeedHotRankSupport#topArticleIds
+            // 【该方法做什么】从 Redis 热度榜（ZSet 结构，member=文章ID，score=热度分）中，
+            // 按热度分"从高到低"取出本页对应的文章 ID 列表（ZREVRANGE 分页：offset=(pageNo-1)*pageSize，count=pageSize）；
+            // 榜缺失（TTL 30min 过期/Redis 重启丢数据）或页码超过榜容量（topN=200，如第 11 页起）时返回空列表——
+            // 返回空 ≠ 没有文章，只是"榜上没有这一页"，由下面第 3 步决定怎么办
             List<Long> hotIds = feedHotRankSupport.topArticleIds(pageNo, pageSize);
+
             if (!hotIds.isEmpty()) {
+                // 第 3a 步：榜上有这一页 → 按榜序组装
+                // 调本类 loadByHotRank：拿榜上的文章 ID 批量查 DB（补可见性过滤 + 排除正文大字段），
+                // 再按榜单名次重排顺序（IN 查询不保序），已下架/私密/软删的文章被跳过
                 items = loadByHotRank(hotIds);
             } else {
-                // 榜空：异步触发重建（E.4 补漏①：仅第 1 页榜空才触发——第 1 页为空 ⇒ 榜缺失/TopN 未满；
-                // 深页为空只是「榜非空、页超界」，只走时间倒序兜底不触发重建，防深翻页反复触发无谓 refillAuto）
+                // 第 3b 步：榜上没有这一页 → 降级时间倒序 +（仅第 1 页）触发榜重建
+                //
+                // 榜空时异步触发重建——调 FeedHotRankSupport#triggerRebuildAsync
+                // 【该方法做什么】往 JVM 内单线程池丢一个"重建热度榜"的任务（异步，不阻塞当前请求）：
+                //   ① 先判断灌榜开关 refill-enabled（关闭的实例没资格灌榜，直接放弃）；
+                //   ② CAS 去抖：同一时刻只允许排队一次（榜缺失期间大量并发请求不会每个都触发重建）；
+                //   ③ 内部调 refillAuto：按榜/水位状态自动选"全量重建"（查全库→逐篇算热度分→
+                //      写影子键→rename 原子换榜）或"增量灌榜"（只捞近期计数有变化的文章重算分数）；
+                //   ④ 抢不到灌榜分布式锁（定时任务/其他实例正在灌）直接放弃，失败等下一轮 5min 定时任务兜底。
+                // 仅第 1 页榜空才触发：第 1 页为空 ⇒ 榜整体缺失/TopN 未满，重建有意义；
+                // 深页为空只是「榜非空、页超界」，重建也变不出第 11 页，不触发防深翻页反复 refillAuto
                 if (pageNo == 1) {
                     feedHotRankSupport.triggerRebuildAsync();
                 }
+                // 无论是否触发重建，本请求都不能干等（重建是异步的）——
+                // 立即用时间倒序直查 DB 兜底返回，保证本次请求有数据可看
                 items = loadByTimeDesc(pageNo, pageSize);
             }
         } else {
+            // 开关关闭分支：直接时间倒序直查（zone 1/2 + 已发布 + 公开 + 未软删，按创建时间倒序分页）
             items = loadByTimeDesc(pageNo, pageSize);
         }
-        // 回源成功落 last-good 快照（Redis 全宕期间兜底数据源；内存操作不失败）
+
+        // 第 4 步：回源成功落 last-good 快照——调 FeedLocalFallbackSupport#save
+        // 【该方法做什么】把这次从 DB 查到的结果存进 JVM 内存 Map（key=cacheKey，值带存入时间戳），
+        // 作为"Redis 全宕"时的兜底数据源：Redis 正常时每次回源都刷新（快照始终近似最新），
+        // Redis 挂掉后其他请求可以读这份旧数据顶住，而不用全部直查 DB
         feedLocalFallbackSupport.save(cacheKey, items);
         return items;
     }
@@ -275,7 +308,8 @@ public class FeedServiceImpl implements FeedService {
         // P6 批次E 2026-11-03：回源只装配 FeedItemVO 卡片字段，排除 content_html（longtext 大字段）
         List<Article> articles = articleMapper.selectList(Page.of(pageNo, pageSize, false),
                 new LambdaQueryWrapper<Article>()
-                        .in(Article::getZone, ZoneEnum.NORMAL, ZoneEnum.WRITER)
+                        // 可推荐分区统一取常量集合（批次十 10.1：与回查门控共用同一口径，防两处各写一份）
+                        .in(Article::getZone, FeedConstant.ARTICLE_RECOMMENDABLE_ZONES)
                         .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
                         .eq(Article::getVisibility, VisibilityEnum.PUBLIC)
                         .eq(Article::getDelFlag, DelFlag.NOT_DELETED)
@@ -323,6 +357,7 @@ public class FeedServiceImpl implements FeedService {
                 .filter(Objects::nonNull)
                 .toList();
 
+                
 //完整流程
 //        Redis 热度榜返回 [id=103, id=101, id=105]（按热度倒序）
 //            ↓
@@ -340,17 +375,10 @@ public class FeedServiceImpl implements FeedService {
 
     /**
      * Article 转 FeedItemVO（时间倒序/热度榜两条回源链路共用装配）
+     * <p>批次十 10.1：装配逻辑下沉 {@link FeedItemAssembler}，与新无限刷流共用同一份字段口径</p>
      */
     private FeedItemVO toFeedItem(Article article) {
-        return new FeedItemVO()
-                .setArticleId(article.getId())
-                .setTitle(article.getTitle())
-                .setSummary(article.getSummary())
-                .setCoverFileId(article.getCoverFileId())
-                .setAuthorId(article.getAuthorId())
-                .setViewCnt(article.getViewCnt())
-                .setLikeCnt(article.getLikeCnt())
-                .setPublishTime(article.getCreateTime());
+        return FeedItemAssembler.toArticleItem(article);
     }
 
     /**
@@ -374,8 +402,10 @@ public class FeedServiceImpl implements FeedService {
         List<Long> ids = items.stream().map(FeedItemVO::getArticleId).toList();
 
         //第 3 步：批量回查 DB，只查"当前合法可见"的文章 ID
+        // 批次十 10.1：分区也纳入回查门控（需求条款 6 要求 zone ∈ {1,2}），与召回侧共用同一常量集合
         Set<Long> visibleIds = articleMapper.selectList(new LambdaQueryWrapper<Article>()
                         .in(Article::getId, ids)
+                        .in(Article::getZone, FeedConstant.ARTICLE_RECOMMENDABLE_ZONES)
                         .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
                         .eq(Article::getVisibility, VisibilityEnum.PUBLIC)
                         .eq(Article::getDelFlag, DelFlag.NOT_DELETED)

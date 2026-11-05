@@ -48,9 +48,10 @@ import java.io.IOException;
  * 【幂等】三类处理都以 articleId 为幂等键（upsert / delete / partial update），
  * 重复消费结果一致，因此不额外使用 SETNX 去重（占位会误伤失败重试的消息）。
  *
- * 【热点缓存失效（批次四接入）】三个事件处理成功后都调用 HotQueryCacheService#evictAll：
- * 发布/下架/元数据更新都会改变检索结果，缓存不清会让前端在 TTL 内看到旧数据；
- * 其中下架属隐私红线，失效失败抛 IllegalStateException 交由 MQ 延迟重试，保证缓存最终被清理。
+ * 【热点缓存失效（批次四接入，批次九优化一：降频）】发布/元数据更新/书籍/用户事件只调用
+ * {@link HotQueryCacheService#markDirty()} 打脏标记，由 HotQueryCacheEvictJob 按间隔合并 evictAll；
+ * 下架事件仍立即 evictAll（隐私红线，不得进入合并窗口，防已下架内容在窗口内继续可见）；
+ * 失效失败抛 IllegalStateException 交由 MQ 延迟重试，保证缓存最终被清理。
  */
 @Slf4j
 @Component
@@ -108,8 +109,8 @@ public class IndexSyncConsumer {
                         runWithMetrics(MqConstant.QUEUE_CONTENT_PUBLISHED, () -> {
                             // 内部完成回查、乱序门控、upsert 与切片重建
                             articleIndexService.handlePublished(articleId);
-                            // 索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交由延迟重试）
-                            hotQueryCacheService.evictAll();
+                            // 索引已变化：只打脏标记，由合并任务统一失效（避免每条事件全量 SCAN）
+                            hotQueryCacheService.markDirty();
                         });
                     });
         } finally {
@@ -144,7 +145,8 @@ public class IndexSyncConsumer {
                         // 索引删除与缓存失效一起按消费结果记账
                         runWithMetrics(MqConstant.QUEUE_CONTENT_UNPUBLISHED, () -> {
                             articleIndexService.handleUnpublished(articleId);
-                            // 索引已删除，必须同步失效热点缓存（失败抛出触发重试，防已下架内容在缓存中残留）
+                            // 索引已删除，必须「立即」全量失效热点缓存：隐私红线，不得进入合并窗口
+                            // （合并窗口内已下架内容仍可能被缓存命中；失败抛出触发重试，防残留）
                             hotQueryCacheService.evictAll();
                         });
                     });
@@ -179,8 +181,8 @@ public class IndexSyncConsumer {
                         // 文章已下架/转私密则转为清理处理
                         runWithMetrics(MqConstant.QUEUE_CONTENT_ARTICLE_UPDATED, () -> {
                             articleIndexService.handleArticleUpdated(articleId);
-                            // 元数据已更新，失效热点查询缓存，保证检索结果与索引一致
-                            hotQueryCacheService.evictAll();
+                            // 元数据已更新：只打脏标记，由合并任务统一失效（降低 SCAN 频次）
+                            hotQueryCacheService.markDirty();
                         });
                     });
         } finally {
@@ -219,8 +221,8 @@ public class IndexSyncConsumer {
                         // 委托业务服务：回查、门控、upsert / 删除；与缓存失效一起按消费结果记账
                         runWithMetrics(MqConstant.QUEUE_CONTENT_BOOK_CHANGED, () -> {
                             bookIndexService.handleChanged(event.getBookId());
-                            // 书籍索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交延迟重试）
-                            hotQueryCacheService.evictAll();
+                            // 书籍索引已变化：只打脏标记，由合并任务统一失效（失败抛出让 MQ 延迟重试）
+                            hotQueryCacheService.markDirty();
                         });
                     });
         } finally {
@@ -287,8 +289,8 @@ public class IndexSyncConsumer {
                         // 委托业务服务：回查、门控、upsert / 删除；与缓存失效一起按消费结果记账
                         runWithMetrics(queueName, () -> {
                             userIndexService.handleUpsert(userId);
-                            // 用户索引已变化，失效热点查询缓存（失败按可恢复故障抛出，交延迟重试）
-                            hotQueryCacheService.evictAll();
+                            // 用户索引已变化：只打脏标记，由合并任务统一失效（失败抛出让 MQ 延迟重试）
+                            hotQueryCacheService.markDirty();
                         });
                     });
         } finally {

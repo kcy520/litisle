@@ -82,6 +82,16 @@ spring:
         acknowledge-mode: manual
         # 消费者预取上限（防一次拉取海量消息导致内存 OOM）
         prefetch: 10
+        # 消费者并发线程数（4）：提高索引同步吞吐；调大前必须观察 content Feign 回查 QPS
+        # 与 ES 写入/刷新水位，避免回查压垮内容服务或写放大导致段合并压力升高
+        # 回退说明（2026-11-05，批次九 P0）：并发>1 会让同一文章的「旧/新快照」事件同时处理，
+        # 版本守卫「先 GET 再写」的窗口可能让旧快照覆盖新文档；当前量级串行吞吐仍有数十倍余量，
+        # 故回退为 1。恢复条件：积压持续 >5 分钟或峰值持续 >50 条/秒，且确认串行成为瓶颈，
+        # 先落地 P2「ES external version + update 条件脚本」后再提高本值。
+        concurrency: 1
+        # 最大并发线程数（8）：突发积压时弹性扩容，空闲时回落到 concurrency
+        # 同上回退说明：与 concurrency 同步回退为 1，避免运行时扩容重新打开写覆盖窗口
+        max-concurrency: 1
 
 # ================================
 # MyBatis-Plus 配置
@@ -143,6 +153,9 @@ litisle:
       user: user_idx
       # RAG 知识库切片索引（search 摄入、ai 纯查询；批次一 1.1 随索引初始化创建）
       chunk: article_chunks
+      # 文章下架墓碑 TTL（10 分钟）：覆盖 5 次×30 秒延迟重投 + 处理余量；
+      # 下架删除索引后写 search:index:tombstone:article:{id}，发布/元数据写前查墓碑并重新门控
+      tombstone-ttl: 10m
     # multi_match 字段权重（title^4 → tags^3 → summary^2 → content）
     weight:
       title: 4
@@ -183,6 +196,9 @@ litisle:
     cache:
       hot-query-enabled: true
       ttl: 10m
+      # 缓存失效合并间隔（1s）：索引事件只打脏标记，定时任务按此间隔合并执行一次全量失效，
+      # 避免每条事件都 SCAN 清缓存；下架事件不走合并窗口（隐私红线，立即全量失效）
+      evict-merge-interval-ms: 1000
     # 搜索联想（ES completion/prefix suggester）
     suggest:
       enabled: true
@@ -241,6 +257,12 @@ litisle:
       max-count: 5
       # 首次重试延迟（后续按 2 的幂次递增）
       base-delay-ms: 30000
+    # 观测指标采集（批次九 9.9-F：定时读取索引同步队列消息数，暴露 gauge litisle_search_index_backlog{queue}）
+    metrics:
+      # 积压采集间隔（15s，fixedDelay 语义：上一轮采集结束再等待；与热度刷写/缓存合并任务互不阻塞）
+      backlog-collect-interval-ms: 15000
+      # 首次采集延迟（15s，避开启动阶段队列声明与 MQ 连接建立，防首轮误报 0 积压）
+      backlog-collect-initial-delay-ms: 15000
 
 # ================================
 # Knife4j API 文档配置

@@ -5,6 +5,7 @@ import com.litisle.litisleapi.dto.search.SearchRequestDTO;
 import com.litisle.litisleapi.vo.search.SearchResultVO;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.metrics.SearchMetrics;
 import com.litisle.litislesearch.service.HotQueryCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,7 @@ import org.springframework.util.DigestUtils;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,6 +45,9 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
 
     /** 全局 ObjectMapper（SearchResultVO 的 JSON 序列化/反序列化，含 JavaTime 模块） */
     private final ObjectMapper objectMapper;
+
+    /** 观测指标（脏标记写入/合并失效结果计数，Micrometer 未装配时静默空转） */
+    private final SearchMetrics searchMetrics;
 
     /**
      * 读取缓存：命中直接返回；未命中/关闭/异常返回 null。
@@ -162,6 +167,68 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
             log.info("[热点查询缓存] 失效完成：删除键数={}", keys.size());
         } catch (Exception e) {
             throw new IllegalStateException("删除热点查询缓存键失败（可重试）", e);
+        }
+    }
+
+    /**
+     * 标记缓存待失效：只写带短 TTL 的脏标记，不做 SCAN。
+     *
+     * <p>Redis 故障抛 IllegalStateException（可恢复异常），交给 MQ 延迟重投；
+     * 不能静默吞掉，否则索引已变更但缓存永远不会被合并清理。</p>
+     */
+    @Override
+    public void markDirty() {
+        // 缓存关闭时无需标记（没有业务缓存可清）
+        if (!properties.getCache().isHotQueryEnabled()) {
+            return;
+        }
+        try {
+            // 脏标记 TTL 由常量统一收口：短 TTL 防合并任务长期不可用时标记永久残留
+            stringRedisTemplate.opsForValue().set(SearchBizConstant.HOT_QUERY_DIRTY_KEY,
+                    "1", Duration.ofSeconds(SearchBizConstant.HOT_QUERY_DIRTY_TTL_SECONDS));
+            searchMetrics.recordCacheDirtyMark(true);
+        } catch (Exception e) {
+            // 指标 + error 日志留痕后抛出，由 MqAckHelper 走延迟重投（不静默吞）
+            searchMetrics.recordCacheDirtyMark(false);
+            log.error("[热点查询缓存] 脏标记写入失败（可重试）：key={}", SearchBizConstant.HOT_QUERY_DIRTY_KEY, e);
+            throw new IllegalStateException("写入热点查询缓存脏标记失败（可重试）", e);
+        }
+    }
+
+    /**
+     * 合并失效：存在脏标记时先删标记再执行一次 evictAll。
+     *
+     * <p>先删标记后清理：清理期间新事件写入的标记会被保留，下一轮再清一次（多清不会漏清）；
+     * 若反过来先清后删，清理期间的新变更会被同一次删除抹掉，造成永久漏失效。</p>
+     */
+    @Override
+    public boolean evictIfDirty() {
+        // 缓存关闭时没有业务缓存可清（旧键交给 TTL 兜底）
+        if (!properties.getCache().isHotQueryEnabled()) {
+            return false;
+        }
+        try {
+            // delete 返回 true 表示标记存在且本次删除成功（即本轮需要清理）
+            Boolean removed = stringRedisTemplate.delete(SearchBizConstant.HOT_QUERY_DIRTY_KEY);
+            if (!Boolean.TRUE.equals(removed)) {
+                return false;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("读取热点查询缓存脏标记失败（可重试）", e);
+        }
+        try {
+            evictAll();
+            return true;
+        } catch (RuntimeException e) {
+            // 清理失败：尽力重新打标，保证下一轮继续清理（标记已删但未清成功不能就此丢失）
+            try {
+                stringRedisTemplate.opsForValue().set(SearchBizConstant.HOT_QUERY_DIRTY_KEY,
+                        "1", Duration.ofSeconds(SearchBizConstant.HOT_QUERY_DIRTY_TTL_SECONDS));
+            } catch (Exception remarkError) {
+                log.error("[热点查询缓存] 清理失败后重新打标也失败，失效可能延迟到 TTL 后由新事件触发",
+                        remarkError);
+            }
+            throw e;
         }
     }
 

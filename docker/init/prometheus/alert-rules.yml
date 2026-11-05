@@ -89,3 +89,73 @@ groups:
         annotations:
           summary: "[{{ $labels.application }}] 审核缓存命中率相对基线跌幅 {{ $value | humanizePercentage }}"
           description: "result 层 1h 命中率较 24h 基线相对跌幅超阈值（阈值=Nacos alert.cache-hit-drop-ratio），请检查缓存版本号变更/last-hash 失效是否过频。"
+
+  # ==========================================================================
+  # 批次九 9.9-C：search 模块可观测告警（指标来源 SearchMetrics，counter 已按 Prometheus 约定补 _total）
+  # 首版比例阈值与 for 时长先跑 1~2 周观察基线，再按实际流量收紧
+  # ==========================================================================
+  - name: litisle-search
+    rules:
+      # ① 索引同步死信新增：重试耗尽入 DLQ，必须人工重投（阈值 0=任一新增即告警）
+      - alert: SearchIndexDlqNew
+        expr: increase(litisle_search_index_dlq_total[10m]) > 0
+        for: 0m            # 窗口内已含 10 分钟增量，无需额外等待
+        labels:
+          severity: critical
+        annotations:
+          summary: "[{{ $labels.application }}] 索引同步死信新增 {{ $value }} 条"
+          description: "近 10 分钟出现重试耗尽入 DLQ 的消息（originQueue={{ $labels.originQueue }}），索引可能未同步，请按日志人工重投并排查 ES/content 故障。"
+
+      # ② ES 异常率：ES 查询异常 / 检索请求 > 5% 持续 10 分钟，说明检索主链路不可用（分母为 0 时 NaN 不触发）
+      - alert: SearchEsErrorRateHigh
+        expr: sum by (application) (rate(litisle_search_es_errors_total[5m])) / sum by (application) (rate(litisle_search_requests_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "[{{ $labels.application }}] ES 查询异常率 {{ $value | humanizePercentage }} 持续超阈"
+          description: "5 分钟窗口 ES 异常占检索请求超 5% 且持续 10 分钟，请检查 ES 集群健康/索引状态/查询超时，必要时确认降级链路是否生效。"
+
+      # ③ 检索降级占比：source=DEGRADED 请求占比 > 20% 持续 10 分钟，说明 ES 长时间不可用但降级在兜底
+      - alert: SearchDegradedRatioHigh
+        expr: sum by (application) (rate(litisle_search_requests_total{outcome="degraded"}[10m])) / sum by (application) (rate(litisle_search_requests_total[10m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] 检索降级占比 {{ $value | humanizePercentage }} 持续升高"
+          description: "10 分钟窗口返回 DEGRADED（ES 不可用热门兜底）占比超 20%，检索质量已下降，请优先恢复 ES 并关注热门兜底缓存命中。"
+
+      # ④ 热度刷写失败率：failure 条目占比 > 10% 持续 15 分钟，热度排序会逐步陈旧（热度非核心链路，warning）
+      - alert: SearchHeatFlushFailureHigh
+        expr: sum by (application) (rate(litisle_search_heat_flush_docs_total{result="failure"}[15m])) / sum by (application) (rate(litisle_search_heat_flush_docs_total[15m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] 热度刷写失败率 {{ $value | humanizePercentage }} 持续超阈"
+          description: "15 分钟窗口热度批量刷写失败条目占比超 10%，热度排序将滞后；请检查 ES bulk 写入与 Redis 热度键读取。"
+
+      # ⑤ 缓存合并失效失败：脏标记驱动的热点缓存失效执行失败，旧结果可能继续返回（阈值 0=任一失败即告警）
+      - alert: SearchCacheEvictMergeFailure
+        expr: increase(litisle_search_cache_evict_merge_total{result="failure"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] 热点查询缓存合并失效失败 {{ $value }} 次"
+          description: "15 分钟窗口出现合并失效执行失败（脏标记已置位但 evictAll 未成功），热点查询可能返回旧结果；请检查 Redis 连通性，下一轮会自动重试。"
+
+      # ⑥ 索引同步队列积压：任一队列消息数 > 20 且持续 5 分钟 → 消费能力不足（ES 写入慢 / content 回查慢 / 消费者卡住）
+      #   口径选择「按 queue 分组取单队列最大值」而非全局求和：单队列卡死本身就构成积压风险，
+      #   全局求和在多队列各自十几条瞬时消息时容易凑数误报；保留 queue 标签便于直接定位队列。
+      #   样本缺失说明：gauge 依赖采集任务成功读取 MQ，采集失败时该指标无样本，
+      #   规则表现为 no data（不触发、不误报）；若要侦测「采集器自身失效」需另配 absent() 规则，本批未纳入。
+      - alert: SearchIndexBacklogHigh
+        expr: max by (application, queue) (litisle_search_index_backlog) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] 索引队列 {{ $labels.queue }} 积压 {{ $value }} 条"
+          description: "队列 {{ $labels.queue }} 消息数持续 5 分钟超过 20 条，说明索引同步消费跟不上生产；请查看该队列消费日志与 ES 写入耗时、content 回查接口是否异常，必要时临时提高监听器并发或扩容 search 实例。"

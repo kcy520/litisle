@@ -1730,3 +1730,14 @@ Redis 聚合（✅ 做对了）
   - ✅ 2026-11-03：FeedServiceImpl.loadFromDb 榜空分支加 `pageNo == 1` 前置判断（深页超界仅走 loadByTimeDesc 兜底，不触发重建）；方法 javadoc 同步更新；编译验证已通过（2026-11-03）
 - [x] P7 补漏②：`triggerRebuildAsync` 未尊重灌榜开关 `litisle.content.feed.hot.refill-enabled`（该开关现只在 FeedHotRankRefillJob 判断）——多实例部署「只开一台灌榜」场景下，其余实例的 feed 请求仍会经异步触发执行 refillAuto（绕过开关语义）。修正：FeedHotRankSupport 注入 refill-enabled 配置，异步触发前置判断（定时任务开关判断保留不变）
   - ✅ 2026-11-03：ContentProperties.Feed.Hot 新增 `refillEnabled`（默认 true，yml 键 feed.hot.refill-enabled 放松绑定不变）；FeedHotRankRefillJob 弃用 @Value 改注入 ContentProperties 判断开关（同配置单一口径）；FeedHotRankSupport.triggerRebuildAsync 前置判断 refillEnabled；编译验证已通过（2026-11-03）
+
+##### E.5 阅读历史 bizType 枚举化与方法注释补充（迁自 temp.md content模块，2026-11-05）
+
+> **归档来源**：[temp.md](../../temp/temp.md) content模块已完成记录（原条目原样搬运，2026-11-05 迁出）；活跃待办/验证见 [next_update.md](../../next/next_update.md)；模块归档索引见 [content-implemention-records.md](content-implemention-records.md)。
+
+阅读历史实体类：阅读对象类型：是否应该替换为枚举？
+> 待确认（2026-11-04）：属架构/契约级调整，会牵动 MyBatis 枚举映射（IEnum/@EnumValue）、DTO/VO 的 bizType 字段类型与前端契约、存量 DB 的 int 列兼容，未确认前不擅自改。建议保留 int + 常量（现状）或单独立项统一枚举化。
+> ✅ 2026-11-04 已确认并实施批次一 + 批次二：新增 `ReadingTargetTypeEnum` 与 `ContentBizConstant.READING_BIZ_TYPE_*`；`ReadingHistory.bizType` 改枚举；Service 全链路改用枚举（resolve 校验/枚举常量在左/getCode 传参）；Mapper 注解 SQL 的裸数字改常量拼接；DTO/VO 保持 Integer 仅补注释；`litisle-content` 编译通过。批次三已于 2026-11-04 实施（口径：code + name 双字段）：VO 新增 `bizTypeDesc`、`bizType` 仍为 Integer，前端无需改。
+
+ReadingHistoryServiceImpl：补充方法体上的注释，缺少方法作用描述、参数说明
+> ✅ 2026-11-04：已为 report / getLastChapter / getLastRead / pageMyHistory / recordFromArticle / recordBookRead 六个 public 方法补充方法级 Javadoc（作用概括 + 参数 + 返回值），原有方法体内流程注释保留未删。

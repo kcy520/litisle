@@ -114,185 +114,11 @@
 > **优先级口径（2026-11-03 定）**：优先 content 文章与书籍相关链路（批次一~五），联想/相似/降级随后；user_idx 同步链路已于 2026-11-04 随批次五 5.3 落地（见批次五）。
 > **批次A（缺陷修正定版 A1~A7）/ 批次B 契约 B1/B2/B3/B7（SearchClient、social 事件、SEARCH_* 错误码、article-updated/view-count-flushed 事件）/ 批次C 决策（C1~C4）已于 2026-11-03 完成**；批次B 余项 B6（回查字段核对）已于 2026-11-04 随批次二 2.1 收口，B4（书籍事件）/B5（用户事件）随批次五 收口。
 
-##### 批次一：基础骨架收尾（对齐批次D D1 余项）
 
-###### 1.1 ES 索引 mapping 初始化
-
-- [x] article_idx mapping（title/tags/summary/content ik 分词 + visibility 闸门字段 + authorId/authorName（multi-field 含 .completion）+ like_cnt/comment_cnt/view_cnt + heat + vec_dense(dims=1024,cosine,indexed) + updateTime + suggest completion 子字段）；book_idx mapping（书名/作者/简介 text+ik + 分类 keyword）；article_chunks mapping（chunk_id/article_id/author_id/title/author_name/chunk_text/chunk_vector(dense_vector,cosine,indexed)/zone/visibility/publish_time/ingest_time，按 C2 一期仅公开文章正文）；索引名走 `litisle.search.index.*` 配置；Embedding 模型版本写入索引 meta（C1 单模型口径）；user_idx mapping 可一并创建（消费链路暂缓，见暂不实现汇总）
-  - ✅ 2026-11-03：EsIndexInitializer（es 包，ApplicationRunner 启动时逐索引幂等创建，exists 跳过防覆盖；单索引失败仅告警不阻断启动，降级链路兜底）；四索引 mapping 全量落地：article_idx（ik_max_word/ik_smart + title/authorName completion 子字段 + vec_dense 1024 维 cosine indexed）+ book_idx（书名/作者/简介/分类）+ user_idx（笔名/简介，占位）+ article_chunks（chunk_id/article_id/chunk_text/chunk_vector 等 11 字段）；mappings._meta 写入 embedding_model（占位 unset-1024d，选型随 VectorService 定）+ embedding_dims（C1）；SearchBizConstant 补 book/user/chunk 字段名常量 + SEARCH_KEYWORD_MAX_LENGTH(64)/EMBEDDING_DIMS/ik 分词器名/meta 键；SearchProperties.Index + yml 补 `index.chunk=article_chunks`；跨板块遗留：Embedding 模型选型后改写 EMBEDDING_MODEL_PLACEHOLDER 并全量重建（批次七）
-
-###### 1.2 search_history 表 DDL 登记
-
-- [x] search_history DDL（id / user_id+keyword 组合 uk / keyword varchar 长度对齐 SEARCH_PARAM_INVALID 上限 / updated_at）登记 Sql-Document.md + local 库建表（闭环 G8）
-  - ✅ 2026-11-03：docker/init/mysql/search-schema.sql 新建（search_history 单表：id / user_id / keyword varchar(64) / updated_at，uk(user_id,keyword) + idx_user_updated；keyword 长度 64 与新增常量 SEARCH_KEYWORD_MAX_LENGTH 同源，批次四参数校验按 SEARCH_PARAM_INVALID 拒绝超长）；00-init-databases.sql 补 litisle_search 建库 + GRANT 授权行；Sql-Document.md 新增「五、litisle-search 模块」章节（含存量环境手动执行说明 + ES 侧无 DDL 备注）；实体/Mapper 随批次六落地
-
-###### 1.3 Feign 启用与骨架遗留收口
-
-- [x] 主类/配置补 @EnableFeignClients（扫描 litisle-api）等 D1 骨架跨批次遗留项收口
-  - ✅ 2026-11-03：LitisleSearchApplication 补 @EnableFeignClients(basePackages = "com.litisle.litisleapi.feign")（ContentClient 等消费方 Bean 注册，批次二回查起消费；Provider 端点 /api/feign/search/** 由本服务实现无需额外注解），主类注释同步更新
-  - ✅ 2026-11-03：**D1 骨架先行落地（编译验证已通过，本批次 1.1~1.3 余项保留不勾选）**：pom 依赖对齐 file 模块（web/actuator/validation/amqp/common 四件套/mybatis-plus+mysql/Feign+Sentinel+Nacos/ES Java Client 8.18.8/knife4j/litisle-api）；主类 LitisleSearchApplication（端口 8086，无 @EnableScheduling）；application.yml（`litisle.search.*` §六 全量配置外置 + Nacos/MySQL litisle_search 库/Redis/RabbitMQ 手动 ACK）+ application-local/dev.yaml（Sentinel 心跳 8722、ES localhost/litisle-elasticsearch:9200）；enums SearchTypeEnum/SearchSortEnum（DictEnum 三值绑定）；constant SearchBizConstant（EXCHANGE_SEARCH_DLX=litisle.search.dlx / QUEUE_SEARCH_INDEX_DLQ / PUBLIC 闸门值 / ES 字段名收口 / 热度 pending 键前缀与 hash 字段）；config 三件 SearchProperties（§六 参数绑定）+ SearchMqConfig（六同步队列 + 独立 DLX/DLQ 拓扑声明，消费者留批次二）+ ElasticsearchConfig（客户端装配，索引初始化留 1.1）；Architecture §1.2 已同步 ✅骨架标注、§六 rabbit 行默认值修正
-
-##### 批次二：文章索引同步消费端（依赖批次一；对齐批次D D2 文章部分）
-
-###### 2.1 建索引回查字段核对（B6，缺口 G3）
-
-- [x] 核对 ContentClient.getContent 出参是否够建索引字段（tags/summary/cover 等）+ 审核终态 PASS/DFA 结论获取方式；不足则扩 content 提供方端点（禁事件体塞大字段，保持事件轻量纪律）
-  - ✅ 2026-11-04：核对结论——原 ContentDTO 缺 tags/summary/authorName/publishTime/zone/category，不足建索引。新建 `ArticleIndexDocDTO`（articleId/authorId/authorName/title/summary/contentHtml/tags/category/zone/status/visibility/publishTime/likeCnt/commentCnt/viewCnt/contentHash）；`ContentClient` 新增 `GET /api/feign/content/article-index-doc`（fallback 走 fail-fast 抛 BizException）；content 侧 `ContentInternalService#getArticleIndexDoc` 实现（按 del_flag=0 查 Article + 标签批量回查 + 作者昵称 best-effort 回查），Feign 提供方端点同步接入
-  - ✅ 2026-11-04：审核终态/DFA 结论不新增 review 回查——content 侧 status=2 本身即「审核 PASS 回写或免审直落且 DFA 放行」的唯一出口，直接用 status=2 作等价门控（结论记入 ContentInternalServiceImpl 类注释）
-  - ✅ 2026-11-04：偏差说明——cover 未入索引（EsIndexInitializer mapping 与 ArticleIndexDoc 均无 cover 字段，本期不做；后续如需展示封面再扩 mapping）
-
-###### 2.2 IndexSyncConsumer 文章事件消费
-
-- [x] 消费 `content.published`：事件体仅定位键 → ContentClient 回查元数据 → 乱序防御门控（status=2 且 visibility=PUBLIC 才写，防 unpublished 先到后 published 迟到写回）→ VectorService Embedding 预计算 vec_dense → 按 articleId 幂等 upsert article_idx；同时摄入 article_chunks（入库门控：PUBLIC + 审核终态 PASS + 正文 ≥200 字 + DFA 未命中高风险；切片 ~500 字/段重叠 50 字；按 articleId 幂等覆盖删旧写新）
-  - ✅ 2026-11-04：`ArticleIndexServiceImpl#handlePublished`（回查 → status=2 且 visibility=1 门控 → 组装 ArticleIndexDoc → 按 articleId upsert → `ArticleChunkService#rebuild`）；正文经 `SearchTextUtils#toPlainText` 去 HTML 标签后入 content 字段；heat 初始 0（批次三重算）；vec_dense 由 `VectorService#embed`（标题+摘要+正文截断 2000 字），模型未接入返回 null 字段缺省
-  - ✅ 2026-11-04：article_chunks 摄入（`ArticleChunkServiceImpl`）：正文门槛 `ingest.min-content-length`(200) + `chunk-size`(500)/`chunk-overlap`(50) 切片，chunkId=articleId_序号，先 deleteByQuery 旧块再 `_bulk` 写入（索引未建时跳过删除；bulk errors 逐条 error 留痕）；审核终态/DFA 以 status=2 等价门控（见 2.1）
-  - ✅ 2026-11-04：新建实体 `ArticleIndexDoc`/`ArticleMetaDoc`/`ArticleChunkDoc`（字段名用 `@JsonProperty(SearchBizConstant.FIELD_*)`，`@JsonInclude(NON_NULL)` 保证局部更新与空向量不写脏值）
-- [x] 消费 `content.unpublished`：删 article_idx 文档（404 视为成功幂等）+ 删 article_chunks 旧块 + 失效热点查询缓存（四条下架路径全量覆盖，隐私红线）
-  - ✅ 2026-11-04：`ArticleIndexServiceImpl#handleUnpublished`——先 `exists` 判断再 delete（不存在按幂等成功跳过，避免 404 误判触发重试）→ `ArticleChunkService#deleteByArticleId`（索引未建时跳过）；四条下架路径统一按删除处理，不按 reason 分流
-  - ⏳ 遗留批次四：热点查询缓存尚未落地（本服务当前无查询缓存），缓存失效随批次四缓存实现接入（实现位置已在代码注释标记）（状态详见批次九 9.3：代码已接线，标注待清理）
-- [x] 消费 `content.article-updated`（A2 定案）：轻量回查 → partial update 元数据字段（title/tags/summary/cover），不动向量与 chunks
-  - ✅ 2026-11-04：`ArticleIndexServiceImpl#handleArticleUpdated`——回查后二次门控（文章已下架/转私密则转 `handleUnpublished` 清理）→ 组装 `ArticleMetaDoc`（title/tags/summary/zone/category/updateTime，null 字段不序列化）→ `update + doc` 局部更新；索引文档不存在时 warn 跳过（首发消息可能丢失，待重发/重建补齐）
-  - ✅ 2026-11-04：偏差说明——cover 不在本批次索引字段（同 2.1）
-  - ✅ 2026-11-04（企业优化清单 2.1）：`ArticleIndexServiceImpl` 发布路径与元数据更新路径写入前统一走 `IndexVersionGuard` 版本比较（现有 `updateTime` >= 新快照则跳过；发布路径跳过时同步跳过切片重建；读 ES 失败抛可恢复异常交 MQ 重试），book_idx/user_idx 同口径跟进
-- [x] 消费可靠性范式（对齐 review/content 规范）：手动 ACK（MqAckHelper）+ MqIdempotentHelper 幂等 + 业务失败 warn 后 ack 防毒丸 + 异常指数退避延迟重投，耗尽 nack 入 DLQ（SearchMqConfig 已声明拓扑）+ DLQ Consumer 告警留痕
-  - ✅ 2026-11-04：新建 `mq/IndexSyncConsumer`（三个 `@RabbitListener`：QUEUE_CONTENT_PUBLISHED/UNPUBLISHED/ARTICLE_UPDATED）——`MqTraceSupport.restore` + `MqAckHelper.executeWithRetry`，bizType≠1 或 bizId 缺失时 warn 后正常返回（ack 丢弃，不浪费重试次数）；异常按指数退避重投到 `litisle.search.delay.exchange`（routingKey=队列名）
-  - ✅ 2026-11-04：`SearchMqConfig` 补延迟重投拓扑——`searchDelayExchange`（CustomExchange，x-delayed-message + x-delayed-type=direct）+ 六条延迟绑定（绑定键=队列名）；同时修复既有死信拓扑 bug：六条 DLX→DLQ 绑定键由业务路由键改为队列名，与各队列 `deadLetterRoutingKey(queueName)` 对齐（Direct 精确匹配，原写法死信进不了 DLQ）
-  - ✅ 2026-11-04：新建 `mq/IndexDlqConsumer`（监听 QUEUE_SEARCH_INDEX_DLQ）——从 `x-death` 头取原队列、截断消息体（500 字符）后 error 留痕，`executeWithAck` 确认出队；DLQ 不配 DLX 防死信再死信环路
-  - ✅ 2026-11-04：参数外置——`SearchProperties.Retry`（max-count=5 / base-delay-ms=30000）+ `Ingest`（min-content-length/chunk-size/chunk-overlap）+ `Embedding.enabled`，yml 同步
-  - ✅ 2026-11-04：偏差说明——**未使用 MqIdempotentHelper**：三类动作均以 articleId 为幂等键（upsert / delete / partial update 重复执行结果一致），SETNX 先占位会在「首次消费失败 → 延迟重试」时误判为重复消息而丢弃，故改为天然幂等重试（结论已写入 ArticleIndexService 接口注释）
-  - ✅ 2026-11-04：偏差说明——延迟重投次数只走消息头（`MqSendUtil.HEADER_RETRY_COUNT`），事件体本无 retryCount 字段且属契约库不可私改；MqAckHelper 读消息头计数，重试上限逻辑不受影响
-
-##### 批次三：互动热度链路（依赖批次二；对齐批次D D2 热度部分，A5/A7 定案）
-
-###### 3.1 热度事件消费与待刷新键累加
-
-- [x] 消费 `social.liked` / `social.commented`：仅 `HINCRBY` 累加 Redis 热度待刷新键 like/comment 增量（不直写 ES，A7：带 1024 维向量约 4KB 整文档重写写放大）；消费 `content.view-count-flushed`：`HSET` 覆盖写 view_cnt 绝对值（A5）；**ACK 后置纪律**：Redis 累加成功才 ACK，失败 nack 重试防热度漂移；pending 键常量 `SearchBizConstant.HEAT_PENDING_KEY_PREFIX` + hash 字段 view_cnt/like_delta/comment_delta，TTL 走 `heat.flush.pending-key-ttl`（2h 兜底）
-  - ✅ 2026-11-04：新建 `HeatPendingService` / `HeatPendingServiceImpl`——key=`search:heat:pending:{articleId}`，`view_cnt` 用 HSET 覆盖写绝对值（可重放）、`like_delta`/`comment_delta` 用 HINCRBY 累加；每次写入刷新 `heat.flush.pending-key-ttl`（2h 兜底，正常由 3.2 GETDEL 取走）；Redis 异常包装 `IllegalStateException` 触发延迟重试，保证「累加成功才 ACK」
-  - ✅ 2026-11-04：新建 `mq/HeatEventConsumer`（三个监听：QUEUE_SOCIAL_LIKED / QUEUE_SOCIAL_COMMENTED / QUEUE_CONTENT_VIEW_COUNT_FLUSHED）——复用批次二已验证的 `MqTraceSupport` + `MqAckHelper.executeWithRetry` + 延迟重投拓扑（routingKey=队列名），不新增拓扑
-  - ✅ 2026-11-04：幂等口径——点赞/评论自增不可重入，消费前置 `MqIdempotentHelper.tryAcquire(queue, eventId)`（SETNX）拦重复消息；先占位后累加，优先保证 ACK 失败重投时「同一 eventId 不重复计数」（代价：占位成功但累加失败会少计一次，属宁漏勿重的可接受范围）；浏览量 HSET 绝对值天然幂等，不做 eventId 去重
-  - ✅ 2026-11-04：非文章互动（bizType≠1，如评论点赞）debug 日志后 ack 丢弃，不占用重试次数；viewCount 缺失属发送侧契约违约，warn 后丢弃
-  - ✅ 2026-11-04：3.2 已同日完成（见下方 3.2 条目），批次三整体收口
-
-###### 3.2 IndexHeatFlushJob 定时刷写
-
-- [x] 定时任务（`heat.flush.interval-ms` 默认 15min，fixedDelay 不堆积）：pending 键原子取出聚合 → 按 `batch-size`(1000)×`concurrency`(2) 分片 `_bulk` partial update 重算 heat（update+doc 只改 heat 字段禁 index 整篇替换；heat = (w_like×like + w_comment×comment + w_view×view) × 时间衰减，权重/半衰期外置 `litisle.search.weight.heat.*`，默认 2/3/0.1/168h）；不动向量；ES 抖动仅跳过本轮；互动热度更新失效对应热点查询缓存
-  - ✅ 2026-11-04：新建 `job/IndexHeatFlushJob`（`@Scheduled` fixedDelay=interval-ms、首次延迟 initial-delay-ms）——SCAN 扫 pending 键（禁用 KEYS）→ 逐键原子取走 → `mget` 回查现有文档 → 按 A5 公式重算 → 按 batch-size 分片、concurrency 固定线程池并行 `_bulk` 局部更新；线程池停机 `@PreDestroy` 释放
-  - ✅ 2026-11-04：**GETDEL 语义落地方式**——pending 键为 Hash，Redis 原生 GETDEL 仅支持 String，故用 Lua `HGETALL + DEL` 原子脚本（`HeatPendingService#takePending`）；避免「读出后、删除前」被 3.1 消费端新写入的增量被覆盖丢失
-  - ✅ 2026-11-04：写回字段为「计数基数 + heat」（like_cnt/comment_cnt/view_cnt/heat）——`update + action(doc)` 局部更新，绝不 index 整篇替换以保住 vec_dense/content；偏差说明：清单原文「只改 heat 字段」，但 heat 公式依赖计数绝对值，且 mapping 中三计数本是 heat 计算基数（A5），故一并写回，仍属热度相关字段、不触发向量重写
-  - ✅ 2026-11-04：衰减基准取文档 `updateTime`（当前实现中兼具发布时间语义，批次二建索引时由 content publishTime 赋值）；缺失时按不衰减(1.0)，半衰期做 0/负值下限防御
-  - ✅ 2026-11-04：容错闭环——空键/无有效增量跳过不写 ES；单键取走或解析异常只跳过该键；回查或 `_bulk` 整体异常 → 已取走增量 `mergeBack` 回灌 Redis（点赞/评论 HINCRBY 追加、浏览量 putIfAbsent 保留新值）等下一轮，不静默丢数；`_bulk` 逐条失败单独回灌 + error 留痕，成功条目照常生效
-  - ✅ 2026-11-04：`LitisleSearchApplication` 补 `@EnableScheduling`；`litisle.search.weight.heat.*`（like=2/comment=3/view=0.1/time-decay-half-life=168h）与 `heat.flush.*` 沿用既有 SearchProperties + yml（注释同步为「批次三 3.2 已落地」）
-  - ⏳ 遗留批次四：热点查询缓存失效仅留带注释接入标记（`IndexHeatFlushJob` 内），本批次不提前实现缓存（状态详见批次九 9.3：已接入 evictAll，标注待清理）
-
-##### 批次四：全文检索（依赖批次一/二；对齐批次D D3）
-
-###### 4.1 SearchController + SearchService 检索编排
-
-- [x] `GET /search`：参数校验（q 必填、pageNum/pageSize 上限 `page.max-page-size`=50）→ 查询词转义防 ES 注入 → Redis 热点缓存（key 遵循 `search:模块:功能:标识`，TTL 10m）→ type 路由索引 → bool must(multi_match title^4/tags^3/summary^2/content) + filter(visibility=PUBLIC 双保险) + filter(tag/category/zone/时间范围，可选) + function_score(heat)；排序枚举白名单映射（RELATED/NEWEST/HEAT）；返回高亮片段 + 分页；命中列表按 type 拆 articleList/bookList/userList（A6 落地口径）；深分页上限（ES max_result_window，pageNum×pageSize 乘积上限约束）
-  - ✅ 2026-11-04：新增 `SearchController`（GET /api/search）+ `SearchFeignProviderController`（POST /api/feign/search/search）+ `SearchService/Impl`；参数校验收口（q 必填/≤64/控制字符拦截、type/sort 枚举白名单、pageSize≤max-page-size、pageNum×pageSize≤新增 `page.max-result-window`=10000）；查询词按架构文档 §八 保留字符转义（结构化 DSL 无 query_string 注入面，转义作纵深防御）；multi_match 权重取 `weight.title/tags/summary`；article 索引 filter(visibility=PUBLIC + tag/category/zone/updateTime 范围)，book/user 按各自 mapping 字段检索；RELATED 用 function_score(log1p(heat), boost_mode=sum) 加权，NEWEST/HEAT 字段降序；三索引各返回高亮首片段；新增读侧投影 `BookIndexDoc`/`UserIndexDoc`（book_idx 未映射 authorId，BookDocVO.authorId 暂为 null）
-  - ✅ 2026-11-04：新增 `HotQueryCacheService/Impl`：键 `search:hotquery:{type}:{sort}:{pageNum}:{pageSize}:{MD5(关键词+筛选)}`，TTL 取 `cache.ttl`；读/写异常 fail-open，仅 `source=ES` 结果写缓存；`evictAll()` SCAN+分批 DEL，异常抛 IllegalStateException 交 MQ 重试
-
-###### 4.2 空结果兜底（A1 定案）
-
-- [x] 无命中：查询词实时 Embedding（超时 `fallback.embedding-timeout`=1s）→ KNN 检索 vec_dense 语义相似集，`source=fallback` 标记；Embedding 超时/失败 → 二级兜底 HEAT 热门列表（复用降级链路数据，仍标 fallback）；热门也失败 → 空页（兜底失败不阻塞主链路）；**兜底结果不写热点缓存**
-  - ✅ 2026-11-04：`SearchServiceImpl#fallback` 落地三级链路：一级 `embedWithTimeout`（独立守护线程池 + Future 超时，返回维度不符视为失败）→ `knnFallback`（article_idx `vec_dense` KNN + visibility 过滤，固定第一页）；二级 `heatFallback`（article_idx 按 heat 降序，同批次八 A3 热门口径）；三级空页。所有兜底 `source=fallback` 且不写缓存
-  - ✅ 2026-11-04：偏差/依赖说明——`VectorService` 当前未接入模型恒返回 null，故线上现阶段实际走二级热门口径；KNN 分支代码已就绪，待批次七向量模型接入即生效；book/user 索引无 vec_dense/heat，空结果直接返回空页；二级热门口径暂查 article_idx，批次八统一降级服务接入后可替换为 content 热门端点
-
-###### 4.3 权限登记
-
-- [x] `/search`、`/search/suggest`、`/search/similar/**` 网关匿名白名单登记 + `/search/history` 需登录（user_id 硬收口，C4 定版）；SEARCH_* 错误码使用（100001~100004 已入 common-core）
-  - ✅ 2026-11-04：`litisle-gateway` 路由表已有 `litisle-search`（`Path=/api/search/**`）；白名单由整体 `/api/search/**` 收窄为 `/api/search`、`/api/search/suggest`、`/api/search/similar/**`，`/api/search/history` 故意不登记（需登录，user_id 由登录态取）
-  - ✅ 2026-11-04：检索链路使用 `SEARCH_PARAM_INVALID`（参数非法）、`SEARCH_PAGE_EXCEEDED`（单页/深分页超限）、`SEARCH_ES_UNAVAILABLE`（ES 异常）；`SEARCH_SOURCE_NOT_FOUND` 沿用批次二索引回查
-
-##### 批次五：书籍索引链路（依赖批次一；优先级仅次于文章，B4 契约随本批次收口）
-
-###### 5.1 书籍索引变更事件契约（B4）
-
-- [x] litisle-api 定义书籍创建/变更/完结/下架事件 + MqConstant 路由键/队列（对齐 ContentPublishedEvent 定位键纪律：事件体仅 bizType/bizId/contentHash）；content 侧书籍变更点 afterCommit 发布接入
-  - ✅ 2026-11-04：新增 `ContentBookChangedEvent`（基座四字段 + `bookId` 定位键）与 `MqConstant.ROUTING_CONTENT_BOOK_CHANGED/QUEUE_CONTENT_BOOK_CHANGED`；创建/编辑/完结/下架/删除统一走一条 `content.book-changed`，消费端回查权威态后收敛（完结当前无独立端点，端点落地时复用同事件）。content 侧新增 `ContentEventProducer#sendBookChanged`（复用 outbox + sendCritical），`BookServiceImpl.create/update/delete` 接入发布：create/update 无事务即时发送，delete 的 `@Transactional` 注册 afterCommit 后发送
-  - ✅ 2026-11-04：新增 `BookIndexDocDTO` + `ContentClient#getBookIndexDoc`（fail-fast 降级）+ `ContentInternalService/Impl#getBookIndexDoc`（显式 del_flag=0，不存在/已软删抛 `BOOK_NOT_FOUND`，作者昵称 best-effort）+ `ContentFeignProviderController` 端点 `/api/feign/content/book-index-doc`
-
-###### 5.2 book_idx 同步消费
-
-- [x] IndexSyncConsumer 扩展书籍事件消费：回查 → 门控 → 幂等 upsert/删除 book_idx（书名/作者/简介/分类；书籍不入 article_chunks，C2 定版）；V1 可见性红线验证覆盖 book_idx
-  - ✅ 2026-11-04：新增 `BookIndexService/Impl`：`getBookIndexDoc` 回查 → 门控（`delFlag=0` 且 `status≠TAKEN_DOWN`）→ 按 bookId upsert / delete（删除前判存在，幂等）；`BOOK_NOT_FOUND` 收敛为删索引，ES/远程异常抛 `IllegalStateException` 交延迟重试
-  - ✅ 2026-11-04：`SearchMqConfig` 补 `content.book-changed` 队列/绑定/延迟重投/DLX-DLQ；`IndexSyncConsumer#onBookChanged` 接入成功后 `evictAll` 失效热点缓存；书籍不入 `article_chunks`
-  - ✅ 2026-11-04（批次四遗留）：`book_idx` mapping 补 `authorId`（keyword），`BookIndexDoc` 增字段，`SearchServiceImpl#toBookResult` 解析回填 `BookDocVO.authorId`；`EsIndexInitializer` 启动时对已存在索引幂等 `putMapping` 补字段。**存量影响**：新增字段可热更新 mapping、无需重建索引；但存量文档不回填，需事件重放/全量重建后 `authorId` 才有值，此前检索结果为 null（不影响命中与排序）
-
-###### 5.3 用户索引同步（原批次B B5，本次随批次五一并落地）
-
-- [x] 用户事件契约 + user 侧发布点 + user_idx 同步消费
-  - ✅ 2026-11-04：`UserRegisteredEvent` 补业务字段（userId/username/uid/registerSource）；新增 `UserProfileUpdatedEvent`（userId 定位键）与 `MqConstant.ROUTING_USER_PROFILE_UPDATED/QUEUE_USER_REGISTERED_INDEX/QUEUE_USER_PROFILE_UPDATED_INDEX`；新增 `UserIndexDocDTO` + `UserClient#getUserIndexDoc`（fail-fast 降级）
-  - ✅ 2026-11-04：`litisle-user` 引入 `common-mq`、补 `spring.rabbitmq` 配置、新增 `UserMqConfig`（声明 `EXCHANGE_USER`）与 `UserEventProducer`；`UserFeignProviderController#createUser` 成功后发 `user.registered`，`UserProfileServiceImpl#updateCurrentUserProfile` 在笔名/简介变更后发 `user.profile-updated`（均为写库后 best-effort）；新增 `/api/feign/user/index-doc` 回查端点（仅公开字段）
-  - ✅ 2026-11-04：新增 `UserIndexService/Impl`：回查 → 门控（`status=NORMAL`、`delFlag=0`、笔名/简介至少一项非空）→ 按 userId upsert/delete；`USER_NOT_FOUND` 收敛为删索引；`SearchMqConfig` 补 user 两队列/绑定/延迟重投/DLX-DLQ，`IndexSyncConsumer#onUserRegistered/onUserProfileUpdated` 接入。说明：新注册用户通常无公开资料，注册事件按门控「删索引」幂等空操作，待资料更新事件再正式入索引
-
-##### 批次六：搜索联想与搜索历史（依赖批次一/四；对齐批次D D4）
-
-###### 6.1 suggest 联想接口
-
-- [x] `GET /search/suggest?q=`：article_idx `title.completion` / `authorName.completion` suggester + 聚合 content `GET /tags?keyword=` 标签联想 → 去重合并返回 `SuggestVO{type(KEYWORD/TAG/AUTHOR), text}`；**不建标签索引**（标签池 SSOT 在 content，防双写漂移）；开关/条数走 `litisle.search.suggest.*`
-  - ✅ 2026-11-04：新增 `SuggestService/Impl` + `GET /api/search/suggest?q=&size=`（联想端点并入 `SearchController`，未单建 Controller）。实现要点：completion suggester 复用批次一已建的 `title.completion`/`authorName.completion`（**不改 mapping、不建标签索引**）；内容依次取书名→作者→标签，按文本去重、总数封顶；`suggest.enabled` 总开关关闭返回空，词空/超 64 返回空；ES 故障只丢书名/作者联想，content 故障只丢标签联想（降级互不影响）
-  - ✅ 2026-11-04：契约层新增 `SuggestVO`、`TagSuggestDTO`；`ContentClient#getTagSuggestions`（降级返回空列表，fail-open）+ content 侧 `ContentInternalService#searchTagSuggestions`（复用 `TagService#searchByPrefix`）+ `/api/feign/content/tag-suggest` 内部端点
-  - ✅ 2026-11-04（企业优化清单 1.1/1.2/1.3）：联想最小输入长度 2 字（`SUGGEST_MIN_KEYWORD_LENGTH`）；`/search/suggest` 补 IP 维度限流 20 次/60s（`RateLimiter.KeyType.IP`）；content `TagServiceImpl#searchByPrefix` 增加 Redis 短缓存（非空 TTL 480s ±10% 抖动、空结果 60s 防穿透），详见 temp.md 批次一
-
-###### 6.2 SearchHistoryService
-
-- [x] `GET /search/history` 分页 / `DELETE /search/history` 清空；搜索成功后异步记录 → search_history UPSERT（uk(user_id,keyword) 同词仅前进 updated_at）→ 超 `history.max-per-user`（默认 20）懒删最旧；**隐私纪律：keyword 不写入任何 ES 索引文档/向量库**
-  - ✅ 2026-11-04：新增 `SearchHistory` 实体 + `SearchHistoryMapper` + `SearchHistoryService/Impl` + `SearchHistoryController`（`/api/search/history` GET/DELETE，均按 `StpUtil` 当前登录用户 ID 收口，无 userId 入参防越权）
-  - ✅ 2026-11-04：记录链路——检索成功后（含缓存命中/兜底结果）在 `SearchServiceImpl#recordHistory` 仅对登录用户调用 `recordAsync`（`@Async` + 内部吞异常，失败不影响检索，启动类补 `@EnableAsync`）；同词 UPSERT 命中仅前进 `updated_at`，唯一键并发冲突退化为更新；超 `max-per-user` 用 `Page` 保留最新 N 条并删除其余（**未使用 `QueryWrapper#last()`**）；分页统一 `Page` 对象
-  - ✅ 2026-11-04：隐私纪律已落实——关键词只落 MySQL `search_history`，不写任何 ES 索引文档/向量库
-
-##### 批次七：相似推荐与 Feign 提供方（依赖批次二/三；对齐批次D D5）
-
-> **批次七选型决策（2026-11-04 已确认，照此实现，不再自行改口径）**：
-> - **适配器**：OpenAI 兼容 `POST /v1/embeddings` 为主适配器（覆盖 SiliconFlow / 百炼 OpenAI 兼容入口 / 自建网关 / TEI）；Ollama `POST /api/embed` 作为备选适配器，不做主线。
-> - **模型**：bge-m3，原生 1024 维，不使用 dimensions 压维，mapping 不改（`vec_dense` / `chunk_vector` 维持 dims=1024）。
-> - **运行方式**：开发/小规模用 SiliconFlow bge-m3 API；数据需留内网时 Docker 起 TEI + bge-m3；两者都走 OpenAI 兼容配置切换（`embedding.provider=openai-compatible`，`base-url`/`model`/`api-key` 外置）。
-> - **参数默认**：密钥环境变量 `LITISLE_EMBEDDING_API_KEY`；超时 10s；批量 16；重建批量 100（配 bulk）。
-> - **触发方式**：管理端点（需 ADMIN/SUPER_ADMIN 鉴权）+ 保留服务方法手动调用；不做启动自动重建；重建完成后把两索引 `_meta.embedding_model` 更新为真实模型名。
-> - **文本口径**：`vec_dense` = 标题 + 摘要 + 正文截断 2000 字；`chunk_vector` = `chunk_text` 原文。
-> - **融合参数**：权重 0.7 / 0.2 / 0.1；余弦阈值默认 0.4 且可配置（不再默认 0）；topK 上限 50。
-
-###### 7.1 VectorService + KnnRecommender + SimilarController
-
-- [x] `GET /search/similar/{articleId}?topK=`：取源文章 vec_dense + tags → KNN（num_candidates=100、TopK 默认 10、cosine）→ 融合评分（向量相似 + 标签重合度 + 行为热度加权）→ 阈值过滤（`knn.similarity-threshold` 默认 0.0）→ **强制 filter(visibility=PUBLIC)（C3）** + 排除自身与已下架文档
-  - ✅ 2026-11-04：`SimilarServiceImpl` 落地——源文章回查（不存在/非 PUBLIC 报 `SEARCH_SOURCE_NOT_FOUND`，无向量返回空列表）→ KNN（`vec_dense`、k=topK+1、num_candidates 取配置且不小于 k）→ 融合评分（`knn.vector-weight` 0.7 / `tag-weight` 0.2 / `heat-weight` 0.1，按总和归一化；标签重合度用 Jaccard，热度用 log1p(x)/(1+x) 归一）→ 原始 cosine 分按 `similarity-threshold` 过滤 → 融合分降序截断 topK（上限 `knn.max-top-k` 50）；filter 强制 `visibility=PUBLIC` + `must_not id=自身`（C3；下架文档已在批次二删除，故无需额外状态过滤）；ES 异常统一 `SEARCH_ES_UNAVAILABLE`
-  - ✅ 2026-11-04：新增 `SimilarController`（`GET /api/search/similar/{articleId}?topK=`，网关白名单既有 `/api/search/similar/**` 已放行，无额外网关改动）；`SimilarArticleVO` 复用既有契约
-  - ✅ 2026-11-04：Embedding 接入骨架——新增 `embedding/EmbeddingProvider` SPI（providerName/modelName/available/embed/embedBatch，禁止硬编码、仅做本地配置判断）；`SearchProperties.embedding` 扩展 provider/model/dimension/base-url/api-key/timeout/batch-size/rebuild-batch-size（yml 同步，密钥用 `${LITISLE_EMBEDDING_API_KEY:}` 环境变量占位符）；`VectorServiceImpl` 改为按 `embedding.provider` 精确匹配提供方，未接入返回 null（开关关闭不告警、未接入仅告警一次）、调用失败/维度不一致返回 null 不阻断索引写入；`VectorService` 新增 `available()`
-  - ✅ 2026-11-04：向量全量重建框架——新增 `VectorRebuildService/Impl`（`rebuildArticleVectors` / `rebuildChunkVectors`）：提供方未就绪整体跳过；`search_after` 按主键升序分页（规避 from+size 深分页窗口）→ 逐条向量化 → bulk partial update 只写 `vec_dense`/`chunk_vector`；文章输入与发布链路共用 `SearchTextUtils#buildEmbeddingInput`（标题+摘要+正文截断 2000 字，避免口径漂移），切片直接用 `chunk_text` 原文；**触发方式（管理端点/一次性任务/开关）待确认，本次仅落框架不含自动触发**
-  - ⚠️ 待确认：Embedding 提供方/模型/服务地址/密钥注入方式未定（清单未给选型），本次不写任何提供方适配器，`embedding.enabled=false`、`provider=none` 时行为与现网一致（不写向量字段）（已由下方选型确认 ✅ 覆盖，状态详见批次九 9.3）
-  - ✅ 2026-11-04（选型确认后落地）：OpenAI 兼容主适配器 `OpenAiCompatibleEmbeddingProvider`——`POST {base-url}/v1/embeddings`，批量 16 / 超时 10s / Bearer 密钥（`LITISLE_EMBEDDING_API_KEY`，为空则不发鉴权头）/ 失败返回 null 不阻断索引写入 / 维度由 VectorService 统一校验；模型、地址、密钥、维度全部读 `litisle.search.embedding.*`
-  - ✅ 2026-11-04（选型确认后落地）：Ollama 备选适配器 `OllamaEmbeddingProvider`——`POST {base-url}/api/embed`，按 `embedding.provider=ollama` 条件装配（不开主线）；与 OpenAI 适配器共用批量/超时/失败降级骨架
-  - ✅ 2026-11-04（选型确认后落地）：新增管理端点 `POST /api/search/admin/rebuild-vectors`（`SaRoleHelper.checkAdmin()` 收口 ADMIN/SUPER_ADMIN，网关未放行需登录态），复用 `VectorRebuildService`；重建成功后把 article_idx + article_chunks 的 `_meta.embedding_model`/`_meta.embedding_dims` 更新为配置中的真实模型名与维度；不做启动自动重建
-  - ✅ 2026-11-04（选型确认后落地）：`knn.similarity-threshold` 默认值由 0.0 调整为 0.4（`SearchProperties` 与 yml 同步），其余融合参数维持 0.7/0.2/0.1、topK 上限 50
-  - 编译验证已通过（2026-11-04，`mvn -q -pl litisle-search -am compile -DskipTests` exit 0）
-
-###### 7.2 FeignProviderController
-
-- [x] 实现 `/api/feign/search/**`（网关不路由）：`GET /api/feign/search/similar`（对齐已落地 SearchClient，fail-fast）+ `POST /api/feign/search/search`（服务间检索，非降级链路）；供 ai RAG 与前端"相关文章"复用
-  - ✅ 2026-11-04：`SearchFeignProviderController` 补 `GET /similar`（参数 `articleId` 必填、`topK` 可选，直接复用 `SimilarService`，与 REST 行为一致）；`POST /search` 已于批次四 4.1 落地，本次仅更新类注释契约清单
-  - ✅ 2026-11-04：契约对齐 `litisle-api` 的 `SearchClient#similar/#search`（fail-fast 降级工厂已存在，无需改动 api 模块）
-  - 编译验证已通过（2026-11-04，`mvn -q -pl litisle-search -am compile -DskipTests` exit 0）
 
 ##### 批次八：降级链路与观测（依赖批次四；对齐批次D D6）
 
-###### 8.1 ES 降级链路（A3 定案）
-
-- [x] ES 不可用 → `fallback.enabled` 开关 → 降级返回热门列表（content `/article/hot` 同源，`source=DEGRADED` 标记不缓存）+ 前端提示搜索不可用；降级关闭或热门获取失败 → SEARCH_ES_UNAVAILABLE；降级数据源语义随 content 批次E P5 切换为 heat 榜序（`CONTENT_FEED_HOT_ZSET` 同源 + 榜空回退 view_cnt 直查），落地时对齐（跨模块依赖：content 批次E P5）
-  - ✅ 2026-11-04（批次外依赖，已先说明后实施）：`litisle-api` 新增 `HotArticleDTO`（articleId/title/summary/authorId/publishTime 轻量投影）+ `ContentClient#getHotArticles(limit)`；降级工厂对该方法 **fail-fast**（抛 `REMOTE_SERVICE_ERROR`，不静默返回空列表，避免用户误以为「搜索无结果」）；`litisle-content` 新增 `ContentInternalService#listHotArticles` + Feign 端点 `GET /api/feign/content/hot-articles`（网关不路由），复用 `/article/hot` 读链路（content 批次E P5：`CONTENT_FEED_HOT_ZSET` 热度榜主路径、榜空回退 view_cnt 直查），热榜口径不在 search 复制
-  - ✅ 2026-11-04：`SearchServiceImpl#search` 统一捕获 `SEARCH_ES_UNAVAILABLE`——`fallback.enabled=true` 时走 `degradedResult`（source=`DEGRADED`，ARTICLE 取 content 热门、固定返回第一页且 total=当页条数；BOOK/USER 无对应热门源，返回空页 + `DEGRADED` 标记供前端提示）；开关关闭时原样抛出 `SEARCH_ES_UNAVAILABLE`；参数校验等非 ES 异常不参与降级
-  - ✅ 2026-11-04：**降级缓存策略＝不写缓存、也不设短 TTL**，理由：① 热门列表与查询词无关，按查询键缓存会把同一份热门复制到每个关键词下白占内存；② 写入后 ES 恢复的 TTL 窗口内仍持续返回降级结果，掩盖恢复事实；③ 现有 `HotQueryCacheService#write` 只缓存 `source=ES`，降级分支直接返回不经过写缓存，与批次四兜底口径一致
-  - ✅ 2026-11-04：降级失败语义——content 热门获取失败（网络异常/非成功码/data=null）统一收敛为 `SEARCH_ES_UNAVAILABLE`；降级仍属有效检索，照常异步记录搜索历史
-  - 编译验证已通过（2026-11-04，`mvn -q -pl litisle-search,litisle-content -am compile -DskipTests` exit 0）
-
-###### 8.2 指标埋点与告警
-
-- [x] 检索/索引同步/热度刷写指标埋点 + DLQ 告警留痕（批次二 DLQ Consumer 联动）
-  - ✅ 2026-11-04：新增 `SearchMetrics`（`ObjectProvider<MeterRegistry>` 注入，未接 Micrometer 时全方法静默空转）：`litisle_search_requests{type,outcome}`（outcome=cache/es/fallback/degraded/error）、`litisle_search_es_errors{type}`、`litisle_search_heat_flush_round`（轮次扫描键数）、`litisle_search_heat_flush_docs{result}`（条目成功/失败数）、`litisle_search_index_dlq{originQueue}`（死信数）；标签只用有限枚举值，杜绝用户输入造成基数膨胀
-  - ✅ 2026-11-04：索引同步消费指标复用 common-mq `MqMetrics#recordConsume`——`IndexSyncConsumer` 用 `runWithMetrics` 包装 5 条同步动作，口径与 `MqAckHelper` ACK 三分支对齐（SUCCESS / BIZ_DROP / UNEXPECTED），异常原样抛出、不改变 ACK/重试分流
-  - ✅ 2026-11-04：`IndexHeatFlushJob` 刷写轮次与条目结果埋点（整批异常回灌时记 failure）；`IndexDlqConsumer` 保留既有 error 日志（消息体截断 + originQueue），叠加死信计数形成「日志 + 指标」双告警留痕
-  - ✅ 2026-11-04：指标经 `spring-boot-starter-actuator` + `micrometer-registry-prometheus`（search pom 已有）由 `/actuator/prometheus` 暴露，Grafana/告警规则可直接采集
-  - 编译验证已通过（2026-11-04，`mvn -q -pl litisle-search,litisle-content -am compile -DskipTests` exit 0）
+> 已完成并归档（8.1~8.2），见 [search-09-degrade-observability.md](../archive/search/search-09-degrade-observability.md)（2026-11-05 迁出）。
 
 ##### V1 索引同步与可见性红线验证（依赖批次二/三/五）
 
@@ -305,6 +131,191 @@
 ##### V3 降级验证（依赖批次八）
 
 - [ ] 停 ES 后按 A3 方案降级生效且结果标记来源；降级关闭/降级失败返回 SEARCH_ES_UNAVAILABLE
+
+##### 批次九：收尾、验证与遗漏补齐（依赖批次一~八；2026-11-05 复核）
+
+> **复核口径**：按 批次1-2 / 3-4 / 5-6 / 7-8 四组逐条对照代码核查；已勾选条目未发现「勾选但代码缺失」，以下汇总未勾选验证项、只做一半的实现、过期标注与部署/体验缺口。
+> 复核结论计数：批次1-2 发现 2 项、批次3-4 发现 2 项、批次5-6 发现 1 项、批次7-8 发现 6 项、content 跨模块 2 项，去重合并后见各分类清单。
+> 类型说明：【必须】= 上线/联调前必须完成；【可选】= 优化项或已挂起项，按触发条件择机推进。
+
+###### 9.1 运行态验证（必须，7 项）
+
+- [ ] 【必须】content V1：发布 → review 送审 → result 回写全链路联调（来源：content V1；前置：litisle-ai chat 端点、review 消费链路；验收：一篇草稿从发布到审核终态，文章状态、索引文档与前端展示一致）
+- [ ] 【必须】content V2：visibility 判定链、推荐流展示前回查验证 + 密码防爆破限频演练（来源：content V2；前置：content/review 联调环境；验收：PUBLIC/PRIVATE/FOLLOWERS 三档可见性正确，连续错误密码触发限频）
+- [ ] 【必须】search V1：索引同步与可见性红线验证（来源：批次二/三/五 + search V1；前置：content/review/search 联调环境；验收：四条下架路径删净 article_idx 与 article_chunks、published 迟到不写回、未过审/私密永不入索引、元数据编辑同步生效、heat 累加→定时 bulk 链路生效且重复消费不重复累加）
+- [ ] 【必须】search V2：检索功能验证（来源：批次四/五/六/七 + search V2；前置：批次四~七代码已编译；验收：tag/category/zone/时间范围组合生效，空结果 source=fallback 且不写缓存，联想去重合并，搜索历史去重/上限懒删且 keyword 不出现在任何 ES 文档，KNN 结果无私密/下架内容）
+- [ ] 【必须】search V3：ES 降级实测（来源：批次八 8.1 + search V3；前置：content 热门端点可用；验收：停 ES 后 ARTICLE 返回 content 热门且 source=DEGRADED，BOOK/USER 空页+DEGRADED，`fallback.enabled=false` 或热门获取失败返回 SEARCH_ES_UNAVAILABLE）
+- [ ] 【必须】向量存量重建（来源：批次一 1.1 跨板块遗留 + 批次七 7.1 重建框架；前置：Embedding 配置可用、管理端点可登录调用；验收：存量 article_idx `vec_dense` 与 article_chunks `chunk_vector` 非空且 1024 维，两索引 `_meta.embedding_model` 更新为真实模型名）
+- [ ] 【必须】book_idx authorId 存量回填（来源：批次五 5.2 明确「存量文档不回填」；前置：书籍事件重放或全量重建；验收：检索结果 `BookDocVO.authorId` 不再为 null，抽查与全量统计均通过）
+
+###### 9.2 代码补全（可选，4 项）
+
+> —9.2 a/b 已完成并归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)（2026-11-05）。
+
+> —9.2-c/d 已迁出至 [temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md)（2026-11-05）。
+
+###### 9.3 文档同步（可选，2 项）
+
+> —已归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)（2026-11-05）。
+
+###### 9.4 部署配置（必须，3 项）
+
+- [ ] 【必须】联调环境与中间件就绪（来源：批次一~八运行前置；前置：ES 8.18、Redis、RabbitMQ、MySQL、Nacos 与 content/review/user/search 服务可启动；验收：search 启动无致命错误，四索引创建成功，MQ 队列/绑定声明无冲突）
+- [ ] 【必须】Embedding 配置与连通性（来源：批次七 7.1；前置：`LITISLE_EMBEDDING_API_KEY` 注入、base-url/model=bge-m3/dimension=1024 配置完成；验收：`VectorService#available()` 为 true，单条与批量调用返回 1024 维向量）
+
+> —9.4-3 已完成并归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)（2026-11-05）。
+
+###### 9.5 体验/契约（必须，1 项）
+
+- [ ] 【必须】前端 DEGRADED 提示联调（来源：批次八 8.1「前端提示搜索不可用」；证据：`SearchServiceImpl.java:792-798` 已返回 `source=DEGRADED`，仓库内无前端代码承接；前置：search V3 通过；验收：停 ES 时前端展示「搜索暂不可用」，BOOK/USER 空页不误报；降级固定第一页、total=当页条数口径经前端确认）
+
+###### 9.6 测试补齐（可选，1 项）
+
+- [ ] 【可选】search 关键路径自动化测试（来源：批次二~八均仅编译验证；前置：测试环境与 Testcontainers/嵌入式 ES 方案确定；验收：检索参数组合、兜底不缓存、降级开关、KNN 强制 PUBLIC、索引版本守卫至少各有 1 条集成用例通过）
+
+###### 9.7 低成本优化（已完成，2 项）
+
+> —已归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)（2026-11-05）。
+
+###### 9.8 并发竞态修复与下架墓碑（已完成 2 项 + P2 条件项 1 条）
+
+> —P0-E / P0-D 已完成并归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)（2026-11-05）。
+
+> —P2 条件项已迁出至 [temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md)（2026-11-05）。
+- [ ] 【待拍板】`updateTime` 精度（来源：版本守卫以秒级 `updateTime` 比较；风险：同一秒内两次编辑会被判为旧）；建议后续补毫秒或单调版本号，本轮不实施。
+
+###### 9.9 search 索引同步与可观测性（本轮仅登记，未执行）
+
+> 编号说明：9.8 之后无 9.9，本组编号沿用批次九体例为 9.9。
+> 本轮仅完成分析与登记，未改代码、未改配置、未改 DDL；条目按「先做 / 待触发 / 已决定不做」分组。
+> 执行更新（2026-11-05）：A/B/C/D/F 五项已实施（E/G/H 未动），详见各条 ✅ 摘要。
+
+> —A~D 已完成并归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)（2026-11-05）。
+
+**二、待触发（条件项）**
+
+> —E 已迁出至 [temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md)；F 已完成并归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)（2026-11-05）。
+
+**三、已决定不做**
+
+> —G/H 已决定不做，登记迁至 [temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md)（2026-11-05）。
+
+------------
+
+##### 批次十：用户个性化推荐流（可无限刷，2026-11-05 立项）
+
+> 需求来源：用户 2026-11-05 提出（原话：「用户可以像抖音那样刷文章或者书籍，2 者分开，并且每个人刷到的内容不一样，可以一直刷，未登录用户也可以刷，同时考虑 content 模块推荐流处置情况，文章/书籍有分区，参考 ZoneEnum」）。
+> 板块归属：**content 为主**（推荐流是内容聚合视图，必须对权威态做展示前回查；复用既有 `FeedController` / `FeedServiceImpl` / `FeedHotRankSupport` / `FeedLocalFallbackSupport` 体系）；**search 仅作 P1 召回能力提供方**（内部 Feign，不在 search 建推荐流）；**gateway 仅新增匿名白名单**；**api 承载 DTO/VO 与 Feign 契约**。
+> 不重复建设：`GET /article/hot` 是单一全局热度榜，本批次把热度榜降级为「推荐流的一路召回输入」，不新建第二套热度能力；`/api/feign/content/hot-articles` 保持现状语义（search 降级用）。
+> 现状证据：现有 `/api/content/feed` 仅文章、登录限定、页码式、`userId` 未参与排序（[FeedServiceImpl.java:76-87](../../litisle-content/src/main/java/com/litisle/litislecontent/service/impl/FeedServiceImpl.java#L76-L87)），故本批次必须改造为「登录与匿名共用 + 快照式 + 画像驱动」。
+> 相关文档：[Content-Architecture.md](../Architecture/Content-Architeche.md)、[Search-Architecture.md](../Architecture/Search-Architecture.md)、热度榜写路径归档 [search-01-heat-write-path.md](../archive/search/search-01-heat-write-path.md)。
+
+**一、需求条款（可验收）**
+
+1. **两条独立流**：`GET /api/content/feed/articles`（文章流）、`GET /api/content/feed/books`（书籍流）；**不做混合流**（VO 仅预留 `type` 枚举作为扩展位）。
+2. **匿名可刷**：未登录可直接调用两流端点；匿名标识沿用前端 uuid + 服务端格式校验与缺失兜底（见「二、已确认决策」第 14 条）。
+3. **无限刷**：游标式持续供给，不设页码上限；候选池耗尽自动续池，前端无感。
+4. **个性化**：登录用户用 `reading_history` + `favorite` 聚合画像；匿名用户用匿名标识 + 每日种子（同标识当天序列稳定、跨天变化）。
+5. **分区参与**：文章流参与 `zone`（1-普通 / 2-作家），默认 1:1 混排，支持按 zone 筛选；书籍流不参与 zone（已确认）。
+6. **内容门控（硬）**：文章 `del_flag=0 + status=PUBLISHED(2) + visibility=PUBLIC(1)`，zone ∈ {1,2}；书籍 `del_flag=0 + status ∈ {0-连载中, 1-已完结}`；审核中/驳回/下架/私密内容**永不进流**；无论召回来源，展示前必须走 `recheckFilter`。
+7. **冷启动**：无画像→全局热度 + 分区轮换；新文章 24h 内加权；新书 7 天内保底曝光。
+8. **重复控制**：当日曝光硬去重；已读（30 天内）降权 0.5、不剔除（保证长刷有内容）。
+9. **频控**：登录 60 次/60s（USER 维度）、匿名 20 次/60s（IP 维度）。
+10. **书籍流形态**：书卡片（复用 `BookCardVO` 字段口径），点击落书籍详情页；**不做章节流**，项目无付费/试读概念，不考虑。
+
+**二、已确认决策（14 条，写实，执行时不得变更）**
+
+- **书籍不加 zone**：不改 schema，书籍流按 `category` 走。
+- **书籍排序权重**：收藏 0.4 / 阅读人数 0.3 / 新鲜度 0.2 / 完结偏好 0.1；两个计数做 `log1p` 归一化；新书 7 天保底曝光。
+- **重复策略**：已读 30 天内降权 0.5（不剔除）；当日曝光硬去重。
+- **分页规格**：单页 20 条、单快照 300 条、到底自动续快照（前端无感）。
+- **旧 `/feed`**：保留并存，前端切到新端点后再下线（切换时间由前端确认）。
+- **书籍点击**：落书籍详情页，不做章节流。
+- **P0 埋点边界**：只做 Redis 曝光去重；埋点表与「不感兴趣」进 P1（需前端配合）。
+- **P0 个性化边界**：只用「分区 + 分类」偏好；**标签偏好进 P1**。
+- **`article_tag` 注释口径冲突处理**：[content-schema.sql:167](../../docker/init/mysql/content-schema.sql#L167) 现写「不参与推荐流排序权重，仅聚合列表页」——**P0 不改该注释也不读 `article_tag`**（口径自洽）；P1 启用标签偏好时，同一变更内先把该注释改为「P0 仅聚合列表页；自 P1 起参与推荐召回」，再落地标签召回。
+- **频控阈值**：登录 60 次/60s（USER）、匿名 20 次/60s（IP）。
+- **分页形态**：候选池快照 + cursor 切片 + `snapshotId` 版本号（`from` 恒为 0），彻底规避深分页，不依赖 ES `max_result_window`。
+- **索引依赖（用户已接受，独立 DDL 窗口）**：`reading_history` 补 `idx_biz (biz_type, biz_id)`，支撑「按对象聚合阅读人数」；`favorite` 无需新增（`idx_target(target_type,target_id)` 已存在）。
+- **P0 召回走 DB（A 档），ES 不参与 feed 召回与分页（2026-11-05 用户拍板）**：多维条件筛选（标签 × 分类 × 分区 × 作者 × 时间任意组合）**在批次十之后（P1）交付**，故 P0 = 4 路 DB 召回 + Redis 快照分页。**B 档保留**（ES 只作召回器、不承担分页），以 `litisle.content.feed.recall=db|es` 开关承载，默认 `db`。切换阈值：文章行数 > 30 万 / 补索引后 DB 召回 P99 > 120ms 持续 3 天 / 需要关键词兴趣或向量召回 / 筛选维度 ≥ 4 且组合种类 ≥ 3 种。分工口径：**ES 只做一次性召回（返回 ≤300 条 id+score），永不参与逐页查询与深分页**。
+- **匿名标识沿用前端 uuid（中小项目主流做法，2026-11-05 用户拍板）**：前端首次进入生成 UUID v4 存 localStorage，请求头 `X-Anon-Id` 携带；服务端只做**格式校验**（UUID 正则）+ **缺失/非法兜底生成**（服务端生成后随响应头下发，前端写回 localStorage）；**不做**服务端签发 Cookie、**不做** HMAC 签名——匿名标识只作「尽力而为的曝光去重键」，不是身份凭证；该决策**不影响匿名限流**（限流口径为 IP 维度 20 次/60s，不依赖 anonId）；升级触发条件（进 P1）：出现匿名刷量证据、或需要跨设备匿名画像累积 → 再改服务端签发 + 签名校验。
+
+**三、待确认项（0 条，暂无未决项；如有新问题在此登记并标注日期）**
+
+**四、用户隔离与算分口径（已确认）**
+
+1. **身份区分**：登录用户用 `userId`；匿名用户用请求头 `X-Anon-Id`。身份标识只作用于四处——画像读取 key、频控口径、曝光去重 key、快照存储 key。
+2. **算分隔离粒度**：按「用户 × 流类型（文章/书籍）× 快照代次」独立计算，**每个候选池只算一次分**；翻页只按 cursor 切片，**不重新算分**。
+3. **四路召回的个性化边界**：最热（全局热度榜）、最新（全局时间倒序）两路所有人共享；常看分区、常看分类两路按该用户画像取。
+4. **打分口径（P0）**：热度、新鲜度、分区匹配、分类匹配四项加权求和，已读项 `-0.5`（降权不剔除）；**四项权重必须做成配置项，禁止硬编码在代码中**。
+5. **随机性口径**：使用会话级 `session seed`——同一会话内翻页顺序稳定，跨会话可变；**不使用 `ORDER BY RAND()`，也不依赖 ES `random_score` 的默认 seed**。
+6. **冷启动**：无画像时两路个性化退化为全局热门/最新，探索位比例上调（比例同样为配置项）。
+7. **量级估算**：5000 DAU × 人均 3 次会话 ≈ 1.5 万候选池/日 × 300 条 ≈ 450 万次打分/日，纯内存计算，不构成瓶颈。
+8. **已知局限**：匿名标识不跨设备，换浏览器视作新用户，画像从零开始。
+
+###### 10.1 契约与门控（必须，1 项）
+
+- [x] 【必须】新建书籍流 VO 并补齐文章流字段，固化可推荐门控（来源：需求条款 1/6/10；前置：无；涉及 content/api；验收：`BookFeedItemVO` 含 id/authorId/title/intro/coverFileId/category/status（连载/完结）/chapterCount/collectCount/readerCount/updateTime；`FeedItemVO` 补 `zone/category/tags`（仅新增字段，前端现有字段不减）；门控口径与展示前 `recheckFilter` 统一，旧 `/feed` 返回字段不减少；编译通过）
+  - ✅ 2026-11-05：新增 `BookFeedItemVO` / `FeedPageVO` / `FeedItemAssembler`；`FeedItemVO` 补 `zone/category/tags`（tags P0 恒 null，不读 article_tag）；门控抽 `FeedConstant.ARTICLE_RECOMMENDABLE_ZONES`，时间倒序召回与 `recheckFilter` 共用同一集合；`mvn -pl litisle-content -am -DskipTests compile` 通过
+
+###### 10.2 匿名可刷 + 频控 + 网关白名单（必须，1 项）
+
+- [x] 【必须】匿名可访问两流端点并接入频控（来源：需求条款 2/9；前置：10.1；涉及 content/api/gateway；验收：网关白名单新增 `/api/content/feed/**`（该前缀下仅 GET，写端点不受影响）；未登录直连两流成功；登录 60 次/60s（USER）、匿名 20 次/60s（IP）超限返回限流错误；匿名标识按「二、已确认决策」第 14 条接入：客户端携带 `X-Anon-Id`（UUID v4），服务端仅做格式校验；缺失或非 UUID 格式时自动生成并随响应头下发，客户端写回后同一浏览器跨会话稳定；同一 IP 60 秒内第 21 次请求被拒）
+  - ✅ 2026-11-05：新增 `GET /api/content/feed/articles`、`/books`（游标契约，10.2 阶段按 DB 时间序切片，10.3/10.4 换快照与加权排序）；`AnonIdFilter` 做 UUID v4 校验 + 缺失/非法兜底并写响应头；`FeedRateLimitSupport` 运行时按身份切换 USER 60/60s、IP 20/60s；SaToken 仅 GET 精确放行两条路径，网关白名单加 `/api/content/feed/**`（旧 `/feed` 仍登录限定）；编译通过；匿名直连与限流运行态验证留 10.7
+
+###### 10.3 文章流多路召回 + 融合打分 + 快照分页（必须，1 项）
+
+- [ ] 【必须】四条召回路 + 加权融合 + 打散 + 快照切片（来源：需求条款 3/4/7/8；前置：10.1/10.2；涉及 content；验收：四路各 ≤100 条、去重后 ≤300 条（hot 取现有 `CONTENT_FEED_HOT_ZSET`、fresh 走 `idx_create_time` 倒序、zone 偏好、category 偏好）；融合权重 `heat 0.35 + freshness 0.30（半衰期 24h）+ category 匹配 0.20 + zone 匹配 0.10 + 作者分散 0.05`；打散规则「同作者连续 ≤1、同分类连续 ≤2、zone 1:1」；快照写 Redis（TTL 30min，单用户最多 3 个活动快照），`cursor=offset + snapshotId` 且 `from` 恒 0；连续 15 页不重不漏；快照过期返回 `reset=true` + 新 `snapshotId`）
+  - 依赖备注：P0 召回走 DB（已确认 A 档，见「二、已确认决策」第 13 条；ES 不参与 feed 召回与分页，B 档留 `feed.recall=es` 开关）；为使 DB 召回达标，需补 `article idx_feed_zone(del_flag,status,visibility,zone,create_time)` 与 `idx_feed_category(del_flag,status,visibility,category,create_time)`（独立 DDL 窗口，待执行）
+
+###### 10.4 书籍流召回与排序（必须，1 项）
+
+- [ ] 【必须】书籍流书卡片召回与排序（来源：需求条款 1/6/10 + 已确认决策「书籍不加 zone」；前置：10.1/10.2；涉及 content；验收：候选满足 `del_flag=0 + status ∈ {0,1}` 且按用户分类偏好筛选；排序 = `log1p` 归一化(收藏 0.4 + 阅读人数 0.3) + 新鲜度 0.2 + 完结/连载偏好 0.1；新书 7 天保底曝光；收藏数取 `favorite(target_type=2)`、阅读人数取 `reading_history(biz_type=1)` 聚合，与 SQL 聚合结果一致；下架/软删书籍 0 命中；书籍流不依赖 zone）
+  - 依赖备注：`reading_history idx_biz(biz_type,biz_id)`（**已确认**，独立 DDL 窗口）+ `book idx_feed(del_flag,status,category,create_time)`（**待确认**）
+
+###### 10.5 用户画像与冷启动（必须，1 项）
+
+- [ ] 【必须】登录/匿名画像与冷启动兜底（来源：需求条款 4/7 + 已确认决策「P0 只用分区 + 分类偏好」；前置：10.3；涉及 content；验收：登录画像由 `reading_history` 近 60 天 + `favorite` 近 90 天聚合出 top 分类/zone/作者，落 `content:feed:profile:{uid}`（TTL 1h）；匿名同构 `:anon:{anonId}`；无画像走冷启动（全局热度 + zone 轮换）；登录后匿名画像归并（权重衰减 0.5）并删匿名键；不读取 `article_tag`（P0 口径与 content-schema.sql:167 注释保持一致）；无画像用户走冷启动口径：两路个性化退化全局，探索位比例上调；登录用户与匿名用户各自独立取画像，不串号）
+
+###### 10.6 曝光去重与降级收口（必须，1 项）
+
+- [ ] 【必须】曝光去重 + 三级降级（来源：需求条款 8 + 现有降级体系；前置：10.3/10.4；涉及 content；验收：`content:feed:exposed:{uid|anon}:{yyyyMMdd}`（TTL 2d）保证当日不重复；已读 30 天内降权 0.5；快照缺失→重建，重建失败→热度榜空降级时间倒序（复用现有 `loadByTimeDesc`），Redis 全宕→`FeedLocalFallbackSupport` last-good 快照；停 Redis 后仍可返回旧快照且日志留痕）
+
+###### 10.7 验证 V4：文章流无限刷（必须，1 项）
+
+- [ ] 【必须】文章流端到端验证（来源：10.3/10.5/10.6；前置：联调环境（content/Redis/MySQL 可用）；验收：连续 15 页不重不漏、同作者/同分类打散生效、私密与下架与未过审内容 0 命中、匿名与登录序列不同、快照过期续刷正常、频控按维度触发）
+
+###### 10.8 验证 V5：书籍流与降级（必须，1 项）
+
+- [ ] 【必须】书籍流端到端验证（来源：10.4/10.6；前置：10.7 通过；验收：书籍门控正确（下架/软删 0 命中）、收藏与阅读人数排序与 SQL 聚合一致、新书保底曝光生效、书籍流不依赖 zone、停 Redis 后仍可刷、匿名频控触发）
+
+###### 10.9 P1 能力登记（可选，1 项）
+
+- [ ] 【可选】P1 个性化增强仅登记触发条件，不实施（来源：需求条款 4 + 已确认决策「标签偏好进 P1」「埋点进 P1」；前置：10.7/10.8 通过；涉及 search/content/api；验收：登记完成即可，不含代码）：
+  - 向量召回：触发条件=9.1 存量向量重建完成且 Embedding 接真实模型；落地形态=search 新增内部召回端点（只返回 id+score，不做分页），content 侧作为第 5 路召回并落快照
+  - 协同过滤：触发条件=曝光/点击埋点落地且累计 ≥1 个月行为数据；落地形态=离线 ItemCF 产出相似表，在线只读
+  - 负反馈与埋点表：触发条件=前端排期可投入；落地形态=`不感兴趣` 降权/剔除 + 曝光点击落库
+  - 标签偏好：触发条件=启用标签召回前，先按已确认决策同步修改 `content-schema.sql:167` 注释口径
+  - 重排模型：触发条件=日曝光 ≥10 万且有 ≥1 个月样本；落地形态=LR/GBDT 起步
+  - P1 切换时新增的仅三件：search 内部召回接口（返回 ≤300 条 id+score）、content 侧 Feign 客户端、`litisle.content.feed.recall` 开关；其余全部复用
+
+**五、P1 改造边界（换发动机，不新开链路）**
+
+| 环节 | P1 是否改动 | 说明 |
+|---|---|---|
+| 接口与返回结构 | 不变 | 前端无感 |
+| 身份识别、频控 | 不变 | — |
+| 画像 | 扩一点 | 多读“标签偏好”维度 |
+| 召回 | **换实现** | 数据库四路 → 调 search 模块 ES 召回 |
+| 打分排序 | 基本不变 | 权重表增加标签项 |
+| 快照、翻页 | **不变** | 召回与分页已解耦 |
+| 曝光去重 | 小改 | 增加“不感兴趣”记录 |
+| 降级 | 增补 | ES 不可用自动回落数据库四路 |
+| 书籍流 | 不变 | 仍走数据库（`book_idx` 字段不全） |
+
+> 结论：**P1 只替换“召回”这一步，接口、快照、翻页、打散、去重全部复用；代价是链路变两跳（ES 召回 + DB 回查），因此 `feed.recall=db|es` 必须有真实的回落分支，不能只做摆设。** 召回器形态与 search 侧前置改造见 [Search-Architecture.md](../Architecture/Search-Architecture.md) §十。
+
+> 与「暂不实现汇总」衔接：本批次无「暂不实现」项；P1 各项按触发条件在 10.9 登记，达到触发条件后再拆为正式任务条目。
 
 -------------------------
 

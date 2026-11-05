@@ -111,6 +111,68 @@ search 消费 content.published 建 article_idx/book_idx（Sql-Document §九：
 
 当前=ES Redis 累加 + 定时 `_bulk`（A7 定版，录 [archive/search/search-01-heat-write-path.md](../../archive/search/search-01-heat-write-path.md)）；升级路径——ES 只做 BM25/向量召回 Top ~1000，热度排序移到应用层用 content `CONTENT_FEED_HOT_ZSET` 重排（heat 字段退化为可选，彻底移出 ES 写路径），不走侧车索引（跨索引一致性 + enrich 复杂度高，当前量级不划算）；「heat 相对变化超阈值才推」维持一期不做（只减少写次数、不改变整文档重写本质）。触发条件：单轮 bulk 耗时逼近刷写周期 50%，或 ES 段合并/refresh 告警频繁。
 
+#### 标签入 ES completion（迁自 [next_update.md](../next_update.md) 9.2-c / [temp.md](../../temp/temp.md) 批次一 1.4，2026-11-05）
+
+原条目（next_update.md 9.2-c，内容较 temp 1.4 完整，两处已合并）：- [ ] 【可选】标签入 ES completion（来源：temp.md 批次一 1.4 挂起项；触发条件：标签总数 > 5 万，或 suggest QPS > 200，或联想 P99 > 100ms；前置：标签双写一致性专项设计；验收：suggest 一次 ES 请求拿齐书名/作者/标签并消掉标签 Feign 调用）
+  - 评估结论（2026-11-05）：本轮挂起。阻塞点：① article_idx mapping 需新增 tags.completion 子字段并全量重建/回填；② content 标签变更需新增同步事件或双写；③ suggest 去重合并口径需产品确认。均超出「不新增跨模块契约」约束，待专项排期。
+  - 决策（2026-11-05）：**维持现状、不实施（P3）**。理由：项目属中小规模（标签池 2 千~2 万、suggest 峰值大概率 <200 QPS），现有「completion + 标签前缀查询 + 480s/60s 两级缓存」足够；改标签入 article_idx 会带来文章数×标签数的 FST 膨胀、标签更名需全量重建、丢失标签池 use_count 口径。若未来触发（suggest P99 持续 >100ms 或标签缓存未命中压垮 content DB），改用独立 `tag_suggest` 索引而非 article_idx。
+
+触发条件：标签总数 > 5 万，或 suggest QPS > 200，或联想 P99 > 100ms（且标签缓存未命中压垮 content DB 时改用独立 tag_suggest 索引）。
+
+#### 索引批量回查端点（迁自 [next_update.md](../next_update.md) 9.2-d / [temp.md](../../temp/temp.md) 批次二 2.2，2026-11-05）
+
+原条目（next_update.md 9.2-d，内容较 temp 2.2 完整，两处已合并）：- [ ] 【可选】索引批量回查端点（来源：temp.md 批次一 2.2 挂起项；触发条件：索引同步日均消费 > 1 万条；前置：content 提供批量回查端点；验收：消费端 N 次逐条 RPC 压成 1 次，消息量级上升后 RPC 调用量显著下降）
+  - 评估结论（2026-11-05）：本轮挂起。阻塞点：需在 `litisle-api` 新增批量回查 DTO/Feign 方法并在 content 提供内部端点（跨模块契约），且消费端需按 id 聚合改批处理；属独立专项，本轮不擅改其它模块契约。
+  - 决策（2026-11-05）：**维持现状、不实施（P3）**。理由：当前均值 <1 条/秒，单消费者逐条回查远未饱和；批量回查需跨模块契约 + 聚合窗口，且要重做逐条 ACK/重试/DLQ 映射，收益与复杂度不匹配。替代方案已落地：缓存失效降频 + 消费并发（见 [search-10-batch09-closing.md](../../archive/search/search-10-batch09-closing.md) 9.7）。
+  - 触发条件修正（2026-11-05）：原文「日均消费 > 1 万条」偏低，改为「**消费积压持续 >5 分钟，或峰值持续 >50 条/秒**」再评估批量回查。
+
+触发条件：消费积压持续 >5 分钟，或峰值持续 >50 条/秒。
+
+#### ES external version + update 脚本条件判断（P2 条件项，迁自 [next_update.md](../next_update.md) 9.8，2026-11-05）
+
+原条目：- [ ] 【P2 条件项】ES external version + update 脚本条件判断（来源：同上；**触发条件：积压持续 >5 分钟或峰值持续 >50 条/秒，且确认串行成为瓶颈**；未实施原因：A 与 B 必须配合——ES Update API 不支持 external version，只上 A 会漏掉元数据 partial update 路径）
+  - 说明（2026-11-05）：A（整篇 upsert 带 external version）+ B（元数据 update 脚本内嵌 updateTime 条件）需成对落地，并统一处理 409 `version_conflict_engine_exception`（旧事件跳过并 ack）。本轮仅记录方案与触发条件，不改代码。
+  - 不采纳项：按 articleId 路由同一消费者（标准 RabbitMQ 不保证 key 顺序，需一致性哈希插件或一 id 一队列，跨模块代价过高）。
+
+触发条件：积压持续 >5 分钟，或峰值持续 >50 条/秒，且确认串行消费成为瓶颈。
+
+#### updateTime 秒级保序（E，迁自 [next_update.md](../next_update.md) 9.9-E，2026-11-05）
+
+原条目：- [ ] E updateTime 秒级保序（A/B 方案，状态：待触发）
+  - 目标：彻底消除同秒两次编辑被判定为旧的问题（仅在产品明确要求秒内保序时启动）。
+  - 依据：DB 三表均为秒级 `datetime`（`content-schema.sql:43`、`:108`、`user-schema.sql:55`）；实体为 `LocalDateTime` 且文章/书籍无 fill（`Article.java:177-178`、`Book.java:103-104`）；Feign 传值为 `publishTime`（`ArticleIndexDocDTO.java:62-63` ← `ArticleQuerySupport.java:352`）；守卫比较方式见 `IndexVersionGuard.java:77-78`。
+  - 决策：本轮维持现状（D 方案），不为此进 DDL 窗口。
+  - 若触发：优先复用 `article.version` 做单调版本（所有写路径 `version = version + 1`，并同步 DTO/事件/ES 字段），**不优先**改三表 `datetime(3)`（需同时改 DTO 格式、全局 Jackson、ES 序列化，改动面大）。注意现有 `version` 列（`content-schema.sql:41`）未接 `@Version`（`Article.java:165-166`），CAS 更新路径不会自增，须逐一改造。
+  - 证据采集 SQL（`event_outbox` 同秒同 bizId 多事件统计，`event_outbox` 无 biz_id 列，需从 payload JSON 提取）：
+    ```sql
+    SELECT DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS sec,
+           JSON_UNQUOTE(JSON_EXTRACT(payload, '$.bizId')) AS biz_id,
+           COUNT(*) AS event_cnt,
+           GROUP_CONCAT(event_type) AS types
+    FROM litisle_content.event_outbox
+    WHERE create_time >= NOW() - INTERVAL 30 DAY
+    GROUP BY sec, biz_id
+    HAVING COUNT(*) > 1
+    ORDER BY event_cnt DESC
+    LIMIT 20;
+    ```
+    判定口径：同秒多事件多数是重复投递/幂等重放，需看 `types` 是否包含不同事件类型；只有不同内容版本的同类事件才算真风险。
+  - 验收：触发条件成立后再立实施单，以「同一文章同秒两次不同内容编辑能被顺序落索引」为验收标准。
+
+触发条件：D 的计数器证明同秒折叠有实际发生（且排除重复提交），并且产品要求秒内保序。
+
+#### 三表 datetime(3) 同秒折叠（G，已决定不做，迁自 [next_update.md](../next_update.md) 9.9-G，2026-11-05）
+
+原条目：- [x] G 同秒折叠进 DDL 窗口（三表 `modify update_time datetime(3)`）——**不采纳**（状态：已决定不做，本轮仅登记）。理由：单改列无效（还须改 Feign 全局格式与 ES 序列化）；同秒折叠只导致短暂陈旧，下一条事件即自愈；隐私由门控 + 下架墓碑按权威态回查兜底，不依赖 `updateTime`。
+
+触发条件：不重新评估，除非上层契约（Feign 全局日期格式 / ES 序列化）整体改为毫秒或单调版本（届时并入 9.9-E 单调版本方案统一处理）。
+
+#### 消息级 RabbitMQ exporter / 最老消息年龄（H，已决定不做，迁自 [next_update.md](../next_update.md) 9.9-H，2026-11-05）
+
+原条目：- [x] H 消息级 RabbitMQ exporter / 最老消息年龄——**暂不引入**（状态：已决定不做，本轮仅登记）。理由：需额外 exporter/插件与采集链路，当前用 backlog gauge + `for` 时长已可近似表达；真正的「最老消息停留时长」待积压成为真问题再评估。
+
+触发条件：积压成为真问题（backlog gauge 告警持续触发且无法用现有采集定位），或需要按消息年龄做 SLA 统计时再评估引入 exporter。
+
 ### file 文件模块
 
 #### CDN 接入

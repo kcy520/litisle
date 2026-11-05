@@ -98,6 +98,9 @@ litisle:
         initial-delay-ms: 60000        # 启动延迟（避开启动高峰，对齐灌榜任务）
       dedup-ttl-seconds: 86400         # 去重窗口 TTL（24h；窗口期内同一访问者重复进入不计数，防刷）    
     feed:
+      # 无限刷流召回模式（批次十：P0 只实现数据库四路；配置为 es 时服务端告警并按 db 执行，
+      # es 分支的前置改造与切换阈值见 next_update 批次十 10.9 与 Search-Architecture §十）
+      recall: db                       # db=数据库四路（默认）| es=search 模块 ES 召回（P1 占位）
       # 推荐流热度榜（阶段14 切流；social 未落地期间 like/comment 恒 0，榜=浏览量+时间衰减排序）
       hot:
         enabled: true                  # 总开关（false 则 /feed 退回时间倒序直查）
@@ -107,6 +110,34 @@ litisle:
         refill-initial-delay-ms: 60000 # 启动延迟
         # 权重/衰减参数走 ContentProperties 默认值（like=3/comment=2/view=0.2/decay=1.5/offset=2），
         # social 落地后按真实互动效果在此热调（无需发版）
+      # 无限刷流（批次十 10.3 文章流 / 10.4 书籍流）：召回池/融合权重/快照/曝光参数（ContentProperties.feed.stream 绑定）
+      stream:
+        pool-size: 300                 # 召回池总上限（写入 Redis 快照的最大条数）
+        recall-limit-per-path: 100     # 每路召回条数（最热/最新/常看分区/常看分类各取多少）
+        snapshot-ttl-seconds: 1800     # 快照 TTL（30 分钟；过期后前端收到 reset=true）
+        max-active-snapshots: 3        # 单身份最多保留的活动快照数（超出删最旧）
+        exploration-ratio: 0.15        # 探索位比例（从低分段随机抽取，禁 ORDER BY RAND()）
+        read-penalty: 0.5              # 已读降权扣分（已读不剔除，只降权）
+        read-window-days: 30           # 已读判定窗口（天）
+        fresh-half-life-hours: 24      # 新鲜度半衰期（小时）
+        max-consecutive-same-author: 1 # 同作者最大连续出现条数
+        max-consecutive-same-category: 2 # 同分类最大连续出现条数
+        exposure-ttl-seconds: 172800   # 当日曝光 Set TTL（2 天，跨日残留不影响次日）
+        new-book-days: 7               # 新书保底窗口（天）
+        new-book-quota: 6              # 新书保底曝光配额（每个快照前排保证出现的新书条数）
+        profile-sample-size: 100       # 画像样本条数（reading_history 取最近多少条聚合偏好）
+        # 文章流四项融合权重（热度/新鲜度/分区匹配/分类匹配）
+        article-weights:
+          heat: 0.35                   # 热度权重（复用 FeedHotRankSupport 分数）
+          fresh: 0.30                  # 新鲜度权重
+          zone: 0.10                   # 分区匹配权重
+          category: 0.20               # 分类匹配权重
+        # 书籍流四项融合权重（收藏/阅读人数/新鲜度/完结偏好；两个计数先 log1p 归一化）
+        book-weights:
+          collect: 0.4                 # 收藏数权重
+          read: 0.3                    # 阅读人数权重
+          fresh: 0.2                   # 新鲜度权重
+          finish: 0.1                  # 完结偏好权重
     moderation:
       # 审核结果回写消费参数（板块三 3-5，ContentProperties.moderation 绑定）
       last-hash-ttl-hours: 72        # last-hash 免审键 TTL（小时，与 review 结果缓存同窗防口径漂移）

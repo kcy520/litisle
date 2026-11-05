@@ -172,6 +172,11 @@ litisle:
         # 注意：/api/content/book/* 会覆盖 /api/content/book/xxx 一层路径，
         # 但不会覆盖 /api/content/book/xxx/chapters 等多层路径（各条目已单独列出）
 
+        # ---------- 推荐流（批次十 10.2） ----------
+        # 文章流/书籍流匿名可刷；该前缀下仅 GET 两条新流端点（/articles、/books），
+        # 旧 /api/content/feed（无子路径）不在匿名放行名单内，仍由 Controller @SaCheckLogin 保护
+        - /api/content/feed/**       # 文章流 / 书籍流（匿名，游标式无限刷）
+
         # ---------- 用户服务（公开信息） ----------
         - /api/user/public/**        # 公开用户信息（作者主页等）
 

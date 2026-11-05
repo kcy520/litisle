@@ -3,11 +3,15 @@ package com.litisle.litislecontent.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.litislecontent.constant.ContentBizConstant;
+import com.litisle.litislecontent.domain.dto.IdCountDTO;
 import com.litisle.litislecontent.domain.entity.ReadingHistory;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+
+import java.util.Collection;
+import java.util.List;
 
 /**
  * @Mapper + extends BaseMapper<ReadingHistory>（MyBatis-Plus）
@@ -96,4 +100,25 @@ public interface ReadingHistoryMapper extends BaseMapper<ReadingHistory> {
                              @Param("bizType") Integer bizType,
                              @Param("offset") int offset,
                              @Param("batchSize") int batchSize);
+
+    /**
+     * 批量统计书籍阅读人数（批次十 10.4 书籍流排序输入）
+     *
+     * <p>口径：biz_type=1（书籍）按 biz_id 分组，count(distinct user_id) 去重读者，
+     * 同一用户重复阅读只计一人；调用方保证 bookIds 非空。</p>
+     *
+     * @param bookIds 书籍 ID 集合（非空）
+     * @return 每本书的阅读人数（无阅读记录的书不在结果中，调用方按 0 处理）
+     */
+    @Select("""
+            <script>
+            select biz_id as id, count(distinct user_id) as cnt
+            from reading_history
+            where biz_type = 1
+              and biz_id in
+              <foreach collection="bookIds" item="bookId" open="(" separator="," close=")">#{bookId}</foreach>
+            group by biz_id
+            </script>
+            """)
+    List<IdCountDTO> countBookReaders(@Param("bookIds") Collection<Long> bookIds);
 }

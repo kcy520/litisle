@@ -113,6 +113,8 @@ public class FeedHotRankSupport {
      *          + 评论 × 评论权重
      *          + 浏览 × 浏览权重
      *
+     * ⚠️ 当前 social 未落地，`like_cnt/comment_cnt` 恒 0， 公式实际退化为“纯浏览量 + 时间衰减”排序 ，链路先行跑通。
+     * 
      *分母：时间衰减（越久越小，但会让分数变低）
      * hours = 当前时间 − 发布时间（小时）
      * score = positive / (hours + 偏移) ^ 衰减指数
@@ -210,9 +212,10 @@ public class FeedHotRankSupport {
     public int refillAuto() {
         // 分支①：正式榜缺失 → 全量重建（内部成功后重置榜 TTL 与两级水位）
         if (!redisUtil.hasKey(CacheConstant.CONTENT_FEED_HOT_ZSET)) {
-            return refillFullAndMark();
+            return refillFullAndMark(); 
         }
         // 分支②：全量水位缺失/到期 → 全量校正（衰减收敛）
+        //lastFull:水位毫秒值（键缺失/值非法返回 null，由调用方走全量兜底）
         Long lastFull = readWatermark(CacheConstant.CONTENT_FEED_HOT_ZSET + FULL_WATERMARK_SUFFIX);
         if (lastFull == null
                 || System.currentTimeMillis() - lastFull
@@ -220,6 +223,7 @@ public class FeedHotRankSupport {
             return refillFullAndMark();
         }
         // 分支③：常规增量轮
+        //refillDelta:本轮 ZADD 的变更文章数（0=无变更或失败留痕）
         return refillDelta();
     }
 
@@ -235,18 +239,25 @@ public class FeedHotRankSupport {
      * @return 本轮 ZADD 的变更文章数（0=无变更或失败留痕）
      */
     public int refillDelta() {
+        
         // 步骤1：读增量水位；缺失（首次/键被清）→ 全量重建补齐榜与水位（防增量造残缺榜）
         String deltaKey = CacheConstant.CONTENT_FEED_HOT_ZSET + DELTA_WATERMARK_SUFFIX;
+        //读水位键
         Long watermark = readWatermark(deltaKey);
         if (watermark == null) {
             return refillFullAndMark();
         }
+
         // 步骤2：捞变更文章（榜候选基础条件 + stat_update_time ≥ 水位；含 5s 安全回退兜时钟偏差，
         // 多捞的变更重复 ZADD 同分覆盖幂等无害；批次E P1 定案 D-2：走 idx_stat_update_time 单列索引）
-        LocalDateTime watermarkTime = LocalDateTime.ofInstant(
+         //把 Redis 里存的水位时间戳（毫秒），转成本地时区的 LocalDateTime，用于数据库时间条件查询。
+            //watermarkTime:增量灌榜的时间水位线
+            // “从这个时间点之后，所有热度信号发生变化的文章，都要被重新算分、重新入榜。”
+         LocalDateTime watermarkTime = LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(watermark - WATERMARK_SAFETY_BACK_MS), ZoneId.systemDefault());
         List<Article> changed = articleMapper.selectList(
                 rankCandidateQuery().ge(Article::getStatUpdateTime, watermarkTime));
+
         // 步骤3：算分 ZADD 到现有榜 + 裁剪保 TopN（ZADD 失败则水位不推，下轮重捞）
         if (!changed.isEmpty()) {
             if (redisUtil.zAddBatch(CacheConstant.CONTENT_FEED_HOT_ZSET, computeScores(changed)) < 0) {
@@ -254,9 +265,12 @@ public class FeedHotRankSupport {
                 return 0;
             }
             trimToTopN();
-        }
+        } 
         // 步骤4：水位前推为本轮时刻（空变更也要推，防同刻永久重捞）+ 榜 TTL 续期（任务活着榜不过期）
+        //“任务活着”   = 定时灌榜任务还在正常跑，没挂、没停、没卡死。  (任务：FeedHotRankRefillJob（定时灌榜任务）)
+            //把“增量水位”更新为“当前时间”
         redisUtil.set(deltaKey, System.currentTimeMillis());
+            //给线上热度榜续命 30 分钟 (重置TTL)
         redisUtil.expire(CacheConstant.CONTENT_FEED_HOT_ZSET, RANK_EXPIRE_MINUTES, TimeUnit.MINUTES);
         return changed.size();
     }
@@ -391,6 +405,7 @@ public class FeedHotRankSupport {
         }
     }
 
+    
     /**
      * 榜缺失时异步触发重建（批次E P7）：不等下一个灌榜定时周期（默认 5min）。
      *
@@ -411,7 +426,9 @@ public class FeedHotRankSupport {
         }
         // 去抖：已排队未执行完的重建不重复入队（榜缺失期间大量并发请求只触发一次）
         if (!rebuildQueued.compareAndSet(false, true)) {
-            return;
+            //compareAndSet:如果当前值 == expectedValue，就原子地把它改成 newValue，并返回 true；否则什么都不做，返回 false。
+            //这是 CAS（Compare-And-Swap）​ 操作，是线程安全的。
+            return; 
         }
         rebuildExecutor.submit(() -> {
             try {

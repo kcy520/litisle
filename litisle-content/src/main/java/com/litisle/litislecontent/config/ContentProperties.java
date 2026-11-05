@@ -76,8 +76,111 @@ public class ContentProperties {
         /** 分页大小上限（入参超过按本值收口，防恶意大分页拖垮缓存与 DB） */
         private int pageSize = 20;
 
+        /**
+         * 召回模式：db=数据库四路（P0 默认）；es=search 模块 ES 召回（P1，切换阈值见 next_update 批次十）
+         * <p>本期只实现 db；配置为 es 时服务端会打印告警并按 db 执行，不留不可用的空分支</p>
+         */
+        private String recall = "db";
+
         /** 热度榜配置（阶段14 已切流启用；social 未落地期间 like/comment 恒 0，排序退化为浏览量+时间衰减） */
         private Hot hot = new Hot();
+
+        /** 无限刷流配置（批次十 10.3/10.4：召回池、融合权重、快照、曝光去重全部外置，改参数不发版） */
+        private Stream stream = new Stream();
+    }
+
+    /**
+     * 无限刷流嵌套配置（批次十 10.3 文章流 / 10.4 书籍流）
+     * <p>只放「需要按运营效果调整」的参数；固定口径（如召回模式 db/es、门控集合）留在 FeedConstant</p>
+     */
+    @Data
+    public static class Stream {
+
+        /** 召回池总上限（写入 Redis 快照的最大条目数，需求条款定为 300） */
+        private int poolSize = 300;
+
+        /** 每路召回条数上限（最热/最新/常看分区/常看分类各自取多少条） */
+        private int recallLimitPerPath = 100;
+
+        /** 快照 TTL（秒，默认 30 分钟）：过期后客户端带旧 snapshotId 会收到 reset=true */
+        private long snapshotTtlSeconds = 1800L;
+
+        /** 同一身份最多保留的活动快照数（超出删最旧，防止翻页风暴堆积快照键） */
+        private int maxActiveSnapshots = 3;
+
+        /** 探索位比例（0~1）：从低分段随机抽取一部分插入结果，避免永远只刷头部 */
+        private double explorationRatio = 0.15;
+
+        /** 已读降权扣分（已读不剔除只降权，保证长刷仍有内容可看） */
+        private double readPenalty = 0.5;
+
+        /** 已读判定窗口（天）：reading_history 在该窗口内的文章才算「已读」 */
+        private int readWindowDays = 30;
+
+        /** 新鲜度半衰期（小时）：发布 24 小时后新鲜度分衰减到 0.5 */
+        private double freshHalfLifeHours = 24;
+
+        /** 同作者最大连续出现次数（1 表示同作者不能连续出现两次） */
+        private int maxConsecutiveSameAuthor = 1;
+
+        /** 同分类最大连续出现次数（2 表示同分类最多连续两条） */
+        private int maxConsecutiveSameCategory = 2;
+
+        /** 当日曝光 Set TTL（秒，默认 2 天）：跨日残留不影响次日曝光去重口径 */
+        private long exposureTtlSeconds = 172800L;
+
+        /** 文章流四项融合权重（热度/新鲜度/分区匹配/分类匹配） */
+        private ArticleWeights articleWeights = new ArticleWeights();
+
+        /** 书籍流四项融合权重（收藏/阅读人数/新鲜度/完结偏好） */
+        private BookWeights bookWeights = new BookWeights();
+
+        /** 新书保底曝光窗口（天）：该窗口内创建的书籍即使分数低也保证进池前排 */
+        private int newBookDays = 7;
+
+        /** 新书保底曝光配额（每个书籍快照前排保证出现的新书条数） */
+        private int newBookQuota = 6;
+
+        /** 画像样本条数（reading_history 取最近多少条聚合分区/分类偏好） */
+        private int profileSampleSize = 100;
+    }
+
+    /**
+     * 文章流融合权重（四项加权；权重之和不必等于 1，按实际效果热调即可）
+     */
+    @Data
+    public static class ArticleWeights {
+
+        /** 热度权重：全局热度榜分数（复用 FeedHotRankSupport 的计算，不另建热度体系） */
+        private double heat = 0.35;
+
+        /** 新鲜度权重：发布越近分越高（半衰期见 Stream#freshHalfLifeHours） */
+        private double fresh = 0.30;
+
+        /** 分区匹配权重：文章分区命中用户常看分区得分 */
+        private double zone = 0.10;
+
+        /** 分类匹配权重：文章分类命中用户常看分类得分 */
+        private double category = 0.20;
+    }
+
+    /**
+     * 书籍流融合权重（收藏与阅读人数先做 log1p 归一化，再按权重加权）
+     */
+    @Data
+    public static class BookWeights {
+
+        /** 收藏数权重（favorite target_type=2 聚合） */
+        private double collect = 0.4;
+
+        /** 阅读人数权重（reading_history biz_type=1 去重用户数） */
+        private double read = 0.3;
+
+        /** 新鲜度权重（按 update_time 做半衰期衰减） */
+        private double fresh = 0.2;
+
+        /** 完结偏好权重（书籍状态命中用户偏好状态得分） */
+        private double finish = 0.1;
     }
 
     /**
