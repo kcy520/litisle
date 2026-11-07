@@ -247,7 +247,7 @@ file_ref 为纯计数登记不伤数据（隔离图到期软删时调用，恢�
 | `litisle.file.upload.max-total-size / max-file-count` | 209715200 / 200     | per-user 存储配额（总容量 200MB / 文件数 200） |
 | `litisle.file.executor.*`                         | —                       | fileIoExecutor 线程池参数 + async-timeout-seconds(默认600s) |
 | `litisle.file.limit.global-qps-max-count`         | 200                     | /api/file/** 全站 QPS 上限   |
-| `litisle.rate-limit.fallback.*`                   | enabled:true / cooldown:5 / instance-count:1 | Redis 故障降级本地兑底（common-redis RedisGuard） |
+| `litisle.rate-limit.fallback.*`                   | enabled:true / cooldown:5 / instance-count:1 | Redis 故障降级本地兜底（common-redis：Resilience4j CircuitBreaker 熔断 + RedisGuard 适配层；cooldown 映射 waitDurationInOpenState） |
 | `litisle.file.thumbnail.enabled / width / height` | true / 300 / 300        | 缩略图开关与默认尺寸         |
 | `litisle.file.moderation.image-provider / image-model-version` | onnx / v1 | 审核缓存 key 版本段，须与 review 侧一致 |
 | `litisle.file.moderation.pending-placeholder-url` | /img/file-pending.svg | PUBLIC 待审/存疑占位图 |
@@ -284,7 +284,7 @@ file_ref 为纯计数登记不伤数据（隔离图到期软删时调用，恢�
 4. **去重并发**：SHA256 秒传查询与写入间用分布式锁（Redisson，看门狗续期）双重检查防并发重复上传
 5. **存储配额**：per-user 总容量/文件数限制，锁内校验，秒传不占配额（软限模型，见 next_update.md）
 6. **限流三层**：@RateLimiter(USER) 单用户 → FileGlobalQpsInterceptor 全站 QPS → Sentinel 熔断（存储资源 + Feign 调用，规则外置 Nacos DEFAULT_GROUP，热更新）
-7. **Redis 故障降级**：RedisRateLimiter 三态熔断 + LocalRateLimiter 本地兑底（RedisGuard 公共组件，配额分摊宁严勿松）；登录防爆破同机制
+7. **Redis 故障降级**：RedisRateLimiter 走 Resilience4j CircuitBreaker 熔断（显式等价配置：窗口 3 次全失败即开；半开 1 个探测许可、自动转半开）+ LocalRateLimiter 本地兜底（RedisGuard 薄适配层保留给 LoginRetryLimiter，两者共用同一熔断器；配额分摊宁严勿松）；登录防爆破同机制
 8. **线程隔离**：下载走 fileIoExecutor（CallerRunsPolicy 回压）+ configureAsyncSupport；上传保持同步（multipart/事务语义，见 FileUploadServiceImpl 注释）
 9. **上传完整性**：SDK ChecksumAlgorithm.SHA256 或显式下发摘要，SeaweedFS 网关侧校验（BadDigest 拒写）
 10. **副本策略**：Volume `replication=001`（单副本），重要 collection 可按需调高副本数

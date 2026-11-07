@@ -1,13 +1,13 @@
 package com.litisle.commonredis.ratelimit;
 
 import com.litisle.commonredis.config.RateLimitFallbackProperties;
-import com.litisle.commonredis.guard.RedisGuard;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.util.Collections;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Redis 固定窗口限流器（可复用组件）
@@ -44,18 +44,24 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - 非原子操作：并发下可能 INCR 成功但 EXPIRE 失败，导致 key 永久存在
  * - 后续所有请求都被拒绝（count 无限增长），限流永久生效
  *
- * 【故障降级：三态熔断 + 本地兜底】
+ * 【故障降级：Resilience4j 熔断 + 本地兜底】
  * 限流是「辅助防线」，不应因自身故障阻断主流程；但纯 fail-open 意味着
  * 「Redis 挂 → 限流失效」，对防爆破类接口（登录/验证码）是防护缺口。
- * 故引入轻量三态熔断，故障期切换为 LocalRateLimiter 单机本地计数：
- * - CLOSED：正常走 Redis；连接/超时类失败连续达阈值 → OPEN
- *   （业务类异常如脚本返回 null 不算故障，不触发熔断）
+ * 故引入轻量熔断（Resilience4j CircuitBreaker，编程式 API），故障期切换为
+ * LocalRateLimiter 单机本地计数：
+ * - CLOSED：正常走 Redis；连续 3 次失败 → OPEN
+ *   （业务类异常如脚本返回 null 按成功处理，不触发熔断）
  * - OPEN：冷却期内直接走本地兜底，不碰 Redis（避免每请求都吃连接超时）
- * - HALF_OPEN：冷却到期后放单个探测请求试 Redis，成功 → CLOSED，失败 → 回 OPEN
+ * - HALF_OPEN：冷却到期后自动进入，仅放行 1 个探测许可，成功 → CLOSED，失败 → 回 OPEN
  *   （防冷却到期全量请求冲回 Redis 的惊群，也防一次侥幸成功就全量恢复）
  * 本地计数按 instance-count 做配额分摊（等效「本地阈值 = 集群阈值 ÷ 实例数」），
  * 保证降级期「更严或等严」，绝不更松——否则 N 实例各跑全量阈值，故障期实际
  * 放行 阈值×N，Redis 故障变成攻击窗口。日志只在熔断状态切换时打，天然节流防刷屏。
+ *
+ * 【为什么用编程式 API 而不是 @CircuitBreaker 注解】
+ * increment 内部对 tryRedis 的调用是**同类自调用**，不走 Spring AOP 代理；
+ * 挂注解会静默失效且不报错（Redis 连挂也打不开熔断），因此统一用编程式
+ * tryAcquirePermission / onSuccess / onError。
  *
  * 正常                     故障                     试探
  *   ┌──────────┐            ┌──────────┐            ┌──────────┐
@@ -95,19 +101,34 @@ public class RedisRateLimiter {
      */
     private final RateLimitFallbackProperties fallbackProperties;
 
-    // ==================== 熔断三态（状态机已下沉 RedisGuard 公共组件，与 LoginRetryLimiter 共用） ====================
+    // ==================== 熔断三态（状态机由 Resilience4j CircuitBreaker 承载，与 LoginRetryLimiter 共用同一实例） ====================
 
-    /** 三态熔断守护（CLOSED/OPEN/HALF_OPEN 状态机，见 guard/RedisGuard） */
-    private final RedisGuard redisGuard;
+    /**
+     * 熔断器（CLOSED/OPEN/HALF_OPEN 状态机）
+     *
+     * 【为什么直接注入 CircuitBreaker 而不是 RedisGuard】
+     * 本类只需「申请许可 + 上报成败」两个动作，直接调 Resilience4j 编程式 API；
+     * RedisGuard 保留给 LoginRetryLimiter 的既有签名（薄适配层，见 guard/RedisGuard）。
+     * 两者注入的是同一个 CircuitBreaker 单例，降级状态天然共享。
+     */
+    private final CircuitBreaker circuitBreaker;
 
+    /**
+     * 构造限流器
+     *
+     * @param redisTemplate      Redis 模板（承载固定窗口计数 Lua 脚本）
+     * @param localRateLimiter   本地兜底限流器（熔断 OPEN / 半开探测期使用）
+     * @param fallbackProperties 降级配置（enabled 开关 / instanceCount 配额分摊）
+     * @param circuitBreaker     熔断器（三态状态机）
+     */
     public RedisRateLimiter(RedisTemplate<String, Object> redisTemplate,
                             LocalRateLimiter localRateLimiter,
                             RateLimitFallbackProperties fallbackProperties,
-                            RedisGuard redisGuard) {
+                            CircuitBreaker circuitBreaker) {
         this.redisTemplate = redisTemplate;
         this.localRateLimiter = localRateLimiter;
         this.fallbackProperties = fallbackProperties;
-        this.redisGuard = redisGuard;
+        this.circuitBreaker = circuitBreaker;
     }
 
     /**
@@ -121,38 +142,65 @@ public class RedisRateLimiter {
         // 注意：windowSeconds 必须传数字类型，不能转成 String。
         // JSON 序列化器会把 String 再包一层引号（"60"），导致 Redis EXPIRE 收到非整数报错。
 
-        // 步骤1：熔断调度（三态状态机已下沉 RedisGuard，与 LoginRetryLimiter 共用）
-        // LOCAL=降级走本地兑底；PROBE=半开探测；REDIS=正常（含兑底总开关关闭）
-        RedisGuard.Path path = redisGuard.acquire();
-        if (path == RedisGuard.Path.LOCAL) {
+        // 步骤1：兜底总开关关闭——跳过熔断调度，恒走 Redis（异常时仍由 tryRedis 兜本地）
+        if (!fallbackProperties.isEnabled()) {
+            return tryRedis(key, windowSeconds, false, false);
+        }
+        // 步骤2：OPEN 态直接走本地兜底（冷却期内不碰 Redis，避免每请求都吃连接超时）
+        CircuitBreaker.State state = circuitBreaker.getState();
+        if (state == CircuitBreaker.State.OPEN) {
             return localIncrement(key, windowSeconds);
         }
-        // 步骤2：REDIS/PROBE 路径——走 Redis 计数（PROBE 为半开态放行的单个探测请求）
-        return tryRedis(key, windowSeconds, path == RedisGuard.Path.PROBE);
+        // 步骤3：申请调用许可（HALF_OPEN 下仅放行 1 个探测许可，其余请求拿不到许可）
+        if (!circuitBreaker.tryAcquirePermission()) {
+            return localIncrement(key, windowSeconds);
+        }
+        // 步骤4：走到这里说明已持有许可——HALF_OPEN 申请到的即是半开探测，其余为正常调用
+        return tryRedis(key, windowSeconds, state == CircuitBreaker.State.HALF_OPEN, true);
     }
 
     /**
      * 执行一次 Redis Lua 固定窗口计数
      *
-     * @param isProbe true 表示 HALF_OPEN 态的探测请求（成功→CLOSED 恢复，失败→回 OPEN）
-     * @return 当前窗口累计次数；脚本无返回（业务类，非故障）返回 0；Redis 异常则计入熔断并走本地兑底
+     * @param isProbe        true 表示 HALF_OPEN 态的探测请求（成功→CLOSED 恢复，失败→回 OPEN）
+     * @param reportToBreaker 是否向熔断器上报成败；仅兜底总开关关闭（enabled=false）时传 false，
+     *                        此时不申请许可也就不上报，避免向熔断器写入「无许可」的成功/失败样本
+     * @return 当前窗口累计次数；脚本无返回（业务类，非故障）返回 0；Redis 异常则计入熔断并走本地兜底
      */
-    private long tryRedis(String key, long windowSeconds, boolean isProbe) {
+    private long tryRedis(String key, long windowSeconds, boolean isProbe, boolean reportToBreaker) {
+        // 步骤0：快照上报前状态，用于判断本次调用是否真的触发了熔断状态切换（日志节流）
+        CircuitBreaker.State before = reportToBreaker ? circuitBreaker.getState() : null;
         try {
             // 步骤1：执行 Lua 原子计数（INCR + 首次 EXPIRE）
             Long count = redisTemplate.execute(RATE_LIMIT_SCRIPT, Collections.singletonList(key), windowSeconds);
-            // 步骤2：成功——上报守护（清零连续故障计数；探测请求成功则恢复 CLOSED）
-            redisGuard.onSuccess(isProbe);
-            // 步骤3：脚本无返回（业务类，非故障）→ 返回 0 兑底放行
+            // 步骤2：成功——上报熔断器（记录成功样本；半开探测成功则 HALF_OPEN → CLOSED）
+            if (reportToBreaker) {
+                circuitBreaker.onSuccess(0L, TimeUnit.MILLISECONDS);
+                if (isProbe) {
+                    log.info("Redis 熔断恢复: 探测成功，由本地兜底切回 Redis");
+                }
+            }
+            // 步骤3：脚本无返回（业务类，非故障）→ 返回 0 兜底放行
             return count == null ? 0L : count;
         } catch (Exception e) {
-            // 步骤4：异常——上报守护（探测失败回 OPEN / CLOSED 连续达阈值则熔断），转本地兑底
-            redisGuard.onFailure(isProbe, e);
+            // 步骤4：异常——上报熔断器（CLOSED 下连续失败打开 / HALF_OPEN 探测失败回 OPEN），转本地兜底
+            if (reportToBreaker) {
+                circuitBreaker.onError(0L, TimeUnit.MILLISECONDS, e);
+                if (circuitBreaker.getState() == CircuitBreaker.State.OPEN
+                        && before != CircuitBreaker.State.OPEN) {
+                    if (isProbe) {
+                        log.warn("Redis 熔断探测失败，继续本地兜底降级: error={}", e.getMessage());
+                    } else {
+                        log.warn("Redis 连续故障，熔断打开（冷却 {}s），调用方转本地兜底: error={}",
+                                fallbackProperties.getCooldownSeconds(), e.getMessage());
+                    }
+                }
+            }
             return localIncrement(key, windowSeconds);
         }
     }
 
-    // 熔断状态机成败上报已下沉 RedisGuard（onSuccess/onFailure，见 guard/RedisGuard）
+    // 熔断器的状态切换与指标打点由 CircuitBreaker 事件承担（见 guard/RedisGuardMetrics）
 
     /**
      * 本地兑底计数：原始计数 × 实例数 = 集群等效计数

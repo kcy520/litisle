@@ -196,10 +196,10 @@ public Result<Void> createOrder(@RequestBody OrderDTO dto) { ... }
 | `RateLimiter`                 | 限流注解（支持 USER/IP/DEFAULT 三种 key 类型）                                               | 声明式                                             |
 | `RateLimiterAspect`           | 限流切面（计数委托给 RedisRateLimiter）                                                     | 自动                                              |
 | `RateLimiterKeyBuilder`       | 限流 key 构建器                                                                       | 内部使用                                            |
-| `RedisRateLimiter`            | Redis 固定窗口限流器（Lua 脚本 SSOT + 三态熔断 + 本地兜底）                                         | 注入使用                                            |
+| `RedisRateLimiter`            | Redis 固定窗口限流器（Lua 脚本 SSOT + Resilience4j 熔断 + 本地兜底）                                | 注入使用                                            |
 | `LocalRateLimiter`            | 本地兜底限流器（Redis 故障期单机固定窗口计数）                                                       | 内部使用                                            |
-| `RedisGuard`                  | Redis 三态熔断守护（CLOSED/OPEN/HALF\_OPEN，与 LoginRetryLimiter 共用）                      | 内部使用                                            |
-| `RedisGuard` 内置指标             | Micrometer 埋点（`redis.guard.state.change` Counter / `redis.guard.degraded` Gauge） | 自动（需 actuator + micrometer-registry-prometheus） |
+| `RedisGuard`                  | Redis 熔断适配层（状态机由 Resilience4j CircuitBreaker 承载，为 LoginRetryLimiter 保留既有签名）             | 内部使用                                            |
+| `RedisGuardMetrics`           | 熔断指标桥接（同名 Gauge `redis.guard.degraded` / Counter `redis.guard.state.change`，告警规则零改动）  | 自动（需 actuator + micrometer-registry-prometheus） |
 | `RateLimitFallbackProperties` | 降级配置（yml: litisle.rate-limit.fallback）                                           | yml 配置                                          |
 
 **使用方式**：
@@ -214,12 +214,12 @@ public Result<LoginVO> login(@RequestBody LoginDTO dto) { ... }
 
 **Lua 脚本 SSOT（单一事实来源）**：脚本抽取到 `RedisRateLimiter`，注解式限流（@RateLimiter 切面）与系统级限流（如 FileGlobalQpsInterceptor 全站 QPS 拦截器）共用同一脚本，避免两处脚本漂移。
 
-**故障降级（三态熔断 + 本地兜底）**：纯 fail-open 意味着「Redis 挂 → 限流失效」，对防爆破类接口（登录/验证码）是防护缺口，故引入轻量三态熔断：
+**故障降级（Resilience4j 熔断 + 本地兜底）**：纯 fail-open 意味着「Redis 挂 → 限流失效」，对防爆破类接口（登录/验证码）是防护缺口，故引入轻量熔断（状态机由 Resilience4j CircuitBreaker 承载）：
 
-- **CLOSED**：正常走 Redis；连接/超时类失败连续达 3 次 → OPEN（业务类异常如脚本返回 null 不算故障）
+- **CLOSED**：正常走 Redis；连接/超时类失败连续达 3 次 → OPEN（业务类异常如脚本返回 null 不算故障；等价配置为 `failureRateThreshold=100` + `slidingWindowSize=3` + `minimumNumberOfCalls=3` 三项一起对齐）
 - **OPEN**：冷却期内直接走本地兜底，不碰 Redis（避免每请求都吃连接超时）
-- **HALF\_OPEN**：冷却到期后仅放单个探测请求试 Redis，成功 → CLOSED，失败 → 回 OPEN（防惊群 + 防侥幸恢复）
-- 熔断状态机下沉为公共组件 `RedisGuard`（guard 包），`RedisRateLimiter` 与 `LoginRetryLimiter` 共用，避免降级语义漂移
+- **HALF\_OPEN**：冷却到期后由 `automaticTransitionFromOpenToHalfOpenEnabled=true` 自动进入，仅放单个探测许可（`permittedNumberOfCallsInHalfOpenState=1`），成功 → CLOSED，失败 → 回 OPEN（防惊群 + 防侥幸恢复）
+- 状态机由 Resilience4j `CircuitBreaker` 承载（单例名 `redisGuard`，见 guard 包）；`RedisRateLimiter` 直接注入 `CircuitBreaker` 调编程式 API，`LoginRetryLimiter` 经 `RedisGuard` 薄适配层调用，两者共用同一实例，避免降级语义漂移；**禁止用 `@CircuitBreaker` 注解**（同类自调用不走 AOP 会静默失效）
 
 **本地兜底（LocalRateLimiter）**：ConcurrentHashMap 槽位单机计数，窗口与 Redis 路径墙钟对齐（降级切换时口径连续）；返回计数 × instanceCount 折算为集群等效计数（等效「本地阈值 = 集群阈值 ÷ 实例数」），保证降级期「更严或等严」；约每 1024 次操作清理一次过期槽位，内存有界。仅由 RedisRateLimiter 内部调用，业务方不直接使用。
 
@@ -231,14 +231,14 @@ public Result<LoginVO> login(@RequestBody LoginDTO dto) { ... }
 | `cooldown-seconds` | 5    | 熔断 OPEN 冷却期（秒），到期进入 HALF\_OPEN 放探测请求  |
 | `instance-count`   | 1    | 集群实例数（本地配额分摊基数）；扩缩容后需人工同步             |
 
-**Micrometer 监控指标**（`RedisGuard` 状态切换点埋点，限流与登录防爆破均受益）：
+**Micrometer 监控指标**（`RedisGuardMetrics` 监听 CircuitBreaker 状态切换事件，限流与登录防爆破均受益）：
 
 | 指标                         | 类型                     | 说明                                                    |
 | -------------------------- | ---------------------- | ----------------------------------------------------- |
 | `redis.guard.state.change` | Counter（tags: from/to） | 熔断状态切换次数（如 CLOSED→OPEN），观测故障频率与恢复速度                   |
 | `redis.guard.degraded`     | Gauge（1=降级中/0=正常）      | 告警规则示例：`redis_guard_degraded == 1 for 5m`（降级超 5 分钟告警） |
 
-- 埋点位置与日志同点（熔断打开/探测失败/恢复成功），天然节流防刷屏
+- 指标沿用自研版本同名（`redis.guard.degraded` / `redis.guard.state.change`），`docker/init/prometheus/alert-rules.yml` 的 `RedisGuardDegraded` 规则零改动；只在状态切换事件触发时打点，天然节流防刷屏
 - `MeterRegistry` 可选注入：业务服务引 `spring-boot-starter-actuator` +
   `micrometer-registry-prometheus`（两者缺一不可：actuator 提供端点框架，
   registry-prometheus 提供 /actuator/prometheus 端点与 Prometheus 格式输出）指标自动暴露；
@@ -1056,7 +1056,8 @@ common-redis/src/main/java/com/litisle/commonredis/
 │   ├── CacheConstant.java
 │   └── IdempotentConstant.java
 ├── guard/
-│   └── RedisGuard.java
+│   ├── RedisGuard.java
+│   └── RedisGuardMetrics.java
 ├── idempotent/
 │   ├── Idempotent.java
 │   ├── IdempotentAspect.java
@@ -1131,12 +1132,18 @@ common-security/src/main/java/com/litisle/commonsecurity/
 
 ***
 
-**文档版本**：v2.1
-**最后更新**：2026-09-29
+**文档版本**：v2.2
+**最后更新**：2026-11-07
 **维护者**：LitIsle 团队
 
 **更新记录**：
 
+- **v2.2（2026-11-07）**：熔断组件切换 Resilience4j
+  - 新增：`RedisGuardMetrics`（同名指标桥接：Gauge `redis.guard.degraded` + Counter `redis.guard.state.change`，`alert-rules.yml` 零改动）
+  - 更新：`RedisGuard` 退化为薄适配层（acquire/onSuccess/onFailure 委托 CircuitBreaker，仅保留 LoginRetryLimiter 既有签名；OPEN 态非探测成功不再打回 CLOSED）
+  - 更新：`RedisRateLimiter` 改注入 `CircuitBreaker` 编程式 API（显式等价映射 failureRateThreshold=100 / slidingWindowSize=3 / minimumNumberOfCalls=3，半开许可 1、自动转半开）
+  - 更新：`CommonRedisAutoConfiguration` 新增 `CircuitBreakerConfig` / `CircuitBreakerRegistry` / `CircuitBreaker` 三个 Bean，`MeterRegistry` 仍为 ObjectProvider 可选注入
+  - 依赖：common-redis 新增 `resilience4j-circuitbreaker`（版本由 Spring Boot BOM 管理）
 - **v2.1（2026-09-29）**：限流组件重构
   - 新增：`RedisRateLimiter`（Lua 脚本 SSOT 抽取，切面与系统级限流共用）、`LocalRateLimiter`（本地兜底计数）、`RedisGuard`（三态熔断状态机，限流与登录重试限制共用）、`RateLimitFallbackProperties`（litisle.rate-limit.fallback 配置）
   - 更新：`RateLimiterAspect` 计数逻辑委托 `RedisRateLimiter`；`LoginRetryLimiter` 接入 `RedisGuard` 三态熔断

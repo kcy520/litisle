@@ -25,6 +25,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * 【使用场景】
  * 仅由 RedisRateLimiter 在熔断 OPEN / HALF_OPEN 探测期内部调用，业务方不直接使用。
  *
+ * 【与熔断器实现的关联】
+ * 熔断状态机由 Resilience4j CircuitBreaker 承载（替代原自研 RedisGuard 手写三态）；
+ * 本组件只负责「单机原始计数」，不感知熔断状态，也不参与状态判定。
+ *
  * 【选型速查表】
  * | 场景                                   | 推荐                              |
  * |----------------------------------------|-----------------------------------|

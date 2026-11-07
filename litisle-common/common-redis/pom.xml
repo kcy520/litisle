@@ -53,6 +53,12 @@
             <scope>provided</scope>
         </dependency>
 
+        <!--熔断降级-Resilience4j CircuitBreaker（替代自研 RedisGuard 三态状态机；版本由 Spring Boot BOM 统一管理） -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-circuitbreaker</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

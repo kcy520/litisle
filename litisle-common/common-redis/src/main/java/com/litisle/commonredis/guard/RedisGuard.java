@@ -1,49 +1,41 @@
 package com.litisle.commonredis.guard;
 
 import com.litisle.commonredis.config.RateLimitFallbackProperties;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.MeterRegistry;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-
-import org.springframework.boot.autoconfigure.cache.CacheProperties.Redis;
-
-///RedisGuard 是一个「Redis 故障防护守卫」——它站在 Redis 操作的前面，
-// 替调用方决定「这次请求走 Redis 还是走本地兜底」，并在 Redis 恢复时自动切回。名字里的 Guard = 守卫/防护。
+import java.util.concurrent.TimeUnit;
 
 /**
- * Redis 三态熔断守护（可复用组件，SSOT）
+ * Redis 熔断守护（薄适配层，三态状态机由 Resilience4j CircuitBreaker 承载）
  *
- * 【为什么单独抽这个类】
- * 原先三态熔断状态机（CLOSED/OPEN/HALF_OPEN + 冷却 + 单线程探测 + 连续故障计数）
- * 内嵌于 RedisRateLimiter，属「单一事实来源」破坏点：RedisRateLimiter（限流计数）与
- * LoginRetryLimiter（登录防爆破）都需要同一套「Redis 故障感知 + 降级调度」逻辑，
- * 抽取后共用同一状态机，避免两处降级语义漂移。
+ * 【为什么保留这个类】
+ * 上游（LoginRetryLimiter）按 `acquire() / onSuccess() / onFailure()` 的方式调用，
+ * 这里只做「调用方语义 → Resilience4j API」的翻译，签名保持不变、调用方零改动。
+ * 状态机、滑动窗口、半开许可、冷却计时全部交给 CircuitBreaker，
+ * 不再保留自研的 AtomicInteger 状态 + 连续失败计数 + openAtMillis 冷却判断。
  *
  * 【使用场景】
- * 1. 限流计数：RedisRateLimiter.increment 前调 acquire()，按返回路径分发
- * 2. 登录防爆破：LoginRetryLimiter 的 recordFailure/isLocked/resetFailure 同上
- * 3. 任意「Redis 辅助型操作 + 本地兜底实现」的组件：acquire() 决定路径，
- *    操作结束按成败回调 onSuccess/onFailure 上报状态机
+ * 1. 限流计数：RedisRateLimiter 直接注入 CircuitBreaker（同类自调用不走 AOP，禁止用 @CircuitBreaker 注解）
+ * 2. 登录防爆破：LoginRetryLimiter 经本适配层调用（本类仅为兼容其既有签名而保留）
  *
- * 【选型速查表】
- * | 场景                                     | 推荐做法                                     |
- * |------------------------------------------|----------------------------------------------|
- * | 限流计数类（有 LocalRateLimiter 兜底）   | RedisRateLimiter（内部已接入本组件）         |
- * | 安全闸口类（isLocked 等防护判断）        | 本组件 + 组件自有本地兜底（宁严勿松）        |
- * | 非关键读类（统计/缓存查询）              | 不接熔断，纯 try-catch fail-safe 即可        |
- * | 需要集群级熔断/控制台动态规则            | 不适用（本组件为进程内轻量兜底，两者互补）   |
+ * 【三态语义（与自研版本保持一致）】
+ * - CLOSED：Redis 正常，全量走 Redis
+ * - OPEN：Redis 故障，冷却期内 acquire() 返回 LOCAL，不碰 Redis（避免每请求都吃连接超时）
+ * - HALF_OPEN：冷却到期后自动进入，仅放行 1 个探测许可；探测成功 → CLOSED，探测失败 → 回 OPEN
  *
- * 【三态状态机】
- * - CLOSED：Redis 正常；连接/超时类失败连续达 FAILURE_THRESHOLD → OPEN
- *   （业务类异常如脚本返回 null 不算故障，不触发熔断）
- * - OPEN：冷却期内 acquire() 返回 LOCAL，不碰 Redis（避免每请求都吃连接超时）
- * - HALF_OPEN：冷却到期后仅一个线程 CAS 成功返回 PROBE，其余仍返回 LOCAL；
- *   探测成功 → CLOSED，探测失败 → 回 OPEN 重新计冷却
- *   （防冷却到期全量请求冲回 Redis 的惊群，也防一次侥幸成功就全量恢复）
+ * 【路径判定】
+ * acquire() 的返回值含义：
+ * - OPEN → LOCAL（熔断器拒绝调用，直接走本地兜底）
+ * - HALF_OPEN 且拿到许可 → PROBE（本次是半开探测请求，最多 1 个）
+ * - CLOSED 且拿到许可 → REDIS
+ * - 其它（许可被拒）→ LOCAL
+ *
+ * 【必须注意的两条边界】
+ * 1. `onSuccess(false)` 在 OPEN / HALF_OPEN 态必须直接忽略：否则会把熔断器强制打回 CLOSED，
+ *    绕过半开探测（对应 LoginRetryLimiter#resetFailure 的复位路径）。
+ * 2. 只有真正持有许可的调用才能上报成功/失败；`resetFailure` 这条「无许可复位」路径
+ *    只在 CLOSED 下清空滑动窗口计数（circuitBreaker.reset()），不允许跨态复位。
  *
  * 正常                     故障                     试探
  *   ┌──────────┐            ┌──────────┐            ┌──────────┐
@@ -54,23 +46,6 @@ import org.springframework.boot.autoconfigure.cache.CacheProperties.Redis;
  *        ▲                                                │
  *        │           探测成功                               │ 探测失败
  *        └────────────────────────────────────────────────────┘
- *
- * 【典型用法】
- * <pre>
- *     Path path = redisGuard.acquire();
- *     if (path == Path.LOCAL) { return localFallback(...); }
- *     try {
- *         Object r = redisOps(...);
- *         redisGuard.onSuccess(path == Path.PROBE);
- *         return r;
- *     } catch (Exception e) {
- *         redisGuard.onFailure(path == Path.PROBE, e);
- *         return localFallback(...);
- *     }
- * </pre>
- *
- * 【日志】仅在状态切换点打（探测失败/熔断打开 warn、恢复 info），天然节流防刷屏；
- * 状态切换点也是 Micrometer 指标的天然埋点位置（将来接入，此处埋一次，使用方均受益）。
  *
  * @author litisle
  */
@@ -83,232 +58,158 @@ public class RedisGuard {
     public enum Path {
         /** 正常：走 Redis */
         REDIS,
-        /** 半开探测：本次放行试 Redis（每轮冷却期仅一个线程） */
+        /** 半开探测：本次放行试 Redis（每轮冷却期仅一个许可） */
         PROBE,
         /** 降级：走调用方本地兜底，不碰 Redis */
         LOCAL
     }
 
-    /** CLOSED：Redis 正常，全量走 Redis */
-    private static final int STATE_CLOSED = 0;
-    /** OPEN：Redis 故障，全量走本地兜底，冷却期内不碰 Redis */
-    private static final int STATE_OPEN = 1;
-    /** HALF_OPEN：冷却到期，仅放单个探测请求试 Redis，其余继续本地 */
-    private static final int STATE_HALF_OPEN = 2;
+    /**
+     * 上报给熔断器时记录的单次调用时长（毫秒）
+     *
+     * 【为什么固定 0】本组件只关心「成功/失败」与滑动窗口失败率，
+     * 不启用慢调用比例判定（slowCallRateThreshold 未配置），因此时长不参与任何计算，
+     * 传 0 只是满足 Resilience4j API 的参数要求。
+     */
+    private static final long RECORDED_DURATION = 0L;
 
     /**
-     * 熔断打开阈值：CLOSED 态下连接/超时类失败连续达此次数 → OPEN
-     * （取小值快速切入降级，避免故障期每请求都吃连接超时拖垮接口延迟）
+     * 熔断器（三态状态机 + 滑动窗口 + 半开许可 + 冷却计时全部由它实现）
+     *
+     * 由 CommonRedisAutoConfiguration 按显式等价配置创建：
+     * failureRateThreshold=100、slidingWindowSize=3、minimumNumberOfCalls=3、
+     * permittedNumberOfCallsInHalfOpenState=1、automaticTransitionFromOpenToHalfOpenEnabled=true。
      */
-    private static final int FAILURE_THRESHOLD = 3;
+    private final CircuitBreaker circuitBreaker;
 
-    /** 降级配置（enabled / cooldownSeconds / instanceCount，yml: litisle.rate-limit.fallback） */
+    /**
+     * 降级配置（enabled / cooldownSeconds / instanceCount，yml: litisle.rate-limit.fallback）
+     * 本类只读取 enabled：关闭兜底开关时恒走 Redis，由调用方 try-catch fail-safe。
+     */
     private final RateLimitFallbackProperties properties;
 
-    /** 熔断状态（CLOSED/OPEN/HALF_OPEN）；AtomicInteger = 多线程安全读写，无需 synchronized */
-    private final AtomicInteger state = new AtomicInteger(STATE_CLOSED);
-
-    /** 连续故障计数（Redis 操作成功即清零） */
-    private final AtomicInteger consecutiveFailures = new AtomicInteger();
-
-    /** 进入 OPEN 的时刻（毫秒），用于冷却期判断 */
-    private volatile long openAtMillis;
-
-    /** Micrometer 注册中心（可选注入，未接入 actuator 时为 null，指标静默停用不影响状态机） 
-     * actuator:Spring Boot Actuator 是 Spring Boot 官方提供的「应用监控与管理模块」，用来暴露应用的内部运行状态给外部系统（如 Prometheus）采集。
-    */
-    private volatile MeterRegistry meterRegistry;
-    // ① 埋点（已完成的代码）      RedisGuard 把状态写进 MeterRegistry → 指标数据在 JVM 内就绪  不引 actuator，自动告警是就失效了
-    // ② 暴露（需 actuator）      actuator 提供 /actuator/prometheus 端点，把指标吐给外部
-    // ③ 采集（需 Prometheus）    Prometheus 定时抓取端点，存储时间序列
-    // ④ 告警（需 Alertmanager）  规则 redis_guard_degraded == 1 for 5m 命中 → 推钉钉/企微/短信
-
+    /**
+     * 当前线程是否持有熔断器调用许可（acquire 拿到许可置 true，上报成败后清除）
+     *
+     * 【为什么需要】Resilience4j 要求「申请许可 → 上报成败」成对出现：
+     * - 持有许可时才允许上报成功/失败（否则会向熔断器写入无许可样本）
+     * - LoginRetryLimiter#resetFailure 属于「未申请许可的复位路径」，必须与正常上报区分开，
+     *   否则会把 OPEN 直接打回 CLOSED，绕过半开探测
+     * 使用 ThreadLocal 而非成员变量：同一线程内 acquire → 回调严格配对，线程池复用不会串号，
+     * 上报后立即 remove 防止残留。
+     */
+    private final ThreadLocal<Boolean> permitHeld = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     /**
-     * 当前是否处于降级态（OPEN/HALF_OPEN=1、CLOSED=0），暴露为 Gauge 供「降级超过 X 分钟」告警使用
+     * 构造熔断守护
      *
-     * 【redis.guard.degraded = 1 的语义】
-     * 表示「当前系统是否正处于 Redis 降级状态」，1 代表“是”，0 代表“否”。
-     * 它不是在数“发生了几次降级”（那是 redis.guard.state.change Counter 的职责），
-     * 而是在实时告诉监控系统：现在这一秒，系统是不是在降级中——
-     * 所以告警规则用 redis_guard_degraded == 1 for 5m（持续为 1 达 5 分钟才报），
-     * 而非按次数触发。
+     * @param circuitBreaker      Resilience4j 熔断器（三态状态机载体）
+     * @param properties          降级配置（本类只用 enabled 开关）
      */
-    private final AtomicLong degraded = new AtomicLong();
-    //当 Redis 故障触发熔断后，系统自动记录“当前是否处于降级状态”，Prometheus 持续抓取这个指标，一旦降级超过 5 分钟就自动告警，不再靠人盯着日志看。
-    // 整体流程
-    // Redis 故障
-    // ↓
-    // RedisGuard 熔断（CLOSED → OPEN）
-    // ↓
-    // 切本地兜底（静默降级）
-    // ↓
-    // 埋点：redis.guard.degraded = 1
-    // ↓
-    // Prometheus 定时抓取
-    // ↓
-    // 告警规则：redis_guard_degraded == 1 持续 5 分钟
-    // ↓
-    // 自动报警（钉钉 / 企微 / 短信 / PagerDuty）
-
-//- `meterRegistry` 是 Micrometer 的注册中心（可理解为「指标的容器+导出器」）。声明为`volatile` + 可选注入 ：业务服务引了 actuator 才有这个 Bean，没引就是 null——此时指标静默停用， 状态机本身完全不受影响 （这是库模块不强依赖监控组件的关键设计）
-// - `degraded` 是 Gauge 的数据载体。用`AtomicLong` 而不是普通变量，因为 Gauge 取值函数会在 Prometheus 抓取线程中并发读取，需要可见性保证
-
-
-    public RedisGuard(RateLimitFallbackProperties properties) {
+    public RedisGuard(CircuitBreaker circuitBreaker, RateLimitFallbackProperties properties) {
+        this.circuitBreaker = circuitBreaker;
         this.properties = properties;
     }
 
-
-//  当 Redis 故障触发熔断后，系统自动记录“当前是否处于降级状态”，
-//  Prometheus 持续抓取这个指标，一旦降级超过 5 分钟就自动告警，不再靠人盯着日志看。
     /**
-     * 可选注入 Micrometer 注册中心（由 CommonRedisAutoConfiguration 通过 ObjectProvider 注入）
-     *
-     * 【指标设计】（埋点位置即状态切换点，本层埋一次，RedisRateLimiter / LoginRetryLimiter 均受益）
-     * - redis.guard.state.change（Counter，tags: from/to）：状态切换次数，观测故障频率与恢复速度
-     * - redis.guard.degraded（Gauge，1=降级中/0=正常）：对应告警诉求「降级超过 X 分钟」，
-     *   Prometheus 规则示例：redis_guard_degraded == 1 for 5m
-     */
-    public void setMeterRegistry(MeterRegistry meterRegistry) {
-        this.meterRegistry = meterRegistry;
-        if (meterRegistry != null) {
-            // Gauge 是「无状态探针」：注册时不记值，仅登记一个取值函数（degraded::doubleValue），
-            // 每次 Prometheus 抓取时才回调读取当前值——传对象引用而非快照，degraded 变化 Gauge 自动反映
-            Gauge.builder("redis.guard.degraded", degraded, AtomicLong::doubleValue)
-                    .description("Redis 三态熔断是否处于降级态（OPEN/HALF_OPEN）")
-                    .register(meterRegistry);
-        }
-    }
-
-    /**
-     * 状态切换埋点：Counter 按 from→to 维度记录切换次数，Gauge 同步降级标志；
-     * meterRegistry 未注入时静默跳过（库模块不强依赖 micrometer 运行时）
-     */
-    private void recordStateChange(int from, int to) {
-        // volatile 字段先快照到局部变量：保证 null 检查与后续使用基于同一引用（防御性写法）
-        MeterRegistry registry = this.meterRegistry;
-        if (registry == null) {
-            return;
-        }
-        // Counter 按「名称 + tags 组合」幂等：同名同 tag 重复 register 返回同一实例；
-        // 不同 from→to 组合 tag 不同 → 各自独立的计数序列（故障次数/恢复次数分开统计）
-        Counter.builder("redis.guard.state.change")
-                .tag("from", stateName(from))
-                .tag("to", stateName(to))
-                .description("Redis 三态熔断状态切换次数")
-                .register(registry)
-                .increment();
-        // Gauge 取值同步：切到 CLOSED 归 0（正常），切到 OPEN/HALF_OPEN 置 1（降级中），
-        // 即告警规则 redis_guard_degraded == 1 for 5m 的取值来源
-        degraded.set(to == STATE_CLOSED ? 0L : 1L);
-    }
-
-    /** 状态常量 → 指标 tag 名 */
-    private static String stateName(int state) {
-        return switch (state) {
-            case STATE_OPEN -> "OPEN";
-            case STATE_HALF_OPEN -> "HALF_OPEN";
-            default -> "CLOSED";
-        };
-    }
-
-    /**
-     * 熔断调度：返回本次操作应走的路径（REDIS/PROBE/LOCAL），纯读状态机 + 一次 CAS，无锁
+     * 熔断调度：返回本次操作应走的路径（REDIS / PROBE / LOCAL）
      *
      * 【执行流程】
-     * 1. 兜底总开关检查：关闭则恒走 Redis（回退为调用方 try-catch fail-safe）
-     * 2. 读取熔断状态，按三态分发（volatile 读，无锁）
-     * 3. OPEN 态：冷却期内走本地；到期后仅一个线程 CAS 成功者发探测
-     * 4. HALF_OPEN 态：探测在途，其余请求继续本地
-     * 5. CLOSED 态：正常走 Redis
+     * 1. 兜底总开关关闭 → 恒走 Redis（回退为调用方 try-catch fail-safe）
+     * 2. OPEN 态 → 直接走本地（冷却期内不碰 Redis；冷却到期由熔断器自动转 HALF_OPEN）
+     * 3. 申请一个调用许可（tryAcquirePermission）
+     *    - 拒绝（HALF_OPEN 下许可已被占用）→ LOCAL
+     *    - 允许 → 按申请瞬间的状态返回 PROBE（半开）或 REDIS（闭合）
      *
      * @return 路径决策（调用方据此分发 Redis 操作或本地兜底）
      */
     public Path acquire() {
-        // 步骤1：兜底总开关检查——关闭则跳过熔断调度，恒走 Redis（故障时由调用方 try-catch fail-safe）
+        // 步骤1：兜底总开关关闭——跳过熔断调度，恒走 Redis
         if (!properties.isEnabled()) {
             return Path.REDIS;
         }
-        // 步骤2：读取当前熔断状态，按三态分发（volatile 读，无锁）
-        int current = state.get();
-        // 步骤3：OPEN 态——Redis 已确认故障，分冷却期内/外两条路
-        if (current == STATE_OPEN) {
-            // 步骤3.1：冷却期内——直接走本地兜底，不碰 Redis（避免每请求都吃连接超时）
-            if (System.currentTimeMillis() - openAtMillis < cooldownMillis()) {
-                return Path.LOCAL;
-            }
-            // 步骤3.2：冷却到期——仅一个线程 CAS 进入 HALF_OPEN 发探测（防惊群），其余继续本地
-            if (state.compareAndSet(STATE_OPEN, STATE_HALF_OPEN)) {
-                return Path.PROBE;
-            }
+        // 步骤2：OPEN 态直接降级（自动转半开由 Resilience4j 的调度器负责，这里不手动 CAS）
+        if (circuitBreaker.getState() == CircuitBreaker.State.OPEN) {
             return Path.LOCAL;
         }
-        // 步骤4：HALF_OPEN 态——已有探测请求在途，其余继续本地
-        if (current == STATE_HALF_OPEN) {
+        // 步骤3：申请许可（HALF_OPEN 下最多放行 permittedNumberOfCallsInHalfOpenState=1 个）
+        if (!circuitBreaker.tryAcquirePermission()) {
             return Path.LOCAL;
         }
-        // 步骤5：CLOSED 态——正常走 Redis
-        return Path.REDIS;
+        // 步骤4：许可到手——标记当前线程持证，回调上报时会据此判断是否成对
+        permitHeld.set(Boolean.TRUE);
+        // 步骤5：申请瞬间若处于 HALF_OPEN 即为半开探测，否则为正常闭合调用
+        return circuitBreaker.getState() == CircuitBreaker.State.HALF_OPEN ? Path.PROBE : Path.REDIS;
     }
 
     /**
-     * Redis 操作成功：清零连续故障计数；探测成功则熔断恢复 CLOSED
+     * Redis 操作成功上报
      *
-     * 【执行流程】
-     * 1. 清零连续故障计数（任何一次成功都视为故障序列中断）
-     * 2. 无条件回置 CLOSED（非探测态下是幂等写入，探测态下即恢复）
-     * 3. 仅「探测成功且确有降级发生」时打恢复日志
+     * 【两条分支】
+     * - 持证上报（acquire 成功后的正常/探测调用）：记录成功样本；
+     *   探测成功会让 HALF_OPEN → CLOSED，并打恢复日志
+     * - 无证上报（LoginRetryLimiter#resetFailure 的复位路径）：只在 CLOSED 下清空滑动窗口计数，
+     *   OPEN / HALF_OPEN 一律忽略——绝不能借复位把熔断器打回 CLOSED（会绕过半开探测）
      *
      * @param isProbe true 表示 HALF_OPEN 态的探测请求成功
      */
     public void onSuccess(boolean isProbe) {
-        // 步骤1：清零连续故障计数（任何一次成功都视为故障序列中断）
-        consecutiveFailures.set(0);
-        // 无条件回置 CLOSED（非探测态下是幂等写入，探测态下即恢复）
-        int prev = state.getAndSet(STATE_CLOSED);
-        // 仅「探测成功且确有降级发生」时打恢复日志（状态切换点，天然节流防刷屏）
-        if (isProbe && prev != STATE_CLOSED) {
-            log.info("Redis 熔断恢复: 探测成功，由本地兜底切回 Redis");
+        boolean permitted = Boolean.TRUE.equals(permitHeld.get());
+        // 上报一次即消费许可，无论成败都清理，避免线程池复用时状态串号
+        permitHeld.remove();
+        // 分支1：持证上报——正常记录成功（探测成功时 Resilience4j 内部完成 HALF_OPEN → CLOSED）
+        if (permitted) {
+            circuitBreaker.onSuccess(RECORDED_DURATION, TimeUnit.MILLISECONDS);
+            if (isProbe) {
+                log.info("Redis 熔断恢复: 探测成功，由本地兜底切回 Redis");
+            }
+            return;
         }
-        // 状态切换埋点（仅确有降级发生时记一次恢复；CLOSED→CLOSED 幂等回置不计）
-        if (prev != STATE_CLOSED) {
-            recordStateChange(prev, STATE_CLOSED);
+        // 分支2：无证复位——仅 CLOSED 下清空窗口计数；跨态复位会绕过半开探测，必须忽略
+        CircuitBreaker.State current = circuitBreaker.getState();
+        if (current == CircuitBreaker.State.CLOSED) {
+            circuitBreaker.reset();
+            return;
         }
+        log.debug("Redis 熔断保护中（{}），忽略复位型成功上报，等待半开探测", current);
     }
 
     /**
-     * Redis 操作失败：探测失败回 OPEN 重新计冷却；CLOSED 态连续故障达阈值则熔断打开
+     * Redis 操作失败上报
+     *
+     * 【语义映射】
+     * - CLOSED 下连续 3 次失败（由显式窗口配置保证等价）→ OPEN
+     * - HALF_OPEN 下探测失败 → 重新 OPEN，重新计冷却期
+     * - 业务类异常（脚本返回 null 等）由调用方按「成功」上报，不走本方法，故不会被计为故障
+     * - 无许可的失败上报（复位路径异常）不参与熔断统计：复位本身不是 Redis 健康信号，
+     *   计入会让「重置失败」这种非关键路径干扰半开探测
      *
      * @param isProbe true 表示 HALF_OPEN 态的探测请求失败
      * @param e       触发失败的异常（仅取 message 入日志，不打堆栈防刷屏）
      */
     public void onFailure(boolean isProbe, Exception e) {
-        // 探测失败——重置 OPEN 起点并回退状态，重新计冷却期（不允许直接恢复）
-        if (isProbe) {
-            openAtMillis = System.currentTimeMillis();
-            state.set(STATE_OPEN);
-            recordStateChange(STATE_HALF_OPEN, STATE_OPEN);
-            log.warn("Redis 熔断探测失败，继续本地兜底降级: error={}", e.getMessage());
+        boolean permitted = Boolean.TRUE.equals(permitHeld.get());
+        // 上报一次即消费许可，无论成败都清理，避免线程池复用时状态串号
+        permitHeld.remove();
+        // 无证上报（resetFailure 异常路径）：不进入熔断统计，只留排障日志
+        if (!permitted) {
+            log.debug("Redis 熔断复位路径上报失败，不参与熔断统计: error={}", e.getMessage());
             return;
         }
-        // CLOSED 态普通失败——连续故障计数 +1，达阈值则 CAS 打开熔断
-        // （CAS 保证并发下只有最先到达阈值的那一个线程执行「记录时间 + 打日志」）
-        if (consecutiveFailures.incrementAndGet() >= FAILURE_THRESHOLD
-                && state.compareAndSet(STATE_CLOSED, STATE_OPEN)) {
-            openAtMillis = System.currentTimeMillis();
-            recordStateChange(STATE_CLOSED, STATE_OPEN);
-            log.warn("Redis 连续故障 {} 次，熔断打开（冷却 {}s），调用方转本地兜底: error={}",
-                    FAILURE_THRESHOLD, properties.getCooldownSeconds(), e.getMessage());
+        // 步骤1：快照上报前的状态，用于判断本次失败是否真的引发了状态切换
+        CircuitBreaker.State before = circuitBreaker.getState();
+        // 步骤2：上报失败（Resilience4j 内部按滑动窗口统计并决定是否打开熔断）
+        circuitBreaker.onError(RECORDED_DURATION, TimeUnit.MILLISECONDS, e);
+        // 步骤3：状态切换点在日志中体现（探测失败 warn / 闭合转打开 warn），天然节流防刷屏
+        CircuitBreaker.State after = circuitBreaker.getState();
+        if (after == CircuitBreaker.State.OPEN && before != CircuitBreaker.State.OPEN) {
+            if (isProbe) {
+                log.warn("Redis 熔断探测失败，继续本地兜底降级: error={}", e.getMessage());
+            } else {
+                log.warn("Redis 连续故障 {} 次，熔断打开（冷却 {}s），调用方转本地兜底: error={}",
+                        circuitBreaker.getCircuitBreakerConfig().getSlidingWindowSize(),
+                        properties.getCooldownSeconds(), e.getMessage());
+            }
         }
-    }
-
-    /**
-     * 冷却期时长（毫秒）：OPEN 态在冷却期内不碰 Redis，到期后放探测请求
-     *
-     * @return 冷却时长毫秒数（来自 litisle.rate-limit.fallback.cooldown-seconds 配置）
-     */
-    private long cooldownMillis() {
-        return properties.getCooldownSeconds() * 1000L;
     }
 }

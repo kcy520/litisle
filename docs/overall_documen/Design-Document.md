@@ -159,7 +159,7 @@ litisle-common
 │   ├── bloom/        # BloomFilter 布隆过滤器
 │   ├── config/       # RedisConfig / RedissonConfig / RateLimitFallbackProperties
 │   ├── constant/     # CacheConstant / IdempotentConstant
-│   ├── guard/        # RedisGuard 健康守卫
+│   ├── guard/        # RedisGuard 熔断适配层 + RedisGuardMetrics 熔断指标桥接（状态机为 Resilience4j CircuitBreaker）
 │   ├── idempotent/   # @Idempotent + 幂等切面 + key 构建
 │   ├── lock/         # DistributedLock / RedissonLock
 │   ├── login/        # LoginRetryLimiter 登录失败重试限制
@@ -192,7 +192,7 @@ litisle-common
 - 审计切面（`@AuditLog` 自动记录操作日志）
 - Feign 透传（`FeignAuthInterceptor` 透传 userId / traceId）
 - 统一异常响应（GlobalExceptionHandler + ErrorCode）
-- Redis 工具（六大数据结构 + 分布式锁 + 布隆过滤器 + RedisGuard）
+- Redis 工具（六大数据结构 + 分布式锁 + 布隆过滤器 + Resilience4j CircuitBreaker 熔断 + RedisGuard 适配层）
 - **接口幂等性**（`@Idempotent` 在 common-redis，基于 Redis SETNX 防重复提交）
 - **数据脱敏**（`@Sensitive` 基于 Jackson 序列化器，手机号/身份证/邮箱自动脱敏）
 - **XSS 防护**（`XssFilter` 全局清洗 HTML 标签，防跨站脚本攻击）
