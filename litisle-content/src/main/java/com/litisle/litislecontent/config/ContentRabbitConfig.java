@@ -67,6 +67,17 @@ public class ContentRabbitConfig {
                 Map.of("x-delayed-type", "direct"));   // 延迟后按原路由键精确投递（与 review 侧同参）
     }
 
+    /**
+     * 社交业务交换机（Topic，批次十一 11.14）：content 临时承载点赞功能后作为 social.liked /
+     * social.unliked 的发布方，需本地声明交换机（与 search 侧 SearchMqConfig 同参幂等声明：
+     * Topic/durable/autoDelete 必须一致，否则 PRECONDITION_FAILED）。
+     * <p>不声明消费队列与绑定——队列由消费方 search 侧声明，发布方只保证交换机存在。</p>
+     */
+    @Bean
+    public TopicExchange socialExchange() {
+        return new TopicExchange(MqConstant.EXCHANGE_SOCIAL, true, false);
+    }
+
     // ==================== 审核结果主链路（队列 + 三向绑定） ====================
 
     /**

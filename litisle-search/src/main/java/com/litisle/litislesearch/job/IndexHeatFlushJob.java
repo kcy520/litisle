@@ -308,7 +308,8 @@ public class IndexHeatFlushJob {
                 continue;
             }
             // 计数基数为「现有绝对值 + 本窗口增量」；浏览量以事件落库绝对值优先，未收到则沿用现有值
-            long likeCnt = nullToZero(current.getLikeCnt()) + pending.getLikeDelta();
+            // 批次十一 11.14：点赞增量可为负（取消点赞），写回前做下限保护，禁止 article_idx.likeCnt 减成负数
+            long likeCnt = Math.max(0L, nullToZero(current.getLikeCnt()) + pending.getLikeDelta());
             long commentCnt = nullToZero(current.getCommentCnt()) + pending.getCommentDelta();
             long viewCnt = pending.getViewCount() != null ? pending.getViewCount() : nullToZero(current.getViewCnt());
             // 时间衰减：以文档 updateTime（当前实现中兼具发布时间语义）为基准，缺失时不做衰减

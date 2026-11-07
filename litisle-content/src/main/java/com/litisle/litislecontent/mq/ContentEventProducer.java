@@ -12,6 +12,8 @@ import com.litisle.litisleapi.event.content.ContentUnpublishedEvent;
 import com.litisle.litisleapi.event.content.ContentViewCountFlushedEvent;
 import com.litisle.litisleapi.event.moderation.ImageSubmitEvent;
 import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
+import com.litisle.litisleapi.event.social.SocialLikedEvent;
+import com.litisle.litisleapi.event.social.SocialUnlikedEvent;
 import com.litisle.litislecontent.domain.entity.EventOutbox;
 import com.litisle.litislecontent.mapper.EventOutboxMapper;
 import com.litisle.litislecontent.service.support.FeedHotRankSupport;
@@ -167,6 +169,34 @@ public class ContentEventProducer {
         fillBase(event);
         dispatch(MqConstant.EXCHANGE_CONTENT, MqConstant.ROUTING_CONTENT_BOOK_CHANGED, event, event.getEventId());
         log.info("content.book-changed 已发布，bookId={}", event.getBookId());
+    }
+
+    /**
+     * 发送 social.liked（点赞事件，批次十一 11.14：content 临时承载点赞功能后的生产者）
+     * <p>消费方：search（按 delta 累加 article_idx.like_cnt，再由 IndexHeatFlushJob 重算 heat）</p>
+     * <p>调用时机铁律：点赞记录与统计计数所在事务提交后（afterCommit）调用，防回滚产生脏事件；
+     * 事件体业务字段（bizType/bizId/bizUserId/delta）由调用方填充，本方法仅补基座四字段</p>
+     *
+     * @param event 点赞事件（bizType=1-文章、bizId=文章ID、delta=+1）
+     */
+    public void sendSocialLiked(SocialLikedEvent event) {
+        fillBase(event);
+        dispatch(MqConstant.EXCHANGE_SOCIAL, MqConstant.ROUTING_SOCIAL_LIKED, event, event.getEventId());
+        log.info("social.liked 已发布，bizId={}，delta={}", event.getBizId(), event.getDelta());
+    }
+
+    /**
+     * 发送 social.unliked（取消点赞事件，批次十一 11.14）
+     * <p>消费方：search（按 delta=-1 递减 article_idx.like_cnt，更新时带下限保护不允许减成负数）</p>
+     * <p>调用时机铁律：取消点赞物理删除与统计递减所在事务提交后（afterCommit）调用；
+     * 事件体业务字段（bizType/bizId/bizUserId/delta）由调用方填充，本方法仅补基座四字段</p>
+     *
+     * @param event 取消点赞事件（bizType=1-文章、bizId=文章ID、delta=-1）
+     */
+    public void sendSocialUnliked(SocialUnlikedEvent event) {
+        fillBase(event);
+        dispatch(MqConstant.EXCHANGE_SOCIAL, MqConstant.ROUTING_SOCIAL_UNLIKED, event, event.getEventId());
+        log.info("social.unliked 已发布，bizId={}，delta={}", event.getBizId(), event.getDelta());
     }
 
     /**
@@ -342,6 +372,32 @@ public class ContentEventProducer {
      * @param event 书籍变更事件
      */
     private void fillBase(ContentBookChangedEvent event) {
+        event.setEventId(UUID.randomUUID().toString());
+        event.setEventTime(LocalDateTime.now());
+        // traceId 从 MDC 透传（HTTP 入口由 TraceIdFilter 生成）
+        event.setTraceId(MDC.get(HeaderConstant.TRACE_ID));
+        event.setVersion(1);
+    }
+
+    /**
+     * 填充 SocialLikedEvent Schema 基座四字段（重载：事件体无公共基类，禁各自拼装基座字段）
+     *
+     * @param event 点赞事件
+     */
+    private void fillBase(SocialLikedEvent event) {
+        event.setEventId(UUID.randomUUID().toString());
+        event.setEventTime(LocalDateTime.now());
+        // traceId 从 MDC 透传（HTTP 入口由 TraceIdFilter 生成）
+        event.setTraceId(MDC.get(HeaderConstant.TRACE_ID));
+        event.setVersion(1);
+    }
+
+    /**
+     * 填充 SocialUnlikedEvent Schema 基座四字段（重载：事件体无公共基类，禁各自拼装基座字段）
+     *
+     * @param event 取消点赞事件
+     */
+    private void fillBase(SocialUnlikedEvent event) {
         event.setEventId(UUID.randomUUID().toString());
         event.setEventTime(LocalDateTime.now());
         // traceId 从 MDC 透传（HTTP 入口由 TraceIdFilter 生成）

@@ -75,6 +75,52 @@ content 自身 ViewCountFlushJob 对 view_cnt 做 SQL 原子自增，social 若�
 
 一期文章/书籍单层收藏由 content favorite 表临时承载（无分组、无佳句、接口 /api/content/favorite）；social 立项后三件事：① favorite → favorite_item 迁移/合并（可建默认收藏夹），或确认 content 为收藏 SSOT、social 只做聚合展示；② 收藏夹分组、佳句收藏按 social 完整版设计落地（favorite_folder/favorite_item/quote_favorite）；③ 收藏计数如需立项时一并定（一期允许作者收藏自己，无刷计数问题）。触发条件：litisle-social 模块立项时。
 
+#### 点赞与收藏迁入 social 模块（架构演进预留，2026-11-07）
+
+**现状**：点赞表 `user_like`（`docker/init/mysql/schema/content-schema.sql` 282-292 行）与收藏表 `favorite`（同文件 175-186 行）都建在 `litisle_content` 库，均以 `uk_user_target` 保证幂等；对外接口为 `LikeController`（`/api/content/like`）与 `FavoriteController`（`/api/content/favorite`）；计数写入点 `ContentStatSupport` 在点赞/收藏的同一本地事务内更新 `article_stat`/`book_stat` 与 `article.like_cnt` 镜像列；事件契约已就绪——`SocialLikedEvent`/`SocialUnlikedEvent` 定义在 `litisle-api`，交换机 `EXCHANGE_SOCIAL`（`litisle.social.exchange`），content 经 `LikeEventSupport` afterCommit + 本地 outbox 发布，search 由 `HeatEventConsumer` 消费累加热度。
+
+**目标**：点赞、收藏归独立的 `litisle-social` 服务（建议独立库 `litisle_social`，`00-init-databases.sql` 46 行已留建库注释位），social 成为互动关系与互动明细的唯一真源；content 只保留内容本体与聚合计数，详情/列表通过服务间契约取「是否已点赞/已收藏」与点赞数。
+
+**触发条件**（满足任一即立项）：① social 域功能立项（收藏夹分组、佳句收藏、关注/私信、评论落地），social 必须有真实库与实体承载；② 互动表规模或写入压力达到需要独立库治理的程度——参考阈值：`user_like` 或 `favorite` 单表行数 > 5000 万，或点赞+收藏写 QPS 峰值持续 > 200，或 content 写事务中互动表行锁等待成为可观测瓶颈；③ 需要按用户维度统一查询「全站互动流水/互动风控」，不再限定文章/书籍两类目标时。
+
+**迁移范围概要**（与上条收藏夹扩展、下文「阶段17 后续另立项余项」③ 为同一演进线）：
+
+1. 表与库：`user_like`、`favorite` 迁至 `litisle_social` 库，同构搬迁 + 唯一键不变；`article_stat`/`book_stat` 留在 content 作计数真源，social 事务提交后经 outbox 重试调用既有契约 `ContentClient#updateCounters`（content 侧端点 `ContentFeignProviderController#updateCounters` 已存在），不跨库本地事务。
+2. 契约：新增 `SocialClient` 的批量「用户是否点赞/收藏」与点赞数查询方法，供 content 详情、推荐流装配回填；事件生产者由 content 切到 social，search 的热度消费端不改（仍按 `delta` 累加）。
+3. 接口：新路径统一为 `/api/social/like`、`/api/social/favorite`（网关 `litisle-social` 路由已配置），旧 `/api/content/*` 路径保留代理转发；下线条件见下方「已确认口径」③（按调用量判定，不按时间），不用改网关白名单（两类接口均要求登录）。
+4. 分阶段（复核合计 26-34 人天，逐阶段变化见下方「已确认口径」估工复核表）：抽公共能力（限流/可见性/幂等模板下沉）3-4 → social 建库与骨架 5-6 → 双写 + 数据回填校验 5-6 → 双读对账与切读 6-8 → 切写 + 旧路径兼容转发 4-5 → 清理与文档收口 3-5。回滚：双写期任一阶段可回退到 content 单写；切读后保留 `content.like/favorite` 只读影子表与对账任务（影子表仅灰度期临时存在，终态删除），切写后保留旧接口代理直至满足下线条件。
+
+不确定性（立项时需确认）：social 是否复用 content 的可见性校验与 follow 回查缓存；点赞数是否需要 social 自己维护一份聚合；旧路径兼容期已改由下方「已确认口径」③按调用量判定，不再依赖前端排期。
+
+**已确认口径（2026-11-07 决策，立项时按此执行）**
+
+1. **计数真源固定在 content**：`article_stat`、`book_stat`、`content_stat_window` 全部留在 `litisle_content`；social 只做互动真源（`user_like` / `favorite` 明细与是否已赞/已收藏状态）。content 侧详情、列表、推荐流、热度榜的计数读取全部保持本地读，不引入远程计数调用；social 事务提交后经 outbox 异步调 `ContentClient#updateCounters` 回写，该契约是绝对值语义，重试天然幂等。
+2. **不采用影子表作为终态，计算跟着数据走**：
+   - 30/90 天窗口聚合（收藏数、点赞数等）迁到 social 计算，结果以**绝对值**回写 content 的 `content_stat_window`；
+   - 对账改为 content 拉 social 的批量计数接口，与本地 `article_stat` / `book_stat` 比对（不再用 SQL 直接 join `favorite`，`ContentStatWindowMapper` / `ContentStatReconcileMapper` 需同步改写）；
+   - 影子表仅允许作为灰度阶段的临时手段，**终态必须删除**，清理阶段列为验收项，避免后人把它当成长期方案。
+3. **旧接口按调用量下线，不按时间下线**：`/api/content/like`、`/api/content/favorite` 保留代理，同时做三件事——响应头带弃用提示、打调用量指标、记录调用方 UA；以「连续 30 天零调用」作为下线条件。依据：仓库内没有前端代码，无法从代码判断前端切换进度，只能以线上真实调用量为准。
+4. **迁移范围只含点赞与收藏，骨架一次建到位**：本批只做「行为不变、位置改变」的迁移，不掺新功能（两类变更混在同一批，出问题无法归因）。第 2 阶段一次做齐库、模块、Feign 契约、监控接入（指标 + 告警）、双写/切读开关。后续功能按依赖顺序单独排期：关注 → 评论 → 私信（关注优先，因为 `SocialClient#isFollowing` 已被 content 可见性校验使用，是现成切入口）。
+5. **CORS 已定：采用分支 A（同源部署，网关不配 CORS）**：
+   - 采用：生产由 Nginx 或前端 devServer 同源转发，前端静态资源与 `/api` 走同一个 server 块（同协议、同域名/端口），网关不配 CORS，只需在部署文档写明转发关系与预检由谁处理。
+   - 分支 B 不采用，仅在满足以下条件时再补：前端托管在无法自写 Nginx 的第三方平台（Vercel / GitHub Pages 等），或小程序、桌面端需直连网关。补法是在网关加 `globalcors` 统一处理（微服务主流做法，业务服务不各管一段），CORS 不随本次迁移下沉到 social。
+   - 两套方案可共存：同源请求不带 `Origin`，CORS 响应头不生效，因此后续补 B 不等于推翻 A，也不是二选一后无法回头。
+6. **social 的 API 前缀统一为 `/api/social/...`**：网关 `litisle-social` 路由（`application.yml` 68-71 行，`Path=/api/social/**`）已按此约定配置，文档跟代码对齐；代理期内旧 `/api/content/*` 仍指向 content。
+
+**估工复核（按上述口径重算，仅本次迁移范围）**
+
+| 阶段 | 原估（人天） | 复核（人天） | 变化依据 |
+| ---- | ------------ | ------------ | -------- |
+| 1. 抽公共能力（限流/可见性/幂等模板下沉） | 3-4 | 3-4 | 口径 1、4 不改变这部分范围 |
+| 2. social 建库与骨架 | 4-5 | 5-6 | 口径 4 要求一次做齐库、模块、Feign 契约、监控接入与开关，比原「骨架」多约 1 人天 |
+| 3. 双写 + 数据回填校验 | 5-6 | 5-6 | 双写与回填方案未变；绝对值回写契约已存在 |
+| 4. 双读对账与切读 | 4-5 | 6-8 | 口径 2 把窗口聚合移到 social 计算并按绝对值回写，同时把对账从本地 SQL join `favorite` 改为拉 social 批量计数接口，两处均需重写与联调，增加约 2-3 人天 |
+| 5. 切写 + 旧路径兼容转发 | 3-4 | 4-5 | 口径 3 增加弃用响应头、调用量指标、调用方 UA 记录与「连续 30 天零调用」判定，约多 1 人天；口径 6 只改路径命名，不额外计工 |
+| 6. 清理与文档收口 | 3-5 | 3-5 | 影子表终态删除写进验收项，工作量与原清理相当（原估算未按时间预留代理期，故不额外增加） |
+| **合计** | **22-29** | **26-34** | 净增 4-5 人天，集中在第 2、4、5 阶段 |
+
+> 不计入上表：关注/评论/私信（按口径 4 另批排期）；口径 5 已定分支 A，CORS 不产生额外工期（仅部署文档说明）；若未来满足条件转分支 B，另加约 0.5 人天（网关配置 + 预检/凭据联调）。
+
 #### 书籍阅读配套缺口（迁自 temp.md 阶段17，2026-10-28）
 
 阶段17 只交付三读端点（详情/章节列表/章节详情），以下配套未做：① 书籍发现入口——书籍列表/公开书籍列表/我的书籍页面缺失，现阶段书籍 ID 由前端已有入口或后续阶段提供（阶段16 收藏列表可作书籍 ID 来源之一）——✅ 已随 temp.md 批次5 落地（2026-10-28：GET /book/list 匿名 + GET /book/my 登录；③书籍搜索仍外部依赖），详见归档板块九「后续另立项」P2；② 章节级阅读足迹——reading_history 一行=该书最后阅读，章节级明细表待产品需要再立项；③ 书籍搜索——书籍标题/简介进搜索索引待 search 模块扩展。触发条件：①~~前端书籍发现页立项~~（已落地关闭）②产品要求章节足迹 / ③search 接入书籍索引。

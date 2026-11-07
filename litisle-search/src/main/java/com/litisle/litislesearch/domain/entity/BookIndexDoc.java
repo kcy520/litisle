@@ -13,6 +13,9 @@ import java.time.LocalDateTime;
  * 【说明】字段与 EsIndexInitializer#bookMapping 一一对应，同时承担读侧反序列化与
  * 批次五 B4 事件同步写入（键 = bookId）。
  * 【字段口径】批次五已补齐 authorId 映射，BookDocVO.authorId 由本字段解析回填。
+ * 【书籍点赞不入索引（批次十一 11.14）】本索引没有 likeCnt 字段，书籍点赞不发布社交事件、
+ * 不更新 book_idx；书籍卡片/排序所需的点赞数由 content 侧 book_stat.like_count 提供（11.2 已切读），
+ * 因此无需为点赞改动索引结构，也不存在搜索结果页书籍点赞数陈旧的问题。
  *
  * @author litisle
  */

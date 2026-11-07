@@ -34,4 +34,13 @@ public class FeedPageVO<T> implements Serializable {
 
     /** 快照是否已失效（true 表示服务端已重建快照，前端应清空列表重新渲染） */
     private boolean reset;
+
+    /**
+     * 降级标记（null=正常链路，非空表示本次走了降级分支）
+     * <p>取值见 {@link com.litisle.litislecontent.constant.FeedConstant}：
+     * redis-down（Redis 不可用实时一页）/ build-failed（建池失败实时一页）/
+     * last-good（上一代快照兜底）/ hot-empty（热度榜为空、最新兜底）。
+     * 前端可据此展示降级提示；服务端日志统一由 logDegrade 留痕。</p>
+     */
+    private String degraded;
 }

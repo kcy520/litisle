@@ -59,6 +59,14 @@ public class ReadingHistory implements Serializable {
     private Long chapterId;
 
     /**
+     * 累计阅读时长（毫秒）
+     * <p>批次十一 11.11 预留字段：本次只建列与实体映射，不写入、不统计；
+     * 等前端心跳方案（发送间隔/有效判定）确定后再接入聚合，避免先拍脑袋定口径。</p>
+     */
+    @TableField("duration_ms")
+    private Long durationMs;
+
+    /**
      * 更新时间
      * <p>on update current_timestamp，即最后阅读时间</p>
      */

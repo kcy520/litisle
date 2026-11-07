@@ -29,6 +29,17 @@ public interface HeatPendingService {
     void incrementLike(Long articleId);
 
     /**
+     * 按事件携带的 delta 累加点赞增量（批次十一 11.14）。
+     *
+     * <p>点赞事件 delta=+1、取消点赞事件 delta=-1，统一走本方法；
+     * 负数增量由刷写任务写回 article_idx 时做下限保护（不允许 likeCnt 减成负数）。</p>
+     *
+     * @param articleId 文章 ID
+     * @param delta     点赞增量（正负均可；0 表示无变化，直接跳过）
+     */
+    void applyLikeDelta(Long articleId, long delta);
+
+    /**
      * 评论增量 +1（累加到待刷新键的 comment_delta 字段）。
      *
      * @param articleId 被评论文章 ID

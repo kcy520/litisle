@@ -6,16 +6,20 @@ import com.litisle.commonredis.constant.CacheConstant;
 import com.litisle.commonredis.lock.DistributedLock;
 import com.litisle.commonredis.util.RedisUtil;
 import com.litisle.litislecontent.config.ContentProperties;
+import com.litisle.litislecontent.constant.ContentBizConstant;
 import com.litisle.litislecontent.domain.entity.Article;
+import com.litisle.litislecontent.domain.entity.ArticleStat;
+import com.litisle.litislecontent.domain.entity.ContentStatWindow;
 import com.litisle.litislecontent.enums.ArticleStatusEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.enums.ZoneEnum;
 import com.litisle.litislecontent.mapper.ArticleMapper;
+import com.litisle.litislecontent.mapper.ArticleStatMapper;
+import com.litisle.litislecontent.mapper.ContentStatWindowMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -32,14 +36,15 @@ import java.util.stream.Collectors;
 /**
  * 推荐流热度榜骨架（阶段13：热度榜方案定案，social 模块落地前仅预留，零调用零影响）：
  *
- * 当前实际生效的排序是：纯浏览量（PV）驱动的热度分倒序排序，但代码架构已经按“完整热度榜”设计好了，只是因为社交模块还没上线，暂时退化成了这样。
+ * 当前实际生效的排序：文章流与热度榜统一读 article_stat 真值打分（11.8 点赞已落地；评论链路未落地时按 0）。
  *
- * 【方案定位】/feed 排序由「时间倒序」升级为「热度分排序」，热度分公式（Hacker News 同款时间衰减）：
- *   score = (like_cnt × 点赞权重 + comment_cnt × 评论权重 + view_cnt × 浏览权重)
- *           / (发布小时数 + 小时偏移) ^ 衰减指数
- *   分母随发布时间增大——新文章分母小易冒头，旧文章自然沉底；权重外置 yml 可调。
+ * 【方案定位】/feed 排序由「时间倒序」升级为「热度分排序」。批次十一 11.10 起打分统一收口到
+ *   {@link FeedScoreSupport#computeArticleScore}：统计量读 article_stat（收藏/点赞/评论/浏览）+ 窗口收藏值，
+ *   逐统计量按统一平滑公式 (x+m*prior)/(x+m) 归一后按 yml 权重加权，热度榜与推荐流共用同一函数。
+ *   时间衰减由统一半衰期公式承担，不再保留 Hacker News 分母衰减——避免出现两套公式。
  *
- * 【当前状态】阶段14 已切流——like_cnt/comment_cnt 恒 0（social 未开发），公式退化为纯浏览量排序；
+ * 【当前状态】阶段14 已切流——评论链路未落地导致 article_stat.comment_count 暂为 0；点赞计数已于批次十一 11.8 落地。
+ *   article.like_cnt 只是详情展示/索引用的镜像列，排序真源是 article_stat（11.10 明确）。
  *   灌榜任务 FeedHotRankRefillJob 按 5min 周期编排（P1 增量优化 2026-10-28）：
  *   高频增量轮（默认 5min）按增量水位只捞 stat_update_time 变更文章重算 ZADD（DB 压力随变更量而非存量走），
  *   低频全量轮（默认 1h）全量重算兜底分数衰减收敛；/feed 优先读榜、榜空自动降级时间倒序直查。
@@ -52,7 +57,7 @@ import java.util.stream.Collectors;
  * 【social 落地后回收点（阶段14 D10/D11，已登记 docs/next/Temporarily_not_implemented.md）】
  *   ① 数据源：social 计数回写（ContentInternal#updateCounters）成功后触发该文章热度分
  *      增量重算（ZADD 单成员），消除 5min 全量灌榜滞后（updateCounters 已留 TODO 接线点）；
- *   ② 权重调参：真实互动数据进来后按效果调 likeWeight/commentWeight/viewWeight（yml 外置可调）。
+ *   ② 权重调参：真实互动数据进来后按效果调 article-weights（收藏/点赞/评论/浏览），yml 外置可调。
  *
  * @author litisle
  */
@@ -85,6 +90,15 @@ public class FeedHotRankSupport {
     /** 热度配置（权重/衰减参数外置 yml） */
     private final ContentProperties contentProperties;
 
+    /** 统一打分入口（批次十一 11.10：文章流与热度榜共用同一函数，禁止另算一套） */
+    private final FeedScoreSupport feedScoreSupport;
+
+    /** 文章统计 Mapper（排序真源 article_stat：收藏/点赞/评论/浏览，不读 article 冗余镜像列） */
+    private final ArticleStatMapper articleStatMapper;
+
+    /** 统计窗口 Mapper（文章收藏数优先取 30/90 天窗口值） */
+    private final ContentStatWindowMapper contentStatWindowMapper;
+
     /** 文章 Mapper（灌榜候选批量查询） */
     private final ArticleMapper articleMapper;
 
@@ -105,47 +119,15 @@ public class FeedHotRankSupport {
     });
 
     /**
-     * 计算单篇文章热度分（纯公式，无外部依赖，social 落地后可直接复用）
-     *
-     * 分子：互动热度（越大越好）
-     * 互动越多分越高，发得越早分越低。
-     * positive = 点赞 × 点赞权重
-     *          + 评论 × 评论权重
-     *          + 浏览 × 浏览权重
-     *
-     * ⚠️ 当前 social 未落地，`like_cnt/comment_cnt` 恒 0， 公式实际退化为“纯浏览量 + 时间衰减”排序 ，链路先行跑通。
-     * 
-     *分母：时间衰减（越久越小，但会让分数变低）
-     * hours = 当前时间 − 发布时间（小时）
-     * score = positive / (hours + 偏移) ^ 衰减指数
-     *
-     * @param viewCnt     浏览量（PV）
-     * @param likeCnt     点赞数（social 落地前恒 0）
-     * @param commentCnt  评论数（social 落地前恒 0）
-     * @param publishTime 发布时间
-     * @return 热度分（越大越靠前；发布越久衰减越重）
-     */
-    public double computeScore(long viewCnt, long likeCnt, long commentCnt, LocalDateTime publishTime) {
-        ContentProperties.Hot hot = contentProperties.getFeed().getHot();
-        // 分子：三类互动信号加权求和（浏览量权重远低于互动，防刷 PV 扰动排名）
-        double positive = likeCnt * hot.getLikeWeight()
-                + commentCnt * hot.getCommentWeight()
-                + viewCnt * hot.getViewWeight();
-        // 分母：发布小时数 + 偏移，再取衰减指数次幂（偏移防新文章分母趋 0 分数爆炸）
-        long hours = Math.max(Duration.between(publishTime, LocalDateTime.now()).toHours(), 0);
-        return positive / Math.pow(hours + hot.getHourOffset(), hot.getDecayExponent());
-    }
-
-    /**
      * 全量重算热度榜并写入 ZSet（由灌榜定时任务 FeedHotRankRefillJob 调用）
      *
      * 每隔一段时间，把全站“值得推荐”的文章重新算一遍热度分，选出 Top N，原子替换到 Redis 热度榜里，供 /feed 读取。
      *DB 查候选 → 逐篇算分 → 内存裁剪 Top N → 写影子键 → 原子换榜 → 重置 TTL
      *
      * 实现口径：
-     * ① 批量查 zone 1/2 + status=2 + visibility=1 + 未软删文章（含三冗余计数与发布时间）；
-     * ② 逐篇 computeScore，按分数倒序仅保留 top N 入榜——榜容量裁剪在内存完成
-     *    （替代 ZREMRANGEBYRANK，防 ZSet 无界增长的同时省一次 Redis 修剪往返）；
+     * ① 批量查 zone 1/2 + status=2 + visibility=1 + 未软删文章（只取 id/发布时间，统计量另读 article_stat 真源）；
+     * ② 逐篇统一打分（{@link FeedScoreSupport#computeArticleScore}），按分数倒序仅保留 top N 入榜——
+     *    榜容量裁剪在内存完成（替代 ZREMRANGEBYRANK，防 ZSet 无界增长的同时省一次 Redis 修剪往返）；
      * ③ 先写影子键（staging）再 rename 原子换榜——灌榜期间读方无空榜窗口，
      *    全量重算覆盖旧分，已下架/转私密文章自然不写=出榜；
      * ④ 换榜后重置 TTL：任务连续异常死亡超期后榜自动过期，/feed 降级时间倒序兜底。
@@ -158,7 +140,7 @@ public class FeedHotRankSupport {
         if (articles.isEmpty()) {
             return 0;
         }
-        // 步骤2：批量算分（social 未开发 like/comment 恒 0，公式暂退化为纯浏览量）并倒序保留 top N
+        // 步骤2：批量算分（统计量读 article_stat 真值 + 窗口收藏值，与推荐流共用同一打分函数）并倒序保留 top N
         ContentProperties.Hot hot = contentProperties.getFeed().getHot();
         Map<Object, Double> top = computeScores(articles).entrySet().stream()
                 .sorted(Map.Entry.<Object, Double>comparingByValue().reversed())
@@ -264,6 +246,7 @@ public class FeedHotRankSupport {
                 log.warn("热度榜增量灌榜失败（ZADD 异常，水位保留下轮重捞）：changed={}", changed.size());
                 return 0;
             }
+            //榜容量裁剪，只保留top N
             trimToTopN();
         } 
         // 步骤4：水位前推为本轮时刻（空变更也要推，防同刻永久重捞）+ 榜 TTL 续期（任务活着榜不过期）
@@ -293,8 +276,10 @@ public class FeedHotRankSupport {
     }
 
     /**
-     * 组装榜候选基础查询条件（全量/增量共用）：zone 1/2 + 已发布 + 公开 + 未软删，
-     * 只取算分所需列（id/三冗余计数/发布时间，不带正文大字段）
+     * 组装榜候选基础查询条件（全量/增量共用）：zone 1/2 + 已发布 + 公开 + 未软删。
+     *
+     * <p>只取 id 与发布时间：浏览/点赞/评论/收藏四类统计量一律改读 article_stat 真源
+     * （批次十一 11.10），候选查询不再携带 article 上的冗余计数列，避免出现第二个真源。</p>
      *
      * @return 基础条件 wrapper（调用方追加水位等专属条件）
      */
@@ -304,31 +289,64 @@ public class FeedHotRankSupport {
                 .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)
                 .eq(Article::getVisibility, VisibilityEnum.PUBLIC)
                 .eq(Article::getDelFlag, DelFlag.NOT_DELETED)
-                .select(Article::getId, Article::getViewCnt, Article::getLikeCnt,
-                        Article::getCommentCnt, Article::getCreateTime);
+                .select(Article::getId, Article::getCreateTime);
     }
 
     /**
-     * 批量算分（全量/增量共用）：逐篇 computeScore，成员统一字符串化文章ID
-     * （灌榜以字符串写入，兼容各序列化器回读类型差异，与 topArticleIds 解析口径一致）
+     * 批量算分（全量/增量共用）：统计量读 article_stat 真值 + 窗口收藏值，
+     * 统一调用 {@link FeedScoreSupport#computeArticleScore}——与推荐流排序同一函数，禁止另算一套。
+     *
+     * <p>热度榜没有用户画像，分区/分类偏好命中传 0；推荐流按画像传入实际命中值，
+     * 两家只有在「候选范围」和「画像命中」上不同，打分公式完全共用。</p>
      *
      * @param articles 候选文章列表
-     * @return ZSet 成员→分数映射
+     * @return ZSet 成员→分数映射（成员统一字符串化文章ID，兼容各序列化器回读类型差异）
      */
     private Map<Object, Double> computeScores(List<Article> articles) {
-        Map<Long, Double> all = new HashMap<>(articles.size());
+        // 步骤1：批量取文章统计真源（一次 IN 查询；缺失统计行按 0 计）
+        List<Long> articleIds = articles.stream().map(Article::getId).toList();
+        Map<Long, ArticleStat> statMap = articleStatMapper.selectBatchIds(articleIds).stream()
+                .collect(Collectors.toMap(ArticleStat::getArticleId, stat -> stat, (a, b) -> a));
+        // 步骤2：批量取 30/90 天窗口行（窗口未开启/未计算时返回空映射，自动回退累计值）
+        Map<Long, Map<Integer, ContentStatWindow>> windowMap = loadWindows(articleIds);
+        ContentProperties.Window windowConfig = contentProperties.getStat().getWindow();
+        // 步骤3：逐篇统一打分，写回字符串化 ID
+        Map<Object, Double> scores = new HashMap<>(articles.size());
         for (Article article : articles) {
-            double score = computeScore(
-                    article.getViewCnt() == null ? 0 : article.getViewCnt(),
-                    article.getLikeCnt() == null ? 0 : article.getLikeCnt(),
-                    article.getCommentCnt() == null ? 0 : article.getCommentCnt(),
-                    article.getCreateTime());
-            all.put(article.getId(), score);
+            ArticleStat stat = statMap.get(article.getId());
+            // 收藏数兜底值：窗口缺失时用 article_stat 累计收藏数
+            long fallbackCollect = stat == null || stat.getCollectCount() == null ? 0L : stat.getCollectCount();
+            // 收藏数：优先窗口值，缺失回退累计值
+            long collectCount = feedScoreSupport.resolveWindowCount(
+                    windowMap, article.getId(), windowConfig, true, fallbackCollect);
+            // 统一打分（无画像场景：分区/分类偏好命中均为 0）
+            double score = feedScoreSupport.computeArticleScore(
+                    stat, collectCount, article.getCreateTime(), 0.0, 0.0);
+            scores.put(String.valueOf(article.getId()), score);
         }
-        return all.entrySet().stream()
-                .collect(Collectors.toMap(
-                        entry -> (Object) String.valueOf(entry.getKey()), Map.Entry::getValue,
-                        (a, b) -> a));
+        return scores;
+    }
+
+    /**
+     * 批量加载文章统计窗口行。
+     *
+     * <p>窗口功能关闭或入参为空时返回空映射，调用方自动回退 article_stat 累计值；
+     * 查询使用短/长两个窗口天数，由 resolveWindowCount 决定取哪个。</p>
+     *
+     * @param articleIds 文章 ID 集合
+     * @return 文章 ID →（窗口天数 → 窗口行）
+     */
+    private Map<Long, Map<Integer, ContentStatWindow>> loadWindows(List<Long> articleIds) {
+        ContentProperties.Window windowConfig = contentProperties.getStat().getWindow();
+        if (!windowConfig.isEnabled() || articleIds.isEmpty()) {
+            return Map.of();
+        }
+        List<ContentStatWindow> rows = contentStatWindowMapper.selectByTargets(
+                ContentBizConstant.STAT_WINDOW_TARGET_ARTICLE, articleIds,
+                List.of(windowConfig.getShortDays(), windowConfig.getLongDays()));
+        return rows.stream().collect(Collectors.groupingBy(
+                ContentStatWindow::getTargetId,
+                Collectors.toMap(ContentStatWindow::getWindowDays, row -> row, (a, b) -> a)));
     }
 
     /**

@@ -6,6 +6,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.result.PageResult;
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonredis.ratelimit.RateLimiter;
+import com.litisle.litislecontent.constant.FeedConstant;
 import com.litisle.litislecontent.domain.dto.BookChapterQueryDTO;
 import com.litisle.litislecontent.domain.dto.BookChapterReorderDTO;
 import com.litisle.litislecontent.domain.dto.BookMyQueryDTO;
@@ -19,6 +20,7 @@ import com.litisle.litislecontent.domain.vo.BookDetailVO;
 import com.litisle.litislecontent.service.BookService;
 import com.litisle.litislecontent.service.support.BookReadSupport;
 import com.litisle.litislecontent.service.support.ClientIpSupport;
+import com.litisle.litislecontent.service.support.FeedExposureSupport;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -66,6 +68,9 @@ public class BookController {
 
     /** 客户端 IP 解析组件（章节详情匿名浏览去重基准，与文章详情共用收口，阶段17） */
     private final ClientIpSupport clientIpSupport;
+
+    /** 曝光/点击归因支撑（批次十一 11.6：书籍流详情带 from=feed + snapshotId 时回写点击） */
+    private final FeedExposureSupport feedExposureSupport;
 
     /** 创建书籍（默认 status=0 连载中） */
     @Operation(summary = "创建书籍")
@@ -161,13 +166,33 @@ public class BookController {
      * 书籍详情（可选登录，阶段17）。
      * <p>匿名可读公开书籍；登录时回填上次阅读（章节当前可见才返回）与收藏状态；
      * 全量目录不在此返回，章节走分页接口（大书目录一次取全成本高）</p>
+     *
+     * <p>批次十一 11.6 点击归因：书籍流卡片跳转详情时带 {@code from=feed} + {@code snapshotId} 计点击；
+     * {@code position} 可选，服务端不参与计数。</p>
+     *
+     * @param id         书籍 ID
+     * @param from       归因来源（feed=推荐流）
+     * @param snapshotId 快照代次（归因必带，仅校验不落库）
+     * @param position   卡片位置（可选，仅前端使用）
+     * @param request    HTTP 请求（匿名点击时读取 X-Anon-Id）
+     * @return 书籍详情
      */
-    @Operation(summary = "书籍详情", description = "匿名可读；登录带上次阅读（继续阅读）与收藏状态")
+    @Operation(summary = "书籍详情", description = "匿名可读；登录带上次阅读（继续阅读）与收藏状态；from=feed&snapshotId 计推荐点击")
     @GetMapping("/{id}")
-    public Result<BookDetailVO> detail(@PathVariable("id") Long id) {
+    public Result<BookDetailVO> detail(@PathVariable("id") Long id,
+                                       @RequestParam(required = false) String from,
+                                       @RequestParam(required = false) String snapshotId,
+                                       @RequestParam(required = false) Integer position,
+                                       HttpServletRequest request) {
         // 匿名可读：未登录 viewerId 传 null（可见性按匿名口径计算）
         Long viewerId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
-        return Result.success(bookService.getDetail(id, viewerId));
+        BookDetailVO detail = bookService.getDetail(id, viewerId);
+        // 批次十一 11.6：详情可见性判定通过后才计推荐流点击；失败/参数不齐由 Support 内部收口
+        if (detail != null) {
+            feedExposureSupport.recordClick(FeedConstant.STREAM_BOOK, id, viewerId,
+                    request.getHeader(FeedConstant.ANON_ID_HEADER), from, snapshotId);
+        }
+        return Result.success(detail);
     }
 
     /**

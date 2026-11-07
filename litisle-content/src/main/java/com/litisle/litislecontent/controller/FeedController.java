@@ -6,12 +6,14 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonredis.ratelimit.RateLimiter;
 import com.litisle.litislecontent.constant.FeedConstant;
+import com.litisle.litislecontent.domain.dto.FeedFeedbackDTO;
 import com.litisle.litislecontent.domain.dto.FeedQuery;
 import com.litisle.litislecontent.domain.vo.BookFeedItemVO;
 import com.litisle.litislecontent.domain.vo.FeedItemVO;
 import com.litisle.litislecontent.domain.vo.FeedPageVO;
 import com.litisle.litislecontent.enums.ZoneEnum;
 import com.litisle.litislecontent.service.FeedService;
+import com.litisle.litislecontent.service.FeedFeedbackService;
 import com.litisle.litislecontent.service.FeedStreamService;
 import com.litisle.litislecontent.support.FeedRateLimitSupport;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +35,8 @@ import static com.litisle.litislecontent.constant.ContentLimitConstant.*;
  * | GET  | /feed | 推荐流（缓存三防 + 展示前回查剔除）    | 登录 |
  * | GET  | /feed/articles | 文章流（游标无限刷，个性化）    | 登录 + 匿名 |
  * | GET  | /feed/books    | 书籍流（游标无限刷，个性化）    | 登录 + 匿名 |
+ * | POST | /feed/feedback | 提交负反馈（内容/作者/分类）     | 登录 |
+ * | DELETE | /feed/feedback | 撤销负反馈（幂等）            | 登录 |
  */
 @Tag(name = "内容服务-推荐流", description = "推荐流分页（预计算推荐链路，zone 1/2 聚合视图）")
 @RestController
@@ -48,6 +52,9 @@ public class FeedController {
 
     /** 推荐流频控（登录按 USER 60/60s、匿名按 IP 20/60s，运行时按身份切换维度） */
     private final FeedRateLimitSupport feedRateLimitSupport;
+
+    /** 负反馈服务（批次十一 11.11：不感兴趣/屏蔽作者/屏蔽分类，必须登录） */
+    private final FeedFeedbackService feedFeedbackService;
 
     /**
      * 推荐流分页（缓存 TTL/分页大小外置 yml；渲染前回查防下架残留曝光）
@@ -133,6 +140,44 @@ public class FeedController {
                 .setPageSize(pageSize);
 
         return Result.success(feedStreamService.feedBooks(query));
+    }
+
+    /**
+     * 提交负反馈（批次十一 11.11）：不感兴趣（单条内容）、屏蔽作者、屏蔽分类。
+     *
+     * <p>必须登录：匿名没有稳定身份，无法做长期屏蔽（登录用户按 userId 维度生效）。
+     * 提交幂等：重复提交不会产生重复行。频控 20/60s（登录用户维度）。</p>
+     *
+     * @param dto 反馈入参（类型/流/目标）
+     * @return 空结果（成功即返回）
+     */
+    @Operation(summary = "提交负反馈", description = "登录；不感兴趣/屏蔽作者/屏蔽分类；幂等；20/60s")
+    @RateLimiter(time = LIMIT_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = FEEDBACK_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
+    @SaCheckLogin
+    @PostMapping("/feedback")
+    public Result<Void> submitFeedback(@RequestBody FeedFeedbackDTO dto) {
+        feedFeedbackService.submit(StpUtil.getLoginIdAsLong(), dto);
+        return Result.success();
+    }
+
+    /**
+     * 撤销负反馈（批次十一 11.11）：按相同类型/流/目标删除，本来不存在也按成功处理。
+     *
+     * <p>之所以提供撤销：误点或改变主意很常见，撤销成本仅一条 DELETE；
+     * 是否长期生效由 30 天屏蔽时间窗控制，撤销后下一次刷新生效。</p>
+     *
+     * @param dto 反馈入参（类型/流/目标）
+     * @return 空结果（成功即返回）
+     */
+    @Operation(summary = "撤销负反馈", description = "登录；按目标删除；幂等；20/60s")
+    @RateLimiter(time = LIMIT_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = FEEDBACK_MAX_COUNT, keyType = RateLimiter.KeyType.USER)
+    @SaCheckLogin
+    @DeleteMapping("/feedback")
+    public Result<Void> cancelFeedback(@RequestBody FeedFeedbackDTO dto) {
+        feedFeedbackService.cancel(StpUtil.getLoginIdAsLong(), dto);
+        return Result.success();
     }
 
     /**

@@ -65,7 +65,21 @@ public class HeatPendingServiceImpl implements HeatPendingService {
      */
     @Override
     public void incrementLike(Long articleId) {
-        increment(articleId, SearchBizConstant.HEAT_PENDING_FIELD_LIKE);
+        increment(articleId, SearchBizConstant.HEAT_PENDING_FIELD_LIKE, COUNTER_STEP);
+    }
+
+    /**
+     * 按事件 delta 累加点赞增量（批次十一 11.14：点赞 +1、取消点赞 -1）。
+     *
+     * @param articleId 文章 ID
+     * @param delta     点赞增量（0 直接跳过，避免无意义写 Redis）
+     */
+    @Override
+    public void applyLikeDelta(Long articleId, long delta) {
+        if (delta == 0) {
+            return;
+        }
+        increment(articleId, SearchBizConstant.HEAT_PENDING_FIELD_LIKE, delta);
     }
 
     /**
@@ -75,7 +89,7 @@ public class HeatPendingServiceImpl implements HeatPendingService {
      */
     @Override
     public void incrementComment(Long articleId) {
-        increment(articleId, SearchBizConstant.HEAT_PENDING_FIELD_COMMENT);
+        increment(articleId, SearchBizConstant.HEAT_PENDING_FIELD_COMMENT, COUNTER_STEP);
     }
 
     /**
@@ -178,16 +192,17 @@ public class HeatPendingServiceImpl implements HeatPendingService {
     }
 
     /**
-     * 计数类字段自增（点赞/评论共用）。
+     * 计数类字段自增（点赞/评论共用，支持正负步长）。
      *
      * @param articleId 文章 ID
      * @param field     Hash 字段名（like_delta / comment_delta）
+     * @param step      增量步长（点赞 +1、取消点赞 -1、评论 +1）
      */
-    private void increment(Long articleId, String field) {
+    private void increment(Long articleId, String field, long step) {
         String key = buildKey(articleId);
         try {
-            // HINCRBY：字段不存在时按 0 起算，天然支持首次累加
-            stringRedisTemplate.opsForHash().increment(key, field, COUNTER_STEP);
+            // HINCRBY：字段不存在时按 0 起算，天然支持首次累加；负数步长即递减
+            stringRedisTemplate.opsForHash().increment(key, field, step);
             refreshTtl(key);
         } catch (Exception e) {
             // 同上：可恢复故障交由消费端重试，绝不静默吞掉（否则热度只少不多）

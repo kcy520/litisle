@@ -4,14 +4,18 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.litislecontent.config.ContentProperties;
+import com.litisle.litislecontent.constant.ContentBizConstant;
 import com.litisle.litislecontent.constant.FeedConstant;
 import com.litisle.litislecontent.domain.dto.FeedProfile;
+import com.litisle.litislecontent.domain.dto.FeedFeedbackExclusions;
 import com.litisle.litislecontent.domain.dto.FeedQuery;
 import com.litisle.litislecontent.domain.dto.FeedSnapshot;
 import com.litisle.litislecontent.domain.dto.FeedSnapshotItem;
-import com.litisle.litislecontent.domain.dto.IdCountDTO;
 import com.litisle.litislecontent.domain.entity.Article;
+import com.litisle.litislecontent.domain.entity.ArticleStat;
 import com.litisle.litislecontent.domain.entity.Book;
+import com.litisle.litislecontent.domain.entity.BookStat;
+import com.litisle.litislecontent.domain.entity.ContentStatWindow;
 import com.litisle.litislecontent.domain.vo.BookFeedItemVO;
 import com.litisle.litislecontent.domain.vo.FeedItemVO;
 import com.litisle.litislecontent.domain.vo.FeedPageVO;
@@ -20,13 +24,17 @@ import com.litisle.litislecontent.enums.ArticleStatusEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.enums.ZoneEnum;
 import com.litisle.litislecontent.mapper.ArticleMapper;
-import com.litisle.litislecontent.mapper.BookChapterMapper;
+import com.litisle.litislecontent.mapper.ArticleStatMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
-import com.litisle.litislecontent.mapper.FavoriteMapper;
-import com.litisle.litislecontent.mapper.ReadingHistoryMapper;
+import com.litisle.litislecontent.mapper.BookStatMapper;
+import com.litisle.litislecontent.mapper.ContentStatWindowMapper;
+import com.litisle.litislecontent.metrics.ContentMetrics;
 import com.litisle.litislecontent.service.FeedStreamService;
+import com.litisle.litislecontent.service.support.FeedExposureSupport;
+import com.litisle.litislecontent.service.support.FeedFeedbackSupport;
 import com.litisle.litislecontent.service.support.FeedHotRankSupport;
 import com.litisle.litislecontent.service.support.FeedProfileSupport;
+import com.litisle.litislecontent.service.support.FeedScoreSupport;
 import com.litisle.litislecontent.service.support.FeedSnapshotSupport;
 import com.litisle.litislecontent.support.FeedItemAssembler;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +42,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -53,12 +60,21 @@ import java.util.stream.Collectors;
 /**
  * 推荐流服务实现（批次十 10.3 文章流 + 10.4 书籍流）
  *
- * <p>文章流：四路召回（最热/最新/常看分区/常看分类）→ 四项融合打分 → 探索位与打散 →
+ * <p>文章流：四路召回（最热/最新/常看分区/常看分类）→ 融合打分 → 探索位与打散 →
  * 300 条快照落 Redis → cursor 偏移切片 → 翻到底自动生成下一代快照。
- * 当日曝光用 Redis Set 硬去重；已读只降权不剔除；Redis 不可用时降级为实时计算一页。</p>
+ * 当日曝光用 Redis Set 硬去重；已读只降权不剔除。</p>
+ *
+ * <p>打分口径（批次十一 11.10）：文章与书籍统一调用 {@link FeedScoreSupport}，
+ * 与热度榜共用同一套公式与 yml 参数；统计量读 article_stat / book_stat 真源，
+ * article.like_cnt 等冗余列只作展示镜像，不参与排序。</p>
  *
  * <p>书籍流：按用户分类偏好召回（不参与 zone）→ 收藏/阅读/新鲜度/完结偏好四权重
- * （两个计数先 log1p 归一化）→ 新书 7 天保底曝光 → 同一套快照分页。</p>
+ * （收藏/阅读优先取 content_stat_window 的 30 天窗口值、缺失时回退累计值，再做统一平滑，
+ * 平滑与候选池无关，同参数口径见 {@link FeedScoreSupport}）→ 新书 7 天保底曝光 → 同一套快照分页。</p>
+ *
+ * <p>批次十 10.5/10.6 收口：画像带 Redis 缓存与冷启动探索位；曝光在切片阶段二次过滤
+ * （建池后到切片前可能已被曝光）；降级顺序统一为「last-good 快照 → 实时计算一页」，
+ * 热度榜为空时用「最新」单独兜底，所有降级分支经 {@link #logDegrade} 留痕并回填 degraded 标记。</p>
  *
  * @author litisle
  */
@@ -73,17 +89,20 @@ public class FeedStreamServiceImpl implements FeedStreamService {
     /** 书籍 Mapper（书籍流召回 / 展示前门控回查） */
     private final BookMapper bookMapper;
 
-    /** 收藏 Mapper（书籍收藏数聚合） */
-    private final FavoriteMapper favoriteMapper;
+    /** 文章统计 Mapper（批次十一 11.2：排序与卡片计数统一读 article_stat） */
+    private final ArticleStatMapper articleStatMapper;
 
-    /** 阅读历史 Mapper（书籍阅读人数聚合） */
-    private final ReadingHistoryMapper readingHistoryMapper;
+    /** 书籍统计 Mapper（批次十一 11.2：排序与卡片计数统一读 book_stat） */
+    private final BookStatMapper bookStatMapper;
 
-    /** 章节 Mapper（书籍章节数聚合） */
-    private final BookChapterMapper bookChapterMapper;
+    /** 统计窗口 Mapper（批次十一 11.3：收藏/阅读 30/90 天窗口值批量读取，翻页不聚合源表） */
+    private final ContentStatWindowMapper contentStatWindowMapper;
 
-    /** 热度榜支撑（最热召回复用 topArticleIds，打分复用 computeScore） */
+    /** 热度榜支撑（最热召回只复用 topArticleIds 取榜；打分改由 FeedScoreSupport 统一） */
     private final FeedHotRankSupport feedHotRankSupport;
+
+    /** 统一打分入口（批次十一 11.10：文章/书籍排序与热度榜共用同一公式，禁止另算一套） */
+    private final FeedScoreSupport feedScoreSupport;
 
     /** 用户画像聚合（reading_history 分区/分类偏好） */
     private final FeedProfileSupport feedProfileSupport;
@@ -91,8 +110,17 @@ public class FeedStreamServiceImpl implements FeedStreamService {
     /** 快照/曝光/种子存储 */
     private final FeedSnapshotSupport feedSnapshotSupport;
 
+    /** 曝光/点击日聚合写入（批次十一 11.6：切片曝光批量落库，失败只告警不阻断翻页） */
+    private final FeedExposureSupport feedExposureSupport;
+
+    /** 负反馈名单读取（批次十一 11.11：建池过滤内容/作者/分类，切片过滤单条内容） */
+    private final FeedFeedbackSupport feedFeedbackSupport;
+
     /** 推荐流配置（分页、召回池、权重、TTL、配额） */
     private final ContentProperties contentProperties;
+
+    /** 推荐流观测指标（降级/快照创建打点；MeterRegistry 未装配时静默空转） */
+    private final ContentMetrics contentMetrics;
 
     // ==================== 文章流（10.3） ====================
 
@@ -119,10 +147,19 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         // 游标解析结果（偏移 + 是否需要前端重置）
         CursorState cursorState = resolveCursor(query);
 
-        // 步骤4：Redis 不可用 → 降级：实时计算一页后直接返回，不落池（不在降级里算 300 条）
+        // 步骤4：Redis 不可用 → 先取 last-good 快照兜底，没有再实时计算一页
         if (!feedSnapshotSupport.isRedisAvailable()) {
-            log.warn("推荐流降级（Redis 不可用，实时计算首页不落池）：stream=article, scope={}", scope);
-            return realtimeArticlePage(query, pageSize, cursorState);
+            // last-good 此时来自本实例内存副本（Redis 不可用时唯一可用来源）
+            FeedSnapshot lastGood = feedSnapshotSupport.readLastGood(scope);
+            if (lastGood != null) {
+                logDegrade(FeedConstant.DEGRADED_LAST_GOOD, FeedConstant.STREAM_ARTICLE, scope,
+                        "Redis 不可用，返回 last-good 快照");
+                // 兜底页同样带入当前用户，供负反馈过滤（屏蔽作者/分类不得借降级路径放出）
+                return lastGoodArticlePage(lastGood, pageSize, cursorState, query.getUserId());
+            }
+            logDegrade(FeedConstant.DEGRADED_REDIS_DOWN, FeedConstant.STREAM_ARTICLE, scope,
+                    "Redis 不可用且无 last-good，实时计算一页");
+            return realtimeArticlePage(query, pageSize, cursorState, FeedConstant.DEGRADED_REDIS_DOWN);
         }
 
         // 步骤5：读快照（失效要求前端重置；翻到底则生成下一代快照续刷）
@@ -142,16 +179,35 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         if (snapshot == null) {
             snapshot = buildArticleSnapshot(query, identity, scope, stream);
             if (snapshot == null) {
-                // 建池失败（Redis 写入异常）：与不可用同口径降级
-                log.warn("推荐流快照生成失败（降级为实时首页）：stream=article, scope={}", scope);
-                return realtimeArticlePage(query, pageSize, cursorState);
+                // 建池失败（代次生成/写入异常）：先 last-good，再退实时一页
+                FeedSnapshot lastGood = feedSnapshotSupport.readLastGood(scope);
+                if (lastGood != null) {
+                    logDegrade(FeedConstant.DEGRADED_LAST_GOOD, FeedConstant.STREAM_ARTICLE, scope,
+                            "快照建池失败，返回 last-good 快照");
+                    // 兜底页同样带入当前用户，供负反馈过滤
+                    return lastGoodArticlePage(lastGood, pageSize, cursorState, query.getUserId());
+                }
+                logDegrade(FeedConstant.DEGRADED_BUILD_FAILED, FeedConstant.STREAM_ARTICLE, scope,
+                        "快照建池失败且无 last-good，实时计算一页");
+                return realtimeArticlePage(query, pageSize, cursorState, FeedConstant.DEGRADED_BUILD_FAILED);
             }
             // 新快照从头部开始切片（reset 语义沿用：失效时为 true，续池时为 false）
             cursorState = new CursorState(FeedConstant.CURSOR_START_OFFSET, cursorState.isReset());
         }
 
-        // 步骤7：切片 + 展示前回查 + 曝光写入
-        return sliceArticlePage(snapshot, cursorState, pageSize, identity, stream);
+        // 步骤6.1：空池兜底（热度榜空、最新也为空）→ 优先 last-good，避免返回空列表
+        if (snapshot.getItems().isEmpty()) {
+            FeedSnapshot lastGood = feedSnapshotSupport.readLastGood(scope);
+            if (lastGood != null) {
+                logDegrade(FeedConstant.DEGRADED_LAST_GOOD, FeedConstant.STREAM_ARTICLE, scope,
+                        "快照为空，返回 last-good 快照");
+                // 兜底页同样带入当前用户，供负反馈过滤
+                return lastGoodArticlePage(lastGood, pageSize, cursorState, query.getUserId());
+            }
+        }
+
+        // 步骤7：切片 + 展示前回查 + 曝光写入（切片阶段再做一次曝光过滤）
+        return sliceArticlePage(snapshot, cursorState, pageSize, identity, stream, query.getUserId());
     }
 
     /**
@@ -165,8 +221,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      */
     private FeedSnapshot buildArticleSnapshot(FeedQuery query, String identity, String scope,
                                               ContentProperties.Stream stream) {
-        // 用户画像（匿名/无行为数据 → coldStart=true，两路个性化退化全局）
-        FeedProfile profile = feedProfileSupport.load(query.getUserId());
+        // 用户画像（匿名/无行为数据 → coldStart=true，两路个性化退化全局；10.5 走 Redis 缓存）
+        FeedProfile profile = feedProfileSupport.load(query);
         // 每路召回条数
         int perPath = stream.getRecallLimitPerPath();
         // 候选池（LinkedHashMap 去重，同一文章多路命中只保留一份）
@@ -174,12 +230,21 @@ public class FeedStreamServiceImpl implements FeedStreamService {
 
         // 路1：最热（复用现有热度榜 ZSet，不另建热度计算）
         List<Long> hotIds = feedHotRankSupport.topArticleIds(1, perPath);
+        // 热度榜为空标记：榜空时改由「最新」单独兜底，并把最新召回量放大到整池
+        boolean hotEmpty = hotIds.isEmpty();
+        // 最新路召回条数：榜空时放大到池容量，避免只靠 perPath 条最新内容撑不起长刷
+        int latestLimit = hotEmpty ? stream.getPoolSize() : perPath;
+        if (hotEmpty) {
+            // 榜空属于降级分支：统一留痕，并随快照落 degraded 标记
+            logDegrade(FeedConstant.DEGRADED_HOT_EMPTY, FeedConstant.STREAM_ARTICLE, scope,
+                    "热度榜为空，最新单独兜底（latestLimit=" + latestLimit + "）");
+        }
         if (!hotIds.isEmpty()) {
             loadArticlesByIds(hotIds).forEach(article -> candidates.putIfAbsent(article.getId(), article));
         }
 
-        // 路2：最新（按 create_time 倒序，走 idx_create_time）
-        articleMapper.selectList(Page.of(1, perPath, false), articleGate())
+        // 路2：最新（按 create_time 倒序，走 idx_create_time；榜空时条数放大到池容量）
+        articleMapper.selectList(Page.of(1, latestLimit, false), articleGate())
                 .forEach(article -> candidates.putIfAbsent(article.getId(), article));
 
         // 路3/路4：常看分区 / 常看分类（无画像时跳过，两路个性化退化为全局热门+最新）
@@ -203,6 +268,22 @@ public class FeedStreamServiceImpl implements FeedStreamService {
             candidates.entrySet().removeIf(entry -> entry.getValue().getZone() != query.getZone());
         }
 
+        // 批次十一 11.11：建池阶段过滤负反馈名单（内容/作者/分类三类都在这里生效）
+        // 名单按「用户 + 流」缓存；匿名用户返回空名单，不做长期屏蔽
+        FeedFeedbackExclusions feedback = feedFeedbackSupport.loadExclusions(
+                query.getUserId(), FeedConstant.STREAM_ARTICLE);
+        if (!feedback.isEmpty()) {
+            candidates.entrySet().removeIf(entry -> {
+                // 当前候选文章
+                Article article = entry.getValue();
+                // 命中任一屏蔽维度即从候选池剔除（不进入打分，也不会进入后续快照）
+                return feedback.getContentIds().contains(article.getId())
+                        || feedback.getAuthorIds().contains(article.getAuthorId())
+                        || (article.getCategory() != null
+                        && feedback.getCategories().contains(article.getCategory().getName()));
+            });
+        }
+
         // 当日曝光硬去重：已曝光的不再进池（已读降权走打分，不在此剔除）
         Set<Long> exposed = feedSnapshotSupport.loadTodayExposed(FeedConstant.STREAM_ARTICLE, identity);
         if (!exposed.isEmpty()) {
@@ -222,8 +303,12 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         FeedSnapshot snapshot = new FeedSnapshot()
                 .setSnapshotId(snapshotId)
                 .setSeed(seed)
-                .setItems(items);
+                .setItems(items)
+                // 热度榜为空的降级标记随快照落库，续页返回体也能识别同一代快照的降级态
+                .setDegraded(hotEmpty ? FeedConstant.DEGRADED_HOT_EMPTY : null);
         feedSnapshotSupport.writeSnapshot(scope, snapshot);
+        // 快照创建指标：cold_start 维度来自本次画像，便于区分新用户与老用户建池量
+        contentMetrics.recordFeedSnapshotCreated(FeedConstant.STREAM_ARTICLE, profile.isColdStart());
         return snapshot;
     }
 
@@ -242,36 +327,33 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         if (candidates.isEmpty()) {
             return new ArrayList<>();
         }
-        // 热度原始分：直接复用 FeedHotRankSupport 的公式（social 未落地时等价于浏览量+时间衰减）
-        Map<Long, Double> rawHeat = new HashMap<>(candidates.size());
-        double minHeat = Double.MAX_VALUE;
-        double maxHeat = -Double.MAX_VALUE;
-        for (Article article : candidates.values()) {
-            // 计数可空（历史数据），空值按 0 参与公式
-            double heat = feedHotRankSupport.computeScore(
-                    article.getViewCnt() == null ? 0L : article.getViewCnt(),
-                    article.getLikeCnt() == null ? 0L : article.getLikeCnt(),
-                    article.getCommentCnt() == null ? 0L : article.getCommentCnt(),
-                    article.getCreateTime() == null ? LocalDateTime.now() : article.getCreateTime());
-            rawHeat.put(article.getId(), heat);
-            minHeat = Math.min(minHeat, heat);
-            maxHeat = Math.max(maxHeat, heat);
-        }
+        // 批次十一 11.2：计数统一读 article_stat，按 ID 集合一次批量查询覆盖整个候选池
+        // （不逐条查，也不再读 article 表上的镜像计数字段）；统计行缺失按 0
+        Map<Long, ArticleStat> statById = loadArticleStats(candidates.keySet());
+        // 批次十一 11.10：文章收藏数优先读 30/90 天窗口值，缺失回退 article_stat 累计值
+        ContentProperties.Window windowConfig = contentProperties.getStat().getWindow();
+        // 窗口行：整池一次批量取回两档窗口（窗口任务未覆盖时 Map 为空，读侧自动回退累计值）
+        Map<Long, Map<Integer, ContentStatWindow>> windowById = loadWindowStats(
+                ContentBizConstant.STAT_WINDOW_TARGET_ARTICLE, candidates.keySet(),
+                windowConfig.getShortDays(), windowConfig.getLongDays());
 
-        // 逐篇算四项加权分
+        // 逐篇算分：统一调用 FeedScoreSupport（与热度榜同一函数，禁止另算一套）
         List<FeedSnapshotItem> scored = new ArrayList<>(candidates.size());
         for (Article article : candidates.values()) {
-            double heatNorm = normalize(rawHeat.get(article.getId()), minHeat, maxHeat);
-            double freshScore = freshScore(article.getCreateTime(), stream.getFreshHalfLifeHours());
+            // 统计行缺失（新文章尚无互动）按 0 参与公式
+            ArticleStat stat = statById.get(article.getId());
+            // 收藏数兜底值：窗口缺失时用 article_stat 累计收藏数
+            long fallbackCollect = stat == null || stat.getCollectCount() == null ? 0L : stat.getCollectCount();
+            // 收藏数：优先窗口值，缺失回退累计值
+            long collectCount = feedScoreSupport.resolveWindowCount(
+                    windowById, article.getId(), windowConfig, true, fallbackCollect);
             // 分区匹配：命中用户常看分区记 1，否则 0（冷启动画像为空集合，自然为 0）
             double zoneMatch = profile.getPreferredZones().contains(article.getZone()) ? 1.0 : 0.0;
             // 分类匹配：命中用户常看分类记 1，否则 0
             double categoryMatch = profile.getPreferredCategories().contains(article.getCategory()) ? 1.0 : 0.0;
-            ContentProperties.ArticleWeights weights = stream.getArticleWeights();
-            double score = weights.getHeat() * heatNorm
-                    + weights.getFresh() * freshScore
-                    + weights.getZone() * zoneMatch
-                    + weights.getCategory() * categoryMatch;
+            // 统一打分：浏览/点赞/评论/收藏/新鲜度/分区/分类权重全部来自 yml
+            double score = feedScoreSupport.computeArticleScore(
+                    stat, collectCount, article.getCreateTime(), zoneMatch, categoryMatch);
             // 已读降权（不剔除）：窗口内已读文章扣分，保证长刷仍能看到但排位靠后
             if (profile.getReadArticleIds().contains(article.getId())) {
                 score -= stream.getReadPenalty();
@@ -282,8 +364,12 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         // 分数倒序；同分用 ID 倒序做稳定 tie-breaker（避免翻页顺序抖动）
         scored.sort(Comparator.comparingDouble(FeedSnapshotItem::getScore).reversed()
                 .thenComparing(FeedSnapshotItem::getId));
+        // 冷启动没有分区/分类个性化信号：探索位比例上调（配置 coldStartExplorationRatio，默认 0.30）
+        double explorationRatio = profile.isColdStart()
+                ? stream.getColdStartExplorationRatio()
+                : stream.getExplorationRatio();
         // 探索位 + 打散
-        List<FeedSnapshotItem> explored = applyExploration(scored, targetSize, stream.getExplorationRatio(), seed);
+        List<FeedSnapshotItem> explored = applyExploration(scored, targetSize, explorationRatio, seed);
         return applyDiversity(explored, candidates,
                 stream.getMaxConsecutiveSameAuthor(), stream.getMaxConsecutiveSameCategory());
     }
@@ -296,55 +382,83 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      * @param pageSize    页大小
      * @param identity    身份标识
      * @param stream      推荐流配置
+     * @param userId      当前登录用户ID（匿名 null；用于切片时剔除「不感兴趣」单条内容）
      * @return 分页结果
      */
     private FeedPageVO<FeedItemVO> sliceArticlePage(FeedSnapshot snapshot, CursorState cursorState,
-                                                    int pageSize, String identity, ContentProperties.Stream stream) {
+                                                    int pageSize, String identity, ContentProperties.Stream stream,
+                                                    Long userId) {
         // 快照条目全集（已按分数与打散规则排好序）
         List<FeedSnapshotItem> all = snapshot.getItems();
+        // 批次十一 11.11：旧快照里被「不感兴趣」的内容在切片阶段直接跳过（作者/分类屏蔽在建池时生效）
+        // 名单按用户+流缓存，命中缓存时不产生 DB 查询
+        Set<Long> blockedContentIds = feedFeedbackSupport
+                .loadExclusions(userId, FeedConstant.STREAM_ARTICLE).getContentIds();
         // 本页起点（cursor 即已消费条数，from 恒从快照头部计偏移）
         int from = (int) Math.min(cursorState.getOffset(), all.size());
-        // 本页终点（不超过快照长度）
-        int to = (int) Math.min(from + pageSize, all.size());
+        // 当日已曝光集合：建池时过滤过一次，但建池后翻页/并发续池可能已曝光，切片阶段必须再过滤
+        Set<Long> exposed = feedSnapshotSupport.loadTodayExposed(FeedConstant.STREAM_ARTICLE, identity);
+        // 扫描指针：从 from 向后找满一页未曝光条目；被跳过的已曝光条目同样计入已消费
+        int scanTo = from;
+        // 本页对象 ID（保持快照顺序；长度不超过 pageSize）
+        List<Long> ids = new ArrayList<>(pageSize);
+        while (scanTo < all.size() && ids.size() < pageSize) {
+            Long articleId = all.get(scanTo).getId();
+            scanTo++;
+            // 已曝光或已被单条屏蔽的条目直接跳过，游标照常前进，避免同一条目反复阻塞分页
+            if (exposed.contains(articleId) || blockedContentIds.contains(articleId)) {
+                continue;
+            }
+            ids.add(articleId);
+        }
 
-        // 本页对象 ID（保持快照顺序）
-        List<Long> ids = all.subList(from, to).stream().map(FeedSnapshotItem::getId).toList();
         // 展示前回查门控：下架/转私密/软删的旧条目直接丢弃，保证不会曝光失效内容
+        // 已读降权只作用于建池打分（rankArticles 里 score -= readPenalty），此处绝不按已读剔除条目
         Map<Long, Article> visible = loadArticlesByIds(ids).stream()
                 .collect(Collectors.toMap(Article::getId, article -> article, (left, right) -> left));
+        // 批次十一 11.2：卡片计数改读 article_stat，本页一次批量查询（缺失行按 0；翻页不做聚合）
+        Map<Long, ArticleStat> statById = loadArticleStats(ids);
         List<FeedItemVO> items = ids.stream()
                 .map(visible::get)
                 .filter(Objects::nonNull)
-                .map(FeedItemAssembler::toArticleItem)
+                .map(article -> FeedItemAssembler.toArticleItem(article, statById.get(article.getId())))
                 .toList();
 
-        // 本页实际返回的条目计入当日曝光（下一轮快照会把这些 ID 过滤掉）
+        // 本页实际返回的条目计入当日曝光（后续切片/下一代快照都会按该集合再过滤）
         feedSnapshotSupport.markExposed(FeedConstant.STREAM_ARTICLE, identity,
+                items.stream().map(FeedItemVO::getArticleId).toList());
+        // 批次十一 11.6：曝光日聚合按页批量 upsert（Set 已保证同身份同日同条一次，写入失败只告警）
+        feedExposureSupport.recordExposure(FeedConstant.STREAM_ARTICLE, identity,
                 items.stream().map(FeedItemVO::getArticleId).toList());
 
         // 是否还有下一页：池满（可续下一代）或本页未到快照末尾
-        boolean hasMore = all.size() >= stream.getPoolSize() || to < all.size();
-        // 下一页游标：已消费条数（到快照末尾且池未满时为空，前端停止加载）
-        String nextCursor = hasMore ? String.valueOf(to) : null;
+        boolean hasMore = all.size() >= stream.getPoolSize() || scanTo < all.size();
+        // 下一页游标：已消费条数（含被曝光跳过的条目；到快照末尾且池未满时为空，前端停止加载）
+        String nextCursor = hasMore ? String.valueOf(scanTo) : null;
         return new FeedPageVO<FeedItemVO>()
                 .setItems(items)
                 .setCursor(nextCursor)
                 .setSnapshotId(snapshot.getSnapshotId())
                 .setHasMore(hasMore)
-                .setReset(cursorState.isReset());
+                .setReset(cursorState.isReset())
+                // 建池时的降级标记（如 hot-empty）随页返回，续页同样可识别
+                .setDegraded(snapshot.getDegraded());
     }
 
     /**
      * 文章流降级页：实时计算一页（不建 300 条池、不落 Redis、不写曝光）
      *
-     * @param query       查询入参
-     * @param pageSize    页大小
-     * @param cursorState 游标状态（仅沿用 reset 语义）
+     * @param query          查询入参
+     * @param pageSize       页大小
+     * @param cursorState    游标状态（仅沿用 reset 语义）
+     * @param degradedReason 降级原因标记（FeedConstant.DEGRADED_*，回填响应体供前端识别）
      * @return 一次性首页（无 cursor / 无 snapshotId，前端停止续刷）
      */
-    private FeedPageVO<FeedItemVO> realtimeArticlePage(FeedQuery query, int pageSize, CursorState cursorState) {
+    private FeedPageVO<FeedItemVO> realtimeArticlePage(FeedQuery query, int pageSize, CursorState cursorState,
+                                                       String degradedReason) {
         ContentProperties.Stream stream = contentProperties.getFeed().getStream();
-        FeedProfile profile = feedProfileSupport.load(query.getUserId());
+        // 画像（10.5 走 Redis 缓存；Redis 不可用时缓存自动未命中，回源 DB 聚合）
+        FeedProfile profile = feedProfileSupport.load(query);
         // 降级只取首页所需样本（页大小的 2 倍），不在降级路径里算满池
         int sampleSize = pageSize * 2;
         Map<Long, Article> candidates = new LinkedHashMap<>();
@@ -361,6 +475,20 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         if (query.getZone() != null) {
             candidates.entrySet().removeIf(entry -> entry.getValue().getZone() != query.getZone());
         }
+        // 批次十一 11.11：降级实时页同样先过滤负反馈名单，避免降级路径绕过屏蔽
+        FeedFeedbackExclusions feedback = feedFeedbackSupport.loadExclusions(
+                query.getUserId(), FeedConstant.STREAM_ARTICLE);
+        if (!feedback.isEmpty()) {
+            candidates.entrySet().removeIf(entry -> {
+                // 当前候选文章
+                Article article = entry.getValue();
+                // 命中内容/作者/分类任一屏蔽维度即剔除
+                return feedback.getContentIds().contains(article.getId())
+                        || feedback.getAuthorIds().contains(article.getAuthorId())
+                        || (article.getCategory() != null
+                        && feedback.getCategories().contains(article.getCategory().getName()));
+            });
+        }
 
         // 降级没有稳定会话种子：用随机种子打散，保证每次降级内容不完全相同
         List<FeedSnapshotItem> ranked = rankArticles(candidates, profile, stream, pageSize,
@@ -368,10 +496,12 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         List<Long> ids = ranked.stream().map(FeedSnapshotItem::getId).toList();
         Map<Long, Article> visible = loadArticlesByIds(ids).stream()
                 .collect(Collectors.toMap(Article::getId, article -> article, (left, right) -> left));
+        // 批次十一 11.2：降级页同样读 article_stat（一次批量查询，缺失行按 0）
+        Map<Long, ArticleStat> statById = loadArticleStats(ids);
         List<FeedItemVO> items = ids.stream()
                 .map(visible::get)
                 .filter(Objects::nonNull)
-                .map(FeedItemAssembler::toArticleItem)
+                .map(article -> FeedItemAssembler.toArticleItem(article, statById.get(article.getId())))
                 .toList();
 
         // 降级页没有快照：cursor/snapshotId 为空，hasMore=false，前端停止加载
@@ -380,7 +510,95 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                 .setCursor(null)
                 .setSnapshotId(null)
                 .setHasMore(false)
-                .setReset(cursorState.isReset());
+                .setReset(cursorState.isReset())
+                // 回填降级原因（redis-down / build-failed），前端据此提示
+                .setDegraded(degradedReason);
+    }
+
+    /**
+     * 文章流 last-good 降级页：返回上一代成功快照的首页（terminal 页：无游标、不可续刷）
+     *
+     * <p>使用场景：Redis 不可用或快照建池失败时，优先让用户继续看到上一代成功内容，
+     * 而不是直接掉到实时计算（实时计算会丢排序稳定性与曝光去重）。
+     * 本页不写曝光记录：降级页是一次性兜底，且 Redis 很可能不可用。</p>
+     *
+     * @param snapshot    上一代成功快照（来自 FeedSnapshotSupport 内存副本或 Redis 指针）
+     * @param pageSize    页大小
+     * @param cursorState 游标状态（仅沿用 reset 语义）
+     * @param userId      当前登录用户ID（匿名 null 时名单为空，不做过滤）
+     * @return 一次性首页（degraded=last-good）
+     *
+     * <p>批次十一 11.11 修复：兜底页同样应用负反馈名单（内容/作者/分类）。
+     * 之前只在建池与切片阶段过滤，空池回退 last-good 时会把已屏蔽作者的内容重新放出。</p>
+     */
+    private FeedPageVO<FeedItemVO> lastGoodArticlePage(FeedSnapshot snapshot, int pageSize,
+                                                       CursorState cursorState, Long userId) {
+        // 快照条目全集
+        List<FeedSnapshotItem> all = snapshot.getItems();
+        // 先按负反馈名单过滤整代快照，再取首页，避免被屏蔽条目挤占页大小
+        List<Long> filteredIds = filterArticleIdsByFeedback(
+                all.stream().map(FeedSnapshotItem::getId).toList(), userId);
+        // 只取首页：last-good 不提供续刷游标，避免客户端拿旧代次快照继续翻页
+        int to = Math.min(pageSize, filteredIds.size());
+        List<Long> ids = filteredIds.subList(0, to);
+
+        // 展示前门控仍回查：Redis 不可用不影响 DB 可用性，下架/私密内容绝不能借降级路径放出
+        Map<Long, Article> visible = loadArticlesByIds(ids).stream()
+                .collect(Collectors.toMap(Article::getId, article -> article, (left, right) -> left));
+        // 批次十一 11.2：last-good 页同样读 article_stat（一次批量查询，缺失行按 0）
+        Map<Long, ArticleStat> statById = loadArticleStats(ids);
+        List<FeedItemVO> items = ids.stream()
+                .map(visible::get)
+                .filter(Objects::nonNull)
+                .map(article -> FeedItemAssembler.toArticleItem(article, statById.get(article.getId())))
+                .toList();
+
+        // 降级页无 cursor / 无 snapshotId：前端停止续刷；reset 沿用入参语义
+        return new FeedPageVO<FeedItemVO>()
+                .setItems(items)
+                .setCursor(null)
+                .setSnapshotId(null)
+                .setHasMore(false)
+                .setReset(cursorState.isReset())
+                .setDegraded(FeedConstant.DEGRADED_LAST_GOOD);
+    }
+
+    /**
+     * 按负反馈名单过滤文章 ID（批次十一 11.11 修复，供 last-good 兜底页复用）。
+     *
+     * <p>过滤三档：单条内容ID、作者ID、分类名。分类按 {@link ArticleCategoryEnum#getName()} 比较，
+     * 与 {@code feed_feedback.target_key} 存的中文分类名同口径；文章分类为空时不做分类匹配。</p>
+     *
+     * @param ids    待过滤文章 ID（保持原顺序）
+     * @param userId 当前登录用户ID（匿名 null 时名单为空，原样返回）
+     * @return 过滤后的文章 ID
+     */
+    private List<Long> filterArticleIdsByFeedback(List<Long> ids, Long userId) {
+        // 空集合无需回查
+        if (ids == null || ids.isEmpty()) {
+            return new ArrayList<>();
+        }
+        // 当前用户当前流的屏蔽名单（内容/作者/分类三类）
+        FeedFeedbackExclusions feedback = feedFeedbackSupport.loadExclusions(userId, FeedConstant.STREAM_ARTICLE);
+        // 空名单直接原样返回，省一次文章回查
+        if (feedback.isEmpty()) {
+            return ids;
+        }
+        // 一次批量回查作者与分类（最多一个池容量，不做逐条查询）
+        Map<Long, Article> articleById = loadArticlesByIds(ids).stream()
+                .collect(Collectors.toMap(Article::getId, article -> article, (left, right) -> left));
+        return ids.stream().filter(id -> {
+            // 回查不到的文章交给后续门控丢弃（此处放行不保留）
+            Article article = articleById.get(id);
+            if (article == null) {
+                return true;
+            }
+            // 命中内容/作者/分类任一维度即剔除
+            return !feedback.getContentIds().contains(id)
+                    && !feedback.getAuthorIds().contains(article.getAuthorId())
+                    && !(article.getCategory() != null
+                    && feedback.getCategories().contains(article.getCategory().getName()));
+        }).toList();
     }
 
     // ==================== 书籍流（10.4） ====================
@@ -405,10 +623,19 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         ContentProperties.Stream stream = contentProperties.getFeed().getStream();
         CursorState cursorState = resolveCursor(query);
 
-        // 步骤4：Redis 不可用 → 降级为实时一页
+        // 步骤4：Redis 不可用 → 先取 last-good 快照兜底，没有再实时计算一页
         if (!feedSnapshotSupport.isRedisAvailable()) {
-            log.warn("推荐流降级（Redis 不可用，实时计算首页不落池）：stream=book, scope={}", scope);
-            return realtimeBookPage(query, pageSize, cursorState);
+            // last-good 此时来自本实例内存副本（Redis 不可用时唯一可用来源）
+            FeedSnapshot lastGood = feedSnapshotSupport.readLastGood(scope);
+            if (lastGood != null) {
+                logDegrade(FeedConstant.DEGRADED_LAST_GOOD, FeedConstant.STREAM_BOOK, scope,
+                        "Redis 不可用，返回 last-good 快照");
+                // 兜底页同样带入当前用户，供负反馈过滤
+                return lastGoodBookPage(lastGood, pageSize, cursorState, query.getUserId());
+            }
+            logDegrade(FeedConstant.DEGRADED_REDIS_DOWN, FeedConstant.STREAM_BOOK, scope,
+                    "Redis 不可用且无 last-good，实时计算一页");
+            return realtimeBookPage(query, pageSize, cursorState, FeedConstant.DEGRADED_REDIS_DOWN);
         }
 
         // 步骤5：读快照（失效重置 / 翻到底续池）
@@ -426,14 +653,34 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         if (snapshot == null) {
             snapshot = buildBookSnapshot(query, identity, scope, stream);
             if (snapshot == null) {
-                log.warn("推荐流快照生成失败（降级为实时首页）：stream=book, scope={}", scope);
-                return realtimeBookPage(query, pageSize, cursorState);
+                // 建池失败（代次生成/写入异常）：先 last-good，再退实时一页
+                FeedSnapshot lastGood = feedSnapshotSupport.readLastGood(scope);
+                if (lastGood != null) {
+                    logDegrade(FeedConstant.DEGRADED_LAST_GOOD, FeedConstant.STREAM_BOOK, scope,
+                            "快照建池失败，返回 last-good 快照");
+                    // 兜底页同样带入当前用户，供负反馈过滤
+                    return lastGoodBookPage(lastGood, pageSize, cursorState, query.getUserId());
+                }
+                logDegrade(FeedConstant.DEGRADED_BUILD_FAILED, FeedConstant.STREAM_BOOK, scope,
+                        "快照建池失败且无 last-good，实时计算一页");
+                return realtimeBookPage(query, pageSize, cursorState, FeedConstant.DEGRADED_BUILD_FAILED);
             }
             cursorState = new CursorState(FeedConstant.CURSOR_START_OFFSET, cursorState.isReset());
         }
 
-        // 步骤7：切片 + 门控回查 + 计数回填 + 曝光写入
-        return sliceBookPage(snapshot, cursorState, pageSize, identity, stream);
+        // 步骤6.1：空池兜底 → 优先 last-good，避免返回空列表
+        if (snapshot.getItems().isEmpty()) {
+            FeedSnapshot lastGood = feedSnapshotSupport.readLastGood(scope);
+            if (lastGood != null) {
+                logDegrade(FeedConstant.DEGRADED_LAST_GOOD, FeedConstant.STREAM_BOOK, scope,
+                        "快照为空，返回 last-good 快照");
+                // 兜底页同样带入当前用户，供负反馈过滤
+                return lastGoodBookPage(lastGood, pageSize, cursorState, query.getUserId());
+            }
+        }
+
+        // 步骤7：切片 + 门控回查 + 计数回填 + 曝光写入（切片阶段再做一次曝光过滤）
+        return sliceBookPage(snapshot, cursorState, pageSize, identity, stream, query.getUserId());
     }
 
     /**
@@ -447,8 +694,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      */
     private FeedSnapshot buildBookSnapshot(FeedQuery query, String identity, String scope,
                                            ContentProperties.Stream stream) {
-        // 用户画像（分类偏好与完结偏好来源）
-        FeedProfile profile = feedProfileSupport.load(query.getUserId());
+        // 用户画像（分类偏好与完结偏好来源；10.5 走 Redis 缓存）
+        FeedProfile profile = feedProfileSupport.load(query);
         // 书籍门控 + 默认排序（新建时间倒序，仅决定入池先后，最终按打分重排）
         LambdaQueryWrapper<Book> wrapper = bookGate();
 
@@ -459,6 +706,17 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                     .toList());
         }
         List<Book> books = bookMapper.selectList(Page.of(1, stream.getPoolSize(), false), wrapper);
+
+        // 批次十一 11.11：建池阶段过滤负反馈名单（书籍按内容ID/作者/分类三类命中剔除）
+        FeedFeedbackExclusions feedback = feedFeedbackSupport.loadExclusions(
+                query.getUserId(), FeedConstant.STREAM_BOOK);
+        if (!feedback.isEmpty()) {
+            books = books.stream().filter(book ->
+                    // 命中任一屏蔽维度即从候选池剔除
+                    !feedback.getContentIds().contains(book.getId())
+                            && !feedback.getAuthorIds().contains(book.getAuthorId())
+                            && !feedback.getCategories().contains(book.getCategory())).toList();
+        }
 
         // 当日曝光硬去重（书籍与文章各自独立作用域，避免同号 ID 互相误判）
         Set<Long> exposed = feedSnapshotSupport.loadTodayExposed(FeedConstant.STREAM_BOOK, identity);
@@ -478,6 +736,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                     .setSnapshotId(emptySnapshotId)
                     .setItems(new ArrayList<>());
             feedSnapshotSupport.writeSnapshot(scope, emptySnapshot);
+            // 空池快照同样算一次创建（cold_start 维度用于观察新用户空池率）
+            contentMetrics.recordFeedSnapshotCreated(FeedConstant.STREAM_BOOK, profile.isColdStart());
             return emptySnapshot;
         }
 
@@ -490,6 +750,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                 .setSnapshotId(snapshotId)
                 .setItems(items);
         feedSnapshotSupport.writeSnapshot(scope, snapshot);
+        // 快照创建指标：书籍流与文章流共用同一套指标名，靠 stream 标签区分
+        contentMetrics.recordFeedSnapshotCreated(FeedConstant.STREAM_BOOK, profile.isColdStart());
         return snapshot;
     }
 
@@ -507,34 +769,33 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         if (books.isEmpty()) {
             return new ArrayList<>();
         }
-        // 书籍 ID 集合（三组聚合查询共用）
+        // 书籍 ID 集合（统计表批量查询用）
         List<Long> bookIds = books.stream().map(Book::getId).toList();
-        // 三个计数一次查全池，避免逐本查询造成 N+1
-        Map<Long, Long> collectCounts = toCountMap(favoriteMapper.countBookCollects(bookIds));
-        Map<Long, Long> readerCounts = toCountMap(readingHistoryMapper.countBookReaders(bookIds));
+        // 批次十一 11.2：收藏/阅读人数改读 book_stat，整池一次批量查询（缺行按 0，不逐本查、不再聚合源表）
+        Map<Long, BookStat> statById = loadBookStats(bookIds);
+        // 统计窗口配置（批次十一 11.3：收藏/阅读窗口值与窗口天数全部来自配置）
+        ContentProperties.Window windowConfig = contentProperties.getStat().getWindow();
+        // 窗口行：按书籍ID集合一次批量取回 30/90 天两档（任务尚未覆盖时 Map 为空，读侧回退累计值）
+        Map<Long, Map<Integer, ContentStatWindow>> windowById = loadWindowStats(
+                ContentBizConstant.STAT_WINDOW_TARGET_BOOK, bookIds,
+                windowConfig.getShortDays(), windowConfig.getLongDays());
 
-        // 归一化分母：池内最大 log1p 值（为 0 时全池该项记 0）
-        long maxCollect = collectCounts.values().stream().mapToLong(Long::longValue).max().orElse(0L);
-        long maxReader = readerCounts.values().stream().mapToLong(Long::longValue).max().orElse(0L);
-
-        ContentProperties.BookWeights weights = stream.getBookWeights();
+        // 逐本算分并组装条目
         List<FeedSnapshotItem> scored = new ArrayList<>(books.size());
         for (Book book : books) {
-            // 收藏数归一化（log1p 抑制头部数值差异）
-            double collectNorm = maxCollect <= 0 ? 0.0
-                    : Math.log1p(collectCounts.getOrDefault(book.getId(), 0L)) / Math.log1p(maxCollect);
-            // 阅读人数归一化
-            double readNorm = maxReader <= 0 ? 0.0
-                    : Math.log1p(readerCounts.getOrDefault(book.getId(), 0L)) / Math.log1p(maxReader);
-            // 新鲜度：优先用 update_time（书籍无发布时间列），空值回退 create_time
-            LocalDateTime freshTime = book.getUpdateTime() != null ? book.getUpdateTime() : book.getCreateTime();
-            double freshScore = freshScore(freshTime, stream.getFreshHalfLifeHours());
-            // 完结偏好：命中用户偏好状态记 1，否则 0
+            // 统计行缺失（新书尚无统计行）按 0 作为全量兜底值
+            BookStat stat = statById.get(book.getId());
+            // 收藏数：优先 30 天窗口 → 90 天窗口 → 累计值（窗口行未计算时才回退累计）
+            long collectCount = feedScoreSupport.resolveWindowCount(windowById, book.getId(), windowConfig, true,
+                    stat == null ? 0L : stat.getCollectCount());
+            // 阅读人数：同样按窗口回退链取值
+            long readerCount = feedScoreSupport.resolveWindowCount(windowById, book.getId(), windowConfig, false,
+                    stat == null ? 0L : stat.getReaderCount());
+            // 新鲜度与完结偏好的取值口径不变（create_time 判定新鲜度，偏好命中记 1）
             double finishMatch = book.getStatus() == profile.getPreferredBookStatus() ? 1.0 : 0.0;
-            double score = weights.getCollect() * collectNorm
-                    + weights.getRead() * readNorm
-                    + weights.getFresh() * freshScore
-                    + weights.getFinish() * finishMatch;
+            // 统一调用 FeedScoreSupport 书籍打分（平滑 m/prior 已切到与文章同一组参数）
+            double score = feedScoreSupport.computeBookScore(
+                    stat, collectCount, readerCount, book.getCreateTime(), finishMatch);
             scored.add(new FeedSnapshotItem().setId(book.getId()).setScore(score));
         }
 
@@ -556,47 +817,65 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      * @param pageSize    页大小
      * @param identity    身份标识
      * @param stream      推荐流配置
+     * @param userId      当前登录用户ID（匿名 null；用于切片时剔除「不感兴趣」单条内容）
      * @return 分页结果
      */
     private FeedPageVO<BookFeedItemVO> sliceBookPage(FeedSnapshot snapshot, CursorState cursorState,
-                                                     int pageSize, String identity, ContentProperties.Stream stream) {
+                                                     int pageSize, String identity, ContentProperties.Stream stream,
+                                                     Long userId) {
         List<FeedSnapshotItem> all = snapshot.getItems();
+        // 批次十一 11.11：旧快照里被「不感兴趣」的书籍在切片阶段直接跳过（作者/分类屏蔽在建池时生效）
+        Set<Long> blockedContentIds = feedFeedbackSupport
+                .loadExclusions(userId, FeedConstant.STREAM_BOOK).getContentIds();
+        // 本页起点（cursor 即已消费条数）
         int from = (int) Math.min(cursorState.getOffset(), all.size());
-        int to = (int) Math.min(from + pageSize, all.size());
-        List<Long> ids = all.subList(from, to).stream().map(FeedSnapshotItem::getId).toList();
+        // 当日已曝光集合：建池后到切片前可能已被曝光（翻页/并发续池），切片阶段必须再过滤
+        Set<Long> exposed = feedSnapshotSupport.loadTodayExposed(FeedConstant.STREAM_BOOK, identity);
+        // 扫描指针：从 from 向后找满一页未曝光条目，被跳过的已曝光条目同样计入已消费
+        int scanTo = from;
+        // 本页书籍 ID（保持快照顺序）
+        List<Long> ids = new ArrayList<>(pageSize);
+        while (scanTo < all.size() && ids.size() < pageSize) {
+            Long bookId = all.get(scanTo).getId();
+            scanTo++;
+            // 已曝光或已被单条屏蔽的条目直接跳过，游标照常前进
+            if (exposed.contains(bookId) || blockedContentIds.contains(bookId)) {
+                continue;
+            }
+            ids.add(bookId);
+        }
 
-        // 展示前回查门控：下架/软删书籍直接丢弃
+        // 展示前回查门控：下架/软删书籍直接丢弃（已读降权不在切片阶段剔除）
         Map<Long, Book> visible = loadBooksByIds(ids).stream()
                 .collect(Collectors.toMap(Book::getId, book -> book, (left, right) -> left));
-        // 本页三个计数（注意：只对本页 ID 聚合，成本与页大小相关，不随池大小增长）
-        Map<Long, Long> chapterCounts = ids.isEmpty() ? Collections.emptyMap()
-                : toCountMap(bookChapterMapper.countBookChapters(ids));
-        Map<Long, Long> collectCounts = ids.isEmpty() ? Collections.emptyMap()
-                : toCountMap(favoriteMapper.countBookCollects(ids));
-        Map<Long, Long> readerCounts = ids.isEmpty() ? Collections.emptyMap()
-                : toCountMap(readingHistoryMapper.countBookReaders(ids));
-
+        // 批次十一 11.2：本页三个计数改读 book_stat，一次批量查询（缺行按 0）
+        // 翻页阶段不再做任何 group by 聚合，单页聚合次数为 0
+        Map<Long, BookStat> statById = loadBookStats(ids);
         List<BookFeedItemVO> items = ids.stream()
                 .map(visible::get)
                 .filter(Objects::nonNull)
-                .map(book -> FeedItemAssembler.toBookItem(book,
-                        toIntegerCount(chapterCounts.get(book.getId())),
-                        collectCounts.get(book.getId()),
-                        readerCounts.get(book.getId())))
+                .map(book -> FeedItemAssembler.toBookItem(book, statById.get(book.getId())))
                 .toList();
 
-        // 本页实际返回的书籍计入当日曝光
+        // 本页实际返回的书籍计入当日曝光（后续切片/下一代快照都会按该集合再过滤）
         feedSnapshotSupport.markExposed(FeedConstant.STREAM_BOOK, identity,
                 items.stream().map(BookFeedItemVO::getId).toList());
+        // 批次十一 11.6：曝光日聚合按页批量 upsert（书籍流与文章流按 stream 分列统计）
+        feedExposureSupport.recordExposure(FeedConstant.STREAM_BOOK, identity,
+                items.stream().map(BookFeedItemVO::getId).toList());
 
-        boolean hasMore = all.size() >= stream.getPoolSize() || to < all.size();
-        String nextCursor = hasMore ? String.valueOf(to) : null;
+        // 是否还有下一页：池满（可续下一代）或本页未到快照末尾
+        boolean hasMore = all.size() >= stream.getPoolSize() || scanTo < all.size();
+        // 下一页游标：已消费条数（含被曝光跳过的条目）
+        String nextCursor = hasMore ? String.valueOf(scanTo) : null;
         return new FeedPageVO<BookFeedItemVO>()
                 .setItems(items)
                 .setCursor(nextCursor)
                 .setSnapshotId(snapshot.getSnapshotId())
                 .setHasMore(hasMore)
-                .setReset(cursorState.isReset());
+                .setReset(cursorState.isReset())
+                // 建池时的降级标记随页返回
+                .setDegraded(snapshot.getDegraded());
     }
 
     /**
@@ -604,12 +883,15 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      *
      * @param query       查询入参
      * @param pageSize    页大小
-     * @param cursorState 游标状态（仅沿用 reset 语义）
+     * @param cursorState    游标状态（仅沿用 reset 语义）
+     * @param degradedReason 降级原因标记（FeedConstant.DEGRADED_*，回填响应体供前端识别）
      * @return 一次性首页
      */
-    private FeedPageVO<BookFeedItemVO> realtimeBookPage(FeedQuery query, int pageSize, CursorState cursorState) {
+    private FeedPageVO<BookFeedItemVO> realtimeBookPage(FeedQuery query, int pageSize, CursorState cursorState,
+                                                        String degradedReason) {
         ContentProperties.Stream stream = contentProperties.getFeed().getStream();
-        FeedProfile profile = feedProfileSupport.load(query.getUserId());
+        // 画像（10.5 走 Redis 缓存；Redis 不可用时缓存自动未命中，回源 DB 聚合）
+        FeedProfile profile = feedProfileSupport.load(query);
         // 降级只取首页所需样本（页大小的 2 倍）
         int sampleSize = pageSize * 2;
         LambdaQueryWrapper<Book> wrapper = bookGate();
@@ -619,26 +901,28 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                     .toList());
         }
         List<Book> books = bookMapper.selectList(Page.of(1, sampleSize, false), wrapper);
+        // 批次十一 11.11：降级实时页同样过滤负反馈名单（内容/作者/分类）
+        FeedFeedbackExclusions feedback = feedFeedbackSupport.loadExclusions(
+                query.getUserId(), FeedConstant.STREAM_BOOK);
+        if (!feedback.isEmpty()) {
+            books = books.stream().filter(book ->
+                    // 命中任一屏蔽维度即剔除
+                    !feedback.getContentIds().contains(book.getId())
+                            && !feedback.getAuthorIds().contains(book.getAuthorId())
+                            && !feedback.getCategories().contains(book.getCategory())).toList();
+        }
         // 降级不建池：按页大小排序后取一页，新书保底同样生效
         List<FeedSnapshotItem> ranked = rankBooks(books, profile, stream, pageSize);
 
         List<Long> ids = ranked.stream().map(FeedSnapshotItem::getId).toList();
         Map<Long, Book> visible = loadBooksByIds(ids).stream()
                 .collect(Collectors.toMap(Book::getId, book -> book, (left, right) -> left));
-        Map<Long, Long> chapterCounts = ids.isEmpty() ? Collections.emptyMap()
-                : toCountMap(bookChapterMapper.countBookChapters(ids));
-        Map<Long, Long> collectCounts = ids.isEmpty() ? Collections.emptyMap()
-                : toCountMap(favoriteMapper.countBookCollects(ids));
-        Map<Long, Long> readerCounts = ids.isEmpty() ? Collections.emptyMap()
-                : toCountMap(readingHistoryMapper.countBookReaders(ids));
-
+        // 批次十一 11.2：降级页同样读 book_stat（一次批量查询，缺行按 0，不做聚合）
+        Map<Long, BookStat> statById = loadBookStats(ids);
         List<BookFeedItemVO> items = ids.stream()
                 .map(visible::get)
                 .filter(Objects::nonNull)
-                .map(book -> FeedItemAssembler.toBookItem(book,
-                        toIntegerCount(chapterCounts.get(book.getId())),
-                        collectCounts.get(book.getId()),
-                        readerCounts.get(book.getId())))
+                .map(book -> FeedItemAssembler.toBookItem(book, statById.get(book.getId())))
                 .toList();
 
         return new FeedPageVO<BookFeedItemVO>()
@@ -646,7 +930,92 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                 .setCursor(null)
                 .setSnapshotId(null)
                 .setHasMore(false)
-                .setReset(cursorState.isReset());
+                .setReset(cursorState.isReset())
+                // 回填降级原因（redis-down / build-failed），前端据此提示
+                .setDegraded(degradedReason);
+    }
+
+    /**
+     * 书籍流 last-good 降级页：返回上一代成功快照的首页（terminal 页：无游标、不可续刷）
+     *
+     * <p>Redis 不可用或快照建池失败时优先返回上一代成功内容，避免直接掉实时计算。
+     * 本页不写曝光记录：降级页是一次性兜底，且 Redis 很可能不可用。</p>
+     *
+     * @param snapshot    上一代成功快照
+     * @param pageSize    页大小
+     * @param cursorState 游标状态（仅沿用 reset 语义）
+     * @param userId      当前登录用户ID（匿名 null 时名单为空，不做过滤）
+     * @return 一次性首页（degraded=last-good）
+     *
+     * <p>批次十一 11.11 修复：兜底页同样应用负反馈名单（内容/作者/分类），与文章流口径一致。</p>
+     */
+    private FeedPageVO<BookFeedItemVO> lastGoodBookPage(FeedSnapshot snapshot, int pageSize,
+                                                        CursorState cursorState, Long userId) {
+        // 快照条目全集
+        List<FeedSnapshotItem> all = snapshot.getItems();
+        // 先按负反馈名单过滤整代快照，再取首页
+        List<Long> filteredIds = filterBookIdsByFeedback(
+                all.stream().map(FeedSnapshotItem::getId).toList(), userId);
+        // 只取首页：last-good 不提供续刷游标
+        int to = Math.min(pageSize, filteredIds.size());
+        List<Long> ids = filteredIds.subList(0, to);
+
+        // 展示前门控仍回查：下架/软删书籍绝不能借降级路径放出
+        Map<Long, Book> visible = loadBooksByIds(ids).stream()
+                .collect(Collectors.toMap(Book::getId, book -> book, (left, right) -> left));
+        // 批次十一 11.2：last-good 页同样读 book_stat（一次批量查询，缺行按 0，不做聚合）
+        Map<Long, BookStat> statById = loadBookStats(ids);
+        List<BookFeedItemVO> items = ids.stream()
+                .map(visible::get)
+                .filter(Objects::nonNull)
+                .map(book -> FeedItemAssembler.toBookItem(book, statById.get(book.getId())))
+                .toList();
+
+        // 降级页无 cursor / 无 snapshotId：前端停止续刷；reset 沿用入参语义
+        return new FeedPageVO<BookFeedItemVO>()
+                .setItems(items)
+                .setCursor(null)
+                .setSnapshotId(null)
+                .setHasMore(false)
+                .setReset(cursorState.isReset())
+                .setDegraded(FeedConstant.DEGRADED_LAST_GOOD);
+    }
+
+    /**
+     * 按负反馈名单过滤书籍 ID（批次十一 11.11 修复，供 last-good 兜底页复用）。
+     *
+     * <p>书籍分类是字符串列，直接与 {@code feed_feedback.target_key} 存的中文分类名比较；
+     * 与文章侧 {@link ArticleCategoryEnum#getName()} 的取值同源（发布时落中文名）。</p>
+     *
+     * @param ids    待过滤书籍 ID（保持原顺序）
+     * @param userId 当前登录用户ID（匿名 null 时名单为空，原样返回）
+     * @return 过滤后的书籍 ID
+     */
+    private List<Long> filterBookIdsByFeedback(List<Long> ids, Long userId) {
+        // 空集合无需回查
+        if (ids == null || ids.isEmpty()) {
+            return new ArrayList<>();
+        }
+        // 当前用户当前流的屏蔽名单
+        FeedFeedbackExclusions feedback = feedFeedbackSupport.loadExclusions(userId, FeedConstant.STREAM_BOOK);
+        // 空名单直接原样返回
+        if (feedback.isEmpty()) {
+            return ids;
+        }
+        // 一次批量回查作者与分类
+        Map<Long, Book> bookById = loadBooksByIds(ids).stream()
+                .collect(Collectors.toMap(Book::getId, book -> book, (left, right) -> left));
+        return ids.stream().filter(id -> {
+            // 回查不到的书籍交给后续门控丢弃
+            Book book = bookById.get(id);
+            if (book == null) {
+                return true;
+            }
+            // 命中内容/作者/分类任一维度即剔除
+            return !feedback.getContentIds().contains(id)
+                    && !feedback.getAuthorIds().contains(book.getAuthorId())
+                    && !(book.getCategory() != null && feedback.getCategories().contains(book.getCategory()));
+        }).toList();
     }
 
     // ==================== 召回与门控 ====================
@@ -714,6 +1083,42 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                 .in(Book::getId, ids)
                 .in(Book::getStatus, FeedConstant.BOOK_RECOMMENDABLE_STATUSES)
                 .eq(Book::getDelFlag, DelFlag.NOT_DELETED));
+    }
+
+    /**
+     * 按 ID 集合批量读取文章统计行（批次十一 11.2）
+     *
+     * <p>用主键 IN 查询一次取回，禁止逐条查（排序池最多几百条，一次 IN 足够）；
+     * 统计行缺失的 ID 不会出现在返回 Map 中，调用方按 0 处理。</p>
+     *
+     * @param ids 文章 ID 集合（可为空）
+     * @return 文章ID → 统计行
+     */
+    private Map<Long, ArticleStat> loadArticleStats(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return new HashMap<>();
+        }
+        // selectBatchIds 走 article_stat 主键 IN 查询，一次取回全部统计行
+        return articleStatMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(ArticleStat::getArticleId, stat -> stat, (left, right) -> left));
+    }
+
+    /**
+     * 按 ID 集合批量读取书籍统计行（批次十一 11.2）
+     *
+     * <p>用主键 IN 查询一次取回，禁止逐条查；统计行缺失的 ID 不会出现在返回 Map 中，
+     * 调用方按 0 处理。</p>
+     *
+     * @param ids 书籍 ID 集合（可为空）
+     * @return 书籍ID → 统计行
+     */
+    private Map<Long, BookStat> loadBookStats(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return new HashMap<>();
+        }
+        // selectBatchIds 走 book_stat 主键 IN 查询，一次取回全部统计行
+        return bookStatMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(BookStat::getBookId, stat -> stat, (left, right) -> left));
     }
 
     // ==================== 排序辅助 ====================
@@ -897,61 +1302,35 @@ public class FeedStreamServiceImpl implements FeedStreamService {
     }
 
     /**
-     * 新鲜度分：按半衰期指数衰减（发布时间越近分越高，24 小时后衰减到 0.5）
+     * 按目标 ID 集合批量读取窗口统计行（批次十一 11.3）
      *
-     * @param publishTime   发布时间（可空）
-     * @param halfLifeHours 半衰期（小时）
-     * @return 0~1 的新鲜度分
+     * <p>一次 IN 查询取回短/长两档窗口，禁止逐条查；窗口任务尚未覆盖的目标不会出现在 Map 中，
+     * 调用方按回退链取累计值。</p>
+     *
+     * @param targetType 目标类型（ContentBizConstant.STAT_WINDOW_TARGET_*）
+     * @param ids        目标 ID 集合（可为空）
+     * @param shortDays  短窗口天数
+     * @param longDays   长窗口天数
+     * @return 目标ID → (窗口天数 → 窗口行)
      */
-    private double freshScore(LocalDateTime publishTime, double halfLifeHours) {
-        // 时间缺失时给中性分，避免空指针并把老数据一律判为新
-        if (publishTime == null || halfLifeHours <= 0) {
-            return 0.5;
+    private Map<Long, Map<Integer, ContentStatWindow>> loadWindowStats(int targetType, Collection<Long> ids,
+                                                                       int shortDays, int longDays) {
+        // 空集合不发查询（防 IN () 语法错误）
+        if (ids == null || ids.isEmpty()) {
+            return new HashMap<>();
         }
-        long hours = Math.max(Duration.between(publishTime, LocalDateTime.now()).toHours(), 0);
-        return Math.pow(0.5, hours / halfLifeHours);
-    }
-
-    /**
-     * 极值归一化（热度分在不同时间量级差异大，先压到 0~1 再参与加权）
-     *
-     * @param value 原始值
-     * @param min   池内最小值
-     * @param max   池内最大值
-     * @return 0~1 归一化值；池内全同分时返回 0.5
-     */
-    private double normalize(double value, double min, double max) {
-        // 全池同分（或只有一条）：给中性分，避免除零
-        if (max <= min) {
-            return 0.5;
+        // 窗口天数去重：short 与 long 配成相同值时只查一档
+        List<Integer> windowDays = shortDays == longDays
+                ? List.of(shortDays)
+                : List.of(shortDays, longDays);
+        // 一次批量查询覆盖整个候选池
+        List<ContentStatWindow> rows = contentStatWindowMapper.selectByTargets(targetType, ids, windowDays);
+        Map<Long, Map<Integer, ContentStatWindow>> result = new HashMap<>(rows.size());
+        for (ContentStatWindow row : rows) {
+            result.computeIfAbsent(row.getTargetId(), key -> new HashMap<>())
+                    .put(row.getWindowDays(), row);
         }
-        return (value - min) / (max - min);
-    }
-
-    /**
-     * 聚合计数结果转 Map
-     *
-     * @param rows 聚合行
-     * @return ID→计数映射
-     */
-    private Map<Long, Long> toCountMap(List<IdCountDTO> rows) {
-        Map<Long, Long> counts = new HashMap<>(rows.size());
-        for (IdCountDTO row : rows) {
-            if (row.getId() != null) {
-                counts.put(row.getId(), row.getCnt());
-            }
-        }
-        return counts;
-    }
-
-    /**
-     * 章节数 Long 转 Integer（VO 字段为 Integer；查不到保持 null）
-     *
-     * @param count 聚合计数
-     * @return Integer 计数或 null
-     */
-    private Integer toIntegerCount(Long count) {
-        return count == null ? null : Math.toIntExact(count);
+        return result;
     }
 
     // ==================== 游标与配置 ====================
@@ -1012,6 +1391,26 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         if (FeedConstant.RECALL_ES.equalsIgnoreCase(recall)) {
             log.warn("litisle.content.feed.recall=es 尚未实现（P1），本次按 db 四路召回执行；切换阈值见 next_update 批次十");
         }
+    }
+
+    /**
+     * 降级留痕统一出口（批次十 10.6 + 指标收尾）
+     *
+     * <p>所有降级分支（Redis 不可用 / 快照建池失败 / last-good 兜底 / 热度榜为空）
+     * 都经本方法打一条 WARN 并回填统一降级标记，便于运维按 reason 聚合统计。</p>
+     *
+     * <p><b>指标单入口</b>：降级 Counter {@code litisle_content_feed_degraded_total}
+     * 只在本方法内打点（标签 stream/reason），任何降级分支都必经此处，不存在绕过统计的路径。</p>
+     *
+     * @param reason     降级原因（FeedConstant.DEGRADED_*）
+     * @param streamType 流类型（article / book）
+     * @param scope      快照作用域
+     * @param detail     补充说明（可为空）
+     */
+    private void logDegrade(String reason, String streamType, String scope, String detail) {
+        log.warn("推荐流降级：reason={}, stream={}, scope={}, detail={}", reason, streamType, scope, detail);
+        // 降级指标：与日志同参数打点，保证「日志可见的降级」与「指标统计的降级」口径一致
+        contentMetrics.recordFeedDegraded(streamType, reason);
     }
 
     /**

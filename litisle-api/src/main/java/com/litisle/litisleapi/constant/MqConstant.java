@@ -255,6 +255,16 @@ public class MqConstant {
     public static final String QUEUE_SOCIAL_LIKED = "litisle.social.liked.queue";
 
     /**
+     * 取消点赞事件路由键（批次十一 11.14，发布至 EXCHANGE_SOCIAL，事件体 SocialUnlikedEvent）：
+     * content 临时承载点赞功能，取消点赞物理删除成功后 afterCommit 发布，search 消费按 delta=-1
+     * 递减 article_idx.like_cnt（带下限保护）并重算 heat；与点赞分队列，便于正负事件分别观测与重投
+     */
+    public static final String ROUTING_SOCIAL_UNLIKED = "social.unliked";
+
+    /** 取消点赞事件队列（search 侧消费，配 DLQ 兜底，沿用 search 现有延迟重投/死信链路） */
+    public static final String QUEUE_SOCIAL_UNLIKED = "litisle.social.unliked.queue";
+
+    /**
      * 评论事件路由键（发布至 EXCHANGE_SOCIAL，事件体 SocialCommentedEvent）：
      * social 评论落库 afterCommit 发布，search 消费增量更新 article_idx.comment_cnt 并重算 heat
      */

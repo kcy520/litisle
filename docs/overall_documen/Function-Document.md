@@ -15,15 +15,15 @@
 
 | 功能 | 说明 |
 |------|------|
-| 敏感词过滤（DFA） | 基于 DFA 算法，支持多场景策略（文章/评论/用户名/私信），双 buffer 热更新，词库存 MySQL + Redis Pub 通知 |
+| 敏感词过滤（DFA） | 引擎在 `litisle-api` 的 `dfa` 包（不在 common）：`DfaFacade` + `AcdatTextScanEngine` 多模式匹配，场景为文章/评论/用户名/私信，`WordlibSnapshot` 快照原子替换，词库变更由 `WordlibChangedMessage` 通知重载 |
 | 审计日志 AOP | `@AuditLog` 注解 + 切面，自动记录操作人、操作类型、请求参数、执行耗时，写日志文件 |
-| 安全上下文 | 从 `X-User-Id` / `X-Roles` header 读取当前用户信息，封装为 `SecurityContext` 供各服务使用 |
+| Sa-Token 鉴权与用户解析 | 网关 `SaReactorFilter` 校验登录并注入 `X-User-Id`/`X-Roles`；业务服务用 `StpUtil` / `SaTokenUserIdResolver` 取当前用户，`@SaCheckLogin` 收口；`@Anonymous` + `litisle.security.anonymous.paths` 提供匿名白名单（不再使用 ThreadLocal `SecurityContext`） |
 | Redis 工具 | 封装 `RedisUtil`（String/Hash/Set/ZSet/BitMap）+ Redisson 分布式锁 + 布隆过滤器 |
 | 统一异常处理 | `BizException` 业务异常 + `ErrorCode` 错误码枚举 + `GlobalExceptionHandler` 统一响应体 |
 | Feign 拦截器 | `FeignAuthInterceptor` 自动透传 userId、traceId 到下游服务 |
 | 统一响应封装 | `Result<T>` / `PageResult<T>` 统一格式，前端按约定解析 |
 
-**效果**：各服务无需重复实现 DFA 过滤、Redis 工具、异常处理等基础设施代码。
+**效果**：各服务无需重复实现 Redis 工具、异常处理等基础设施代码；DFA 引擎由 `litisle-api` 统一提供。
 
 ---
 
@@ -75,15 +75,15 @@
 
 | 功能 | 说明 |
 |------|------|
-| JWT 校验 | 全局 `JwtGlobalFilter`，白名单路径跳过（登录/注册/公开内容），其余请求校验 Token 有效性 |
-| 路由分发 | 根据请求路径 `/api/{service}/**` 路由到对应微服务 |
-| 限流熔断 | Sentinel SDK 集成，按接口+用户维度限流，规则代码内联 + Nacos 动态下发 |
-| WebSocket 透传 | WebSocket 连接通过网关路由到 `litisle-notification` 服务 |
+| Sa-Token 登录校验 | 网关 `SaReactorFilter`（order=-100）：`addInclude("/**")` + `GatewayJwtProperties#paths` 白名单 `addExclude`，其余请求 `StpUtil.checkLogin()` |
+| 路由分发 | 根据请求路径 `/api/{service}/**` 路由到对应微服务（`application.yml` 静态配置，未走 Nacos 动态路由） |
+| 限流熔断 | 网关不做应用层限流；业务服务用 common-redis `@RateLimiter`（Redis 固定窗口，可本地兜底），Feign 降级由各服务的 Sentinel 兜底 |
+| WebSocket 透传 | 按路由透传到 `litisle-notification` 服务（无独立 WsHandler） |
 | 文档聚合 | Knife4j 聚合各微服务 API 文档，统一入口查看 |
-| 跨域配置 | CORS 白名单配置 |
-| Token 黑名单 | 用户退出后 Token 加入 Redis 黑名单，TTL = Token 剩余寿命 |
+| 跨域配置 | 网关未集中配置 CORS，按部署环境由前端代理/服务处理 |
+| 会话失效 | 退出登录 `StpUtil.logout()` 使服务端 Redis 会话失效；不使用 Token 黑名单 |
 
-**效果**：客户端只认一个入口地址，安全校验、路由、限流在网关层集中处理，下游服务无需关心鉴权细节。
+**效果**：客户端只认一个入口地址，登录校验、路由、Header 注入在网关层集中处理；限流在各业务服务执行，下游服务无需关心鉴权细节。
 
 ---
 
@@ -101,7 +101,7 @@
 | 邮箱验证码登录 | 邮箱 + 邮箱验证码，验证码有效期 5 分钟（短信通道预留未实现） |
 | OAuth2 第三方登录 | 微信 / QQ 扫码登录，绑定已有账号或直接注册新账号（未实现，预留） |
 | Sa-Token 登录态 | Sa-Token 会话管理（Token 1 天 + 记住我 7 天）+ 自研 refreshToken 轮换（7 天，一次性） |
-| 在线设备管理 | 同一账号最多 2 端在线（max-login-count=2），新设备登录自动踢出最旧设备 |
+| 在线设备管理 | 设备会话由 `DeviceSessionService` 维护，默认最多 5 端（`litisle.auth.max-devices`），超出踢出最旧设备；Sa-Token 本身 `max-login-count=-1` 不限会话数 |
 | 退出登录 | StpUtil.logout() 服务端会话失效即下线，并清理 refreshToken / 设备会话 |
 | 风控策略 | 接口级限流 @RateLimiter（10 秒窗口）；连续密码错误锁定（设计保留，暂未落地） |
 
@@ -187,15 +187,21 @@
 | 草稿自动保存 | 未发布的文章自动保存为草稿，支持多次编辑 |
 | 分区管理 | 普通分区（所有用户可发） / 作家分区（仅 AUTHOR 角色可发） |
 | 批量发布 | 作者写好一批文章/章节暂存着，攒够了再一次性批量发布，同一批次共享 `publish_batch_id` |
-| 定时发布 | 草稿态文章可设定时发布时间（PUT /article/{id} 传 scheduledPublishTime，仅 status=0，传 cancelScheduledPublish=true 取消）；到点由定时任务每 1min 扫描并自动走批量送审链路（多实例分布式锁单点 + CAS 幂等防重）；发布成功或失败均清空定时字段，失败不静默（日志留痕，文章停留草稿态待作者处理） |
-| 发布可见性 | 公开 / 仅自己可见 / 仅关注者可见 / 密码访问，可修改 |
+| 定时发布 | 草稿态文章可设定时发布时间（`PUT /api/content/article/{id}` 传 scheduledPublishTime，仅 status=0，传 cancelScheduledPublish=true 取消）；到点由定时任务每 1min 扫描并自动走批量送审链路（多实例分布式锁单点 + CAS 幂等防重）；发布成功或失败均清空定时字段，失败不静默（日志留痕，文章停留草稿态待作者处理） |
+| 发布可见性 | 公开 / 仅自己可见 / 仅关注者可见，发布后可修改（**原「密码访问」已于阶段9下线，存量 visibility=4 迁移为 1**） |
 | 书籍/合集管理 | 创建书籍，文章作为章节挂到书籍，有序号排序；章节批量重排（拖拽后全量提交新序 1..N，两阶段偏移解唯一键冲突，下架书拒重排） |
-| 阅读历史 | 书籍历史（含最后阅读章节，支持续读）/ 独立文章历史；阅读文章详情即自动落历史；单用户每类型上限 500 条（写入时懒删最旧行，防表无限增长） |
-| 收藏 | 文章/书籍收藏与取消（幂等）、我的收藏列表、收藏状态查询（一期 content 临时承载单层收藏，social 立项后迁移） |
-| 书籍阅读 | 书籍详情（上次阅读/继续阅读/收藏态）、章节列表分页、章节详情（正文+上一章/下一章导航）；匿名可读公开书籍，登录带上次阅读；读章触发浏览计数与书籍历史 |
-| 大篇幅切片 | 正文超过 2000 字自动切片，并行送审 |
+| 阅读历史 | 书籍历史（含最后阅读章节，支持续读）/ 独立文章历史；阅读文章详情即自动落历史；单用户每类型上限 **1000 条**（批次十一 11.4 由 500 调整，写入时懒删最旧行，保留最近在读 10 条不裁）；`duration_ms` 列已建但**暂不写入**（预留） |
+| 收藏 | 文章/书籍收藏与取消（幂等）、我的收藏列表、收藏状态查询（一期 content 临时承载单层收藏，social 立项后迁移）；**11.9 起收藏计数排除作者自收藏** |
+| 书籍阅读 | 书籍详情（上次阅读/继续阅读/收藏态）、章节列表分页、章节详情（正文+上一章/下一章导航）；匿名可读公开书籍，登录带上次阅读；读章触发浏览计数与书籍历史；`book_read_quality` 提供「粗完读率」代理统计（追到最大可见章节号的人数 / 有阅读记录的人数，只读不参与排序） |
+| 大篇幅切片 | **切片已收口 review 消费端**（content 只发单条 `content.submitted`，事件体不含正文；review 按配置 `llm.max-text-chars` 切片并并行机审，禁止静默截断）；原文"正文超过 2000 字自动切片"属旧口径 |
 | 正文长度上限 | 富文本正文硬上限 256KB（≈10 万字 HTML），发布/建档/编辑/草稿保存四路统一拦截（错误码 30018），超限提示拆分书籍章节发布——超长篇创作的正确载体是书籍分章，每章独立过机审 |
-| 推荐流 | zone 1/2 已发布公开文章聚合视图（阶段12：原 `zone=3` 推荐流分区已取消）；阶段14 热度榜排序：`score=(like×3+comment×2+view×0.2)/(发布小时数+2)^1.5`，灌榜任务 5min 影子键 rename 全量重灌，榜空自动降级时间倒序兕底（social 落地前 like/comment 恒 0，暂退化为浏览量+时间衰减排序） |
+| 推荐流 | 原文「zone 1/2 聚合 + `score=(like×3+comment×2+view×0.2)/(小时数+2)^1.5`」为阶段14 旧口径：分区部分仍准确（`zone=3` 已取消），**热度公式已于 11.10 作废**，改由 `FeedScoreSupport` 七项权重 + 贝叶斯平滑统一打分，灌榜增量水位改按 `stat_update_time`，榜空仍回退时间倒序；榜单消费见下方「推荐流（无限刷）」 |
+| 推荐流（无限刷） | 文章流 `GET /api/content/feed/articles` 与书籍流 `GET /api/content/feed/books` 两条独立无限刷：游标 + 快照代次分页（翻页不重算召回）、四路 DB 召回（关注/热度/分类偏好/新内容）、融合打分、探索位与打散、冷启动、匿名可刷（`X-Anon-Id`，登录/匿名各自频控）；响应含 `cursor/snapshotId/hasMore/reset/degraded` |
+| 推荐降级 | 四级降级标记：`redis-down`（Redis 不可用）/ `build-failed`（建池失败）/ `last-good`（读最近一次可用快照）/ `hot-empty`（热门榜为空回退时间倒序）；降级页同样应用负反馈过滤与曝光去重 |
+| 负反馈 | `feed_feedback` 三维度：1-不感兴趣（单条）/ 2-屏蔽作者 / 3-屏蔽分类；支持撤销（幂等），30 天窗口内生效；生效位置：内容级在切片阶段当页消失，作者/分类级在下次建池（下一代快照）生效 |
+| 点赞 | 文章/书籍点赞与取消：`user_like` 幂等（重复点赞 40002）、目标不可见 40004、作者不可自赞 40005；计数写 `article_stat`/`book_stat`（下限保护），取消点赞发 `social.unliked` 负修正 search 热度 |
+| 统计与对账 | `article_stat`/`book_stat` 为计数真源（`article.like_cnt` 仅展示镜像），`content_stat_window` 预计算 30/90 天窗口；`ContentStatReconcileJob` 每日对账 6 类差异并上报 Gauge，超阈值告警；存量修复走 `tools/db-repair`（手工执行，不参与初始化） |
+| 曝光与点击归因 | 切片曝光按日聚合落 `feed_exposure_daily`（同身份同日同条各最多 1 次）；详情接口带 `from`/`snapshotId`/`position` 时记点击；CTR 分 `login`/`anon` 身份口径 |
 
 **效果**：作者可以灵活管理自己的创作内容，支持草稿→批量发布→书籍组织的完整创作流程。
 
@@ -305,10 +311,14 @@
 
 | 功能 | 说明 |
 |------|------|
-| 全文检索 | 基于 Elasticsearch，支持文章标题/正文、书籍名称/简介、用户昵称的全文搜索 |
-| 向量搜索 | 使用 `dense_vector` 实现语义相似度搜索，推荐相似文章 |
-| 索引同步 | 监听 MQ 事件，内容变更时异步更新 ES 索引 |
-| 搜索排序 | 支持按相关度、时间、热度排序 |
+| 全文检索 | 基于 Elasticsearch：标题(权重4)→标签(3)→摘要(2)→正文，支持文章/书籍/用户三类；filter 支持可见性、标签、分类、分区、时间范围 |
+| 搜索联想 | `GET /api/search/suggest?q=`：标题/作者 completion + prefix 匹配；标签联想复用 content 标签接口 |
+| 相似推荐 | `dense_vector` KNN（1024 维）+ 标签重合 + 行为加权；强制仅 PUBLIC，排除自身与已下架内容；向量在发布时预计算落索引 |
+| 搜索历史 | 登录用户最近搜索词（同词 UPSERT 只前进、超上限懒删最旧）；关键词不入 ES 索引，只落 `litisle_search.search_history` |
+| 索引同步 | 监听 MQ：文章/书籍/用户三类索引异步 upsert/删除；文本事件按 ID 幂等 + 索引版本门控防乱序 + 下架墓碑防回灌；互动事件只累加 Redis 热度待刷新键，定时批量重算 heat（取消点赞负数累加并做 0 下限保护）；失败指数退避延迟重投，超限入死信队列 |
+| 搜索排序 | 相关度（默认）/ 最新 / 热度 |
+| 降级 | ES 不可用 → 回退 content 热门列表（`source=DEGRADED` 不缓存）；降级关闭或热门获取失败返回 `SEARCH_ES_UNAVAILABLE`(100004) |
+| 向量重建 | Embedding 模型/维度变更时走管理端点全量重建（`VectorRebuildAdminController`），索引 meta 记录模型版本 |
 
 **效果**：用户能快速找到感兴趣的内容，系统能推荐相似文章。
 

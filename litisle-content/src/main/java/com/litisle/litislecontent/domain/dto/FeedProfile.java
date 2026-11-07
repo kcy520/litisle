@@ -10,10 +10,14 @@ import java.util.Collections;
 import java.util.Set;
 
 /**
- * 用户推荐画像（批次十 10.3：P0 只用「分区 + 分类」两个维度，且只从 reading_history 聚合）
+ * 用户推荐画像（批次十 10.3/10.5：P0 只用「分区 + 分类」两个维度，且只从 reading_history 聚合）
  *
  * <p>为什么单独建对象：文章流四路召回与书籍流排序都要读同一份画像，
- * 收口成一个对象可避免两个流各自查库、口径不一致。10.5 会在此基础上扩展缓存与收藏维度。</p>
+ * 收口成一个对象可避免两个流各自查库、口径不一致。</p>
+ *
+ * <p>缓存口径（10.5）：本对象不直接序列化进 Redis（枚举只标了 @JsonValue，反序列化依赖展示文案），
+ * 由 {@link com.litisle.litislecontent.service.support.FeedProfileSupport} 转成 {@link FeedProfileCache}
+ * 载体后缓存；登录按 userId、匿名按 anonId 各存一份，不混用。</p>
  *
  * @author litisle
  */
@@ -35,4 +39,12 @@ public class FeedProfile {
 
     /** 偏好书籍状态（按已读书籍「完结占比」判断；无已读书籍时默认偏好已完结） */
     private BookStatusEnum preferredBookStatus = BookStatusEnum.COMPLETED;
+
+    /**
+     * 标签偏好（P1 预留，本期不实现）
+     *
+     * <p>P0 口径不读取 article_tag（与 content-schema.sql 注释一致）；保留该字段只为 P1 接入时
+     * 不改调用方签名。本期恒为空集合，任何排序逻辑都不得依赖它。</p>
+     */
+    private Set<String> preferredTags = Collections.emptySet();
 }

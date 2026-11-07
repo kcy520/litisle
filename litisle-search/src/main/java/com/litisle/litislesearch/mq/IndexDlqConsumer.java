@@ -22,8 +22,8 @@ import java.util.Map;
  * 【职责】监听 litisle.search.index.dlq.queue，把重试耗尽的死信记录成 error 日志（含原队列、
  * 重试次数、消息体摘要），供人工排查后按需重投；本类不做自动修复，也绝不静默丢弃而不留痕。
  *
- * 【死信来源】六个索引同步队列消费失败 nack(requeue=false) 后经死信交换机
- * litisle.search.dlx（Direct，绑定键=队列名）汇入本队列。
+ * 【死信来源】各索引同步队列（含批次十一 11.14 新增的 social.unliked 队列）消费失败
+ * nack(requeue=false) 后经死信交换机 litisle.search.dlx（Direct，绑定键=队列名）汇入本队列。
  *
  * 【ACK 纪律】死信队列本身不配 DLX（防死信再死信的循环），因此消费成功 ack 即物理出队；
  * 业务异常同样由 MqAckHelper ack 丢弃，任务残留的索引差异由后续重发/重建补齐。

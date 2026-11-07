@@ -156,7 +156,7 @@
 **三、建议配套（文档/脚本/测试，按需单独执行）**
 
 1. `docs/index/content-index.md` 第 119 行：`biz_type（1-书籍 2-文章）` 建议改为「2-独立文章」，与 `Sql-Document.md` / `Content-Architeche.md` 口径统一（纯文档措辞，不影响代码）。
-2. `docs/Sql-Document.md` 第 519-521 行 与 `docker/init/mysql/content-schema.sql` 第 133-135 行：列注释当前已是「1-书籍 2-独立文章」，取值与枚举一致，**无需改**；可选补充「业务代码见 `ReadingTargetTypeEnum`」的说明（无 DDL 变更）。
+2. `docs/Sql-Document.md` 第 519-521 行 与 `docker/init/mysql/schema/content-schema.sql`（`reading_history` 列注释段，2026-11-06 目录整理后行号以当前文件为准）：列注释当前已是「1-书籍 2-独立文章」，取值与枚举一致，**无需改**；可选补充「业务代码见 `ReadingTargetTypeEnum`」的说明（无 DDL 变更）。
 3. `docs/Architecture/Content-Architeche.md` 第 216 行、`docs/temp/Content_Function_Develop.md` 第 54/183 行：口径已正确，可选在表说明后附「枚举见 `ReadingTargetTypeEnum`」，便于后续检索。
 4. 脏数据校验（必须在上线前执行，仅校验、不自动修数据）：
    ```sql

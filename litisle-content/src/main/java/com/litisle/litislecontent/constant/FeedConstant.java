@@ -102,8 +102,42 @@ public final class FeedConstant {
     /** 当日曝光 Set 键前缀（拼身份与 yyyyMMdd），保证同一天不重复曝光 */
     public static final String EXPOSED_KEY_PREFIX = "content:feed:exposed:";
 
+    /**
+     * 当日点击 Set 键前缀（拼流类型、身份与 yyyyMMdd，成员=内容 ID）
+     * <p>批次十一 11.6：同一身份同一天同一条内容最多计 1 次点击，
+     * 用 SADD 返回值判断「是否首次点击」，保证 CTR 分子不被反复刷新放大</p>
+     */
+    public static final String CLICKED_KEY_PREFIX = "content:feed:clicked:";
+
     /** Redis 可用性探测键：直接走 RedisTemplate 读该键，异常即判定 Redis 不可用 */
     public static final String SNAPSHOT_PROBE_KEY = "content:feed:probe";
+
+    /** 画像缓存键前缀（拼身份 u{userId} / a{anonId}），TTL 由 stream.profile-cache-ttl-seconds 控制 */
+    public static final String PROFILE_KEY_PREFIX = "content:feed:profile:";
+
+    /**
+     * last-good 快照指针键前缀（拼作用域，值=最近一次成功快照代次）
+     * <p>Redis 正常时用于跨实例/本实例重启后回读上一代成功快照；Redis 不可用时由内存副本兜底</p>
+     */
+    public static final String SNAPSHOT_LAST_PREFIX = "content:feed:snapshot:last:";
+
+    // ==================== 降级标记（批次十 10.6） ====================
+
+    /** 降级标记：Redis 不可用且无 last-good，实时计算一页（不落池、不写曝光） */
+    public static final String DEGRADED_REDIS_DOWN = "redis-down";
+
+    /**
+     * 降级标记：快照建池失败（代次生成/写入异常），退实时计算一页
+     * <p>取值与指标标签 {@code litisle_content_feed_degraded_total{reason}} 保持一致，
+     * 便于日志与 Prometheus 按同一 reason 聚合</p>
+     */
+    public static final String DEGRADED_BUILD_FAILED = "build-failed";
+
+    /** 降级标记：命中上一代 last-good 快照（Redis 不可用或建池失败时的兜底） */
+    public static final String DEGRADED_LAST_GOOD = "last-good";
+
+    /** 降级标记：热度榜为空，用「最新」单独兜底（扩大最新召回量，避免返回空列表） */
+    public static final String DEGRADED_HOT_EMPTY = "hot-empty";
 
     /** 流类型：文章流（分区筛选会追加 :zone:{code} 后缀，避免不同筛选条件共用一份快照） */
     public static final String STREAM_ARTICLE = "article";
@@ -116,4 +150,15 @@ public final class FeedConstant {
 
     /** 身份前缀：匿名用户（拼 anonId） */
     public static final String IDENTITY_ANON_PREFIX = "a";
+
+    // ==================== 曝光/点击归因（批次十一 11.6 + 11.12） ====================
+
+    /** 身份口径：登录用户（feed_exposure_daily.identity_type，登录 CTR 只看该口径） */
+    public static final String IDENTITY_TYPE_LOGIN = "login";
+
+    /** 身份口径：匿名用户（feed_exposure_daily.identity_type，全站 CTR 含该口径） */
+    public static final String IDENTITY_TYPE_ANON = "anon";
+
+    /** 点击归因来源参数值：详情页 {@code from=feed} 时才算推荐流点击 */
+    public static final String ATTRIBUTION_FROM_FEED = "feed";
 }

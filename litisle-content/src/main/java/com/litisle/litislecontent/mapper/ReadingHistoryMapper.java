@@ -10,6 +10,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -68,37 +69,75 @@ public interface ReadingHistoryMapper extends BaseMapper<ReadingHistory> {
                                              @Param("bizType") Integer bizType);
 
     /**
-     * 删除单用户单类型下超出保留条数的最旧行（阅读历史增长治理懒删）
+     * 阅读历史裁剪：删除「过期或超额」且不属于「在读保留」的行（批次十一 11.4）
      *
-     * 在 reading_history 表中，删除某个用户、某种业务类型下，超出保留数量的最旧阅读记录，
-     * 并且每次最多只删 batchSize 条，防止一次删太多。
-     *
-     * <p>实现说明：
+     * <p>删除候选（同时满足）：</p>
      * <ul>
-     *   <li>子查询先按 update_time desc, id desc（与历史列表同款稳定排序）取出该用户该类型
-     *       第 offset 条之后的行（即最新 keepCount 条之外的最旧行），再 join 回主表按主键删除</li>
-     *   <li>不写「delete ... where 自引用子查询带 limit」：MySQL 不支持 delete 目标表直接
-     *       引用带 limit 的子查询，join 派生表写法是标准解法</li>
-     *   <li>rows 不足 offset 条时子查询为空集，删除 0 行，无副作用</li>
-     *   <li>索引支撑：idx_user_time(user_id, biz_type, update_time) 覆盖子查询过滤与排序</li>
+     *   <li>该用户该类型下的行；</li>
+     *   <li>满足其一：update_time 早于 cutoff（时间窗过期），或不在最新 keepCount 条内（超出条数上限）；</li>
+     *   <li>且不属于最近 keepInProgress 条「在读」书籍历史（在读豁免）。</li>
      * </ul>
      *
-     * @param userId    读者ID
-     * @param bizType   阅读对象类型：1-书籍 2-独立文章
-     * @param offset    保留条数（保留最新 offset 条，删除其后所有行）
-     * @param batchSize 单批删除上限（防御性封顶，防异常数据导致一次大删）
+     * <p>在读判定（仅用现有字段，不新增埋点）：</p>
+     * <ul>
+     *   <li>取该书的最大「可见章节号」（book_chapter join article，仅未删+已发布+公开）；</li>
+     *   <li>历史最后阅读章节号小于该最大值即视为未读完（在读）；</li>
+     *   <li>chapter_id 为空 / 章节行已删 / 书籍无可见章节时无法判断，保守按在读保留。</li>
+     * </ul>
+     *
+     * <p>实现说明：</p>
+     * <ul>
+     *   <li>三个派生表各自先按 update_time desc, id desc 取最新 N 条（与历史列表同款稳定排序），
+     *       再 join 回主表；不写「delete ... where 自引用子查询带 limit」（MySQL 不支持该写法）；</li>
+     *   <li>删除时按 update_time asc 从最旧开始，单批最多 batchSize 条，防异常数据一次大删；</li>
+     *   <li>索引支撑：idx_user_time(user_id, biz_type, update_time) 覆盖过滤与排序；</li>
+     *   <li>keepInProgress 传 0（文章类型）时 LIMIT 0 返回空集，文章不参与在读豁免。</li>
+     * </ul>
+     *
+     * @param userId         读者ID
+     * @param bizType        阅读对象类型：1-书籍 2-独立文章
+     * @param cutoff         时间窗起点（早于该时刻的行进入删除候选）
+     * @param keepCount      条数上限（按最后阅读时间倒序保留最新 keepCount 条）
+     * @param keepInProgress 在读保留条数（仅书籍类型生效；文章传 0）
+     * @param batchSize      单批删除上限
      * @return 实际删除行数
      */
     @Delete("<script>"
             + "delete rh from reading_history rh "
-            + "join (select id from reading_history "
-            + "where user_id = #{userId} and biz_type = #{bizType} "
-            + "order by update_time desc, id desc "
-            + "limit #{offset}, #{batchSize}) t on rh.id = t.id"
+            + "join ("
+            + "  select h.id from reading_history h "
+            // 条数上限豁免集：最新 keepCount 条
+            + "  left join (select id from reading_history "
+            + "             where user_id = #{userId} and biz_type = #{bizType} "
+            + "             order by update_time desc, id desc "
+            + "             limit #{keepCount}) keep on keep.id = h.id "
+            // 在读豁免集：最近 keepInProgress 条未读完的书籍历史
+            + "  left join (select rh2.id from reading_history rh2 "
+            + "             left join book_chapter bc on bc.id = rh2.chapter_id "
+            + "             left join (select bc2.book_id as book_id, max(bc2.chapter_no) as max_no "
+            + "                        from book_chapter bc2 "
+            + "                        join article a2 on a2.id = bc2.article_id "
+            + "                         and a2.del_flag = 0 and a2.status = 2 and a2.visibility = 1 "
+            + "                        group by bc2.book_id) mx on mx.book_id = rh2.biz_id "
+            + "             where rh2.user_id = #{userId} "
+            + "               and rh2.biz_type = " + ContentBizConstant.READING_BIZ_TYPE_BOOK + " "
+            + "               and (rh2.chapter_id is null or bc.id is null or mx.max_no is null "
+            // 注：MyBatis 注解 SQL 会被当作 XML 解析，比较符必须转义，否则启动即报 SAXParseException
+            + "                    or bc.chapter_no &lt; mx.max_no) "
+            + "             order by rh2.update_time desc, rh2.id desc "
+            + "             limit #{keepInProgress}) prot on prot.id = h.id "
+            + "  where h.user_id = #{userId} and h.biz_type = #{bizType} "
+            + "    and prot.id is null "
+            + "    and (h.update_time &lt; #{cutoff} or keep.id is null) "
+            + "  order by h.update_time asc, h.id asc "
+            + "  limit #{batchSize}"
+            + ") t on rh.id = t.id"
             + "</script>")
     int deleteOverflowOldest(@Param("userId") Long userId,
                              @Param("bizType") Integer bizType,
-                             @Param("offset") int offset,
+                             @Param("cutoff") LocalDateTime cutoff,
+                             @Param("keepCount") int keepCount,
+                             @Param("keepInProgress") int keepInProgress,
                              @Param("batchSize") int batchSize);
 
     /**
@@ -109,7 +148,9 @@ public interface ReadingHistoryMapper extends BaseMapper<ReadingHistory> {
      *
      * @param bookIds 书籍 ID 集合（非空）
      * @return 每本书的阅读人数（无阅读记录的书不在结果中，调用方按 0 处理）
+     * @deprecated 已由统计表 book_stat.reader_count 替代，保留供回退与对账复用，禁止删除。
      */
+    @Deprecated
     @Select("""
             <script>
             select biz_id as id, count(distinct user_id) as cnt

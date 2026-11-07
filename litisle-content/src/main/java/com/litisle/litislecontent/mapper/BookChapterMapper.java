@@ -298,7 +298,9 @@ public interface BookChapterMapper extends BaseMapper<BookChapter> {
      *
      * @param bookIds 书籍 ID 集合（非空）
      * @return 每本书的章节数（无章节的书不在结果中，调用方按 null 处理）
+     * @deprecated 已由统计表 book_stat.chapter_count 替代，保留供回退与对账复用，禁止删除。
      */
+    @Deprecated
     @Select("""
             <script>
             select book_id as id, count(*) as cnt

@@ -392,7 +392,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 > - 建书、章节挂载/卸载（仅本人文章、序号唯一）、书籍状态流转（连载中/完结/下架）
 > - 章节批量重排（PUT /book/{id}/chapters/reorder）：拖拽后全量提交新序 1..N，两阶段偏移解唯一键冲突（下架书拒重排）
-> - 阅读历史上报：单表双类型按人按对象唯一、节流限频、PUT 仅前进不回退；阅读文章详情即自动落历史；单用户每类型上限 500 条（写入时懒删最旧行）
+> - 阅读历史上报：单表双类型按人按对象唯一、节流限频、PUT 仅前进不回退；阅读文章详情即自动落历史；单用户每类型上限 1000 条（写入时懒删最旧行）
 
 **详细版**：
 
@@ -407,13 +407,13 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
   PUT 上报：章节归属校验 + @RateLimiter 2/60s 配合前端 + **仅前进不回退**（防多端乱序上报把进度拖回去）；\
   阅读即落历史：文章详情命中自动落（归属判定：无挂载→文章历史 / 唯一挂载→书籍历史 / 多书歧义不自动落）+ 章节详情读章自动落书籍历史（recordBookRead）；\
   自动路径均按「最后一次阅读」刷新，回读旧章进度可回退——「仅前进」只约束 PUT 手动上报；\
-  增长治理：单用户每类型上限 500 条（HISTORY\_MAX\_PER\_USER），新插入行后懒删最旧行（按最后阅读时间，idx\_user\_time 支撑，fail-safe 删失败不影响落历史，零 job 零 yml 配置）
+  增长治理：单用户每类型上限 1000 条（HISTORY\_MAX\_PER\_USER，批次十一 11.4 调整），新插入行后懒删最旧行（按最后阅读时间，idx\_user\_time 支撑，fail-safe 删失败不影响落历史，零 job 零 yml 配置）；duration\_ms 列已建但暂不写入（预留）
 
 **通俗版**：\
 书籍是文章的「目录容器」，同本书章节号不能重复、序号就是排序，挂进书的章节必须是自己写的文章。\
 想给章节调顺序？在目录页拖好顺序后一键保存即可，系统会整单核对后安全落库（不会出现序号断档或两章撞号）；书被下架期间不能调顺序。\
 阅读历史分书籍历史（记住你看到哪一章）和文章历史（读过的文章详情就自动记下），同一本书/文章只记最新一次。\
-历史不是无限攒的：每类最多记 500 条，记满后最旧的那条会被自动清掉，腾位置给新记录。\
+历史不是无限攒的：每类最多记 1000 条，记满后最旧的那条会被自动清掉，腾位置给新记录。\
 手动「上报进度」只能往后翻不能往回退（防多端乱序把进度拖回去，60 秒最多报 2 次）；但实际读章节/读文章是按「最后一次阅读」自动刷新的，回读旧章进度会跟着回退。
 
 代码部分:
@@ -447,6 +447,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 - 写入前目标校验：文章对齐详情可见性口径（未删 + 非本人须发布态 + PUBLIC 放行/PRIVATE 拒/FOLLOWERS 回查关注缓存，social 不可用 fail-fast）；书籍未删 + 下架仅作者可收藏——不允许收藏自己看不到的内容
 - 我的收藏：create\_time 倒序分页，targetType 三态（全部/文章/书籍），多态 join SQL 层装配标题/封面/摘要/作者
 - 收藏状态：GET /check 登录查询；文章详情 VO 直接回填 favorited（列表不逐条回填防 N+1）
+- 收藏计数口径（批次十一 11.9）：作者可以收藏自己的作品（收藏记录照常写入、按钮态正常），但 `article_stat.collect_count` / `book_stat.collect_count` **不计作者本人那一条**；文章作者取 `article.author_id`、书籍作者取 `book.author_id`，收藏与取消在**同一处判定**，不会出现「收藏没加、取消却扣 1」的不对称
 
 **功能描述——通俗版：**
 
@@ -549,7 +550,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 > - 登录用户推荐流分页查询：热度榜排序（榜空/开关关自动降级时间倒序），缓存三防保障稳定，展示前回查权威态剔除已下线内容
 > - 仅关注者可见内容过滤，social 降级时宁严勿松
-> - 热度榜灌榜：定时任务 5min 增量灌榜 + 1h 全量校正，榜缺失自动全量重建（social 未落地期间 like/comment 恒 0，排序退化为浏览量+时间衰减）
+> - 热度榜灌榜：定时任务 5min 增量灌榜 + 1h 全量校正，榜缺失自动全量重建；打分统一走 FeedScoreSupport（11.10，七项权重+平滑），增量水位按 stat\_update\_time
 
 **功能描述——详细版：**
 
@@ -579,7 +580,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
   灌榜任务 FeedHotRankRefillJob 5min 周期 + 分布式锁单点，refillAuto 三分支编排——榜缺失全量重建 / 距上次全量 ≥1h 全量校正分数衰减 / 其余增量灌榜（读增量水位只捞 stat\_update\_time ≥ 水位的变更文章——该列仅由浏览/点赞/评论计数回写刷新，update\_time 保持「编辑才变」的业务语义，2026-11-03 批次E 修正，防浏览老文章被误顶到最新列表，重复 ZADD 幂等）；\
   全量轮影子键灌榜 + rename 原子换榜（灌榜期间读方无空榜窗口）；增量轮 ZADD 后裁剪保 top N 防无界增长；\
   榜 TTL 30min，任务连续异常死亡后榜自动过期，/feed 自动降级时间倒序（自愈闭环，无补偿逻辑）；\
-  热度分 = (like×3 + comment×2 + view×0.2)/(小时数+2)^1.5，权重 yml 外置；social 未落地期间 like/comment 恒 0，公式退化为浏览量+时间衰减，链路先行跑通
+  热度分：**11.10 起统一收口 FeedScoreSupport 打分**——文章七项权重（collect 0.12 / like 0.12 / comment 0.08 / view 0.03 / fresh 0.30（24h 半衰期）/ zone 0.10 / category 0.20）+ 贝叶斯平滑（strength 5 / prior 0.1），权重 yml 外置；旧公式 (like×3 + comment×2 + view×0.2)/(小时数+2)^1.5 及其 decay 参数**已作废不再读取**（仅 yml 保留兼容）；点赞已收进 content（11.8），like 信号来自点赞接口计数
 - 回源读榜：\
   hot.enabled 且榜非空 → 按 ZSet 榜序组装（in 查询不保序，按榜返回顺序重排）；榜空/开关关 → 时间倒序直查兜底
 - 仅关注者内容回查 `FollowRelationCache`，降级宁严勿松
@@ -612,6 +613,121 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 >   litisle\_content\controller\FeedController.java：\
 >   作用：\
 >   推荐流 HTTP 入口（登录+限流）
+
+### 推荐流无限刷（批次十 10.2~10.6：文章流 / 书籍流）
+
+> 本节补新增两条游标式流端点的调用口径；旧 `GET /api/content/feed` 分页式推荐流保持原语义，未改。
+
+**端点与鉴权**
+
+| 方法 | 路径 | 鉴权 | 频控（窗口 60s） |
+| --- | --- | --- | --- |
+| GET | `/api/content/feed/articles` | 登录或匿名 | 登录按 userId 60 次；匿名按客户端 IP 20 次 |
+| GET | `/api/content/feed/books` | 登录或匿名 | 同上，且两条流共用同一份配额 |
+
+- 登录态来自 Sa-Token：请求头默认 `satoken: <token>`（`token-name` 未改则用该名，以 Nacos 实际配置为准）。
+- 旧 `/api/content/feed` 仍要求登录；新两条流端点已在服务端拦截器与网关白名单放行匿名 GET。
+
+**`X-Anon-Id` 规则**
+
+- 匿名请求携带 `X-Anon-Id`，格式必须是 UUID v4（8-4-4-4-12，版本位 4、变体位 8/9/a/b）。
+- 缺失或非法时，服务端生成新 UUID 并写入响应头 `X-Anon-Id`；前端必须存 localStorage 并在后续请求回传，否则每次都会得到新身份，曝光去重与快照隔离失效。
+- 合法入参不回写响应头；登录请求忽略该头（身份固定用 `u{userId}`，匿名用 `a{anonId}`，两类身份的画像/快照/曝光键完全隔离）。
+- 该标识不是身份凭证，只用于曝光去重与快照隔离；频控按 IP 而非该标识，防止换标识绕过限流。
+
+**请求参数**
+
+| 参数 | 必填 | 语义 |
+| --- | --- | --- |
+| `cursor` | 否 | 上一页返回的游标；首刷不传，服务端编码快照内偏移 |
+| `snapshotId` | 否 | 上一页返回的快照代次；首刷不传，回传后服务端校验快照是否仍有效 |
+| `pageSize` | 否 | 单页条数；缺省取 `litisle.content.feed.page-size`（20），上限 `MAX_PAGE_SIZE=50`，超限截断 |
+| `zoneCode` | 否（仅文章流） | 1-普通 / 2-作家；空或非法值=不筛选。分区筛选参与快照作用域，不同 zone 各一份快照；书籍流不参与 zone |
+
+**响应字段语义（`data` 内为 `FeedPageVO`）**
+
+| 字段 | 语义 |
+| --- | --- |
+| `items` | 本页条目；已过展示前门控回查，下架/转私密/软删内容即时剔除 |
+| `cursor` | 下一页游标；为空/null 表示已到底 |
+| `snapshotId` | 本页所属快照代次，下次请求原样回传 |
+| `hasMore` | 是否还有下一页；false 时前端停止加载，等下次会话重新建池 |
+| `reset` | true=服务端已重建快照（快照过期/游标非法/翻到底续池），前端应清空列表并从头部重新渲染；false=在既有列表后追加 |
+| `degraded` | null=正常链路；非空表示本次走降级分支，取值见下表 |
+
+| `degraded` 取值 | 含义 | 前端处理 |
+| --- | --- | --- |
+| `redis-down` | Redis 不可用且无 last-good，退实时计算一页 | 终页：无 cursor/snapshotId、hasMore=false，停止续刷，可提示「推荐服务暂不可用」 |
+| `last-good` | 命中上一代成功快照兜底（Redis 不可用或建池失败） | 终页：只返回上一代快照首页，无 cursor/snapshotId、hasMore=false，可提示「展示的是稍早推荐」 |
+| `build-failed` | 快照建池失败（代次生成/写入异常）且无 last-good，退实时计算一页 | 同 `redis-down`，停止续刷 |
+| `hot-empty` | 热度榜为空，用「最新」单独兜底（快照仍正常） | 正常续刷，无需特殊处理 |
+
+**频控与超限表现**
+
+- 限流键：登录 `rate_limit:feed:user:{userId}:stream`，匿名 `rate_limit:feed:ip:{客户端IP}:stream`（前缀常量 `CacheConstant.RATE_LIMIT` + `FeedConstant.LIMIT_KEY_*`）。
+- 超限抛 `BizException(ErrorCode.TOO_MANY_REQUESTS)`：统一 `Result` 返回 `code=10005`、提示「推荐流请求过于频繁，请稍后再试」；content 当前由 `GlobalExceptionHandler` 包裹为 HTTP 200 + 业务码，前端应以 `code` 判定而非仅看 HTTP 状态（若网关后续按码映射 429，以网关实际为准）。
+
+**调用示例（Windows 11 PowerShell）**
+
+```powershell
+# 1) 登录用户首刷文章流（token 头名以 Nacos 实际配置为准，默认 satoken）
+curl.exe -H "satoken: <token>" "http://localhost:8085/api/content/feed/articles?pageSize=20"
+
+# 2) 匿名首刷书籍流：先不带 X-Anon-Id，观察响应头 X-Anon-Id 并保存
+curl.exe -i "http://localhost:8085/api/content/feed/books?pageSize=20"
+
+# 3) 匿名续刷：回传上次的 X-Anon-Id + cursor + snapshotId
+curl.exe -H "X-Anon-Id: <anonId>" "http://localhost:8085/api/content/feed/books?cursor=<cursor>&snapshotId=<snapshotId>&pageSize=20"
+
+# 4) 走网关同路径（网关 8080 转发到 content 8085）
+curl.exe "http://localhost:8080/api/content/feed/articles?pageSize=20"
+```
+
+**实现落点**：入口 [FeedController.java](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/FeedController.java)；游标/快照/降级编排 [FeedStreamServiceImpl.java](../../litisle-content/src/main/java/com/litisle/litislecontent/service/impl/FeedStreamServiceImpl.java)；快照与曝光 [FeedSnapshotSupport.java](../../litisle-content/src/main/java/com/litisle/litislecontent/service/support/FeedSnapshotSupport.java)；画像缓存 [FeedProfileSupport.java](../../litisle-content/src/main/java/com/litisle/litislecontent/service/support/FeedProfileSupport.java)；指标 [ContentMetrics.java](../../litisle-content/src/main/java/com/litisle/litislecontent/metrics/ContentMetrics.java)；架构口径见 [Content-Architeche.md](../Architecture/Content-Architeche.md)，进行中清单见 [next_update.md](../next/next_update.md)。
+
+### 互动统计与推荐信号（批次十一 11.1~11.14）
+
+> 本节是「统计口径」的唯一文字说明，代码侧口径以 `FeedScoreSupport` 与 `ContentStatSupport` 为准；数据表与写入点见 [Content-Architeche.md](../Architecture/Content-Architeche.md)。
+
+**统计真源（11.2 / 11.10）**
+
+- `article_stat` / `book_stat` 是**唯一真源**：收藏数、点赞数、评论数、浏览量、读者数、章节数都只认这两张表。
+- `article.collect_count`、`article.like_cnt` 等实体冗余列只作展示镜像与老接口兼容读，**不参与排序**；两处不一致时以 stat 表为准，差异由 11.16 对账任务发现。
+- `content_stat_window` 存 30/90 天窗口值（收藏数 / 阅读人数），推荐排序优先读窗口值、窗口缺失时回退累计值；窗口聚合同样排除作者自收藏，避免与累计值口径打架。
+
+**点赞（11.8 / 11.14）**
+
+- 接口：`POST /api/content/like`（body `{targetType, targetId}`）点赞、`DELETE /api/content/like?targetType=&targetId=` 取消；必须登录，频控 `LIKE_MAX_COUNT`（20/60s，按 userId）。
+- `user_like` 唯一键 `(user_id, target_type, target_id)` 保证幂等：重复点赞不报错、不重复计数；取消未点过的也不报错。
+- 计数：`article_stat.like_count` / `book_stat.like_count` 原子 +1/−1，递减用 `GREATEST(x-1, 0)` 兜底，不出现负数。
+- 跨模块同步（11.14）：取消点赞发 −1 事件，search 侧按增量正负修正 `likeCnt`，同一条消息重投不重复生效（幂等 + 失败进 DLQ）。
+
+**曝光 / 点击与 CTR（11.6 / 11.12）**
+
+- `feed_exposure_daily` 唯一键 `(stat_date, stream, target_id, identity_type)`——按「日期 + 流 + 内容 ID + 身份」唯一，切片阶段批量 upsert 累加曝光；点击上报在同一行累加 `click_count`。
+- CTR = click_count / exposure_count，**分身份**统计：登录按 userId、匿名按 `X-Anon-Id` 单独成列，不混算（匿名身份易变，混算会把「换标识」当成新用户行为）。
+- 已知偏差：曝光去重是 Redis Set + 日聚合入库，切页与切片并发时**可能双计**；本轮只做统计展示，不进排序。
+
+**负反馈（11.11）**
+
+- 接口：`POST /api/content/feed/feedback` 提交、`DELETE` 撤销，同一 DTO；**必须登录**（匿名只有 `X-Anon-Id`，清缓存即换身份，做不了长期屏蔽）；频控 `FEEDBACK_MAX_COUNT`（20/60s，按 userId）。
+- 表 `feed_feedback`：三类维度 1-不感兴趣（单条内容）/2-屏蔽作者/3-屏蔽分类，`stream` 隔开文章流与书籍流；唯一键 `(user_id, feedback_type, stream, target_id, target_key)` 防重复，重复提交幂等成功；撤销按同一键删除，同样幂等。
+- 生效位置：作者/分类屏蔽在**建池**时过滤；单条「不感兴趣」在建池 + **切片**双重过滤，当前快照当页起立即消失。名单按用户单键缓存（TTL 300s、查询窗口 30 天），变更只失效该用户该流键，不做全量 evict。
+- 已知偏差（收窄）：旧快照已建好的剩余页里，作者/分类屏蔽内容可能仍出现，用户下一次刷（续池或 TTL 过期重建）才完全消失；`last-good` 降级兜底页**已补负反馈过滤**（批次十二修复：lastGoodArticlePage/lastGoodBookPage 经 filterArticleIdsByFeedback/filterBookIdsByFeedback 三维度过滤后再切片）。存量库 category 列存在 latin1 双重编码（mojibake），分类屏蔽对存量脏数据行天然无效，新写入行正常。
+
+**粗完读统计（11.13）**
+
+- 口径：用 `reading_history.chapter_id` join `book_chapter` 取章节号，最后阅读章节号 ≥ 该书**最大公开可见章节号**（`visibility=1` + 已发布 + 未删）即近似「追上进度」；**零前端埋点**。
+- 落点：`book_read_quality` 存分子 `finish_reader_count`、分母 `eligible_reader_count`（「最后一次阅读章节能解析到公开章节的读者数」，与分子同源；不用 `book_stat.reader_count` 当分母）。
+- 更新：`BookReadQualityJob` **按日全量重算**（新章发布会把完读用户改判未完成、历史裁剪会缩小分母，增量感知不到这类反向变化）。
+- 已知误差：①打开即算阅读（点开最后一章就离开 → 假阳性）；②书更新后原本完读用户回退未完成（假阴性）；③只读最后一章也判完读；④追平后回看中间章会重判未完成；⑤`visibility=3`（仅关注者）章节需社交关系，纯 SQL 不做个性化判定。
+- 本轮**只统计不进排序**：避免同时改权重与新指标导致分数漂移无法归因。
+
+**待确认（未拍板，勿按已定口径使用）**
+
+- **90 天阅读历史是否对外展示**：`reading_history` 有 90 天上限裁剪，前端「更早的阅读记录」是否展示、展示到什么粒度尚未拍板；影响：完读分母只覆盖最近 90 天，长期读者可能被漏算。
+- **分类编码问题**：`article.category` 以中文名入库，历史种子数据存在双重编码（`hex=C3A5C2B0…`）；是否改为存枚举编码、以及存量数据如何修，尚未拍板；影响：负反馈「屏蔽分类」按名称匹配，名称与库内值不一致时该规则不生效。
+- **`chapter_count` 与详情页作者视角不一致**：`book_stat.chapter_count` 只统计公开可见章节，作者在详情页看到的是含私有章节的数量；两处数字不同属已知识偏差，是否统一待确认。
 
 ## 七、审核结果回写与双链路聚合（ModerationResultConsumer + ArticleReviewWriteBackServiceImpl）
 

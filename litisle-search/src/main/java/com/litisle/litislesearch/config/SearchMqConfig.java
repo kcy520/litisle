@@ -21,13 +21,14 @@ import java.util.Map;
  * 【拓扑】
  * - 业务交换机：litisle.content.exchange / litisle.social.exchange（Topic，durable；
  *   发布方为 content / social 模块，此处幂等声明——参数一致不会报 PRECONDITION_FAILED）
- * - 六个索引同步队列（队列名 SSOT 为 MqConstant；文章三类事件消费者已随批次二落地
+ * - 各索引同步队列（队列名 SSOT 为 MqConstant；文章三类事件消费者已随批次二落地
  *   IndexSyncConsumer，互动热度三类队列消费者已随批次三 3.1 落地 HeatEventConsumer）：
  *   litisle.content.published.queue          ← content.published
  *   litisle.content.unpublished.queue        ← content.unpublished
  *   litisle.content.article.updated.queue    ← content.article-updated
  *   litisle.content.view.count.flushed.queue ← content.view-count-flushed
  *   litisle.social.liked.queue               ← social.liked
+ *   litisle.social.unliked.queue              ← social.unliked（批次十一 11.14，取消点赞 delta=-1）
  *   litisle.social.commented.queue           ← social.commented
  * - 死信链路：各队列消费失败 nack requeue=false 后，按「队列名」经独立死信交换机
  *   litisle.search.dlx（Direct）统一汇入 litisle.search.index.dlq.queue，
@@ -69,7 +70,7 @@ public class SearchMqConfig {
         return new DirectExchange(SearchBizConstant.EXCHANGE_SEARCH_DLX, true, false);
     }
 
-    /** 索引同步死信队列（durable）：六个同步队列的死信按队列名统一汇入 */
+    /** 索引同步死信队列（durable）：各同步队列的死信按队列名统一汇入 */
     @Bean
     public Queue searchIndexDlq() {
         return QueueBuilder.durable(SearchBizConstant.QUEUE_SEARCH_INDEX_DLQ).build();
@@ -93,7 +94,7 @@ public class SearchMqConfig {
                 SearchBizConstant.EXCHANGE_TYPE_DELAYED, true, false, args);
     }
 
-    // ==================== 六个索引同步队列（均配 DLX 兜底） ====================
+    // ==================== 索引同步队列（均配 DLX 兜底；批次十一 11.14 新增 social.unliked） ====================
 
     /** 文章发布事件队列（upsert article_idx + 向量预计算 + chunks 摄入） */
     @Bean
@@ -125,6 +126,16 @@ public class SearchMqConfig {
         return indexSyncQueue(MqConstant.QUEUE_SOCIAL_LIKED);
     }
 
+    /**
+     * 取消点赞事件队列（批次十一 11.14：like_cnt 增量 delta=-1 + 重算 heat）。
+     * <p>与点赞事件分队列：正负事件可分别观测/重投，避免单队列内正负混流难以排查；
+     * 死信与延迟重投沿用同一 search.dlx / search.delay 链路，不另建基础设施。</p>
+     */
+    @Bean
+    public Queue socialUnlikedQueue() {
+        return indexSyncQueue(MqConstant.QUEUE_SOCIAL_UNLIKED);
+    }
+
     /** 评论事件队列（comment_cnt 增量 + 重算 heat） */
     @Bean
     public Queue socialCommentedQueue() {
@@ -154,9 +165,9 @@ public class SearchMqConfig {
 
     /**
      * 构建索引同步队列（durable + 指向死信交换机）：死信按「队列名」投递到 DLX，
-     * DLQ 以六条同名绑定收全（见下方 searchIndexDlqBinding*）
+     * DLQ 以每条同名绑定收全（见下方 searchIndexDlqBinding*）
      *
-     * <p>死信路由键取队列名而非业务路由键：六个队列共用同一个 DLX，Direct 交换机按 routingKey
+     * <p>死信路由键取队列名而非业务路由键：各队列共用同一个 DLX，Direct 交换机按 routingKey
      * 精确匹配，只有路由键与绑定键完全一致才能进 DLQ；用队列名可保证各队列死信互不干扰且唯一。</p>
      *
      * @param queueName 队列名（取 MqConstant 常量，SSOT 收口）
@@ -205,6 +216,13 @@ public class SearchMqConfig {
     public Binding socialLikedBinding(TopicExchange socialExchange, Queue socialLikedQueue) {
         return BindingBuilder.bind(socialLikedQueue).to(socialExchange)
                 .with(MqConstant.ROUTING_SOCIAL_LIKED);
+    }
+
+    /** 绑定：social.unliked → 取消点赞事件队列（批次十一 11.14） */
+    @Bean
+    public Binding socialUnlikedBinding(TopicExchange socialExchange, Queue socialUnlikedQueue) {
+        return BindingBuilder.bind(socialUnlikedQueue).to(socialExchange)
+                .with(MqConstant.ROUTING_SOCIAL_UNLIKED);
     }
 
     /** 绑定：social.commented → 评论事件队列 */
@@ -284,6 +302,12 @@ public class SearchMqConfig {
         return delayBinding(socialLikedQueue, searchDelayExchange);
     }
 
+    /** 延迟重投绑定：→ 取消点赞事件队列（批次十一 11.14，复用同一延迟交换机） */
+    @Bean
+    public Binding searchDelayBindingUnliked(CustomExchange searchDelayExchange, Queue socialUnlikedQueue) {
+        return delayBinding(socialUnlikedQueue, searchDelayExchange);
+    }
+
     /** 延迟重投绑定：→ 评论事件队列 */
     @Bean
     public Binding searchDelayBindingCommented(CustomExchange searchDelayExchange, Queue socialCommentedQueue) {
@@ -346,6 +370,13 @@ public class SearchMqConfig {
     public Binding searchIndexDlqBindingLiked(DirectExchange searchDlx, Queue searchIndexDlq) {
         return BindingBuilder.bind(searchIndexDlq).to(searchDlx)
                 .with(MqConstant.QUEUE_SOCIAL_LIKED);
+    }
+
+    /** 绑定：DLX ← 取消点赞事件队列死信（批次十一 11.14，沿用同一 DLQ） */
+    @Bean
+    public Binding searchIndexDlqBindingUnliked(DirectExchange searchDlx, Queue searchIndexDlq) {
+        return BindingBuilder.bind(searchIndexDlq).to(searchDlx)
+                .with(MqConstant.QUEUE_SOCIAL_UNLIKED);
     }
 
     /** 绑定：DLX ← 评论事件队列死信 */

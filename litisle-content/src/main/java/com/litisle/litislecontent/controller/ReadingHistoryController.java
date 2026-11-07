@@ -41,6 +41,9 @@ public class ReadingHistoryController {
 
     /**
      * 历史上报（书籍阅读页显式入口；服务端限频兜底 + 前端 30s 节流；伪造跨书章节拒绝）
+     *
+     * <p>durationMs 为批次十一 11.11 预留的阅读时长心跳入参：本次只占位不写入、不统计，
+     * 等前端心跳口径（间隔/有效判定）确定后再接入；不要在此处凭空定义有效时长规则。</p>
      */
     @Operation(summary = "历史上报", description = "登录；限频 2/60s；仅前进不回退")
     @RateLimiter(time = LIMIT_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
@@ -48,8 +51,10 @@ public class ReadingHistoryController {
     @SaCheckLogin
     @PutMapping
     public Result<Void> report(@RequestParam("bookId") Long bookId,
-                               @RequestParam("chapterId") Long chapterId) {
+                               @RequestParam("chapterId") Long chapterId,
+                               @RequestParam(value = "durationMs", required = false) Long durationMs) {
         // Service 内章节归属反查 + UPSERT
+        // TODO 11.11：durationMs 待前端心跳方案确定后接入聚合，本次显式忽略
         readingHistoryService.report(StpUtil.getLoginIdAsLong(), bookId, chapterId);
         return Result.success();
     }

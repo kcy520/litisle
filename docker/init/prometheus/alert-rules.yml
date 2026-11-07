@@ -159,3 +159,32 @@ groups:
         annotations:
           summary: "[{{ $labels.application }}] 索引队列 {{ $labels.queue }} 积压 {{ $value }} 条"
           description: "队列 {{ $labels.queue }} 消息数持续 5 分钟超过 20 条，说明索引同步消费跟不上生产；请查看该队列消费日志与 ES 写入耗时、content 回查接口是否异常，必要时临时提高监听器并发或扩容 search 实例。"
+
+  # ==========================================================================
+  # 批次十：content 推荐流可观测告警（指标来源 ContentMetrics，counter 已按 Prometheus 约定补 _total）
+  # 阈值先按当前量级保守取值，跑 1~2 周观察基线后再收紧
+  # 采样纪律：表达式不做 or 0 / 默认值填充；采集缺失时为 no data（不触发），不掩盖采集失效
+  # ==========================================================================
+  - name: litisle-content
+    rules:
+      # ① 推荐流降级速率过高：10 分钟窗口降级速率 > 0.5 次/秒（约 30 次/分钟）且持续 10 分钟。
+      #   触发含义：Redis 不可用 / last-good 兜底 / 热度榜为空 / 建池失败任一原因持续发生，
+      #   推荐质量已由兜底链路接管，需按 reason 标签定位 Redis、热度榜灌榜任务或快照写入。
+      - alert: ContentFeedDegradedRateHigh
+        expr: sum by (application) (rate(litisle_content_feed_degraded_total[10m])) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.application }}] 推荐流降级速率 {{ $value }}/s 持续偏高"
+          description: "近 10 分钟推荐流降级速率持续超过 0.5 次/秒；请按 reason（redis-down/last-good/hot-empty/build-failed）与 stream（article/book）标签定位 Redis 连通性、热度榜灌榜任务、快照写入是否正常。"
+
+      # ② Redis 不可用降级新增：区别于 last-good 兜底，属于真实缓存层故障 → critical（任一新增即告警）
+      - alert: ContentFeedRedisDown
+        expr: increase(litisle_content_feed_degraded_total{reason="redis-down"}[10m]) > 0
+        for: 0m           # 窗口内已含 10 分钟增量，无需额外等待
+        labels:
+          severity: critical
+        annotations:
+          summary: "[{{ $labels.application }}] 推荐流 Redis 不可用 {{ $value }} 次"
+          description: "近 10 分钟出现 reason=redis-down 降级（stream={{ $labels.stream }}），推荐流已退回实时一页；请检查 Redis（compose: litisle-redis / 6380）连通性与网络。"

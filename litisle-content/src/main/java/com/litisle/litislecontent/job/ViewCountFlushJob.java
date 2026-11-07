@@ -6,6 +6,7 @@ import com.litisle.litisleapi.event.content.ContentViewCountFlushedEvent;
 import com.litisle.litislecontent.constant.ContentBizConstant;
 import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.mq.ContentEventProducer;
+import com.litisle.litislecontent.service.support.ContentStatSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -52,6 +53,9 @@ public class ViewCountFlushJob {
 
     /** content 域 MQ 事件发送统一收口（刷回成功后补推 content.view-count-flushed，批次B B7） */
     private final ContentEventProducer contentEventProducer;
+
+    /** 互动统计写入组件（批次十一 11.1：浏览量绝对值同步到 article_stat） */
+    private final ContentStatSupport contentStatSupport;
 
     /** 刷回开关（默认开；多实例部署时建议只开一台或改用分布式锁，对齐 TagCountReconcileJob） */
     @Value("${litisle.content.view.flush.enabled:true}")
@@ -111,6 +115,13 @@ public class ViewCountFlushJob {
                 Long latestViewCnt = articleMapper.selectViewCnt(articleId);
                 if (latestViewCnt != null) {
                     flushedViews.put(articleId, latestViewCnt);
+                    // 批次十一 11.1：浏览量同步到 article_stat（覆盖写最新绝对值）；
+                    // 浏览量属非账务热度信号，同步失败只告警，不回滚已完成的 article 回写
+                    try {
+                        contentStatSupport.syncViewCount(articleId, latestViewCnt);
+                    } catch (Exception e) {
+                        log.warn("浏览统计同步失败（统计表不可用时跳过）：articleId={}", articleId, e);
+                    }
                 }
             }
         } catch (Exception e) {

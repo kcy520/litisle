@@ -1,7 +1,9 @@
 package com.litisle.litislecontent.support;
 
 import com.litisle.litislecontent.domain.entity.Article;
+import com.litisle.litislecontent.domain.entity.ArticleStat;
 import com.litisle.litislecontent.domain.entity.Book;
+import com.litisle.litislecontent.domain.entity.BookStat;
 import com.litisle.litislecontent.domain.vo.BookFeedItemVO;
 import com.litisle.litislecontent.domain.vo.FeedItemVO;
 
@@ -40,6 +42,25 @@ public final class FeedItemAssembler {
     }
 
     /**
+     * 文章实体转文章流条目（批次十一 11.2：计数改读 article_stat）
+     *
+     * <p>统计行缺失时三个计数统一按 0 展示（缺行=尚无互动，不是数据异常）；
+     * 非空时以统计表为准，不再读 article 表的镜像列。</p>
+     *
+     * @param article 文章实体（查询时已排除 content_html 大字段）
+     * @param stat    文章统计行（可为 null）
+     * @return 文章流条目 VO
+     */
+    public static FeedItemVO toArticleItem(Article article, ArticleStat stat) {
+        // 先复用基础字段装配，再用统计表覆盖三个计数
+        FeedItemVO item = toArticleItem(article);
+        item.setViewCnt(stat == null ? 0L : stat.getViewCount())
+                .setLikeCnt(stat == null ? 0L : stat.getLikeCount())
+                .setCommentCnt(stat == null ? 0L : stat.getCommentCount());
+        return item;
+    }
+
+    /**
      * 书籍实体转书籍流条目
      * <p>chapterCount/collectCount/readerCount 由 10.4 聚合填充，此处保持 null（防前端把 0 当真值）</p>
      *
@@ -72,5 +93,25 @@ public final class FeedItemAssembler {
                 .setChapterCount(chapterCount)
                 .setCollectCount(collectCount)
                 .setReaderCount(readerCount);
+    }
+
+    /**
+     * 书籍实体转书籍流条目（批次十一 11.2：三个计数改读 book_stat）
+     *
+     * <p>统计行缺失时三个计数统一按 0 展示（新书尚无人收藏/阅读且未挂章节）；
+     * 非空时以统计表为准，不再实时聚合 favorite/reading_history/book_chapter。</p>
+     *
+     * @param book 书籍实体
+     * @param stat 书籍统计行（可为 null）
+     * @return 书籍流条目 VO
+     */
+    public static BookFeedItemVO toBookItem(Book book, BookStat stat) {
+        // 章节数 VO 为 Integer：统计值为 Long，缺失按 0，避免 Long 转 Integer 溢出时抛异常
+        Integer chapterCount = stat == null || stat.getChapterCount() == null
+                ? 0 : Math.toIntExact(stat.getChapterCount());
+        return toBookItem(book,
+                chapterCount,
+                stat == null || stat.getCollectCount() == null ? 0L : stat.getCollectCount(),
+                stat == null || stat.getReaderCount() == null ? 0L : stat.getReaderCount());
     }
 }

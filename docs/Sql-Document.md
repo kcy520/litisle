@@ -361,28 +361,6 @@ VALUES (1006);
 ```
 
 ## 二、litisle-content 模块（数据库：litisle_content）
-···
-
-## 二、litisle-content 模块（数据库：litisle_content）
-
-# （草稿上的图片也能暂存在数据库中）
-
-# 发布时可以选择文章是否公开，可以在之后几章同时发布，或者先暂时存着（后续可以多选发布-即修改公开状态）
-# 作者写好了一批内容（几篇文章、几个章节），暂时不对外公开，等攒够了/准备好了，一次性把它们一起发布出去。
-
-# ============================================================
-# 模块：litisle-content
-# 数据库：litisle_content
-# 说明：文章 / 草稿 / 书籍 / 章节 / 图片 / 阅读历史 / 收藏
-# ============================================================
-
-# ============================================================
-# 模块：litisle-content
-# 数据库：litisle_content
-# 说明：文章 / 草稿 / 书籍 / 章节 / 图片 / 阅读历史 / 收藏
-# ============================================================
-
-## 二、litisle-content 模块（数据库：litisle_content）
 
 （草稿上的图片也能暂存在数据库中）
 
@@ -519,10 +497,12 @@ create table if not exists `reading_history`
     `biz_type`   tinyint         not null default 1 comment '阅读对象类型：1-书籍 2-独立文章',
     `biz_id`     bigint unsigned not null comment '阅读对象ID（biz_type=1→book.id，biz_type=2→article.id）',
     `chapter_id` bigint unsigned null comment '最后阅读章节ID（仅 biz_type=1 有值，指向 book_chapter.id；即上次阅读记录，update_time 即最后阅读时间）',
+    `duration_ms` bigint unsigned not null default 0 comment '累计阅读时长(毫秒，预留字段，批次十一 11.11 本次不写入)',
     `update_time` datetime       not null default current_timestamp on update current_timestamp comment '更新时间',
     unique key `uk_user_biz` (`user_id`, `biz_type`, `biz_id`),
     index `idx_user_time` (`user_id`, `biz_type`, `update_time`),
-    index `idx_user_time_all` (`user_id`, `update_time`)
+    index `idx_user_time_all` (`user_id`, `update_time`),
+    index `idx_biz` (`biz_type`, `biz_id`, `update_time`)
     ) engine = InnoDB
     default charset = utf8mb4 comment = '阅读历史表（单表承载书籍+独立文章两类阅读历史，每人每类型每对象一行=上次阅读记录；idx_user_time 支撑书籍/文章单类型 tab 倒序分页，idx_user_time_all 支撑「全部」混合时间线倒序分页）';
 
@@ -593,6 +573,122 @@ create table if not exists `event_outbox`
     index `idx_sent_update` (`status`, `update_time`)
     ) engine = InnoDB
     default charset = utf8mb4 comment = '事件发件箱表（本地 outbox：事件发送前先落表 status=0，发送成功置 1、失败置 2 由重发 job 兜底重发；防「发送前崩溃/发送失败」两类事件丢失——search 索引/ai RAG 依赖 content.published/unpublished 必达；idx_status_create 支撑重发扫描，idx_sent_update 支撑已发送行过期清理）';
+
+# ============================================================
+# 批次十一补充表（2026-11-06 合并回主 schema：新建库一次到位，无需再跑补丁脚本；
+# 与 docker/init/mysql/schema/content-schema.sql 保持一致）
+# ============================================================
+
+# 11. 文章互动统计表
+# 口径：文章与统计行一对一，主键即 article.id；推荐流/热度榜统一读本表计数。
+create table if not exists `article_stat`
+(
+    `article_id`       bigint unsigned not null comment '文章ID（article.id，一对一）',
+    `collect_count`    bigint unsigned not null default 0 comment '收藏数（favorite target_type=1 同步增量，递减带下限保护；排除作者自收藏）',
+    `like_count`       bigint unsigned not null default 0 comment '点赞数（11.8 点赞接口上线后同步增量；此前为 0）',
+    `comment_count`    bigint unsigned not null default 0 comment '评论数（social 评论回写；评论模块未落地前为 0）',
+    `view_count`       bigint unsigned not null default 0 comment '浏览量（ViewCountFlushJob 落库后同步绝对值，只增不减）',
+    `stat_update_time` datetime        not null default current_timestamp on update current_timestamp comment '统计最近更新时间（仅计数变更刷新）',
+    primary key (`article_id`)
+) engine = InnoDB default charset = utf8mb4 comment = '文章互动统计表（批次十一 11.1：推荐流/热度榜统一计数读源）';
+
+# 12. 书籍互动统计表
+# 口径：书籍与统计行一对一，主键即 book.id；chapter_count 只统计「未删+已发布+公开」章节。
+create table if not exists `book_stat`
+(
+    `book_id`          bigint unsigned not null comment '书籍ID（book.id，一对一）',
+    `collect_count`    bigint unsigned not null default 0 comment '收藏数（favorite target_type=2 同步增量，递减带下限保护；排除作者自收藏）',
+    `reader_count`     bigint unsigned not null default 0 comment '阅读人数（首次阅读 +1，只增不减，与 reading_history 裁剪解耦）',
+    `chapter_count`    bigint unsigned not null default 0 comment '章节数（只统计未删+已发布+公开章节，book_chapter 聚合同步；11.2 切读后用于书籍卡片）',
+    `like_count`       bigint unsigned not null default 0 comment '点赞数（批次十一 11.8：书籍点赞同步增量，递减带下限保护）',
+    `view_count`       bigint unsigned not null default 0 comment '浏览量（书籍浏览量暂无采集链路，保留字段，当前为 0）',
+    `stat_update_time` datetime        not null default current_timestamp on update current_timestamp comment '统计最近更新时间（仅计数变更刷新）',
+    primary key (`book_id`)
+) engine = InnoDB default charset = utf8mb4 comment = '书籍互动统计表（批次十一 11.1：书籍流排序与列表展示统一计数读源）';
+
+# 13. 内容互动统计窗口表
+# 口径：同一目标按不同窗口天数各存一行（默认 30/90），翻页只读不聚合。
+create table if not exists `content_stat_window`
+(
+    `id`               bigint unsigned not null auto_increment comment '自增主键（仅作物理主键，业务唯一键见 uk_target_window）',
+    `target_type`      tinyint unsigned not null comment '目标类型：1-文章 2-书籍（对齐 favorite.target_type）',
+    `target_id`        bigint unsigned not null comment '目标ID（文章ID或书籍ID）',
+    `window_days`      smallint unsigned not null comment '统计窗口天数（默认 30/90，由 litisle.content.stat.window 配置）',
+    `collect_count`    bigint unsigned not null default 0 comment '窗口内收藏数（favorite 按 create_time 落在窗口内计数）',
+    `read_count`       bigint unsigned not null default 0 comment '窗口内阅读人数（reading_history 按 update_time 落在窗口内去重用户数）',
+    `stat_update_time` datetime            not null default current_timestamp on update current_timestamp comment '统计最近更新时间（每日重算刷新）',
+    primary key (`id`),
+    unique key `uk_target_window` (`target_type`, `target_id`, `window_days`),
+    key `idx_window_lookup` (`window_days`, `target_type`, `target_id`)
+) engine = InnoDB default charset = utf8mb4 comment = '内容互动统计窗口表（批次十一 11.3：收藏/阅读 30/90 天窗口预计算，翻页只读不聚合）';
+
+# 14. 书籍粗完读率代理统计表
+# 口径：reading_history.chapter_id 反查 book_chapter.chapter_no，与该书最大可见章节号比较。
+create table if not exists `book_read_quality`
+(
+    `book_id`               bigint unsigned not null comment '书籍ID（与 book.id 一对一）',
+    `finish_reader_count`   bigint unsigned not null default 0 comment '追到最大可见章节号的读者人数（分子）',
+    `eligible_reader_count` bigint unsigned not null default 0 comment '有可见章节阅读历史的读者人数（分母，与分子同源计算）',
+    `stat_update_time`      datetime not null default current_timestamp on update current_timestamp comment '本轮全量重算时间',
+    primary key (`book_id`),
+    key `idx_stat_update_time` (`stat_update_time`)
+) engine = InnoDB default charset = utf8mb4 collate = utf8mb4_unicode_ci comment = '书籍粗完读率代理统计（11.13，只读统计，不参与排序）';
+
+# 15. 用户点赞表
+# 口径：一行为一次有效点赞；取消点赞物理删除，delete 影响行数 > 0 才递减统计。
+create table if not exists `user_like`
+(
+    `id`           bigint unsigned not null auto_increment comment '主键ID',
+    `user_id`      bigint unsigned not null comment '点赞用户ID',
+    `target_type`  tinyint         not null comment '目标类型（1-文章 2-书籍，口径与 favorite.target_type 一致）',
+    `target_id`    bigint unsigned not null comment '目标ID（target_type=1 时为 article.id，=2 时为 book.id）',
+    `create_time`  datetime        not null default current_timestamp comment '点赞时间（取消点赞即物理删除本行）',
+    primary key (`id`),
+    unique key `uk_user_target` (`user_id`, `target_type`, `target_id`) comment '同一用户对同一目标只允许一条点赞记录（重复点赞幂等依据）',
+    key `idx_target` (`target_type`, `target_id`) comment '按目标聚合点赞数/排查单目标点赞明细'
+) engine = InnoDB default charset = utf8mb4 comment = '用户点赞表（批次十一 11.8：content 临时承载点赞，取消点赞物理删除）';
+
+# 16. 推荐流曝光/点击日聚合表
+# 口径：同一身份同一天同一条内容曝光最多 +1、点击最多 +1（Redis 当日 Set 去重）；
+# identity_type 区分 login/anon，登录 CTR 只看 login 行。
+create table if not exists `feed_exposure_daily`
+(
+    `id`             bigint unsigned not null auto_increment comment '自增主键（仅物理主键，业务唯一性由 uk_feed_exposure_daily 保证）',
+    `stat_date`      DATE            not null comment '统计日期（按天聚合，唯一键最左列，也是清理条件列）',
+    `stream`         VARCHAR(16)     not null comment '流类型：article=文章流 / book=书籍流（取 FeedConstant.STREAM_*）',
+    `target_id`      BIGINT UNSIGNED not null comment '内容 ID（文章 ID 或书籍 ID，按 stream 区分命名空间）',
+    `identity_type`  VARCHAR(16)     not null comment '身份口径：login=登录用户 / anon=匿名（X-Anon-Id），取 FeedConstant.IDENTITY_TYPE_*',
+    `exposure_count` INT UNSIGNED    not null default 0 comment '当日曝光人数（同身份同日同条最多 +1，由 Redis 曝光 Set 去重）',
+    `click_count`    INT UNSIGNED    not null default 0 comment '当日点击人数（同身份同日同条最多 +1，由 Redis 点击 Set 去重）',
+    `update_time`    DATETIME        not null default CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '最后写入时间',
+    primary key (`id`),
+    unique key `uk_feed_exposure_daily` (`stat_date`, `stream`, `target_id`, `identity_type`)
+) engine = InnoDB default charset = utf8mb4 collate = utf8mb4_unicode_ci comment ='推荐流曝光/点击日聚合（批次十一 11.6；保留 30 天，配置化）';
+
+# 17. 推荐流负反馈表
+# 口径：feedback_type 1-不感兴趣(单条) 2-屏蔽作者 3-屏蔽分类；撤销即删除行；30 天窗口内生效。
+create table if not exists `feed_feedback`
+(
+    `id`            bigint unsigned not null auto_increment comment '主键',
+    `user_id`       bigint unsigned not null comment '提交反馈的用户ID（必须登录）',
+    `feedback_type` tinyint not null comment '1-不感兴趣(单条内容) 2-屏蔽作者 3-屏蔽分类',
+    `stream`        varchar(16) not null default '' comment '内容流：article/book（内容ID与作者ID按流区分）',
+    `target_id`     bigint unsigned not null default 0 comment '内容ID或作者ID；分类类型固定为0',
+    `target_key`    varchar(64) not null default '' comment '分类名；内容/作者类型固定为空串',
+    `create_time`   datetime not null default current_timestamp comment '提交时间（屏蔽时间窗按该列过滤）',
+    primary key (`id`),
+    unique key `uk_user_type_stream_target` (`user_id`, `feedback_type`, `stream`, `target_id`, `target_key`),
+    key `idx_user_time` (`user_id`, `create_time`)
+) engine = InnoDB default charset = utf8mb4 collate = utf8mb4_unicode_ci comment ='推荐流负反馈（11.11：内容/作者/分类三类屏蔽，30 天窗口内生效）';
+
+# 设计原因（批次十一补充表）：
+# article_stat/book_stat：推荐流排序与卡片计数统一读统计表，避免翻页现算聚合；累计计数只增不减，
+#   收藏数排除作者自收藏（作者可收藏自己的作品，但统计不收这一条）。
+# content_stat_window：窗口值预计算落表，排序优先读 30 天窗口、缺失回退累计值。
+# book_read_quality：零前端埋点的粗完读代理，只读统计，不参与排序。
+# user_like：content 临时承载点赞，唯一键保证重复点赞幂等，取消点赞物理删除。
+# feed_exposure_daily：曝光/点击按天聚合，同身份同日同条各最多 1 次，登录/匿名分行便于两种 CTR 口径。
+# feed_feedback：负反馈名单，内容级在切片阶段过滤，作者/分类级在建池阶段过滤。
 ```
 
 设计原因：
@@ -1606,17 +1702,17 @@ author_apply 独立于 sys_user：申请记录需保留历史，多次申请形�
 
 # ============================================================
 # 初始化种子数据（review-seed.sql，本地开发/联调用）
-# 位置：/docker-entrypoint-initdb.d/review-seed.sql（MySQL 首次启动按字母序自动执行）
-# 顺序：review-schema.sql（建表）→ review-seed.sql（本段）→ seed-words-article.sql（词库本体）
-# 依赖：样本引用 user-schema.sql 的测试用户 1001~1006（无外键约束，执行顺序不敏感）
+# 位置：/docker-entrypoint-initdb.d/seed/review-seed.sql（由 03-seed.sql source 执行；MySQL 入口层不递归子目录）
+# 顺序：01-schema.sql（建表）→ 03-seed.sql（本文件：示例数据 + 原 seed-words-article.sql 词库本体）
+# 依赖：样本引用 schema/user-schema.sql 的测试用户 1001~1006（无外键约束，执行顺序不敏感）
 # 注意：/docker-entrypoint-initdb.d 仅在数据卷首次初始化时执行；存量环境请手动执行一次
 # ============================================================
 
 use litisle_review;
 
--- 1. 词库版本基线（五文本场景，版本 0 = 空词库；词库本体由 seed-words-article.sql 灌入并 bump 版本；
+-- 1. 词库版本基线（五文本场景，版本 0 = 空词库；词库本体由本文件后半段（原 seed-words-article.sql）灌入并 bump 版本；
 --    BIO 为宿主直审场景，与文本场景同口径建基线，防 user 侧宿主冷启动装载失败）
--- insert ignore：seed-words-article.sql 稍后 upsert ARTICLE 时自然 +1，不冲突
+-- insert ignore：本文件后半段稍后 upsert ARTICLE 时自然 +1，不冲突
 insert ignore into `sensitive_word_version` (`scene`, `version`, `updated_by`) values
 ('ARTICLE',  0, 0),
 ('COMMENT',  0, 0),
@@ -1674,7 +1770,7 @@ VALUES (1, NULL, 1, 1, 1003, '评论内容被误判，未涉及赌博仅为讨�
         1005, '证据不足，维持原判', NOW(), 2, 1, NOW());
 
 -- 9. 词库测试词（每文本场景 1 条，防 DFA 闸门装载失败拒启：词库表为空时 TableWordLibraryLoader
---    报「词库装载失败且无可用本地快照」并禁止放行；正式词库由管理端维护/seed-words-article.sql 灌入）
+--    报「词库装载失败且无可用本地快照」并禁止放行；正式词库由管理端维护/本文件后半段（原 seed-words-article.sql）灌入）
 --    level=2-MID：命中走 LLM 复审而非同步拒绝，避免联调时误拦用户名注册/私信发送；
 --    同词跨场景复用（uk_scene_word 以 scene+word 为键，同词各场景独立生效）
 INSERT INTO `sensitive_word_library` (`word`, `scene`, `level`, `is_blacklist`, `status`, `updated_by`, `version`)
@@ -1687,7 +1783,7 @@ VALUES
 
 -- 测试词落库后各场景版本 bump 到 1（基线 insert ignore 已建 version=0 行，此处 upsert +1；
 -- 热更/快照语义要求版本 >0：消费端 newVersion > curVersion 才重建；
--- ARTICLE 随后由 seed-words-article.sql 灌入正式词库继续单调 +1，不冲突）
+-- ARTICLE 随后由本文件后半段（原 seed-words-article.sql）灌入正式词库继续单调 +1，不冲突）
 INSERT INTO `sensitive_word_version` (`scene`, `version`, `updated_by`)
 VALUES
 ('ARTICLE',  1, 0),
@@ -2131,7 +2227,7 @@ index idx_express (express_company, express_no)
 -- 数据库：litisle_search
 -- 说明：search 无业务数据表（ES 索引文档为投影，状态 SSOT 在业务方 DB），
 --       search_history 为唯一自有表（用户搜索词记录，2026-11-03 新增，缺口 G8 闭环）
--- 同步脚本：docker/init/mysql/search-schema.sql（首启自动执行，存量环境手动执行一次）
+-- 同步脚本：docker/init/mysql/schema/search-schema.sql（首启由 01-schema.sql source 执行，存量环境手动执行一次）
 -- 关键口径：
 --   1. UPSERT 同词仅前进：uk(user_id, keyword) 冲突时仅更新 updated_at（应用层 UPSERT）
 --   2. 上限懒删：单用户超 history.max-per-user（默认 20）由应用层删除最旧记录，无 DB 约束

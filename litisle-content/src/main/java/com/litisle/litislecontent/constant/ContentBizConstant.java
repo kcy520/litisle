@@ -1,5 +1,7 @@
 package com.litisle.litislecontent.constant;
 
+import com.litisle.commonredis.constant.CacheConstant;
+
 import java.util.regex.Pattern;
 
 /**
@@ -92,6 +94,58 @@ public final class ContentBizConstant {
      */
     public static final int READING_BIZ_TYPE_ARTICLE = 2;
 
+    // ==================== 统计窗口：目标类型（content_stat_window.target_type） ====================
+
+    /**
+     * 统计窗口目标类型：1-文章
+     * <p>与 favorite.target_type 的 ARTICLE 编码保持一致；编译期常量供 Mapper 注解 SQL 字符串拼接</p>
+     */
+    public static final int STAT_WINDOW_TARGET_ARTICLE = 1;
+
+    /**
+     * 统计窗口目标类型：2-书籍
+     * <p>与 favorite.target_type 的 BOOK 编码保持一致；编译期常量供 Mapper 注解 SQL 字符串拼接</p>
+     */
+    public static final int STAT_WINDOW_TARGET_BOOK = 2;
+
+    // ==================== 粗完读率统计（批次十一 11.13） ====================
+
+    /**
+     * 文章状态：2-已发布（编译期常量，供 Mapper 注解 SQL 字符串拼接）
+     * <p>业务代码统一使用 {@link com.litisle.litislecontent.enums.ArticleStatusEnum}，勿在业务层直接引用</p>
+     */
+    public static final int ARTICLE_STATUS_PUBLISHED = 2;
+
+    /** 文章删除标记：0-未删除（编译期常量，供 Mapper 注解 SQL 拼接；业务层用 DelFlag 枚举） */
+    public static final int ARTICLE_DEL_FLAG_NOT_DELETED = 0;
+
+    /** 文章可见性：1-公开可见（编译期常量；仅关注者可见=3 需社交关系，纯 SQL 不做个性化判定） */
+    public static final int ARTICLE_VISIBILITY_PUBLIC = 1;
+
+    /**
+     * 书籍粗完读率任务分布式锁键（防多实例/多线程并发全量重算互相覆盖）
+     * <p>与 CacheConstant.LOCK_PREFIX 统一前缀，便于运维按业务域排查锁</p>
+     */
+    public static final String BOOK_READ_QUALITY_LOCK_KEY =
+            CacheConstant.LOCK_PREFIX + "content:stat:book-read-quality";
+
+    // ==================== 推荐流负反馈（批次十一 11.11） ====================
+
+    /** 负反馈类型：1-不感兴趣（针对单条内容） */
+    public static final int FEEDBACK_TYPE_CONTENT = 1;
+
+    /** 负反馈类型：2-屏蔽作者 */
+    public static final int FEEDBACK_TYPE_AUTHOR = 2;
+
+    /** 负反馈类型：3-屏蔽分类 */
+    public static final int FEEDBACK_TYPE_CATEGORY = 3;
+
+    /**
+     * 负反馈名单缓存键前缀（拼接 stream + userId；值保存三类屏蔽集合，单用户单键）
+     * <p>写入/撤销后只按该用户键失效，不做全量 evict（避免误伤其他用户缓存）</p>
+     */
+    public static final String FEED_FEEDBACK_CACHE_KEY_PREFIX = "content:feed:feedback:";
+
     // ==================== 定时发布（项2 2026-11-02） ====================
 
     /**
@@ -111,6 +165,15 @@ public final class ContentBizConstant {
 
     /** 关注关系缓存 TTL 基准秒数（实际写入 ±10% 抖动，防同批键同刻失效雪崩） */
     public static final long FOLLOW_RELATION_CACHE_TTL_SECONDS = 60L;
+
+    // ==================== 点赞频控（批次十一 11.8） ====================
+
+    /**
+     * 单用户点赞频控 Redis Key 前缀（拼接 userId；格式 rate_limit:like:user:{userId}）
+     * <p>与 @RateLimiter 注解的 rate_limit:{type}:{id}:{method} 同库同脚本，
+     * 区别是阈值在运行时从 yml 读取（注解阈值无法配置化）</p>
+     */
+    public static final String LIKE_RATE_LIMIT_KEY_PREFIX = CacheConstant.RATE_LIMIT + "like:user:";
 
     // ==================== 文章双链路审核聚合暂存（板块三 3-5） ====================
 

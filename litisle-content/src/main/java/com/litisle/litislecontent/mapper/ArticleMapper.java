@@ -57,4 +57,34 @@ public interface ArticleMapper extends BaseMapper<Article> {
      */
     @Select("SELECT view_cnt FROM article WHERE id = #{articleId} AND del_flag = 0")
     Long selectViewCnt(@Param("articleId") Long articleId);
+
+    /**
+     * 点赞数镜像原子自增（批次十一 11.14：article_stat 为真源，article.like_cnt 同步镜像）。
+     *
+     * <p>为什么保留镜像：详情页 VO 与 search 首次建索引（getArticleIndexDoc）仍读 article.like_cnt，
+     * 11.16 对账也以 article_stat.like_count 与 article.like_cnt 比对；本语句与 user_like、article_stat
+     * 同一事务执行，保证三处值同步推进，不产生新的对账差异。
+     * update_time 显式赋原值抑制自动刷新（点赞不应把老文章顶到最新列表顶部）；
+     * stat_update_time 刷新，供热度榜增量捞变更文章。</p>
+     *
+     * @param articleId 文章ID
+     * @return 影响行数（0=文章不存在或已软删）
+     */
+    @Update("UPDATE article SET like_cnt = like_cnt + 1, "
+            + "update_time = update_time, "
+            + "stat_update_time = CURRENT_TIMESTAMP "
+            + "WHERE id = #{articleId} AND del_flag = 0")
+    int increaseLikeCnt(@Param("articleId") Long articleId);
+
+    /**
+     * 点赞数镜像原子递减（批次十一 11.14：带 GREATEST 下限，与 article_stat 同步）。
+     *
+     * @param articleId 文章ID
+     * @return 影响行数（0=文章不存在或已软删）
+     */
+    @Update("UPDATE article SET like_cnt = GREATEST(like_cnt - 1, 0), "
+            + "update_time = update_time, "
+            + "stat_update_time = CURRENT_TIMESTAMP "
+            + "WHERE id = #{articleId} AND del_flag = 0")
+    int decreaseLikeCnt(@Param("articleId") Long articleId);
 }

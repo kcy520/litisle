@@ -3,7 +3,7 @@
 > 定位：**快速理解搜索域业务设计 + 学习各板块设计逻辑**，不承载决策推演（存储选型/降级论证看
 > [Search-Architecture.md](../Architecture/Search-Architecture.md)，RAG 知识库论证看
 > [Design-Document.md](../overall_documen/Design-Document.md) §2.3.9 / §2.6）。
-> 现状声明：**litisle-search 代码未落地**（仅启动类骨架），本文为**设计先行版**——文中类名/配置均为设计目标，全部组件 ☆，落地时逐板块对齐。
+> 现状声明（2026-11-06 更新）：**litisle-search 已落地**——批次二~九已于 2026-11-04/05 实现并归档（见 [search 归档索引](../archive/search/search-implemention-records.md)），批次十一 11.14 补取消点赞链路；本文早期「全 ☆ 待建」标注为设计先行口径，阅读时以代码为准。
 > 2026-11-03 增补定版：检索参数补齐（category/zone/时间范围）、搜索联想、空结果兜底（相似推荐）、搜索历史（search_history 唯一自有表）；任务登记见 [temp.md](../temp/temp.md) search模块 批次1/批次2。
 > 阅读方式：每个板块固定两段——**设计版**（设计类名+机制）→ **通俗版**（无代码名）。文末附「契约缺口清单」，落地前须先补契约。
 
@@ -25,7 +25,7 @@ content.unpublished（四条下架路径必发）
 | --- | --- |
 | 发布链路（阶段二~五）末端 | 消费 `content.published`，异步建索引，不阻塞发布 RT |
 | 下架链路（四路径：软删/转私密/复审驳回/封禁连带）末端 | 消费 `content.unpublished`，同步删文档删向量 |
-| 互动链路（social 落地后） | 消费 `social.liked` / `social.commented`（✅ 契约已落地，批次B B2 2026-11-03）与 `content.view-count-flushed`（✅ 契约已落地，批次B B7 2026-11-03），增量维护 heat（含浏览量，口径对齐 content 热门榜） |
+| 互动链路 | 消费 `social.liked` / `social.commented`（✅ 契约已落地，批次B B2 2026-11-03）、`social.unliked`（✅ 批次十一 11.14，取消点赞负修正）与 `content.view-count-flushed`（✅ 契约已落地，批次B B7 2026-11-03），增量维护 heat（含浏览量，口径对齐 content 热门榜）；**点赞/取消点赞事件现由 content 发布**（批次十一 11.8 点赞收进 content，LikeService AFTER\_COMMIT） |
 | 读者前台 | 全文检索 + 相似推荐两个 REST 入口 |
 | ai 服务 RAG | 站内知识库 ES 侧载体（chunk 索引）+ 相似推荐 Feign 复用 |
 
@@ -40,7 +40,7 @@ content.unpublished（四条下架路径必发）
 | `GET /article/list`、`/article/hot` | 保留 content | 结构化筛选列表，无关键词，非检索 |
 | 公开文章/书籍/用户的全文与多维度检索 + 相似推荐 | 归属 search | 既定设计（BookController `/book/list` 注释已声明「一期不做 keyword 搜索，书籍索引为 search 外部依赖」） |
 
-## 二、架构设计（目标包结构，全 ☆）
+## 二、架构设计（包结构；批次二~九已落地，此处保留目标结构供对照）
 
 ```text
 litisle-search
@@ -68,7 +68,7 @@ litisle-search
 2. **published upsert 编排**：事件体不含元数据（对齐 content-index §八：事件只带定位键）→ `ContentClient.getContent(bizType, bizId)` 回查标题/正文/标签等 → **乱序防御门控**：回查后文章须 `status=2 且 visibility=1(PUBLIC)`，否则丢弃不写（防 unpublished 先到后 published 迟到把已删内容写回）→ `VectorService` Embedding 预计算 `vec_dense` → 按 id 幂等 upsert `article_idx`。
 3. **unpublished 删除**：按 articleId 删 article_idx 文档（404 视为成功幂等）**并删 article_chunks 对应块**（板块四红线）；同步失效热点查询缓存。
 3.5. **元数据编辑同步**（2026-11-03 批次A A2 定案）：已发布文章编辑 title/tags/summary/cover 后，content 在事务提交后（afterCommit）发 `content.article-updated` → search 轻量回查 → partial update 索引元数据字段（不动向量与 chunks），防止索引字段与正文永久过期。
-4. **热度更新**（2026-11-03 批次A A5/A7 定案 + 增强采纳）：liked/commented → `HINCRBY` 累加 Redis 热度待刷新键的 like/comment 增量；content 浏览量 flush 任务落库后补推 `content.view-count-flushed` → `HSET` 覆盖写 view_cnt 绝对值；**三事件均不直写 ES**（A7：article_idx 带 1024 维向量约 4KB，ES partial update 实为整文档重写，爆款逐条互动消费写放大严重）；**累加成功才 ACK**（累加失败 nack 重试，防丢数致热度漂移）→ `IndexHeatFlushJob` 定时（默认 15min、可调 15~30min，fixedDelay 不堆积）聚合 `_bulk` partial update，**按 `batch-size`(1000)×`concurrency`(2) 分片执行**（防单次超大请求被 ES 拒绝；bulk 用 update+doc 只改热度字段，禁 index 整篇替换），按 `heat = (w_like×like_cnt + w_comment×comment_cnt + w_view×view_cnt) × 时间衰减因子` 重算（权重与半衰期外置，默认 2/3/0.1/168h——含浏览量对齐 content 热门榜口径，衰减防旧爆款长期霸榜），不动向量（向量随发布一次写入，查询期零 Embedding 开销）；heat 仅作排序信号，容忍 15~30min 滞后；pending 键 TTL 2h 兜底（≥2 个刷写周期，正常路径原子取走 TTL 仅保险）。
+4. **热度更新**（2026-11-03 批次A A5/A7 定案 + 增强采纳；批次十一 11.14 补取消点赞）：liked/unliked/commented → `HINCRBY` 累加 Redis 热度待刷新键的 like/comment 增量——点赞按 SocialLikedEvent.delta 累加（无 delta 兜底 +1、delta=0 跳过），取消点赞按 SocialUnlikedEvent.delta=-1 负数累加，IndexHeatFlushJob 写回 ES 前 `Math.max(0, …+likeDelta)` 下限保护防 likeCnt 负值；content 浏览量 flush 任务落库后补推 `content.view-count-flushed` → `HSET` 覆盖写 view_cnt 绝对值；**互动事件均不直写 ES**（A7：article_idx 带 1024 维向量约 4KB，ES partial update 实为整文档重写，爆款逐条互动消费写放大严重）；**累加成功才 ACK**（累加失败 nack 重试，防丢数致热度漂移）→ `IndexHeatFlushJob` 定时（默认 15min、可调 15~30min，fixedDelay 不堆积）聚合 `_bulk` partial update，**按 `batch-size`(1000)×`concurrency`(2) 分片执行**（防单次超大请求被 ES 拒绝；bulk 用 update+doc 只改热度字段，禁 index 整篇替换），按 `heat = (w_like×like_cnt + w_comment×comment_cnt + w_view×view_cnt) × 时间衰减因子` 重算（权重与半衰期外置，默认 2/3/0.1/168h——含浏览量对齐 content 热门榜口径，衰减防旧爆款长期霸榜），不动向量（向量随发布一次写入，查询期零 Embedding 开销）；heat 仅作排序信号，容忍 15~30min 滞后；pending 键 TTL 2h 兜底（≥2 个刷写周期，正常路径原子取走 TTL 仅保险）。
 5. **可靠性范式**（对齐全站消费规范）：手动 ACK；MqIdempotentHelper 按 eventId 幂等；业务失败 warn 后 ack 防毒丸；异常指数退避延迟重投，耗尽 nack 入 DLQ；DLQ Consumer 告警留痕，人工重投。
 
 **通俗版**：文章一发布，搜索服务后台悄悄把它"编入目录"：先确认这文章当前确实是公开且过审的（不盲信通知），再把标题正文算成"指纹向量"存进 ES。文章下架（不管哪条路径）就立刻从目录和知识库里撕掉这一页；已发布的文章改了标题/标签/简介，搜索服务也会收到通知同步更新目录，保证搜出来的是最新信息。有人点赞评论、文章被浏览（浏览量由文章管理那边攒一批后通知过来），都只更新"热度数字"并按公式重算，不重算指纹——而且热度不是来一条改一次目录，先在小本子上累加，攒一会儿（默认 15 分钟）再批量写回目录，避免爆款文章被反复"整页重抄"。
@@ -139,7 +139,7 @@ litisle-search
 | 编号 | 缺口 | 说明 | 收口建议 |
 | --- | --- | --- | --- |
 | G1 | `SearchClient` 未定义 | ✅ 2026-11-03 批次B B1 落地：SearchClient + SearchClientFallbackFactory + 自动装配注册入 litisle-api，DTO/VO 按 A6 归属 `dto/search`/`vo/search`（api-index §三已标 ✅）；Provider 端点待 search 本体实现 | Provider 由 search 实现（`/api/feign/search/**`，网关不路由） |
-| G2 | `social.liked` / `social.commented` 事件未定义 | ✅ 2026-11-03 批次B B2 落地：SocialLikedEvent / SocialCommentedEvent（event.social 包）+ MqConstant `EXCHANGE_SOCIAL` + `social.liked`/`social.commented` 路由键/队列 | social 落地时 AFTER_COMMIT 发布 + search 绑定 |
+| G2 | `social.liked` / `social.commented` 事件未定义 | ✅ 2026-11-03 批次B B2 落地：SocialLikedEvent / SocialCommentedEvent（event.social 包）+ MqConstant `EXCHANGE_SOCIAL` + `social.liked`/`social.commented` 路由键/队列；**批次十一补 SocialUnlikedEvent（delta=-1）+ `social.unliked` 路由键/队列（11.14），且 liked/unliked 事件改由 content 点赞接口发布（11.8 点赞收进 content）** | social 落地时 AFTER_COMMIT 发布 + search 绑定 |
 | G3 | published upsert 的元数据来源 | ContentPublishedEvent 仅 bizType/bizId/contentHash；ContentClient.getContent 出参是否够建索引字段（tags/summary/cover 等）待核 | 落地时核对 ContentDTO 字段，不足则扩 content 提供方端点（禁事件体塞大字段，保持事件轻量纪律） |
 | G4 | SEARCH_* 错误码未入 common-core ErrorCode | ✅ 2026-11-03 批次B B3 落地：ErrorCode 新增 search 分段 100000-109999，SEARCH_PARAM_INVALID/PAGE_EXCEEDED/SOURCE_NOT_FOUND/ES_UNAVAILABLE 四码入枚举（Api-Architecture.md §10 分段表已同步） | 落地时按分段使用 |
 | G5 | 两套向量维度（1024 vs 1536） | ✅ 2026-11-03 批次C C1 定版：统一为同一 Embedding 单模型（维度一致，具体选型落地时定），写入索引 meta + 本清单闭环（板块四已同步） | 落地时按定版结论执行 |

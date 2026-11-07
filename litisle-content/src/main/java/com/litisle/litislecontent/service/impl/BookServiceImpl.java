@@ -29,6 +29,7 @@ import com.litisle.litislecontent.enums.BookStatusEnum;
 import com.litisle.litislecontent.enums.FavoriteTargetTypeEnum;
 import com.litisle.litislecontent.enums.VisibilityEnum;
 import com.litisle.litislecontent.service.support.ArticleImageRefSupport;
+import com.litisle.litislecontent.service.support.ContentStatSupport;
 import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.mapper.BookChapterMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
@@ -96,6 +97,9 @@ public class BookServiceImpl implements BookService {
 
     /** content 域 MQ 事件生产收口（批次五 B4：书籍索引变更事件，事务提交后发送） */
     private final ContentEventProducer contentEventProducer;
+
+    /** 互动统计写入组件（批次十一 11.2：挂章/移除章节同步 book_stat.chapter_count） */
+    private final ContentStatSupport contentStatSupport;
 
     /** 分类缺省值（BookSaveDTO.category 可空，落库默认「小说」） */
     private static final String DEFAULT_CATEGORY = "小说";
@@ -317,6 +321,22 @@ public class BookServiceImpl implements BookService {
         } catch (DuplicateKeyException e) {
             throw new BizException(ErrorCode.BOOK_CHAPTER_NO_CONFLICT);
         }
+        // 步骤5（批次十一 11.2 + 11.3 口径修正）：只有「公开可见」章节才 +1。
+        // 可见口径 = 未删 + 已发布 + 公开（visibility=1）；私密(2)/仅关注者(3) 不计入卡片章节数，
+        // 与回填脚本的可见章节口径保持一致（步骤2 已校验未删+已发布，此处只需再判公开）。
+        // 已知滞后：文章挂章后再转私密/下架不会回写本计数，本批不自动重算，
+        // 差异由人工重跑 zz-content-stat.sql 回填或后续对账扩展修正。
+        // 章节数是展示型计数，同步失败只告警，不回滚已成功的挂载行
+        if (article.getVisibility() == VisibilityEnum.PUBLIC) {
+            try {
+                contentStatSupport.increaseChapter(bookId);
+            } catch (Exception e) {
+                log.warn("[章节统计] 章节数 +1 失败，已跳过：bookId={}", bookId, e);
+            }
+        } else {
+            log.info("[章节统计] 章节文章非公开，跳过章节数 +1：bookId={}, articleId={}, visibility={}",
+                    bookId, article.getId(), article.getVisibility());
+        }
     }
 
     /**
@@ -347,7 +367,35 @@ public class BookServiceImpl implements BookService {
             throw new BizException(ErrorCode.BOOK_CHAPTER_MISMATCH);
         }
         // 步骤3：仅移除挂载关系不删文章；被移除章节的阅读历史行 chapter_id 悬空由列表容错（不物理删历史行）
-        bookChapterMapper.deleteById(chapterId);
+        int deleted = bookChapterMapper.deleteById(chapterId);
+        // 步骤4（批次十一 11.2 + 11.3 口径修正）：确实删掉挂载行、且该章节当时属于「公开可见」才 -1。
+        // 与挂章口径对齐：私密/仅关注者/未过审/已删文章从未计入章节数，移除时不能误减。
+        // 展示型计数同步失败只告警，不回滚已成功的删除
+        if (deleted > 0 && isPubliclyVisibleChapter(chapter.getArticleId())) {
+            try {
+                contentStatSupport.decreaseChapter(bookId);
+            } catch (Exception e) {
+                log.warn("[章节统计] 章节数 -1 失败，已跳过：bookId={}", bookId, e);
+            }
+        }
+    }
+
+    /**
+     * 判断章节文章当前是否算「公开可见章节」（用于章节数增量的口径对齐）。
+     *
+     * <p>口径：文章未软删 + 已发布(status=2) + 公开(visibility=1)，与回填脚本一致；
+     * 文章已删/不存在一律按不可见处理（既不计入，也不递减）。</p>
+     *
+     * @param articleId 章节挂载的文章ID
+     * @return true=计入书籍卡片的可见章节数
+     */
+    private boolean isPubliclyVisibleChapter(Long articleId) {
+        // 文章查询：章节挂载行存在但文章已被物理清理时返回 null，按不可见处理
+        Article article = articleMapper.selectById(articleId);
+        return article != null
+                && article.getDelFlag() == DelFlag.NOT_DELETED
+                && article.getStatus() == ArticleStatusEnum.PUBLISHED
+                && article.getVisibility() == VisibilityEnum.PUBLIC;
     }
 
     /**

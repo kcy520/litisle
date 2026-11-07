@@ -33,11 +33,23 @@ public final class ContentLimitConstant {
     /** 收藏/取消收藏（60s 20 次，防刷收藏写库；取消收藏同限频） */
     public static final int FAVORITE_MAX_COUNT = 20;
 
+    /** 点赞/取消点赞频控阈值默认值（60s 20 次，单用户维度；批次十一 11.8）：
+     * @RateLimiter 注解阈值只能写编译期常量，为满足「阈值可配置」，点赞接口改用
+     * LikeRateLimitSupport 运行时读取 litisle.content.like.rate-limit.max-count（yml/Nacos 可调），
+     * 本常量仅作配置缺省值，复用同一 Redis 固定窗口脚本与 USER 维度 key 风格 */
+    public static final int LIKE_MAX_COUNT = 20;
+
     /** 推荐流（60s 60 次，读多；登录用户按 userId 维度，批次十需求条款 9） */
     public static final int FEED_MAX_COUNT = 60;
 
     /** 推荐流匿名上限（60s 20 次，按客户端 IP 维度；防匿名刷量，批次十需求条款 9） */
     public static final int FEED_ANON_MAX_COUNT = 20;
+
+    /**
+     * 负反馈提交/撤销（60s 20 次，按登录用户维度；批次十一 11.11）
+     * <p>写操作频率远低于浏览，20 次足够正常操作（含误点撤销），同时防脚本批量刷屏蔽行</p>
+     */
+    public static final int FEEDBACK_MAX_COUNT = 20;
 
     /** 标签前缀搜索（60s 30 次，矩阵外补充防爬） */
     public static final int TAG_SEARCH_MAX_COUNT = 30;
@@ -67,9 +79,11 @@ public final class ContentLimitConstant {
      * （防打爆送审回查/search 索引/ai RAG 摄入）；≈10 万字富文本 HTML，发布/建档/编辑/草稿保存四路共用同值 */
     public static final int ARTICLE_CONTENT_MAX_BYTES = 256 * 1024;
 
-    /** 单用户阅读历史条数上限（按 biz_type 分开计，各 500 条）：写入时懒删最旧行（按最后阅读时间），
-     * 防 reading_history 无限增长；随写入路径走，零新增 job、零 yml 配置 */
-    public static final int HISTORY_MAX_PER_USER = 500;
+    /** 单用户阅读历史条数上限默认值（按 biz_type 分开计，各 1000 条）：批次十一 11.4 起改为
+     * 「90 天时间窗 + 单用户 1000 条 + 在读保留 10 条」三阈值裁剪，此常量仅作配置默认值，
+     * 实际生效值取 litisle.content.history.max-per-user（yml / Nacos 可调）；写入时懒删最旧行，
+     * 防 reading_history 无限增长，随写入路径走，零新增 job */
+    public static final int HISTORY_MAX_PER_USER = 1000;
 
     /** 单本书章节数上限（防滥用兜底，防单书无限挂章拖垮章节列表/重排批量更新；
      * Sql-Document book_chapter 建表注释同口径） */

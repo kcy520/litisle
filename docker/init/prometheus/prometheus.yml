@@ -28,4 +28,5 @@ scrape_configs:
           - host.docker.internal:8082  # litisle-auth
           - host.docker.internal:8081  # litisle-user
           - host.docker.internal:8083  # litisle-file
+          - host.docker.internal:8085  # litisle-content（批次十：推荐流降级/快照创建/画像缓存指标，管理端点与业务端口共用 8085）
           - host.docker.internal:8086  # litisle-search（批次九 9.9-B：索引同步/检索/缓存/死信指标）

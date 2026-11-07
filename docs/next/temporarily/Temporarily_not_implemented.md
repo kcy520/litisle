@@ -12,4 +12,4 @@
 | 代码部分 | review 审核模块（人审/举报/申诉/处罚/词库/ReportController/3-5 回写矩阵消费端/3-7 限流与短锁/4-1~4-6 入口嵌入/5-4.4 恢复）· litisle-ai 模块（chat 端点）；含通用纪律六条 | [temporarily-01-code.md](temporarily-01-code.md) |
 | 验证部分 | 网关/认证限流故障降级本地兜底验证 · Sentinel Dashboard 降级熔断与 Nacos 规则热生效验证 | [temporarily-02-verify.md](temporarily-02-verify.md) |
 | 部署部分（生产上线前必做） | 通用：监控端口网络隔离、Sentinel 规则操作纪律 · file：replication≥010、Filer 元数据切 MySQL、instance-count 动态化 | [temporarily-03-deploy.md](temporarily-03-deploy.md) |
-| 暂不实现（预留项，附触发条件） | review（云 API 适配器/多模态/公示/音视频）· content（temp.md 历批迁入项：Book 分类/悬空兜底/计数契约/热度榜调参/阅读历史扩展/收藏迁移/书籍配套缺口等）· file（CDN/冷热分层/存储 TTL）· 公共库 | [temporarily-04-deferred.md](temporarily-04-deferred.md) |
+| 暂不实现（预留项，附触发条件） | review（云 API 适配器/多模态/公示/音视频）· content（temp.md 历批迁入项：Book 分类/悬空兜底/计数契约/热度榜调参/阅读历史扩展/点赞与收藏迁入 social/书籍配套缺口等）· file（CDN/冷热分层/存储 TTL）· 公共库 | [temporarily-04-deferred.md](temporarily-04-deferred.md) |

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.litislecontent.config.ContentProperties;
 import com.litisle.litislecontent.domain.entity.Article;
 import com.litisle.litislecontent.domain.entity.Book;
 import com.litisle.litislecontent.domain.entity.BookChapter;
@@ -17,8 +18,8 @@ import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.ReadingHistoryMapper;
 import com.litisle.litislecontent.enums.BookStatusEnum;
 import com.litisle.litislecontent.enums.ReadingTargetTypeEnum;
-import com.litisle.litislecontent.constant.ContentLimitConstant;
 import com.litisle.litislecontent.service.ReadingHistoryService;
+import com.litisle.litislecontent.service.support.ContentStatSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -46,7 +47,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ReadingHistoryServiceImpl implements ReadingHistoryService {
 
-    /** 单批懒删行数上限：正常每次写入只新增 1 行（超额至多几行），封顶 100 防异常数据导致一次大删 */
+    /** 单批懒删行数默认值：正常每次写入只新增 1 行（超额至多几行），封顶 100 防异常数据导致一次大删；
+     * 批次十一 11.4 起实际生效值取 litisle.content.history.trim-batch-size（yml 可调） */
     private static final int HISTORY_TRIM_BATCH = 100;
 
     /** 阅读历史 Mapper（历史 UPSERT/列表/续读数据源） */
@@ -60,6 +62,12 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
 
     /** 文章 Mapper（列表文章行与章节标题批量装配） */
     private final ArticleMapper articleMapper;
+
+    /** 互动统计写入组件（批次十一 11.1：首次阅读书籍时 reader_count +1） */
+    private final ContentStatSupport contentStatSupport;
+
+    /** content 配置（批次十一 11.4：阅读历史裁剪时间窗/条数上限/在读保留三阈值） */
+    private final ContentProperties contentProperties;
 
     /**
      * 书籍阅读进度显式上报（章节归属校验 + 仅前进 UPSERT）。
@@ -380,7 +388,17 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                     .setChapterId(chapterId);
             try {
                 historyMapper.insert(history);
-                // 新增一行后懒删超额最旧行（增长治理：单用户单类型上限 500 条，随写入清理）
+                // 首次阅读这本书：阅读人数 +1。并发首写时唯一键 uk_user_biz 只允许一条插入成功，
+                // 其余线程走下面的 DuplicateKey 分支，因此这里天然不会重复计数
+                if (bizType == ReadingTargetTypeEnum.BOOK) {
+                    try {
+                        contentStatSupport.increaseReader(bizId);
+                    } catch (Exception e) {
+                        // 阅读人数属非账务热度信号：失败只告警、不阻断阅读上报，由 11.16 对账发现少计
+                        log.warn("[阅读统计] 阅读人数 +1 失败，已跳过：userId={}, bookId={}", userId, bizId, e);
+                    }
+                }
+                // 新增一行后懒删过期/超额行（批次十一 11.4：90 天时间窗 + 单用户 1000 条 + 在读保留 10 条）
                 trimOverflowHistory(userId, bizType);
                 return;
             } catch (DuplicateKeyException e) {
@@ -416,23 +434,46 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
 
 
     /**
-     * 阅读历史超额懒删
-     * （增长治理：单用户单类型上限 HISTORY_MAX_PER_USER=500 条，随写入触发）：
-     * 删除该用户该类型下「最新 500 条之外」的最旧行（按最后阅读时间倒序保留最新）。
-     * 只在新插入行后调用（更新行不新增条数，无需触发）。
-     * fail-safe：删除失败仅 warn，不影响本次落历史（下次写入继续兜底清理）。
+     * 阅读历史裁剪（批次十一 11.4：90 天时间窗 + 单用户 1000 条 + 在读保留 10 条，三阈值配置化）
+     *
+     * <p>删除该用户该类型下的行，同时满足三个豁免条件之一就保留：</p>
+     * <ol>
+     *   <li>位于「按最后阅读时间倒序」的前 max-per-user 条（条数上限豁免）；</li>
+     *   <li>属于最近 keep-in-progress 条「在读」书籍历史（在读豁免）；</li>
+     *   <li>其余行中 update_time 在 retain-days 天内的也保留（时间窗）。</li>
+     * </ol>
+     *
+     * <p>即实际删除集 = 非在读豁免 ∧（超出条数上限 ∨ 早于时间窗）。只在新插入行后调用
+     * （更新行不新增条数，无需触发）；懒删意味着用户停止阅读后过期行不会被主动清理，
+     * 下次写入时一并回收，属已知滞后。</p>
+     *
+     * <p>在读判定（不新增埋点，仅用现有字段）：取该书在 book_chapter 的最大可见章节号，
+     * 历史最后阅读章节号小于它即视为未读完；章节行缺失/无 chapter_id/书籍无可见章节时无法判断，
+     * 保守按在读保留。局限：读者读完最后一章后书又新增章节，会重新变为在读（可接受）。</p>
+     *
+     * <p>fail-safe：删除失败仅 warn，不影响本次落历史（下次写入继续兜底清理）。</p>
      *
      * @param userId  读者ID
-     * @param bizType 阅读对象类型（书籍/独立文章）
+     * @param bizType 阅读对象类型（书籍/独立文章；在读豁免仅对书籍类型生效）
      */
     private void trimOverflowHistory(Long userId, ReadingTargetTypeEnum bizType) {
+        // 裁剪配置（时间窗/条数上限/在读保留/单批上限全部外置，改参数不发版）
+        ContentProperties.History config = contentProperties.getHistory();
+        // 开关关闭：不产生删除（reading_history 只增不减）
+        if (!config.isTrimEnabled()) {
+            return;
+        }
         try {
-            // 保留最新 500 条，删除其后的行；单批封顶 100 行防异常数据一次大删
-            historyMapper.deleteOverflowOldest(userId, bizType.getCode(),
-                    ContentLimitConstant.HISTORY_MAX_PER_USER, HISTORY_TRIM_BATCH);
+            // 时间窗起点：早于该时刻的行进入删除候选（min 1 天防配置 0 把全部历史清空）
+            LocalDateTime cutoff = LocalDateTime.now().minusDays(Math.max(config.getRetainDays(), 1));
+            // 在读豁免仅对书籍类型生效：文章没有章节进度概念，传 0 让 LIMIT 0 返回空集
+            int keepInProgress = bizType == ReadingTargetTypeEnum.BOOK ? config.getKeepInProgress() : 0;
+            // 单批删除：条数上限 + 在读保留 + 单批封顶，全部取配置值
+            historyMapper.deleteOverflowOldest(userId, bizType.getCode(), cutoff,
+                    config.getMaxPerUser(), keepInProgress, config.getTrimBatchSize());
         } catch (Exception e) {
             // 懒删非核心链路：失败不影响本次落历史，下轮写入继续清理
-            log.warn("阅读历史超额懒删失败（fail-safe 不影响本次落历史）：userId={}, bizType={}",
+            log.warn("阅读历史裁剪失败（fail-safe 不影响本次落历史）：userId={}, bizType={}",
                     userId, bizType, e);
         }
     }

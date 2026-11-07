@@ -253,44 +253,8 @@ default charset = utf8mb4 comment = '作家申请表';
 
 use litisle_review;
 
--- 1. 词库版本基线（五文本场景，版本 0 = 空词库；词库本体由 seed-words-article.sql 灌入并 bump 版本；
---    BIO 为宿主直审场景，与文本场景同口径建基线，防 user 侧宿主冷启动装载失败）
--- insert ignore：seed-words-article.sql 稍后 upsert ARTICLE 时自然 +1，不冲突
-insert ignore into `sensitive_word_version` (`scene`, `version`, `updated_by`) values
-('ARTICLE',  0, 0),
-('COMMENT',  0, 0),
-('USERNAME', 0, 0),
-('MESSAGE',  0, 0),
-('BIO',      0, 0);
-
--- 2. 作家申请示例（READER 1001 提交申请，待审——供审核员队列联调）
-INSERT INTO `author_apply` (`id`, `user_id`, `pen_name`, `creation_dir`, `masterpiece`, `status`, `create_time`)
-VALUES (1, 1001, '追风少年', '都市 / 青春', '《晚风与海》短篇集', 0, NOW());
-
--- 3. 举报示例（两条状态：待处理 + 转人工）
--- 3.1 READER 1001 举报用户 1003（target_type=3-用户，target_id 即用户ID）；active_key 生成列自动填 '1001-3-1003'
-INSERT INTO `report` (`id`, `reporter_id`, `target_type`, `target_id`, `reason`, `status`, `create_time`)
-VALUES (1, 1001, 3, 1003, '该用户多次发布引战言论', 0, NOW());
--- 3.2 AUTHOR 1002 举报评论 1 转人工（status=2，回填 review_task_id=1 关联任务 4）
--- 供联调人审 decide 回写闭环：update report set status=3 where review_task_id=1 and status<3
-INSERT INTO `report` (`id`, `reporter_id`, `target_type`, `target_id`, `reason`, `status`, `review_task_id`, `create_time`)
-VALUES (2, 1002, 2, 1, '评论内容涉嫌赌博引流', 2, 1, NOW());
-
--- 4. 审核任务示例（评论 SUSPICIOUS 转人审——供人审队列/认领/裁决链路联调）
--- biz_id=1 为占位评论ID（联调时以内容服务实际评论为准）；content_hash 为占位指纹（64位hex）
-INSERT INTO `review_task` (`id`, `biz_type`, `biz_id`, `scene`, `layer1_hit`, `hit_words`, `layer2_risk`,
-                           `status`, `mod_verdict`, `content_hash`, `create_time`)
-VALUES (1, 2, 1, 'COMMENT', 2, '赌博', 2,
-        2, 3, '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', NOW());
-
--- 5. 机审留痕示例（与任务 1 对应的 DFA 审核记录，append-only）
--- mod_type=1-关键词DFA；verdict=3-SUSPICIOUS；operator 0-系统机审；wordlib_ver=0 对应空词库基线
-INSERT INTO `moderation_record` (`id`, `mod_type`, `biz_type`, `biz_id`, `review_task_id`, `scene`,
-                                 `content_hash`, `wordlib_ver`, `verdict`, `category`, `hit_words`, `reason`,
-                                 `operator_id`, `operator_name`, `cost_ms`, `create_time`)
-VALUES (1, 1, 2, 1, 1, 'COMMENT',
-        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 0, 3, 'abuse', '赌博', 'DFA命中赌博类敏感词',
-        0, 'system', 3, NOW());
+-- 1~5. 示例联调数据（词库版本基线、作家申请、举报、审核任务、机审留痕）
+-- 已统一迁至 seed/review-seed.sql（schema 文件只保留结构，保证可重复执行不报错）。
 
 
 -- # 5.2 词库变更审计表（批次1 ②：词库治理基建——与词表变更同事务插入，审计不同事务=不可信）
@@ -344,49 +308,8 @@ create table if not exists `wordlib_hit_stat`
     default charset = utf8mb4 comment = '词级命中统计表（口径=review 进程内异步机审建任务处累加，所有送审内容过 review 数据完整；同步闸门 HIGH 拦截发生在宿主本地不统计——同步拦截分母缺失为已知局限，HIGH 词降级建议以误报绝对量为主、比率仅作参考标注异步口径）';
 
 
--- 6. 处罚流水示例（ADMIN 1005 对用户 1003 落一次警告，生效中）
--- biz_type 走 ModerationBizTypeEnum（同 review_task.biz_type）：2=评论，挂任务 4——勿用 TargetTypeEnum 的 3=用户（两套枚举错位）
--- action=4-警告：仅落流水不改 violation_score.last_punish_action（枚举不对齐系有意设计）
-INSERT INTO `punish_log` (`id`, `user_id`, `action`, `score`, `reason`, `biz_type`, `biz_id`, `review_task_id`,
-                          `operator_id`, `operator_name`, `status`, `create_time`)
-VALUES (1, 1003, 4, 1, '评论涉嫌违规，首次违规警告', 2, 1, 1,
-        1005, 'admin_test', 1, NOW());
-
--- 7. 违规分累积示例（用户 1003 累计 1 分；警告不影响登录态，last_punish_action 保持 0-无）
-INSERT INTO `violation_score` (`user_id`, `score`, `last_punish_action`)
-VALUES (1003, 1, 0);
-
--- 8. 申诉示例（已裁决-维持：挂任务 1 与处罚 1，供申诉列表/详情链路联调）
--- status=1-维持时 active_key 生成列为 NULL，不占用内容级去重键；裁决人 ADMIN 1005（原任务尚未裁决无回避冲突）
--- biz_type 走 ModerationBizTypeEnum：2=评论，与 punish_log.biz_type 同口径
-INSERT INTO `appeal` (`id`, `report_id`, `punish_id`, `review_task_id`, `appellant_id`, `content`, `status`,
-                      `judge_by`, `judge_opinion`, `decide_time`, `biz_type`, `biz_id`, `create_time`)
-VALUES (1, NULL, 1, 1, 1003, '评论内容被误判，未涉及赌博仅为讨论剧情', 1,
-        1005, '证据不足，维持原判', NOW(), 2, 1, NOW());
-
--- 9. 词库测试词（每文本场景 1 条，防 DFA 闸门装载失败拒启：词库表为空时 TableWordLibraryLoader
---    报「词库装载失败且无可用本地快照」并禁止放行；正式词库由管理端维护/seed-words-article.sql 灌入）
---    level=2-MID：命中走 LLM 复审而非同步拒绝，避免联调时误拦用户名注册/私信发送；
---    同词跨场景复用（uk_scene_word 以 scene+word 为键，同词各场景独立生效）
-INSERT INTO `sensitive_word_library` (`word`, `scene`, `level`, `is_blacklist`, `status`, `updated_by`, `version`)
-VALUES
-('测试敏感词_文章',   'ARTICLE',  2, 1, 1, 0, 1),
-('测试敏感词_评论',   'COMMENT',  2, 1, 1, 0, 1),
-('测试敏感词_用户名', 'USERNAME', 2, 1, 1, 0, 1),
-('测试敏感词_私信',   'MESSAGE',  2, 1, 1, 0, 1),
-('测试敏感词_简介',   'BIO',      2, 1, 1, 0, 1);
-
--- 测试词落库后各场景版本 bump 到 1（基线 insert ignore 已建 version=0 行，此处 upsert +1；
--- 热更/快照语义要求版本 >0：消费端 newVersion > curVersion 才重建；
--- ARTICLE 随后由 seed-words-article.sql 灌入正式词库继续单调 +1，不冲突）
-INSERT INTO `sensitive_word_version` (`scene`, `version`, `updated_by`)
-VALUES
-('ARTICLE',  1, 0),
-('COMMENT',  1, 0),
-('USERNAME', 1, 0),
-('MESSAGE',  1, 0),
-('BIO',      1, 0)
-ON DUPLICATE KEY UPDATE `version` = `version` + 1, `updated_by` = VALUES(`updated_by`);
+-- 6~9. 处罚/申诉/测试词/版本推进示例数据
+-- 已统一迁至 seed/review-seed.sql（schema 文件只保留结构，保证可重复执行不报错）。
 
 
 

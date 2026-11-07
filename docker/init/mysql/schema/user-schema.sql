@@ -40,8 +40,13 @@ create table if not exists `sys_user`
     `username`        varchar(32)     not null comment '用户名',
     `uid`             varchar(16)     not null comment '对外UID，用户间搜索唯一标识',
     `password`        varchar(128)    not null comment '密码（BCrypt）',
-    `email`           varchar(64)     null comment '邮箱',
-    `phone`           varchar(255)     not null comment '手机号',
+    `email`           varchar(255)    null comment '邮箱（AES 加密存储，展示脱敏；长度对齐 Sql-Document §二 与存量库）',
+    `phone`           varchar(255)     not null comment '手机号（AES 加密存储，展示脱敏）',
+    -- 【2026-11-06 补列】依据：docs/Sql-Document.md 第二节 sys_user 定义（phone_hash/email_hash 段）
+    -- 与 litisle-user User.java:63-71 字段映射、UserFeignProviderController#existByPhone 按 hash 查重用法。
+    -- 原因：phone/email 为 AES 随机 IV 密文，同一号码每次加密结果不同，唯一约束必须建在确定性摘要列上。
+    `phone_hash`      varchar(64)     not null comment '手机号 HMAC-SHA256 摘要（唯一约束与查重走本列；种子用 SHA2(phone,256) 占位）',
+    `email_hash`      varchar(64)     null comment '邮箱 HMAC-SHA256 摘要（NULL 不参与唯一约束，允许多个无邮箱用户）',
     `avatar_file_id`  varchar(64)     null comment '头像文件ID（SeaweedFS fileId，URL 运行时反查拼接；默认头像走代码常量兜底，不落库）',
     `avatar_color`    tinyint         not null default 0 comment '头像标识：0-无 1-金 2-白', -- 【修改】
     `bio`             varchar(200)    null comment '个人简介',
@@ -53,11 +58,12 @@ create table if not exists `sys_user`
     `version`         int             not null default 0 comment '乐观锁',
     `create_time`     datetime        not null default current_timestamp,
     `update_time`     datetime        not null default current_timestamp on update current_timestamp,
-    unique key `uk_phone_del` (`phone`, `del_flag`),
-    unique key `uk_email_del` (`email`, `del_flag`),
+    -- 【2026-11-06 调整】唯一约束改挂在确定性摘要列：AES 随机 IV 使 phone/email 列本身不可唯一比对
+    unique key `uk_phone_hash_del` (`phone_hash`, `del_flag`),
+    unique key `uk_email_hash_del` (`email_hash`, `del_flag`),
+    unique key `uk_uid` (`uid`),
     index `idx_username` (`username`),
-    index `idx_create_time` (`create_time`),
-    unique key `uk_uid` (`uid`)
+    index `idx_create_time` (`create_time`)
     ) engine = InnoDB
     default charset = utf8mb4 comment = '用户表';
 
@@ -84,14 +90,7 @@ create table if not exists `sys_user_role`
     ) engine = InnoDB
     default charset = utf8mb4 comment = '用户-角色关联表';
 
-# 4. 角色初始化数据
-insert ignore into `sys_role` (`role_code`, `role_name`, `role_type`) values
-                                                                          ('SUPER_ADMIN',   '超级管理员', 1),
-                                                                          ('ADMIN',         '管理员',     1),
-                                                                          ('READER',        '读者',       2),
-                                                                          ('AUTHOR',        '作家',       2),
-                                                                          ('LEGACY_AUTHOR', '纪念作家',   2),
-                                                                          ('REVIEWER',      '审核员',     2);
+# 4. 角色初始化数据（已迁至 seed/user-seed.sql，保持 schema 文件为纯结构、可重复执行）
 
 # 5. 权限表（菜单 + 按钮/API 统一管理，parent_id 自关联树形结构）
 create table if not exists `sys_permission`
@@ -226,67 +225,9 @@ create table if not exists `sys_user_cancel_log`
 -- 哈希：$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2
 -- 注意：请根据实际 sys_user 表结构调整 id 值，确保与现有数据不冲突
 # ============================================================
-# 初始化示例用户数据（手机号明文，暂不加密，无邮箱）
-# 密码统一为 bcrypt 加密的 123
-# 哈希：$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2
+# 初始化示例用户数据（已迁至 seed/user-seed.sql）
+#
+# 迁移原因：原 schema 内使用普通 INSERT，重复执行会因主键重复报错，
+# 不满足「schema 可重复执行」要求；现统一由 seed/user-seed.sql 以固定 ID + INSERT IGNORE 写入。
+# 1001~1006 账号（读者/作家/纪念作家/审核员/管理员/超管）与 2001~2003 演示用户在同一个种子文件内。
 # ============================================================
-
--- 1. READER 读者
-INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`,`avatar_color`)
-VALUES (1001, 'reader_test', '275312400001001', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010001', '热爱阅读的普通用户', 1, 0, NOW(),0);
-
-INSERT INTO `sys_user_role` (`user_id`, `role_id`)
-SELECT 1001, `id` FROM `sys_role` WHERE `role_code` = 'READER';
-
-INSERT INTO `sys_user_profile` (`user_id`)
-VALUES (1001);
-
--- 2. AUTHOR 作家
-INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
-VALUES (1002, 'author_test', '275312400002002', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010002', '专注科幻小说创作', 1, 0, NOW(),1);
-
-INSERT INTO `sys_user_role` (`user_id`, `role_id`)
-SELECT 1002, `id` FROM `sys_role` WHERE `role_code` = 'AUTHOR';
-
-INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`)
-VALUES (1002, '红袖添香', '科幻 / 奇幻', '《星海归途》系列');
-
--- 3. LEGACY_AUTHOR 纪念作家
-INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`, `avatar_color`)
-VALUES (1003, 'legacy_test', '275312400003003', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010003', '已故文学巨匠，作品永久珍藏', 1, 0, NOW(),2);
-
-INSERT INTO `sys_user_role` (`user_id`, `role_id`)
-SELECT 1003, `id` FROM `sys_role` WHERE `role_code` = 'LEGACY_AUTHOR';
-
-INSERT INTO `sys_user_profile` (`user_id`, `pen_name`, `creation_dir`, `masterpiece`)
-VALUES (1003, '老舍', '现实主义文学', '《骆驼祥子》《茶馆》');
-
--- 4. REVIEWER 审核员
-INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1004, 'reviewer_test', '275312400004004', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010004', '内容安全审核专员', 1, 0, NOW());
-
-INSERT INTO `sys_user_role` (`user_id`, `role_id`)
-SELECT 1004, `id` FROM `sys_role` WHERE `role_code` = 'REVIEWER';
-
-INSERT INTO `sys_user_profile` (`user_id`)
-VALUES (1004);
-
--- 5. ADMIN 管理员
-INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1005, 'admin_test', '275312400005005', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010005', '负责平台日常运营管理', 1, 0, NOW());
-
-INSERT INTO `sys_user_role` (`user_id`, `role_id`)
-SELECT 1005, `id` FROM `sys_role` WHERE `role_code` = 'ADMIN';
-
-INSERT INTO `sys_user_profile` (`user_id`)
-VALUES (1005);
-
--- 6. SUPER_ADMIN 超级管理员
-INSERT INTO `sys_user` (`id`, `username`, `uid`, `password`, `phone`, `bio`, `status`, `del_flag`, `create_time`)
-VALUES (1006, 'super_admin_test', '275312400006006', '$2a$10$gdvA0F6AZe8WxbFNJygUuuZ0ZWjx4ofm9.Fr1rKgKUrU/AQj.OnQ2', '13800010006', '系统最高权限拥有者', 1, 0, NOW());
-
-INSERT INTO `sys_user_role` (`user_id`, `role_id`)
-SELECT 1006, `id` FROM `sys_role` WHERE `role_code` = 'SUPER_ADMIN';
-
-INSERT INTO `sys_user_profile` (`user_id`)
-VALUES (1006);

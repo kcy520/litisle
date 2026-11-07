@@ -9,6 +9,7 @@ import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.event.content.ContentViewCountFlushedEvent;
 import com.litisle.litisleapi.event.social.SocialCommentedEvent;
 import com.litisle.litisleapi.event.social.SocialLikedEvent;
+import com.litisle.litisleapi.event.social.SocialUnlikedEvent;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchBizConstant;
 import com.litisle.litislesearch.service.HeatPendingService;
@@ -24,7 +25,7 @@ import java.io.IOException;
 /**
  * 互动热度事件消费者（批次三 3.1，批次A A5/A7 定案）。
  *
- * 【职责】监听点赞 / 评论 / 浏览量落库三类队列，把互动信号累加到 Redis 热度待刷新键
+ * 【职责】监听点赞 / 取消点赞 / 评论 / 浏览量落库四类队列，把互动信号累加到 Redis 热度待刷新键
  * （Hash 结构，见 {@link HeatPendingService}），本类只做消费编排（traceId 恢复 + 幂等 + ACK/重试），
  * 不直写 ES —— 热度刷写由批次三 3.2 定时任务聚合 `_bulk` 完成。
  *
@@ -86,8 +87,59 @@ public class HeatEventConsumer {
                         if (!mqIdempotentHelper.tryAcquire(MqConstant.QUEUE_SOCIAL_LIKED, event.getEventId())) {
                             return;
                         }
-                        // 步骤5：Redis 累加成功后才返回 → 由模板 ack
-                        heatPendingService.incrementLike(articleId);
+                        // 步骤5：Redis 累加成功后才返回 → 由模板 ack；
+                        // 批次十一 11.14：按事件携带的 delta 累加（旧消息无 delta 时按 +1 兜底）
+                        long likedDelta = event.getDelta() == null ? 1L : event.getDelta().longValue();
+                        if (likedDelta == 0) {
+                            return;
+                        }
+                        heatPendingService.applyLikeDelta(articleId, likedDelta);
+                    });
+        } finally {
+            // 步骤6：清理 MDC，防消费线程复用串扰
+            MqTraceSupport.clear();
+        }
+    }
+
+    /**
+     * 消费取消点赞事件：待刷新键 like_delta -1（批次十一 11.14）。
+     *
+     * <p>与点赞事件分队列监听，正负事件可分别观测与重投；幂等、重试、死信链路完全复用
+     * MqIdempotentHelper / MqAckHelper / IndexDlqConsumer，不另建。负数写回 article_idx 时的
+     * 下限保护在 {@code IndexHeatFlushJob} 统一做（likeCnt 不允许减成负数）。</p>
+     *
+     * @param event   取消点赞事件（bizType=1 时 bizId 为文章 ID）
+     * @param message 原始消息
+     * @param channel 消费通道
+     * @throws IOException ack/nack 失败向上抛出
+     */
+    @RabbitListener(queues = MqConstant.QUEUE_SOCIAL_UNLIKED)
+    public void onUnliked(SocialUnlikedEvent event, Message message, Channel channel) throws IOException {
+        // 步骤1：恢复 traceId，串起 content → MQ → search 链路
+        MqTraceSupport.restore(message);
+        try {
+            // 步骤2：重试感知 ACK 模板（延迟重投复用同一 search.delay，耗尽入 search DLQ）
+            MqAckHelper.executeWithRetry(MqConstant.QUEUE_SOCIAL_UNLIKED, message, channel,
+                    properties.getRetry().getMaxCount(),
+                    properties.getRetry().getBaseDelayMs(),
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                            MqConstant.QUEUE_SOCIAL_UNLIKED, event, delayMs, newRetryCount),
+                    () -> {
+                        // 步骤3：只处理文章取消点赞（非文章消息 ack 丢弃）
+                        Long articleId = resolveArticleId(event.getBizType(), event.getBizId(), event.getEventId());
+                        if (articleId == null) {
+                            return;
+                        }
+                        // 步骤4：eventId 幂等（SETNX + eventId，重复投递不重复递减）
+                        if (!mqIdempotentHelper.tryAcquire(MqConstant.QUEUE_SOCIAL_UNLIKED, event.getEventId())) {
+                            return;
+                        }
+                        // 步骤5：按事件 delta 累加（取消点赞固定 -1；缺失时也按 -1 兜底）
+                        long unlikedDelta = event.getDelta() == null ? -1L : event.getDelta().longValue();
+                        if (unlikedDelta == 0) {
+                            return;
+                        }
+                        heatPendingService.applyLikeDelta(articleId, unlikedDelta);
                     });
         } finally {
             // 步骤6：清理 MDC，防消费线程复用串扰

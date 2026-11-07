@@ -28,4 +28,10 @@ public class FeedSnapshot implements Serializable {
 
     /** 已排好序的条目列表（长度不超过配置的 pool-size） */
     private List<FeedSnapshotItem> items;
+
+    /**
+     * 建池时的降级标记（null=正常建池；hot-empty=热度榜为空、最新单独兜底）
+     * <p>随快照一起落 Redis，续页切片时原样回填到响应体，保证同一代快照的降级态可识别。</p>
+     */
+    private String degraded;
 }

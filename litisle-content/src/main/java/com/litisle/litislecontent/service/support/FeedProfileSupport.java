@@ -2,8 +2,12 @@ package com.litisle.litislecontent.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.litisle.commonredis.util.RedisUtil;
 import com.litisle.litislecontent.config.ContentProperties;
+import com.litisle.litislecontent.constant.FeedConstant;
 import com.litisle.litislecontent.domain.dto.FeedProfile;
+import com.litisle.litislecontent.domain.dto.FeedProfileCache;
+import com.litisle.litislecontent.domain.dto.FeedQuery;
 import com.litisle.litislecontent.domain.entity.Article;
 import com.litisle.litislecontent.domain.entity.Book;
 import com.litisle.litislecontent.domain.entity.ReadingHistory;
@@ -14,26 +18,38 @@ import com.litisle.litislecontent.enums.ZoneEnum;
 import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.ReadingHistoryMapper;
+import com.litisle.litislecontent.metrics.ContentMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
- * 推荐画像聚合（批次十 10.3：P0 只用 reading_history 聚合「常看分区 + 常看分类 + 已读集合」）
+ * 推荐画像聚合与缓存（批次十 10.3 建骨架 / 10.5 补 Redis 缓存与冷启动口径）
  *
  * <p>P0 边界（对齐 next_update 已确认决策）：
  * <ul>
- *   <li>不读 article_tag（标签偏好进 P1）；</li>
- *   <li>不读收藏（10.5 再补 favorite 维度与 Redis 画像缓存）；</li>
- *   <li>匿名用户没有 reading_history，直接返回冷启动画像。</li>
+ *   <li>画像维度只有「常看分区 + 常看分类」两维，数据源只有 reading_history（近 readWindowDays 天）；</li>
+ *   <li>不读 article_tag（标签偏好属 P1，{@link FeedProfile#getPreferredTags()} 仅留结构占位）；</li>
+ *   <li>不读收藏、不做「登录后匿名画像归并」（本轮范围外）；</li>
+ *   <li>匿名用户没有 reading_history，恒为冷启动画像。</li>
+ * </ul>
+ *
+ * <p>缓存（10.5）：
+ * <ul>
+ *   <li>键按身份隔离：登录 {@code content:feed:profile:u{userId}}、匿名 {@code content:feed:profile:a{anonId}}，绝不混用；</li>
+ *   <li>未命中才回源聚合，命中直接返回；TTL 由 stream.profile-cache-ttl-seconds 控制；</li>
+ *   <li>缓存载体用 {@link FeedProfileCache}（int/string 表示枚举），避免枚举 @JsonValue 反序列化歧义。</li>
  * </ul>
  *
  * @author litisle
@@ -61,20 +77,68 @@ public class FeedProfileSupport {
     /** 书籍 Mapper（按已读书籍 ID 反查状态，判断完结偏好） */
     private final BookMapper bookMapper;
 
-    /** 推荐流配置（画像样本条数/已读窗口外置 yml） */
+    /** 推荐流配置（画像样本条数/已读窗口/缓存 TTL 外置 yml） */
     private final ContentProperties contentProperties;
 
+    /** Redis 工具（画像缓存读写；封装内部吞异常，失败时按未命中回源聚合） */
+    private final RedisUtil redisUtil;
+
+    /** 观测指标（画像缓存命中/未命中打点；MeterRegistry 未装配时静默空转） */
+    private final ContentMetrics contentMetrics;
+
     /**
-     * 加载用户画像（文章流与书籍流共用）
+     * 加载用户画像（文章流与书籍流共用；批次十 10.5：带 Redis 缓存）
      *
-     * @param userId 登录用户 ID；匿名用户传 null
+     * <p>冷启动判定口径：readWindowDays 天内没有任何文章阅读记录 ⇒ 视为冷启动，
+     * 分区/分类两路个性化召回全部跳过，退化为「全局热门 + 最新」，同时调用方把探索位比例
+     * 上调到 coldStartExplorationRatio。窗口内只要有 ≥1 条阅读记录即视为非冷启动。</p>
+     *
+     * <p>匿名口径：匿名用户没有 reading_history（阅读上报只写登录用户），因此恒为冷启动；
+     * 匿名缓存按 anonId 独立读写，不与 userId 混用。localStorage 丢失/换设备会得到新 anonId，
+     * 画像归零——这是匿名标识本身的局限（不跨设备，P0 接受）。</p>
+     *
+     * <p>缓存失效策略：默认接受 TTL（profileCacheTtlSeconds）内的滞后，阅读行为不主动失效。
+     * 成本判断：主动失效需要在阅读上报成功后多一次 Redis 写（与阅读链路跨模块耦合），
+     * 收益只是把偏好滞后从「≤TTL」降到秒级；画像只影响排序、不影响内容可见性，滞后可接受。
+     * 触发条件：后续出现「实时兴趣」需求或推荐明显滞后投诉时，再在阅读上报成功后删除
+     * {@code content:feed:profile:u{userId}} 一个键（成本：每篇阅读多一次 Redis DEL）。</p>
+     *
+     * @param query 查询入参（取 userId / anonId 决定画像身份与缓存键）
      * @return 画像对象（无行为数据时 coldStart=true，个性化召回路退化全局）
      */
-    public FeedProfile load(Long userId) {
-        // 匿名用户没有阅读历史：直接返回冷启动画像，不发一次空查询
-        if (userId == null) {
-            return new FeedProfile();
+    public FeedProfile load(FeedQuery query) {
+        // 画像缓存键：登录/匿名分离；无任何身份时返回 null（跳过缓存，直接回源）
+        String cacheKey = buildProfileCacheKey(query);
+
+        // 步骤1：缓存命中直接返回（避免每次翻页/续池都聚合一次 reading_history）
+        if (cacheKey != null) {
+            FeedProfile cached = readCachedProfile(cacheKey);
+            if (cached != null) {
+                // 命中指标：直接复用缓存，未触发回源聚合
+                contentMetrics.recordProfileCacheHit();
+                return cached;
+            }
+            // 未命中指标：接下来会回源聚合并覆盖写缓存（缓存键为空的场景不算命中/未命中）
+            contentMetrics.recordProfileCacheMiss();
         }
+
+        // 步骤2：匿名无行为数据源 → 直接冷启动画像，不发空查询
+        FeedProfile profile = query.getUserId() == null ? new FeedProfile() : aggregate(query.getUserId());
+
+        // 步骤3：回源结果写回缓存（匿名冷启动画像同样按 anonId 隔离缓存，便于后续接入匿名行为时格式一致）
+        if (cacheKey != null) {
+            writeCachedProfile(cacheKey, profile);
+        }
+        return profile;
+    }
+
+    /**
+     * 回源聚合登录用户画像（分区偏好 + 分类偏好 + 已读集合 + 书籍状态偏好）
+     *
+     * @param userId 登录用户 ID
+     * @return 画像对象（无近期文章阅读时 coldStart=true）
+     */
+    private FeedProfile aggregate(Long userId) {
         ContentProperties.Stream stream = contentProperties.getFeed().getStream();
         // 已读判定窗口起点：超过窗口的旧阅读记录不参与降权，避免长期压制旧文章
         LocalDateTime readWindowStart = LocalDateTime.now().minusDays(stream.getReadWindowDays());
@@ -137,6 +201,152 @@ public class FeedProfileSupport {
         // 步骤3：近 bookWindow 内已读书籍 → 判断完结/连载偏好（书籍流 0.1 权重项）
         profile.setPreferredBookStatus(resolvePreferredBookStatus(userId));
         return profile;
+    }
+
+    /**
+     * 生成画像缓存键（按身份隔离）
+     *
+     * @param query 查询入参
+     * @return 缓存键；登录 u{userId} / 匿名 a{anonId}；两者都无时返回 null（不读不写缓存）
+     */
+    private String buildProfileCacheKey(FeedQuery query) {
+        // 登录身份优先：登录用户禁止落到匿名键，防串号
+        if (query.getUserId() != null) {
+            return FeedConstant.PROFILE_KEY_PREFIX + FeedConstant.IDENTITY_USER_PREFIX + query.getUserId();
+        }
+        // 匿名身份：过滤器保证有值；异常缺失时跳过缓存，不影响聚合
+        if (StringUtils.hasText(query.getAnonId())) {
+            return FeedConstant.PROFILE_KEY_PREFIX + FeedConstant.IDENTITY_ANON_PREFIX + query.getAnonId();
+        }
+        return null;
+    }
+
+    /**
+     * 读取画像缓存
+     *
+     * @param cacheKey 缓存键
+     * @return 还原后的画像；未命中/类型不符/脏数据返回 null（调用方回源聚合）
+     */
+    private FeedProfile readCachedProfile(String cacheKey) {
+        Object value = redisUtil.get(cacheKey);
+        // 只接受本类写入的载体类型：旧格式/脏值一律按未命中处理，回源覆盖写
+        if (value instanceof FeedProfileCache cache) {
+            return fromCache(cache);
+        }
+        return null;
+    }
+
+    /**
+     * 写入画像缓存
+     *
+     * @param cacheKey 缓存键
+     * @param profile  画像对象
+     */
+    private void writeCachedProfile(String cacheKey, FeedProfile profile) {
+        // TTL 配置化：非正数表示关闭缓存，直接跳过写入
+        long ttlSeconds = contentProperties.getFeed().getStream().getProfileCacheTtlSeconds();
+        if (ttlSeconds <= 0) {
+            return;
+        }
+        // 转缓存载体后写入：Redis 异常由 RedisUtil 吞掉，画像链路不因缓存失败中断
+        redisUtil.set(cacheKey, toCache(profile), ttlSeconds, TimeUnit.SECONDS);
+    }
+
+    /**
+     * 画像对象转缓存载体（枚举转码/名称）
+     *
+     * @param profile 画像对象
+     * @return 缓存载体
+     */
+    private FeedProfileCache toCache(FeedProfile profile) {
+        // 分区枚举转入库码（1/2）
+        Set<Integer> zoneCodes = new HashSet<>();
+        for (ZoneEnum zone : profile.getPreferredZones()) {
+            zoneCodes.add(zone.getCode());
+        }
+        // 分类枚举转中文分类名（与 DB 直存口径一致）
+        Set<String> categoryNames = new HashSet<>();
+        for (ArticleCategoryEnum category : profile.getPreferredCategories()) {
+            categoryNames.add(category.getName());
+        }
+        return new FeedProfileCache()
+                .setColdStart(profile.isColdStart())
+                .setReadArticleIds(profile.getReadArticleIds())
+                .setPreferredZoneCodes(zoneCodes)
+                .setPreferredCategoryNames(categoryNames)
+                .setPreferredBookStatusCode(profile.getPreferredBookStatus().getCode())
+                .setPreferredTags(profile.getPreferredTags());
+    }
+
+    /**
+     * 缓存载体还原画像
+     *
+     * @param cached 缓存载体
+     * @return 画像对象（未知码/未知分类名直接丢弃，避免历史脏数据阻断画像加载）
+     */
+    private FeedProfile fromCache(FeedProfileCache cached) {
+        // 分区码转枚举（未知码跳过：枚举可能随版本收敛，旧缓存不应报错）
+        Set<ZoneEnum> zones = new HashSet<>();
+        for (Integer code : cached.getPreferredZoneCodes()) {
+            ZoneEnum zone = resolveZone(code);
+            if (zone != null) {
+                zones.add(zone);
+            }
+        }
+        // 分类名转枚举（复用枚举自带的静态解析，未命中返回 null 即丢弃）
+        Set<ArticleCategoryEnum> categories = new HashSet<>();
+        for (String name : cached.getPreferredCategoryNames()) {
+            ArticleCategoryEnum category = ArticleCategoryEnum.resolve(name);
+            if (category != null) {
+                categories.add(category);
+            }
+        }
+        // 集合字段做防御性拷贝：缓存对象可能被复用，避免还原画像与原缓存共享同一集合
+        Set<Long> readIds = cached.getReadArticleIds() == null
+                ? Collections.emptySet() : new HashSet<>(cached.getReadArticleIds());
+        Set<String> tags = cached.getPreferredTags() == null
+                ? Collections.emptySet() : new HashSet<>(cached.getPreferredTags());
+        return new FeedProfile()
+                .setColdStart(cached.isColdStart())
+                .setReadArticleIds(readIds)
+                .setPreferredZones(zones)
+                .setPreferredCategories(categories)
+                .setPreferredBookStatus(resolveBookStatus(cached.getPreferredBookStatusCode()))
+                .setPreferredTags(tags);
+    }
+
+    /**
+     * 分区码转枚举
+     *
+     * @param code 入库值（1-普通 / 2-作家）
+     * @return 命中枚举；未知码返回 null
+     */
+    private ZoneEnum resolveZone(Integer code) {
+        if (code == null) {
+            return null;
+        }
+        // 枚举仅两个取值，遍历成本可忽略
+        for (ZoneEnum zone : ZoneEnum.values()) {
+            if (zone.getCode() == code) {
+                return zone;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 书籍状态码转枚举
+     *
+     * @param code 入库值（0-连载中 / 1-已完结 / 2-下架）
+     * @return 命中枚举；未知码回退默认偏好「已完结」，保证排序权重项不丢
+     */
+    private BookStatusEnum resolveBookStatus(int code) {
+        for (BookStatusEnum status : BookStatusEnum.values()) {
+            if (status.getCode() == code) {
+                return status;
+            }
+        }
+        return BookStatusEnum.COMPLETED;
     }
 
     /**

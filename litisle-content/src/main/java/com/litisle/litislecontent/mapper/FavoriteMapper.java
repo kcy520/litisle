@@ -72,7 +72,9 @@ public interface FavoriteMapper extends BaseMapper<Favorite> {
      *
      * @param bookIds 书籍 ID 集合（非空）
      * @return 每本书的收藏数（无收藏的书不在结果中，调用方按 0 处理）
+     * @deprecated 已由统计表 book_stat.collect_count 替代，保留供回退与对账复用，禁止删除。
      */
+    @Deprecated
     @Select("""
             <script>
             select target_id as id, count(*) as cnt

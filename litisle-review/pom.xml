@@ -98,14 +98,14 @@
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
-        <!-- houbb sensitive-word（批次3 ⑤b：生产依赖已删除，DFA 引擎为自研 AC 自动机；
+        <!-- houbb sensitive-word（批次3 ⑤b：生产依赖已删除，；
              仅保留 test scope，供影子比对回归 WordlibEngineShadowCompareTest 与语义探针 HoubbRepeatProbeTest 使用） -->
         <dependency>
             <groupId>com.github.houbb</groupId>
             <artifactId>sensitive-word</artifactId>
             <!-- 版本显式声明（dependencyManagement 条目已随批次3 ⑤b 删除，仅测试引用） -->
             <version>0.27.1</version>
-            <scope>test</scope>
+            <scope>test</scope> <!--注意，是test-->
         </dependency>
 
         <!-- ONNX 本地鉴黄（开发期 image-provider=onnx，CPU 推理；版本由父 POM 托管） -->
@@ -147,6 +147,7 @@
         </dependency>
 
         <!-- api 模块：Feign 接口定义（ContentClient/FileClient/MessageClient）与公共 DTO -->
+        <!--Ac自动机的 hankcs 依赖放入了api模块-->
         <dependency>
             <groupId>com.litisle</groupId>
             <artifactId>litisle-api</artifactId>

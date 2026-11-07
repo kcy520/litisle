@@ -9,6 +9,7 @@ import com.litisle.commoncore.result.PageResult;
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonredis.ratelimit.RateLimiter;
 import com.litisle.commonsecurity.audit.AuditLog;
+import com.litisle.litislecontent.constant.FeedConstant;
 import com.litisle.litislecontent.domain.dto.ArticlePublishDTO;
 import com.litisle.litislecontent.domain.dto.ArticleMyQueryDTO;
 import com.litisle.litislecontent.domain.dto.ArticlePublicQueryDTO;
@@ -18,6 +19,7 @@ import com.litisle.litislecontent.domain.vo.ArticleCardVO;
 import com.litisle.litislecontent.domain.vo.ArticleDetailVO;
 import com.litisle.litislecontent.service.ArticleService;
 import com.litisle.litislecontent.service.support.ClientIpSupport;
+import com.litisle.litislecontent.service.support.FeedExposureSupport;
 import com.litisle.litislecontent.service.support.ReadingHistorySupport;
 import com.litisle.litislecontent.service.support.ViewCounterSupport;
 import io.swagger.v3.oas.annotations.Operation;
@@ -68,6 +70,9 @@ public class ArticleController {
 
     /** 客户端 IP 解析组件（阶段17：原 resolveClientIp 私有逻辑收口，与章节详情共用） */
     private final ClientIpSupport clientIpSupport;
+
+    /** 曝光/点击归因支撑（批次十一 11.6：详情带 from=feed + snapshotId 时回写点击，失败不影响详情） */
+    private final FeedExposureSupport feedExposureSupport;
 
     /**
      * 创建/发布（zone=2 需 AUTHOR；发布状态流转由 ArticlePublishService 编排）
@@ -140,10 +145,24 @@ public class ArticleController {
 
     /**
      * 详情（匿名可见公开文；visibility 判定链在 Service 收口；阶段8①：命中后记录浏览计数）
+     *
+     * <p>批次十一 11.6 点击归因：仅当同时携带 {@code from=feed} 与 {@code snapshotId} 时才计推荐流点击；
+     * {@code position} 只供前端定位展示，服务端计数不需要，接收后忽略。</p>
+     *
+     * @param articleId  文章 ID（路径）
+     * @param from       归因来源（feed=推荐流；其他值按普通浏览处理）
+     * @param snapshotId 快照代次（归因必带参数，仅校验不落库）
+     * @param position   卡片位置（可选，仅前端使用）
+     * @param request    HTTP 请求（匿名点击时读取 X-Anon-Id）
+     * @return 文章详情
      */
-    @Operation(summary = "文章详情", description = "匿名仅可见公开文；仅自己/关注者/密码可见性由 Service 判定链收口")
-    @GetMapping("/{id}")
-    public Result<ArticleDetailVO> detail(@PathVariable("articleId") Long articleId, HttpServletRequest request) {
+    @Operation(summary = "文章详情", description = "匿名仅可见公开文；仅自己/关注者/密码可见性由 Service 判定链收口；from=feed&snapshotId 计推荐点击")
+    @GetMapping("/{articleId}")
+    public Result<ArticleDetailVO> detail(@PathVariable("articleId") Long articleId,
+                                          @RequestParam(required = false) String from,
+                                          @RequestParam(required = false) String snapshotId,
+                                          @RequestParam(required = false) Integer position,
+                                          HttpServletRequest request) {
         // 未登录（匿名）viewerId 传 null；登录取当前人
         Long viewerId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
         ArticleDetailVO detail = articleService.getDetail(articleId, viewerId);
@@ -154,6 +173,9 @@ public class ArticleController {
         // detail 为 null 时防御性跳过；落库异常由 Support fail-safe 吞掉，不阻断详情返回
         if (detail != null) {
             readingHistorySupport.recordArticleHistory(viewerId, articleId, detail.getAuthorId());
+            // 批次十一 11.6：可见性判定通过后才计推荐流点击；参数不齐/重复点击/写库失败均由 Support 内部收口
+            feedExposureSupport.recordClick(FeedConstant.STREAM_ARTICLE, articleId, viewerId,
+                    request.getHeader(FeedConstant.ANON_ID_HEADER), from, snapshotId);
         }
         return Result.success(detail);
     }

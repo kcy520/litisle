@@ -32,29 +32,39 @@ social   ──Feign──► content（回写 view/like/comment_cnt 冗余计�
 ```
 litisle-content
 ├── controller/        # ArticleController / ArticlePublishController / BookController / DraftController
-│   │                  # / FavoriteController / FeedController / ReadingHistoryController / TagController
+│   │                  # / FavoriteController / FeedController / LikeController / ReadingHistoryController / TagController
 │   └── feign/         # ContentFeignProviderController（review 回查正文/配图反查等跨服务端点）
 ├── service/           # ArticleService / ArticlePublishService / BookService / DraftService
-│   │                  # / FavoriteService / FeedService / ReadingHistoryService / TagService
+│   │                  # / FavoriteService / FeedService / FeedStreamService（无限刷流）/ FeedFeedbackService（负反馈）
+│   │                  # / LikeService（点赞）/ ReadingHistoryService / TagService
 │   │                  # / ArticleReviewWriteBackService / ContentInternalService
 │   ├── impl/          # 接口实现（事务边界与 CAS 收口都在实现类）
-│   └── support/       # PublishDraftSnapshotSupport / FeedHotRankSupport / BookReadSupport / ViewCounterSupport
-│                      # / ReadingHistorySupport / FavoriteStateSupport / ArticleImageRefSupport
-│                      # / ArticleImageRenderSupport / ClientIpSupport
+│   ├── support/       # FeedHotRankSupport（热榜）/ FeedScoreSupport（统一打分）/ FeedSnapshotSupport（快照/曝光/种子）
+│   │                  # / FeedProfileSupport（画像）/ FeedExposureSupport（曝光落库）/ FeedFeedbackSupport（负反馈名单）
+│   │                  # / PublishDraftSnapshotSupport / BookReadSupport / ViewCounterSupport
+│   │                  # / ReadingHistorySupport / FavoriteStateSupport / ArticleImageRefSupport
+│   │                  # / ArticleImageRenderSupport / ClientIpSupport
+├── support/           # FeedItemAssembler（卡片装配）/ FeedRateLimitSupport / LikeRateLimitSupport（按登录态切 USER/IP 维度）
+├── metrics/           # ContentMetrics（Counter+Gauge 统一打点收口，MeterRegistry 未装配时静默空转）
 ├── mapper/            # ArticleMapper / BookMapper / ArticleDraftMapper / ArticleImageMapper / ArticleTagMapper
 │                      # / BookChapterMapper / ReadingHistoryMapper / FavoriteMapper / TagMapper / EventOutboxMapper
+│                      # / UserLikeMapper / ArticleStatMapper / BookStatMapper / ContentStatWindowMapper
+│                      # / BookReadQualityMapper / ContentStatReconcileMapper / FeedFeedbackMapper / FeedExposureDailyMapper
 ├── domain/
 │   ├── entity/        # Article / Book / ArticleDraft / BookChapter / ArticleImage / ArticleTag / Tag
 │   │                  # / Favorite / ReadingHistory / EventOutbox
-│   ├── dto/           # ArticlePublishDTO / ArticleUpdateDTO / DraftSaveDTO / BookChapterReorderDTO 等
+│   │                  # / UserLike / ArticleStat / BookStat / ContentStatWindow / BookReadQuality
+│   │                  # / FeedFeedback / FeedExposureDaily
+│   ├── dto/           # ArticlePublishDTO / ArticleUpdateDTO / DraftSaveDTO / BookChapterReorderDTO
+│   │                  # / FeedQuery / FeedPageVO / FeedSnapshot / FeedProfile / FeedFeedbackDTO / FeedFeedbackExclusions 等
 │   ├── vo/            # ArticleDetailVO / BookCardVO / BookChapterDetailVO / FeedItemVO 等
 │   ├── statemachine/  # ArticleStateMachine（status 流转白名单，禁 2→1 等）
 │   └── router/        # ZoneRouter（分区权限收口，防各入口内联 if 口径漂移）
-├── constant/          # ContentBizConstant（业务常量）+ ContentLimitConstant（限流/上限常量；切片上限已归 review 侧）
+├── constant/          # ContentBizConstant（业务常量）+ FeedConstant（推荐流常量）+ ContentLimitConstant（限流/上限常量；切片上限已归 review 侧）
 ├── enums/             # ZoneEnum / ArticleStatusEnum / VisibilityEnum / BookStatusEnum / AlignEnum
-│                      # / TagStatusEnum / ArticleCategoryEnum / FavoriteTargetTypeEnum
+│                      # / TagStatusEnum / ArticleCategoryEnum / FavoriteTargetTypeEnum / FeedFeedbackTypeEnum 等
 ├── mq/
-│   ├── ContentEventProducer  # 事件发布统一收口（submitted/published/unpublished/image.submit 四发送方法，outbox 必达）
+│   ├── ContentEventProducer  # 事件发布统一收口（submitted/published/unpublished/image.submit/like 收藏与点赞热度共九发送方法，outbox 必达）
 │   └── consumer/             # ModerationResultConsumer / ModerationAppealResultConsumer / UserBannedConsumer
 ├── cache/             # FollowRelationCache（关注关系缓存）/ UnpublishedCacheCleaner（下架四路径三键失效）
 ├── dfa/               # 词库宿主侧：ContentDfaConfig / ContentLastHashRedisAdapter / ContentRedisWordLibraryLoader
@@ -62,6 +72,8 @@ litisle-content
 ├── utils/             # ArticleHtmlSanitizer（白名单净化）/ ContentLengthGuard（256KB 上限）/ LogSanitizeUtil（日志脱敏）
 ├── job/               # FeedHotRankRefillJob（灌榜）/ ViewCountFlushJob（浏览计数刷回）/ TagCountReconcileJob（标签对账）
 │                      # / ArticleScheduledPublishJob（定时发布）/ EventOutboxResendJob（outbox 重发）
+│                      # / ContentStatReconcileJob（统计对账）/ ContentStatWindowJob（30/90 天窗口刷新）
+│                      # / BookReadQualityJob（完读质量聚合）/ FeedExposureCleanupJob（曝光明细清理）
 └── config/            # ContentProperties（参数外置）/ ContentRabbitConfig / SaTokenWebConfig
 （slicer/ 已移除：切片职责收口 review 消费端，content 不重复实现）
 ```
@@ -90,6 +102,10 @@ litisle-content
 | 大篇幅切片 | 切片与聚合判定收口 review 消费端（SSOT）；content 仅发单条 content.submitted（事件体不含正文） | 禁止静默截断（review 侧兜底）；任一片段 REJECT→整体驳回 |
 | 标签系统 | tag + article_tag 多对多，每篇 ≤5 | 新建走 DFA 闸门；一期不参与推荐流排序权重 |
 | 发布前预检 | 仅返回 `{hit, risk}` 不回吐命中词 | @RateLimiter(USER) 限频；不替代发布闸门 |
+| 点赞（2026-11 批次十一收进 content） | 文章/书籍点赞与取消，social.liked / social.unliked 事件驱动 search 热度索引 | user_like 表幂等（唯一键含 identity_type）；`uk_user_target` 禁自赞；计数真源 article_stat/book_stat，article.like_cnt 只作展示镜像；重复点赞 40002、不可见目标 40004、自赞 40005 |
+| 负反馈（11.11） | 不感兴趣（内容）/ 屏蔽作者 / 屏蔽分类，feed_feedback 单表承载，支持撤销（幂等） | 建池、切片、last-good 兜底三层过滤收口 FeedFeedbackSupport；屏蔽分类按分类名匹配 `ArticleCategoryEnum` 合法值 |
+| 推荐曝光/点击归因 | 切片曝光批量落 feed_exposure_daily（按日聚合）；详情点击带 from/snapshotId/position 才计归因点击 | FeedExposureSupport fail-safe 不阻断翻页；FeedExposureCleanupJob 清理过期明细 |
+| 统计真源与对账（11.15/11.16） | article_stat / book_stat 为计数真源，卡片计数统一读统计表；content_stat_window 供 30/90 天窗口权重 | ContentStatReconcileJob 每轮对账 6 类差异，Gauge `litisle_content_stat_reconcile_diff` 预注册（0 值可见）；超阈值（默认 50）ERROR 告警；存量修复走 tools/db-repair（不参与初始化） |
 
 ### 2.2 状态与字段字典
 
@@ -166,12 +182,18 @@ A4 review 收到 content.submitted（事件体不含正文，经 ContentClient �
 分支① 榜缺失（TTL 过期/Redis 重启）→ 全量重建（防增量 ZADD 造残榜绕过榜空降级兜底）
 分支② 距上次全量 ≥ full-refill-interval-ms（默认 1h）→ 全量校正分数衰减
       （增量只升不降：存量成员分数随时间应衰减，靠低频全量轮覆盖收敛）
-分支③ 其余轮次 → 增量灌榜：读增量水位 → 只捞 update_time ≥ 水位（含 5s 安全回退兜时钟偏差，重复 ZADD 幂等）
-      的变更文章（update_time 为 DB ON UPDATE CURRENT_TIMESTAMP——浏览量自增/计数回写/状态流转/编辑
-      均刷新，增量水位完整覆盖全部热度信号变更源，DB 压力随变更量而非存量走）
+分支③ 其余轮次 → 增量灌榜：读增量水位 → 只捞 stat_update_time ≥ 水位（含 5s 安全回退兜时钟偏差，重复 ZADD 幂等）
+      的变更文章（stat_update_time 仅由热度信号刷新——浏览量刷回 incrViewCnt / 点赞评论回写 updateCounters；
+      编辑/状态流转走 update_time 不影响热度分，浏览量刷回显式保留 update_time 原值防老文章被顶上「最新」；
+      批次E P2 定案 D-1 2026-11-03：stat_update_time 变更 ⇒ 分数可能变化，增量水位完整覆盖全部热度信号变更源，
+      DB 压力随变更量而非存量走；水位安全回退 5s，重复 ZADD 同分覆盖幂等）
       → 算分 ZADD 现有榜 → ZREMRANGEBYRANK 裁剪保 top N → 水位前推 + 榜 TTL 续期
-全量轮（阶段14 R1~R4 保留）：批量查 zone 1/2 且 status=2 且 visibility=1 且未软删（含三冗余计数）
-→ 逐篇 computeScore（HN 型时间衰减：score=(like×3+comment×2+view×0.2)/(小时数+2)^1.5，权重 yml 外置）
+全量轮（阶段14 R1~R4 保留，默认 1h）：批量查 zone 1/2 且 status=2 且 visibility=1 且未软删（读统计真源）
+→ 逐篇 FeedScoreSupport.computeArticleScore：
+    文章总分 = collect/like/comment/view 四统计量经统一平滑（smoothCount）后按 yml article-weights 加权
+             + 新鲜度 freshScore（半衰期 yml）+ 分区匹配 + 分类匹配，共七项；
+  书籍流 computeBookScore：collect/read 平滑加权 + 新鲜度 + 完结偏好（book-weights 四项）；
+  统计缺窗口值时回退累计值，平滑与候选池无关、同参数口径全局统一（11.10 与推荐流共用）
 → 内存裁剪 top N（默认 200）→ 影子键 ZADD → rename 原子换榜（灌榜期间读方无空榜窗口）
 → 榜 TTL 30min：任务连续异常死亡后榜自动过期，/feed 自动降级时间倒序（自愈闭环）
 fail-safe：ZADD 失败水位不推（下轮重捞）；水位键缺失/值非法走全量兜底重建
@@ -204,7 +226,7 @@ C3 成功后 BookReadSupport：浏览计数（所有访问者，按文章维度�
 
 ------
 
-## 四、数据模型（Sql-Document §二，10 表摘要）
+## 四、数据模型（Sql-Document §二，17 表摘要）
 
 | 表 | 关键字段 | 设计原因 |
 | --- | --- | --- |
@@ -213,11 +235,25 @@ C3 成功后 BookReadSupport：浏览计数（所有访问者，按文章维度�
 | `article_draft` | article_id（新草稿 null，发布回填）/ draft_version 递增 | 草稿高频写低频读，独立表避免污染主表缓存 |
 | `book` | status：0-连载中 / 1-已完结 / 2-下架 | 合集容器 |
 | `book_chapter` | book_id + article_id + chapter_no，`uk(book_id, chapter_no)` | 章节序号不重复，序号即排序 |
-| `reading_history` | biz_type（1-书籍 / 2-独立文章）+ biz_id，`uk_user_biz(user_id, biz_type, biz_id)`；`idx_user_time`（类型 tab）/ `idx_user_time_all`（混合时间线）双索引 | 书籍历史含最后章节（chapter_id 悬空列表容错）；每人每类型每对象一行=上次阅读记录，update_time 即最后阅读时间；阅读即落历史 fail-safe |
+| `reading_history` | biz_type（1-书籍 / 2-独立文章）+ biz_id，`uk_user_biz(user_id, biz_type, biz_id)`；`idx_user_time`（类型 tab）/ `idx_user_time_all`（混合时间线）双索引；`duration_ms` 累计阅读时长（批次十一新增列，**暂只建列未写入**——上报端点仍忽略 durationMs，待前端时长心跳接通后启用） | 书籍历史含最后章节（chapter_id 悬空列表容错）；每人每类型每对象一行=上次阅读记录，update_time 即最后阅读时间；阅读即落历史 fail-safe |
 | `tag` | name（uk_name 唯一）/ use_count（冗余计数异步刷新）/ status（0-正常 1-封禁）/ del_flag | 标签全局池：审计与统计锚点；封禁标签列表侧不再聚合展示 |
 | `article_tag` | article_id + tag_id，`uk(article_id, tag_id)` | 多对多关联；冲突幂等跳过；idx_tag_id 支撑按标签聚合文章 |
 | `favorite` | target_type（1-文章 2-书籍）+ target_id，`uk_user_target(user_id, target_type, target_id)`；`idx_target` / `idx_user_time` | 一期单层收藏防重复；目标软删列表过滤，转私密/下架保留展示、详情可见性兜底；social 立项后迁移 favorite_item 或另定合并方案 |
 | `event_outbox` | event_id（与事件体 eventId 同值）/ payload_type + payload（事件快照 JSON）/ exchange + routing_key / status（0-待发送 1-已发送 2-失败 3-超限放弃）/ retry_count / send_time；`idx_status_create` 重发扫描 / `idx_sent_update` 过期清理 | 本地 outbox 事件必达兜底（批次3 2026-11-02）：生产者发送前落表，失败由 EventOutboxResendJob 补发；消费端 eventId 幂等去重，重发无副作用 |
+| `article_stat` | article_id（主键）/ collect_count / like_count / comment_count / view_count / stat_update_time | **批次十一 11.1**：文章互动统计真源，与 `article` 一对一；`stat_update_time` 仅计数变更刷新，供热度榜增量灌榜取水位；推荐流排序与卡片计数统一读本表 |
+| `book_stat` | book_id（主键）/ collect_count / reader_count / chapter_count / like_count / view_count / stat_update_time | **批次十一 11.1/11.2/11.8**：书籍统计真源；`reader_count` 首次阅读 +1、只增不减，与 90 天历史裁剪解耦；`chapter_count` 只统计公开可见章节 |
+| `content_stat_window` | target_type + target_id + window_days（`uk_target_window`）/ collect_count / read_count / stat_update_time | **批次十一 11.3**：30/90 天窗口预计算，翻页只读不聚合；window_days 由 `litisle.content.stat.window` 配置；窗口收藏聚合同样排除作者自收藏 |
+| `user_like` | user_id + target_type + target_id（`uk_user_target`）/ create_time；`idx_target` 按目标聚合 | **批次十一 11.8**：点赞幂等依据，取消点赞物理删除；content 临时承载，social 立项后迁移 |
+| `feed_exposure_daily` | stat_date + stream + target_id + identity_type（`uk_feed_exposure_daily`）/ exposure_count / click_count | **批次十一 11.6/11.12**：曝光/点击日聚合，CTR 分身份（login/anon）统计；保留 30 天可配 |
+| `feed_feedback` | user_id + feedback_type + stream + target_id + target_key（`uk_user_type_stream_target`）/ create_time；`idx_user_time` | **批次十一 11.11**：负反馈三类维度（1-单条/2-作者/3-分类）；唯一键防重复提交，撤销按同键 DELETE |
+| `book_read_quality` | book_id（主键）/ finish_reader_count / eligible_reader_count / stat_update_time；`idx_stat_update_time` | **批次十一 11.13**：粗完读率只读统计；分子分母同源（「最后阅读章节能解析到公开章节的读者数」），由 `BookReadQualityJob` 按日全量重算；**不参与排序** |
+
+**统计真源口径（批次十一 11.2 / 11.10）**：
+
+- `article_stat` / `book_stat` 是**唯一真源**：收藏、点赞、评论、浏览、阅读人数、章节数都只认这两张表。
+- `article.collect_count` / `article.like_cnt` / `article.comment_cnt` 与 `book` 冗余列是**镜像**，只供展示与老接口兼容读，任何排序逻辑不得读它们；不一致以 stat 表为准。
+- 写入点一览：收藏/取消 → `FavoriteServiceImpl` 调 `ContentStatSupport`（**排除作者自收藏**，11.9）；点赞/取消 → `LikeServiceImpl`；浏览量 → `ViewCountFlushJob` 绝对值落库；阅读人数 → 书籍章节详情首次入历史时 +1；章节数 → 挂章/移除章节同步；窗口值 → `ContentStatWindowJob` 按日重算；完读 → `BookReadQualityJob` 按日全量重算；曝光/点击 → 切片与点击上报时累加 `feed_exposure_daily`。
+- 对账（11.16）：`ContentStatReconcileJob` 比对 stat 表与源表；收藏源值同样排除作者自收藏，改后差异应为 0。
 
 **设计要点**：
 
@@ -234,10 +270,29 @@ C3 成功后 BookReadSupport：浏览计数（所有访问者，按文章维度�
 | --- | --- | --- |
 | `litisle.content.slice.max-chars` | （已废弃） | 切片职责收口 review 消费端（llm.max-text-chars 分片阈值），content 侧不再配置 |
 | `litisle.content.feed.cache-ttl-seconds / feed.page-size` | 300 / 20 | 推荐流缓存 TTL 与分页大小 |
+| `litisle.content.feed.recall` | db | 召回模式：`db`=P0 四路 DB；`es`=P1 占位（配置为 es 时仅打 WARN 并按 db 执行，见 Search-Architecture §10.8） |
+| `litisle.content.feed.stream.pool-size / recall-limit-per-path` | 300 / 100 | 快照池上限与单路召回条数（批次十） |
+| `litisle.content.feed.stream.snapshot-ttl-seconds / max-active-snapshots` | 1800 / 3 | 快照 TTL 与单身份活动快照数（超出删最旧） |
+| `litisle.content.feed.stream.exploration-ratio / cold-start-exploration-ratio` | 0.15 / 0.30 | 常规/冷启动探索位比例（冷启动上调） |
+| `litisle.content.feed.stream.read-penalty / read-window-days / fresh-half-life-hours` | 0.5 / 30 / 24 | 已读降权（不剔除）/ 已读窗口 / 新鲜度半衰期 |
+| `litisle.content.feed.stream.max-consecutive-same-author / max-consecutive-same-category` | 1 / 2 | 打散：同作者、同分类连续出现上限 |
+| `litisle.content.feed.stream.exposure-ttl-seconds` | 172800 | 当日曝光 Set TTL（2 天，跨日残留不影响次日） |
+| `litisle.content.feed.stream.new-book-days / new-book-quota` | 7 / 6 | 书籍流新书保底窗口与新书配额 |
+| `litisle.content.feed.stream.profile-sample-size / profile-cache-ttl-seconds` | 100 / 900 | 画像样本条数与画像缓存 TTL（阅读行为不主动失效） |
+| `litisle.content.feed.stream.article-weights.*` | collect 0.12 / like 0.12 / comment 0.08 / view 0.03 / fresh 0.30 / zone 0.10 / category 0.20（`heat` 键保留兼容旧 yml，11.10 起不再读取） | 文章流打分七项权重（11.10：四统计量读 article_stat 真源，平滑后加权） |
+| `litisle.content.feed.stream.book-weights.*` | collect 0.4 / read 0.3 / fresh 0.2 / finish 0.1 | 书籍流打分权重（计数先 log1p；窗口值优先，缺失回退累计） |
+| `litisle.content.feed.stream.smoothing.*` | strength 5 / prior 0.1（`read-strength`/`read-prior`/`heat-midpoint` 保留兼容旧 yml，11.10 起不再读取） | 统一平滑参数（贝叶斯收缩：`(count + m·prior)/(1+m)` 型），文章/书籍共用 |
+| `litisle.content.feed.feedback.window-days / cache-ttl-seconds` | 30 / 300 | 负反馈名单生效窗口与缓存 TTL（写入后按用户键主动失效） |
+| `litisle.content.feed.exposure.retain-days / cleanup-enabled` | 30 / true | 曝光日聚合保留天数与清理任务开关（FeedExposureCleanupJob） |
+| `litisle.content.like.rate-limit-window-seconds / rate-limit-max-count` | 60 / 20 | 点赞/取消合计频控（常量默认值，yml/Nacos 可覆盖） |
+| `litisle.content.stat.window.short-days / long-days` | 30 / 90 | 收藏/阅读统计窗口（ContentStatWindowJob 按日重算；90 天同时是阅读历史保留上限） |
+| `litisle.content.stat.reconcile.enabled / interval-ms / initial-delay-ms / diff-rows-threshold` | true / 86400000 / 600000 / 50 | 统计对账任务：每日一轮（fixedDelay）/ 启动延迟 10min；单轮总差异行数超阈值按 ERROR 输出供告警匹配；6 类差异经 Gauge `litisle_content_stat_reconcile_diff` 每轮上报（含 0） |
+| `litisle.content.history.trim-enabled / retain-days / max-per-user / keep-in-progress / trim-batch-size` | true / 90 / 1000 / 10 / 100 | 阅读历史裁剪：非在读历史超窗清理；单用户单类型上限 1000（在读保留 10 条不受限）；单批删除上限 |
+| `management.endpoints.web.exposure.include` / `management.metrics.tags.application` | health,info,metrics,prometheus / `${spring.application.name}` | Actuator 暴露端点与指标服务名标签；未设 `management.server.port`，管理端点与业务 8085 共用 |
 | `litisle.content.feed.hot.enabled` | true | 热度榜总开关（false 则 /feed 退回时间倒序直查） |
 | `litisle.content.feed.hot.top-n` | 200 | 榜容量上限（灌榜内存裁剪保留 top N，防 ZSet 无界增长） |
-| `litisle.content.feed.hot.like-weight / comment-weight / view-weight` | 3 / 2 / 0.2 | 热度分三类互动信号权重（social 落地后 D11 按效果调参） |
-| `litisle.content.feed.hot.decay-exponent / hour-offset` | 1.5 / 2 | 时间衰减指数与小时偏移（防新文章分母趋 0 分数爆炸） |
+| `litisle.content.feed.hot.like-weight / comment-weight / view-weight` | 3 / 2 / 0.2 | **保留兼容旧 yml，11.10 起不再读取**：打分改用 article-weights（FeedScoreSupport 统一口径），灌榜全量轮已改读统计真源 |
+| `litisle.content.feed.hot.decay-exponent / hour-offset` | 1.5 / 2 | **保留兼容旧 yml，11.10 起不再读取**：时间衰减统一由 FeedScoreSupport#freshScore 半衰期承担 |
 | `litisle.content.feed.hot.refill-enabled / refill-interval-ms / refill-initial-delay-ms` | true / 300000 / 60000 | 灌榜任务开关（多实例靠分布式锁单点；2026-11-03 批次E P7 补漏②起兼作异步重建触发闸门——FeedHotRankSupport.triggerRebuildAsync 同判此开关，统一「谁有资格灌榜」口径）/ 周期 5min / 启动延迟 1min |
 | `litisle.content.feed.hot.full-refill-interval-ms` | 3600000 | 全量校正间隔（默认 1h）：增量轮只升不降，分数衰减靠低频全量轮覆盖收敛；榜缺失时无视本值直接全量重建（P1 2026-10-28） |
 | `litisle.content.draft.keep-versions` | （未实现） | 历史设计残留：草稿实际为单行 UPSERT 原地覆盖只存最新内容（无多版本保留），此配置项代码中不存在 |
@@ -268,6 +323,11 @@ C3 成功后 BookReadSupport：浏览计数（所有访问者，按文章维度�
 | GET | `/article/list` · `/article/hot` | 匿名 | 公开列表（仅 status=2 且 visibility=1，不带正文大字段）/ 热门文章（热度榜序读 `CONTENT_FEED_HOT_ZSET` + 榜空回退 view_cnt 直查 + 缓存三防；2026-11-03 批次E P5/D-3 切流，消除 filesort，语义由全站 view_cnt 排序改为 heat 榜序含 zone 过滤+时间衰减，前端展示口径已同步知会） |
 | GET | `/article/my` | 登录（author_id 硬收口） | 我的文章分页（status 细粒度/published 二值/zone/category/keyword 过滤；status=0 可筛建档行供批量送审） |
 | GET | `/feed` | 登录 | 推荐流（热度榜排序，榜空降级时间倒序；缓存 + 展示前回查） |
+| GET | `/feed/articles` | 登录或匿名 | **批次十新增**：文章流无限刷（四路 DB 召回 + 快照游标分页；匿名需 `X-Anon-Id`，详见 §3.3） |
+| GET | `/feed/books` | 登录或匿名 | **批次十新增**：书籍流无限刷（分类偏好召回 + 快照游标分页；与文章流共用频控配额，详见 §3.3） |
+| POST/DELETE | `/feed/feedback` | 登录·限频 | **批次十一 11.11 新增**：负反馈提交/撤销（body `{feedbackType, stream, targetId, targetKey}`）；三维度 1-不感兴趣（单条内容）/2-屏蔽作者/3-屏蔽分类；唯一键幂等，撤销按同键删除；必须登录（匿名无稳定身份） |
+| POST/DELETE | `/like` | 登录·限频 | **批次十一 11.8 新增**：点赞/取消（body `{targetType, targetId}` / query 同参）；`user_like` 幂等，stat 表计数原子增减且下限保护；作者不可自赞 |
+| GET | `/article/{id}`（带 `from`/`snapshotId`/`position`） | 按 visibility | **批次十一 11.6 新增副作用**：可见性通过后记录推荐流点击（按 `stream=article` 累加 `feed_exposure_daily.click_count`），参数不齐/重复点击/写库失败均由 Support 收口，不影响详情返回 |
 | POST/PUT/DELETE | `/book`·`/book/{id}`·`/book/{id}/chapter` | owner | 书籍/章节管理 |
 | PUT | `/book/{id}/chapters/reorder` | owner | 章节批量重排（批次5 2026-11-02）：前端拖拽后全量提交新序 `[{chapterId, newChapterNo}]`；整单校验（清单与本书章节一一对应 + 新序恰 1..N 连续无重复，违者 BOOK_CHAPTER_REORDER_INVALID）；uk(book_id, chapter_no) 冲突用**两阶段偏移**落库（①整书序号 += 1千万进临时区 ②CASE WHEN 单语句落正值），禁先删后插（章节行含挂载关系）；单事务 + book 粒度分布式锁防并发互踩；下架书拒重排；排序键即 chapter_no，重排后列表/相邻章导航自动生效 |
 | PUT/GET | `/reading-history` · `/reading-history/{bookId}` | 登录 | 历史上报（限频）/ 历史列表 / 续读查询（GET /{bookId}，无历史或章节已删返回 null）；GET `/article/{id}` 详情命中自动落历史 |
@@ -288,8 +348,11 @@ C3 成功后 BookReadSupport：浏览计数（所有访问者，按文章维度�
 | PUT `/book/{id}/chapters/reorder` | 10 | 章节重排批量写（REORDER_MAX_COUNT，批次5 2026-11-02） |
 | POST `/preview-check` | 10 | 预检 |
 | PUT `/reading-history` | 2 | 配合前端 30s 节流 |
-| GET `/feed` | 60 | 读多 |
+| GET `/feed` | 60 | 读多（批次十新增两条流共用本配额：登录按 userId 60、匿名按 IP 20） |
+| GET `/feed/articles` · `/feed/books` | 登录 60 / 匿名 20 | 游标式无限刷；两条流共用同一份配额（`rate_limit:feed:user:{userId}:stream` / `rate_limit:feed:ip:{ip}:stream`），超限 `ErrorCode.TOO_MANY_REQUESTS=10005` |
 | GET `/tags?keyword=` | 30 | 标签搜索防爬（矩阵外补充，TAG_SEARCH_MAX_COUNT） |
+| POST/DELETE `/like` | 20 | 点赞/取消（LIKE_MAX_COUNT，批次十一 11.8；阈值由 `litisle.content.like.rate-limit-max-count` 可配，默认取常量） |
+| POST/DELETE `/feed/feedback` | 20 | 负反馈提交/撤销（FEEDBACK_MAX_COUNT，批次十一 11.11） |
 
 ### 3.2 事件矩阵（ContentEventProducer）
 
@@ -301,11 +364,71 @@ C3 成功后 BookReadSupport：浏览计数（所有访问者，按文章维度�
 | `content.unpublished` | search / ai(RAG 移除) | **所有下线路径必发**（四路径统一收口）；同路径调 ContentUnpublishedInvalidator 失效 last-hash + text/img-result 缓存键（review §2.5 红线） |
 | `moderation.result` | content（自筛 bizType=1，按 scene 分流：发布场景=文本链路 / ARTICLE_IMG_RE_REVIEW=图片复审链路）· notification（自筛做结果通知） | review 判定回写：PASS→1→2；REJECT 按现态分流 1→3 首发 / 2→4 复审下架兜底（宁严勿松，双链路聚合在消费端收口）；消费端 CAS 前比对事件体 contentHash 防陈旧事件覆盖（防 MQ 乱序误杀新提交）；2→4 复审下架分支同发 content.unpublished + 失效审核缓存键 + @AuditLog 留痕 |
 | `moderation.appeal.result` | content（自筛 bizType=1） | 申诉改判 allow-list 对称恢复：3→2 / 4→2 仅此两向 |
+| `social.liked`（批次十一 11.8） | search（热度索引累加，带 `delta`） | 点赞成功后经 ContentEventProducer 必达发送（outbox 同兜底）；事件体含 targetType/targetId/delta（默认 +1） |
+| `social.unliked`（批次十一 11.8） | search（热度索引按负数累加） | 取消点赞同链路；delta=-1，search 侧有 0 下限保护 |
 
 - 消费侧：`moderation.result` 回写状态并通知作者（review v1.2 统一单路由，消费端自筛 bizType）；`user.banned` 封禁连带下架（发 content.unpublished）
 - 路由映射：content.submitted 物理路由 = moderation.exchange / moderation.text.submit；content.published / content.unpublished / moderation.appeal.result 的物理路由键随 review MqConstant 统一收口定义，禁私自新建交换机
 - 图片复审再聚合：review 按 article_image 的 `idx_file_id` 反查引用文章，重算 ARTICLE_IMG_RE_REVIEW 聚合结论
 - **事件必达兜底（本地 outbox，批次3 2026-11-02）**：ContentEventProducer 四个发送方法统一走「发送前落 event_outbox（status=0）→ 必达语义发送（sendCritical 内静默重试 1 次）→ 成功置 1 / 失败置 2」编排；EventOutboxResendJob（默认 1min + 分布式锁单点）扫待发送/失败行补发（retry_count 达上限置 3 放弃留痕），已发送行默认 7 天后清理；兜住「发送前进程崩溃」「发送失败」两类事件丢失（search 索引/ai RAG 依赖必达），消费端 eventId 幂等去重保证重发无副作用；发件箱自身写失败退化为尽力而为不阻断主流程
+
+### 3.3 推荐流无限刷（批次十 P0，已实现；指标 2026-11-06 补记）
+
+> 立项期「推荐流不走 ES」的定位与 P1 边界见 [Search-Architecture.md](Search-Architecture.md) §十（尤其 §10.8 与代码的对照）；本节只记 content 侧落地形态。
+> 调用示例（含 `X-Anon-Id`、cursor/snapshotId/reset/hasMore 与 `degraded` 取值）见 [Content-Business-Guide.md](../Study/Content-Business-Guide.md) §六。
+
+**入口与身份隔离**
+
+- `GET /api/content/feed/articles`：登录或匿名；身份键登录 `u{userId}`、匿名 `a{anonId}`，画像/快照/曝光键完全隔离。
+- `GET /api/content/feed/books`：同上；书籍作用域不拼 zone，文章作用域拼 zone（不同分区各一份快照）。
+- 匿名标识 `X-Anon-Id`：缺失/非法由服务端生成 UUID v4 并回写响应头；频控仍按客户端 IP，防换标识绕过。
+
+**召回与打分（P0）**
+
+- 文章流四路 DB 召回：最热榜（`FeedHotRankSupport`）、最新、常看分区、常看分类；每路 `recall-limit-per-path=100`，池上限 `pool-size=300`；冷启动跳过两路个性化。
+- 文章权重（11.10 七项，读 article_stat 真源经统一平滑后加权）：收藏 0.12 / 点赞 0.12 / 评论 0.08 / 浏览 0.03 / 新鲜度 0.30（24h 半衰期）/ 分区 0.10 / 分类 0.20；已读 `read-penalty=0.5` 只降权不剔除。
+- 书籍流：分类偏好召回（冷启动不限定）；收藏 0.4 / 阅读人数 0.3 / 新鲜度 0.2 / 完结偏好 0.1，计数先 `log1p`；新书 7 天内保底 6 条。
+- 打散：同作者连续 ≤1、同分类连续 ≤2；探索位常规 0.15、冷启动 0.30。
+
+**快照、游标与曝光**
+
+- `snapshotId` = Redis INCR 代次（`content:feed:snapshot:gen:{scope}`），单身份活动快照 ≤3，TTL 1800s；`cursor` 编码快照内偏移，`from` 恒 0，翻页不重算分。
+- 翻到底自动建下一代（`reset=false` 追加）；快照过期/非法游标 `reset=true`（清空重拉）。
+- 曝光键 `content:feed:exposed:{stream}:{identity}:{yyyyMMdd}`（TTL 2 天）：建池时与切片时**各过滤一次**，续池/跨代次仍去重；已读仅扣分。
+
+**负反馈三层过滤（批次十一 11.11 + 2026-11-06 兜底修复，批次十二 12.1 收口）**
+
+- 三维度：1-不感兴趣（内容 ID）/ 2-屏蔽作者 / 3-屏蔽分类（按分类名匹配 `ArticleCategoryEnum` 合法值）；`feed_feedback` 单表 + 名单缓存（TTL 300s，写入后按用户键失效）。
+- 层次：①**建池**——四路召回融合去重后统一剔除（FeedStreamServiceImpl 建池分支）；②**切片**——同快照内屏蔽单条内容即时生效（当页消失，作者/分类不动旧快照属既有语义）；③**last-good 兜底**——`lastGoodArticlePage`/`lastGoodBookPage` 经 `filterArticleIdsByFeedback`/`filterBookIdsByFeedback` 过滤后再切片，屏蔽不得借降级路径放出。
+- 撤销幂等：同键 DELETE，删除后下代建池即恢复；分类维度对存量 mojibake 数据天然无效（枚举映射 null），见 next_update 批次十二已知风险 2。
+
+**降级三级（统一经 `FeedStreamServiceImpl#logDegrade` 单入口）**
+
+| 级别 | 触发条件 | 返回形态 | `degraded` |
+| --- | --- | --- | --- |
+| 1 | Redis 不可用或建池失败，且存在未过期 last-good（内存副本 / `content:feed:snapshot:last:{scope}`）；兜底页统一应用负反馈过滤（登录用户不因降级看到已屏蔽内容） | 上一代快照首页，终页（无 cursor/snapshotId、hasMore=false） | `last-good` |
+| 2 | 同上但无 last-good | 实时计算一页，终页 | `redis-down` / `build-failed` |
+| 3 | 热度榜为空 | 「最新」单独兜底，最新召回量放大到 `pool-size`，快照仍可续刷 | `hot-empty` |
+
+**画像缓存**
+
+- 维度：常看分区 + 常看分类；标签偏好仅结构占位（P1）。
+- 键：`content:feed:profile:u{userId}` / `content:feed:profile:a{anonId}`，TTL `profile-cache-ttl-seconds=900`；阅读行为不主动失效（接受 TTL 内滞后），未命中才回源 `reading_history`。
+- 冷启动：`read-window-days=30` 天内无文章阅读即 `coldStart=true`；匿名恒冷启动且不跨设备。
+
+**可观测（ContentMetrics，管理端点与业务端口共用 8085）**
+
+| Prometheus 指标 | 类型 | 标签 | 含义 |
+| --- | --- | --- | --- |
+| `litisle_content_feed_degraded_total` | Counter | `stream`、`reason` | 降级次数，只在 `logDegrade` 打点 |
+| `litisle_content_feed_snapshot_created_total` | Counter | `stream`、`cold_start` | 快照创建次数（含空池快照） |
+| `litisle_content_feed_profile_cache_hit_total` / `..._miss_total` | Counter | 无 | 画像缓存命中 / 未命中回源 |
+| `litisle_content_feed_exposure_write_fail_total` / `litisle_content_feed_click_write_fail_total` | Counter | 无 | 曝光/点击落库失败计数（fail-safe 不阻断翻页，只告警） |
+| `litisle_content_stat_reconcile_diff` | **Gauge** | `type`（固定 6 值：article_collect/article_comment/article_like/article_view/book_collect/book_reader_under） | 最近一轮统计对账的各类差异行数；**启动 `@PostConstruct` 预注册**（AtomicLong 强持有 + AtomicBoolean 防重复注册），每轮 `set()` 覆盖含 0——0 值在 Prometheus 恒可见，「无数据」与「一切正常」可区分（11.16，批次十二 12.2 收口） |
+
+- 抓取：`/actuator/prometheus`（Prometheus 目标 `host.docker.internal:8085`）；告警规则见 `docker/init/prometheus/alert-rules.yml` 的 `litisle-content` 组。
+
+**已知局限**：last-good 为进程内副本（多实例/重启后仅剩 Redis 指针且可能失效）；匿名画像不跨设备；章节数口径与线上存在差异；冷启动池可能不足 300；标签偏好未实现（P1）。
 
 ------
 
@@ -323,6 +446,9 @@ C3 成功后 BookReadSupport：浏览计数（所有访问者，按文章维度�
 | 标签数超限 | ARTICLE_TAG_EXCEEDED | 单篇 > tag.max-per-article（5） |
 | 正文超长 | CONTENT_TOO_LONG(30018) | 正文 > 256KB（应用层兜底，LONGTEXT 无 DB 约束）；发布/建档/编辑/草稿保存四路收口，错误信息含当前长度/上限并提示拆分书籍章节 |
 | 非本人操作 | NO_PERMISSION | 非 owner 且非 ADMIN（草稿/文章/书籍/标签挂载） |
+| 重复点赞 | ALREADY_LIKED(40002) | user_like 唯一键幂等前置校验（11.8；前端据此把按钮态归位） |
+| 点赞目标不可见 | LIKE_TARGET_NOT_VISIBLE(40004) | 目标非已发布公开态（含软删/下架），按不可见拒绝不暴露存在性 |
+| 自赞拒绝 | LIKE_SELF_FORBIDDEN(40005) | 作者不可赞自己的文章/书籍（与收藏口径对齐） |
 | 请求过频 | TOO_MANY_REQUESTS(10005) | @RateLimiter 触发 |
 
 ------

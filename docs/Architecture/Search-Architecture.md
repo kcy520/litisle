@@ -14,7 +14,7 @@
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 定位   | 独立微服务，站内检索统一收口方：**ES 索引同步 + 全文/多维度检索 + dense\_vector KNN 相似推荐**                                                                                                                                                                       |
 | 技术选型 | Elasticsearch 8.18.8（全文 + dense\_vector KNN，零新增中间件）· RabbitMQ（Confirm/ACK/DLQ，索引异步同步）· Elasticsearch Java Client                                                                                                                      |
-| 依赖方  | content / social / user 经 MQ 事件驱动索引更新（`content.published` / `content.unpublished` / `content.article-updated`🆕 / `content.view-count-flushed`🆕 / `social.liked` / `social.commented`）；ai 服务经 Feign 调用相似推荐向量；gateway 路由 `/search/**` |
+| 依赖方  | content / social / user 经 MQ 事件驱动索引更新（`content.published` / `content.unpublished` / `content.article-updated`🆕 / `content.view-count-flushed`🆕 / `social.liked` / `social.unliked`🆕（批次十一 11.14）/ `social.commented`）；ai 服务经 Feign 调用相似推荐向量；gateway 路由 `/search/**` |
 | 硬边界  | search 无**业务数据** MySQL 表（ES 索引文档为投影，状态 SSOT 在业务方 DB）；唯一自有表 `search_history`（用户搜索词记录，2026-11-03 新增，见 §四）；search 不回写业务方数据（仅接收事件单向同步）；私有/草稿/拒绝文章永不入索引与向量库（与 review 可见性红线同源）                                                              |
 
 ### 1.1 三类能力
@@ -52,8 +52,8 @@ litisle-search
 ├── es/               ✅ ElasticsearchConfig（客户端装配：hosts/凭证/超时 + JacksonJsonpMapper）；
 │                     ✅ EsIndexInitializer（批次一 1.1 落地 2026-11-03：article_idx/book_idx/user_idx/article_chunks
 │                       四索引启动时幂等创建，_meta 登记 Embedding 模型版本与维度）
-├── mq/               ✅骨架 SearchMqConfig（六同步队列 + 独立 DLX/DLQ 拓扑声明，批次D D2 起）；
-│                     ☆ IndexSyncConsumer（文本/互动事件消费 + DLQ 消费者）
+├── mq/               ✅骨架 SearchMqConfig（十同步队列（批次十一 11.14 新增取消点赞队列）+ 独立 DLX/DLQ 拓扑声明，批次D D2 起）；
+│                     ✅ IndexSyncConsumer（文本/互动事件消费 + DLQ 消费者）+ HeatEventConsumer（互动热度消费，onLiked/onUnliked/onCommented/onViewCountFlushed）
 └── config/           ✅骨架 SearchProperties（litisle.search.* 参数外置）/ SearchMqConfig / ElasticsearchConfig
 ```
 
@@ -65,7 +65,7 @@ litisle-search
 
 | 功能   | 说明           | 核心机制                                                                                                                                                                                       |
 | ---- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 索引同步 | 事件驱动增量更新     | 消费 `content.published`/`content.unpublished`/`content.article-updated`🆕/`content.view-count-flushed`🆕/`social.liked`/`social.commented`；按 articleId 幂等 upsert/删除；向量预计算随发布一次写入；失败入 DLQ 重试 |
+| 索引同步 | 事件驱动增量更新     | 消费 `content.published`/`content.unpublished`/`content.article-updated`🆕/`content.view-count-flushed`🆕/`social.liked`/`social.unliked`（批次十一 11.14）/`social.commented`；按 articleId 幂等 upsert/删除；向量预计算随发布一次写入；失败指数退避延迟重投，超限入 DLQ |
 | 全文检索 | 文章/书籍/用户多维检索 | multi\_match 权重 title^4 → tags^3 → summary^2 → content；function\_score 热度加权；tag/category/zone/时间范围筛选 + 排序；**空结果兜底：查询词实时 Embedding → KNN 语义相似集（标记来源，2026-11-03 批次A A1 定案）**                 |
 | 搜索联想 | 输入即联想        | 标题/作者 ES completion/prefix suggester；标签联想复用 content 标签接口聚合返回                                                                                                                               |
 | 搜索历史 | 用户维度搜索词记录    | 单表 UPSERT：同词去重仅前进 + 条数上限懒删 + 清空接口；搜索词不入 ES 索引                                                                                                                                              |
@@ -89,7 +89,7 @@ SearchSortEnum // RELATED(默认，relevance+function_score) / NEWEST(updateTime
 2. unpublished → 删除 article_idx 文档（幂等，404 视为成功）
 3. published → 校验 visibility=PUBLIC → Embedding 预计算 vec_dense → upsert 文档
 4. article-updated → 轻量回查元数据 → partial update 元数据字段（title/tags/summary 等索引字段，不动向量与 chunks；2026-11-03 批次A A2 定案）
-5. liked/commented/view-count-flushed → **只累加 Redis 热度待刷新键，不直写 ES**（`HINCRBY` 累加 like/comment 增量 + `HSET` 覆盖 view_cnt 绝对值；2026-11-03 批次A A7 定案：article_idx 带 1024 维向量约 4KB，ES partial update 实为整文档重写，逐条互动消费写放大严重）；**ACK 后置**：Redis 累加成功才 ACK，累加失败 nack 重试（防丢数致 heat 漂移）→ IndexHeatFlushJob 定时聚合（`heat.flush.interval-ms` 默认 15min、可调 15~30min，fixedDelay 不堆积）→ `_bulk` 批量 partial update 重算 heat（每篇每窗口至多 1 次写，不动向量；heat 公式按 A5；**分片执行**：按 `batch-size`(1000)×`concurrency`(2) 分批防超大请求被 ES 拒绝，bulk 用 update+doc 只改 heat 字段禁 index 整篇替换；pending 键 TTL 2h 兜底防未刷先清）
+5. liked/unliked/commented/view-count-flushed → **只累加 Redis 热度待刷新键，不直写 ES**（`HINCRBY` 累加 like/comment 增量 + `HSET` 覆盖 view_cnt 绝对值；点赞按 SocialLikedEvent.delta 累加（无 delta 兜底 +1、delta=0 跳过），取消点赞按 SocialUnlikedEvent.delta=-1 负数累加，IndexHeatFlushJob 写回 ES 前 `Math.max(0, …+likeDelta)` 下限保护防负值（批次十一 11.14）；2026-11-03 批次A A7 定案：article_idx 带 1024 维向量约 4KB，ES partial update 实为整文档重写，逐条互动消费写放大严重）；**ACK 后置**：Redis 累加成功才 ACK，累加失败 nack 重试（防丢数致 heat 漂移）→ IndexHeatFlushJob 定时聚合（`heat.flush.interval-ms` 默认 15min、可调 15~30min，fixedDelay 不堆积）→ `_bulk` 批量 partial update 重算 heat（每篇每窗口至多 1 次写，不动向量；heat 公式按 A5；**分片执行**：按 `batch-size`(1000)×`concurrency`(2) 分批防超大请求被 ES 拒绝，bulk 用 update+doc 只改 heat 字段禁 index 整篇替换；pending 键 TTL 2h 兜底防未刷先清）
 6. 失败 → nack 重试耗尽入 DLQ → DLQ Consumer 记录告警（任务停留由人工/重投处理）
 ```
 
@@ -190,7 +190,7 @@ SearchResultVO search(SearchRequestDTO request);
 | updateTime                               | date                                                          | NEWEST 排序                                                                                                                                                                                       |
 | title.completion / authorName.completion | completion                                                    | 搜索联想 suggester 字段（authorName.completion 为 authorName 的 multi-field 子字段；2026-11-03 补，仅联想用不参与打分）                                                                                                  |
 
-**book\_idx**：书名/作者/简介（text + ik）+ 分类 keyword；**user\_idx**：笔名（text + ik，模糊匹配）+ 简介。⚠️ 两索引同步事件来源待落地（书籍/用户变更事件，temp 批次B B4/B5，契约待落地）。
+**book\_idx**：书名/作者/简介（text + ik）+ 分类 keyword（无 likeCnt 字段——书籍点赞数取 content `book_stat.like_count` 真源，书籍流热度不经 search 索引，批次十一 11.8/11.15 口径）；**user\_idx**：笔名（text + ik，模糊匹配）+ 简介。⚠️ 两索引同步事件来源待落地（书籍/用户变更事件，temp 批次B B4/B5，契约待落地）。
 
 **article\_chunks**（RAG 知识库索引，Design-Document §2.6，2026-11-03 补）：search 摄入、ai 纯查询；**摄入范围一期仅公开文章正文，书籍章节不入库**（2026-11-03 批次C C2 定版，预留章节粒度摄入扩展待后续立项）。`chunk_id`(keyword) / `article_id`(long) / `author_id` / `title` / `author_name` / `chunk_text`(text) / `chunk_vector`(dense\_vector, cosine, indexed) / `zone` / `visibility` / `publish_time` / `ingest_time`。入库门控：PUBLIC + 审核终态 PASS + 正文 ≥200 字 + DFA 未命中高风险；切片 \~500 字/段重叠 50 字；按 articleId 幂等覆盖（删旧块写新块）。✅ 与 article\_idx 的 vec\_dense **统一为同一 Embedding 单模型**（维度一致，具体选型落地时定，2026-11-03 批次C C1 定版闭环 G5）；模型版本写入两索引 meta，模型变更 → 全量重建（§八-8）。
 
@@ -210,7 +210,8 @@ SearchResultVO search(SearchRequestDTO request);
 | `content.unpublished`                                                 | content | 删除对应文档与向量（article\_idx 文档 + article\_chunks 旧块）                                                                                                                                                                                                                                                                                                                                  |
 | `content.article-updated` ✅（2026-11-03 批次A A2 定案；契约落地 temp 批次B B7）    | content | 已发布（status=2）文章编辑元数据（title/tags/summary/cover）后 afterCommit 发布；search 轻量回查 → partial update 元数据字段（不动向量与 chunks）。事件体 ContentArticleUpdatedEvent + 路由键 ROUTING\_CONTENT\_ARTICLE\_UPDATED 已入 litisle-api/MqConstant；content 侧发布点已接入（批次B B7，2026-11-03：ArticleService#update 元数据变更后 afterCommit 发送）                                                                                 |
 | `content.view-count-flushed` ✅（2026-11-03 批次A A5 定案；契约落地 temp 批次B B7） | content | content 浏览量 flush 任务（ViewCountFlushJob）落库后补推；search **仅以覆盖 SET 写 view\_cnt 绝对值到 Redis 热度待刷新键**（A7，不直写 ES），由 IndexHeatFlushJob 定时 `_bulk` 重算 heat，使 HEAT 排序与 content 热门榜口径对齐。事件体 ContentViewCountFlushedEvent（viewCount 为最新绝对值，覆盖 SET 非累加）+ 路由键 ROUTING\_CONTENT\_VIEW\_COUNT\_FLUSHED 已入 litisle-api/MqConstant；content 侧发布点已接入（批次B B7，2026-11-03：ViewCountFlushJob 每轮刷回成功后按篇补推） |
-| `social.liked` / `social.commented` ✅（契约落地 temp 批次B B2，缺口 G2 闭环）      | social  | 消费后**仅** **`HINCRBY`** **累加 Redis 热度待刷新键的 like/comment 增量**（A7，不逐条直写 ES 防带向量整文档重写），由 IndexHeatFlushJob 定时 `_bulk` 重算 heat（function\_score 加权因子）。事件体 SocialLikedEvent / SocialCommentedEvent + EXCHANGE\_SOCIAL + 路由键 ROUTING\_SOCIAL\_LIKED/COMMENTED 已入 litisle-api/MqConstant；social 落地时 AFTER\_COMMIT 发布                                                                      |
+| `social.liked` / `social.commented` ✅（契约落地 temp 批次B B2，缺口 G2 闭环）      | social  | 消费后**仅** **`HINCRBY`** **累加 Redis 热度待刷新键的 like/comment 增量**（A7，不逐条直写 ES 防带向量整文档重写），由 IndexHeatFlushJob 定时 `_bulk` 重算 heat（function\_score 加权因子）。事件体 SocialLikedEvent / SocialCommentedEvent + EXCHANGE\_SOCIAL + 路由键 ROUTING\_SOCIAL\_LIKED/COMMENTED 已入 litisle-api/MqConstant；social 落地时 AFTER\_COMMIT 发布。**批次十一 11.8 起该事件由 content 点赞接口（LikeService AFTER\_COMMIT）发布，SocialLikedEvent 携带 `delta` 字段**，消费按 delta 累加（无 delta 兜底 +1、delta=0 跳过）      |
+| `social.unliked` ✅（批次十一 11.14 落地）                                    | content | 取消点赞负修正：事件体 SocialUnlikedEvent（delta=-1），content 侧 LikeService 取消成功后 AFTER\_COMMIT 发布；search 独立队列（QUEUE\_SOCIAL\_UNLIKED）消费，按负数 `HINCRBY` 累加 like 增量，IndexHeatFlushJob 写回 ES 前 `Math.max(0, …)` 下限保护；同一条消息重投不重复生效（幂等），失败与延迟重投共用既有 DLX/延迟交换机不另建拓扑。使 search likeCnt 热度信号与 content 真源（article\_stat.like\_count）双向同步      |
 
 > 事件体纪律（对齐 content-index §八）：content 事件只带 bizType/bizId/contentHash 定位键，upsert 所需标题/标签等元数据经 ContentClient 回查（字段不足扩提供方端点，禁事件体塞大字段，缺口 G3）。⚠️ 回查字段充足性 + 审核终态/DFA 结论获取方式待核（temp 批次B B6，契约待落地）。
 >
@@ -241,7 +242,9 @@ SearchResultVO search(SearchRequestDTO request);
 | `litisle.search.suggest.enabled / size`                                                                 | true / 10                            | 搜索联想开关与默认条数（2026-11-03 新增）                                                                                                                                                                                                                                                                           |
 | `litisle.search.history.max-per-user`                                                                   | 20                                   | 单用户搜索历史上限，超限懒删最旧（2026-11-03 新增）                                                                                                                                                                                                                                                                      |
 | `litisle.search.page.max-page-size`                                                                     | 50                                   | 分页上限                                                                                                                                                                                                                                                                                                 |
-| `litisle.search.rabbit.sync-queue / dlx`                                                                | （预留）/ `litisle.search.dlx`           | dlx=索引同步死信交换机（Direct，六同步队列死信按原路由键汇入 `litisle.search.index.dlq.queue`，SearchMqConfig 声明）；sync-queue 为预留 key（实际同步队列以 MqConstant 六队列为准，拓扑声明不读取此值；2026-11-03 D1 骨架落地修正默认值）                                                                                                                               |
+| `litisle.search.rabbit.sync-queue / dlx`                                                                | （预留）/ `litisle.search.dlx`           | dlx=索引同步死信交换机（Direct，**十同步队列**死信按队列名（`deadLetterRoutingKey(queueName)`）汇入 `litisle.search.index.dlq.queue`，SearchMqConfig 声明；批次十一 11.14 新增取消点赞队列后共 10 条绑定）；sync-queue 为预留 key（实际同步队列以 MqConstant 队列为准，拓扑声明不读取此值；2026-11-03 D1 骨架落地修正默认值）                                                                                                                               |
+| `litisle.search.retry.max-count / base-delay-ms`                                                        | 5 / 30000                            | 索引同步消费异常按指数退避延迟重投（baseDelayMs × 2^已重试次数，经 search.delay 延迟交换机），超过 maxCount 仍失败 nack 入死信队列（批次九落地；SearchProperties.retry）                                                                                                                                                                                |
+| `litisle.search.metrics.backlog-collect-interval-ms / backlog-collect-initial-delay-ms`                 | 15000 / 15000                        | 索引同步队列积压采集任务周期（IndexBacklogCollectJob，写入 gauge `litisle_search_index_backlog{queue}`，支撑「积压持续 >5 分钟」告警；批次九 9.9-F）                                                                                                                                                                                      |
 | `litisle.search.fallback.embedding-timeout`                                                             | 1s                                   | 空结果兜底查询词实时 Embedding 超时上限（超时/失败二级兜底 HEAT 热门列表，2026-11-03 批次A A1 定案新增）                                                                                                                                                                                                                                |
 | `litisle.search.fallback.enabled`                                                                       | true                                 | ES 不可用降级开关（降级返回热门列表 + 前端提示，2026-11-03 批次A A3 定案，原 db-query-enabled 废弃）                                                                                                                                                                                                                               |
 
@@ -266,7 +269,7 @@ SearchResultVO search(SearchRequestDTO request);
 1. **ES 注入防护**：查询词对特殊字符（`+ - = && || > < ! ( ) { } [ ] ^ " ~ * ? : \ /`）转义；排序/筛选字段仅白名单枚举映射，不透传用户输入构造 DSL
 2. **可见性双保险**：写入侧仅 PUBLIC 入索引（§四红线）+ 查询侧强制 `filter(visibility=PUBLIC)`，防脏数据越权召回
 3. **下架全路径移除**：`content.unpublished` 四条下架路径（删除/转私密/复审驳回/封禁连带）必须到达，否则违规内容残留向量库（隐私红线，同 Design-Document §2.6）
-4. **消费可靠性**：手动 ACK + 按 articleId 幂等 upsert/删除 + 失败 DLQ 重试；无本地状态，可水平扩展
+4. **消费可靠性**：手动 ACK + 按 articleId 幂等 upsert/删除 + 消费异常**指数退避延迟重投**（baseDelayMs × 2^重试次数，超 `retry.max-count` 入 DLQ）+ 取消点赞独立队列（批次十一 11.14）；无本地状态，可水平扩展。**可观测（批次九）**：DLQ 死信按 originQueue 计数（`litisle_search_index_dlq_total{originQueue}`）配 error 日志告警；队列积压 gauge `litisle_search_index_backlog{queue}` 定时采集（IndexBacklogCollectJob）；规则组 `litisle-search`。search 自身指标族：`litisle_search_requests_total{type,outcome}` / `litisle_search_es_errors_total{type}` / `litisle_search_heat_flush_round_total` / `litisle_search_heat_flush_docs_total{result}` / `litisle_search_cache_dirty_mark_total{result}` / `litisle_search_cache_evict_merge_total{result}`（收口 SearchMetrics）
 5. **降级链路**（2026-11-03 批次A A3 定案）：ES 不可用 → 降级返回热门列表（content `/article/hot` 同源数据，`source=DEGRADED` 标记不缓存）+ 前端提示搜索不可用（不做 Feign 查业务方 DB 降级——content 无公开 keyword 检索端点，公开搜索已全划归 search）；降级关闭或热门列表获取失败 → SEARCH\_ES\_UNAVAILABLE；ai RAG 向量库不可用由 ai 侧静默降级纯 LLM，search 仅保证超时可容忍。**数据源语义备注（2026-11-03）：`/article/hot`** **将随 content 临时清单批次E P5 切换为 heat 榜序**（`CONTENT_FEED_HOT_ZSET` 同源 + 榜空回退 view\_cnt 直查），降级结果口径落地时对齐
 6. **缓存规范**：热点查询 Redis 缓存，key 遵循企业规范 `search:模块:功能:唯一标识`；互动热度更新失效对应缓存
 7. **限流**：@RateLimiter(USER) 单用户维度，全站 QPS/Sentinel 规则外置 Nacos（对齐 file 限流三层体系，按需裁剪）
@@ -299,7 +302,7 @@ SearchResultVO search(SearchRequestDTO request);
 
 **search 负责「人找内容」——站内搜索、搜索联想、相似推荐；不负责「内容找人」——推荐流 P0 的召回与分页一律不走 ES。**
 
-- P0（当前）：content 自建 4 路 DB 召回（最热 / 最新 / 常看分区 / 常看分类）+ Redis 快照分页（单快照 ≤300 条、`cursor=offset`、`from` 恒 0、翻页不重算分）。
+- P0（当前）：content 自建 4 路 DB 召回（最热 / 最新 / 常看分区 / 常看分类）+ Redis 快照分页（单快照 ≤300 条、`cursor=offset`、`from` 恒 0、翻页不重算分）。P0 代码落点、打分权重、降级三级与指标口径见 §10.8。
 - P1（按触发条件切换）：search 只作为**其中一路召回器**，一次性返回 `id + score`；快照、翻页、打散、曝光去重、降级全部留在 content。
 - 决策与阈值原文见 [next_update.md](../next/next_update.md#L240) 批次十「二、已确认决策」第 13 条；用户隔离与算分口径见同文「四、用户隔离与算分口径（已确认）」，P1 改造边界见「五、P1 改造边界（换发动机，不新开链路）」。
 
@@ -326,7 +329,7 @@ SearchResultVO search(SearchRequestDTO request);
 | `content.article-updated` | onArticleUpdated | [IndexSyncConsumer.java:166](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/IndexSyncConsumer.java#L166) | partial update 元数据字段（不动向量与 chunks） |
 | `content.book-changed` | onBookChanged | [IndexSyncConsumer.java:204](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/IndexSyncConsumer.java#L204) | upsert book_idx（批次五 B4） |
 | `user.registered` / `user.profile-updated` | onUserRegistered / onUserProfileUpdated | [IndexSyncConsumer.java:245](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/IndexSyncConsumer.java#L245) / [:258](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/IndexSyncConsumer.java#L258) | upsert user_idx（批次五 B5） |
-| `social.liked` / `social.commented` / `content.view-count-flushed` | onLiked / onCommented / onViewCountFlushed | [HeatEventConsumer.java:67](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/HeatEventConsumer.java#L67) / [:106](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/HeatEventConsumer.java#L106) / [:138](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/HeatEventConsumer.java#L138) | 只累加 Redis 热度待刷新键（HINCRBY / HSET），由定时 `_bulk` 重算 heat |
+| `social.liked` / `social.unliked` / `social.commented` / `content.view-count-flushed` | onLiked / onUnliked / onCommented / onViewCountFlushed | [HeatEventConsumer.java:69](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/HeatEventConsumer.java#L69) / [:117](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/HeatEventConsumer.java#L117)（onUnliked，批次十一 11.14）/ [:159](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/HeatEventConsumer.java#L159) / [:191](../../litisle-search/src/main/java/com/litisle/litislesearch/mq/HeatEventConsumer.java#L191) | 只累加 Redis 热度待刷新键（HINCRBY，取消点赞按负数累加，写回前 `Math.max(0,…)` 下限保护），由定时 `_bulk` 重算 heat |
 | 索引创建与字段补齐 | run → createIndexIfAbsent | [EsIndexInitializer.java](../../litisle-search/src/main/java/com/litisle/litislesearch/es/EsIndexInitializer.java#L50) L50 / L107；article mapping L133-L168、book L176-L193、user L201-L212 | 启动时幂等创建 article_idx / book_idx / user_idx / article_chunks，并对已存在 book_idx 幂等补 authorId |
 
 ### 10.4 P1 规划：作为推荐流的一路召回器
@@ -360,5 +363,103 @@ SearchResultVO search(SearchRequestDTO request);
 
 - **支持**：`terms` 精确过滤；对用户 Top5 标签做**有界 `should.term`** 加权（命中个数即标签重合度，成本与标签数线性，无需 nested）；
 - **不支持也不应做**：用高基数 `terms` 聚合算标签匹配度（聚合需在 doc\_values 上全量扫描，且 `cardinality` 存在约 40% 误差，代价远高于打分本身）；
-- 标签偏好的画像聚合留在 content（P0 不读 `article_tag`；P1 启用前先按批次十已确认决策改 [content-schema.sql:167](../../docker/init/mysql/content-schema.sql#L167) 的注释口径）。
+- 标签偏好的画像聚合留在 content（P0 不读 `article_tag`；P1 启用前先按批次十已确认决策改 [content-schema.sql](../../docker/init/mysql/schema/content-schema.sql)（`article_tag` 表注释）的注释口径）。
+
+### 10.8 P0 真实落地形态与指标口径（2026-11-06 补记）
+
+> 10.1~10.4 为立项期规划，本节按 content 实际代码核对落地形态；两者冲突时以代码为准。
+> 批次十清单 10.1~10.6 已实现并编译通过，10.7/10.8 待环境验证（见 [next_update.md](../next/next_update.md)）。
+
+**文章流召回（四路 DB，去重后统一打分）**
+
+| 召回路 | 查询方式 | 单路条数 |
+| --- | --- | --- |
+| 最热 | `FeedHotRankSupport.topArticleIds` 取榜序 → 按 ID 回查 | `recall-limit-per-path=100` |
+| 最新 | `articleGate()` 按 `create_time` 倒序 | 100；热度榜为空时放大到 `pool-size=300` |
+| 常看分区 | 画像 `preferredZones` 过滤 | 100；冷启动跳过 |
+| 常看分类 | 画像 `preferredCategories` 过滤 | 100；冷启动跳过 |
+
+- 门控统一走 `articleGate()`：`zone ∈ {1 普通, 2 作家}`、`status=PUBLISHED`、`visibility=PUBLIC`、`del_flag=0`，且不 select 正文大字段。
+- 曝光硬去重：当日曝光 Set 在**建池时**与**切片时**各过滤一次，续池/跨快照代次继续生效。
+- 已读只降权不剔除：`read-penalty=0.5`，判定窗口 `read-window-days=30`。
+- 打分权重（`article-weights`）：热度 0.35 + 新鲜度 0.30 + 分区匹配 0.10 + 分类匹配 0.20；新鲜度半衰期 `fresh-half-life-hours=24`。
+- 探索与打散：常规探索位 `exploration-ratio=0.15`，冷启动上调到 `cold-start-exploration-ratio=0.30`；同作者连续上限 1、同分类连续上限 2。
+
+**书籍流召回与打分**
+
+- 按分类偏好召回（冷启动不限定分类，取全局候选），门控：`status ∈ {连载中, 已完结}` 且 `del_flag=0`（下架永不进流），书籍不参与 zone。
+- 四权重（`book-weights`）：收藏 0.4 + 阅读人数 0.3 + 新鲜度 0.2 + 完结偏好 0.1；前两类计数先 `log1p` 归一化。
+- 新书保底：`new-book-days=7`、`new-book-quota=6`（每个快照前排保证出现的新书条数）。
+
+**快照与游标**
+
+- 快照结构：条目顺序 + 分数 + seed + degraded 标记；单身份活动快照 ≤ `max-active-snapshots=3`，TTL `snapshot-ttl-seconds=1800`。
+- `snapshotId` 由 Redis INCR 代次生成（`content:feed:snapshot:gen:{scope}`），保证单调递增；`cursor` 编码快照内偏移，切片 `from` 恒 0，翻页不重算分。
+- 翻到底自动建下一代快照（`reset=false`，前端追加）；快照过期/非法游标 `reset=true`（前端清空重拉）；文章按 zone 隔离作用域，书籍不加 zone 后缀。
+
+**降级三级（全部经 `FeedStreamServiceImpl#logDegrade` 单入口留痕）**
+
+1. Redis 不可用或建池失败 → 优先 last-good：内存副本 + Redis 指针 `content:feed:snapshot:last:{scope}`，返回上一代成功快照首页；
+2. 无 last-good → 实时计算一页（`degraded=redis-down` / `build-failed`），无 cursor/snapshotId、`hasMore=false`；
+3. 热度榜为空 → 「最新」单独兜底（`degraded=hot-empty`），最新召回量放大到 `pool-size`，快照仍可正常续刷。
+
+> last-good 与实时兜底均为终页（不可续刷）；last-good 不写曝光记录。
+
+**画像与缓存**
+
+- 维度只有「常看分区 + 常看分类」；标签偏好仅 `FeedProfile#preferredTags` 结构占位（P1）。
+- 缓存键按身份隔离：`content:feed:profile:u{userId}` / `content:feed:profile:a{anonId}`，TTL `profile-cache-ttl-seconds=900`；阅读行为不主动失效，接受 TTL 内滞后。
+- 冷启动判定：`read-window-days` 天内无文章阅读记录即 `coldStart=true`，两路个性化跳过并上调探索位；匿名恒为冷启动且不跨设备。
+
+**指标口径（content 已接 actuator + micrometer-registry-prometheus）**
+
+| Prometheus 指标 | 类型 | 标签 | 含义 |
+| --- | --- | --- | --- |
+| `litisle_content_feed_degraded_total` | Counter | `stream=article|book`、`reason=redis-down|last-good|hot-empty|build-failed` | 降级次数，只在 `logDegrade` 打点 |
+| `litisle_content_feed_snapshot_created_total` | Counter | `stream`、`cold_start=true|false` | 快照创建次数（含空池快照） |
+| `litisle_content_feed_profile_cache_hit_total` | Counter | 无 | 画像缓存命中 |
+| `litisle_content_feed_profile_cache_miss_total` | Counter | 无 | 画像缓存未命中（回源聚合并覆盖写） |
+
+- 管理端点与业务端口共用 8085（未单独设置 `management.server.port`），抓取路径 `/actuator/prometheus`；Prometheus 目标 `host.docker.internal:8085`。
+- 告警：`ContentFeedDegradedRateHigh`（warning，降级速率 > 0.5 次/秒持续 10 分钟）与 `ContentFeedRedisDown`（critical，`reason=redis-down` 任一新增）；规则不补 `or 0`，采集缺失按 no data 不触发。
+
+**P1 边界与实际代码对照**
+
+| 规划项（§10.4 / §10.5） | 代码现状 | 结论 |
+| --- | --- | --- |
+| `litisle.content.feed.recall=es` 真实回落 | `warnIfEsRecallConfigured` 检测到 `es` 仅打 WARN 后继续按 db 执行；无 ES 查询实现 | 开关存在，P1 召回器未开工 |
+| search 一次返回 ≤300 条 `id + score` | 无 content → search 召回调用 | P1 |
+| `article_idx` 补 `delFlag` / `heatScore` / `tagCount` | search 侧 mapping 仍未补（§10.5） | P1 前置未完成 |
+| 标签偏好参与打分 | 仅结构占位，不读 `article_tag` | P1 |
+| 快照/分页/打散/曝光去重/降级留在 content | 已按本节落地 | ✅ P0 |
+
+***
+
+## 十一、前端配合事项清单（2026-11-06 新增）
+
+> 定位：本节只列前端要落地的实事，不展开后端架构。接口以 [FeedController.java:78-135](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/FeedController.java#L78-L135) 与 [FeedPageVO.java:23-45](../../litisle-content/src/main/java/com/litisle/litislecontent/domain/vo/FeedPageVO.java#L23-L45) 为准；频控/未授权码以 [ErrorCode.java:50-65](../../litisle-common/common-core/src/main/java/com/litisle/commoncore/exception/ErrorCode.java#L50-L65) 为准。
+> 批次归属：批次十 = 无限刷流本体；批次十一 = 统计口径与归因闭环。标注「P1，未启动」的条目未启动前不得先行开发。
+
+| # | 前端要做的事 | 涉及接口/字段 | 验收怎么判断 | 批次 | 优先级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 匿名标识：生成 UUID v4，存 `localStorage`；每个流请求带 `X-Anon-Id`；响应头若回下发 `X-Anon-Id`，写回本地并后续沿用 | `GET /api/content/feed/articles`、`/books`；请求头 `X-Anon-Id`；服务端回写响应头 | 首次无 header 请求能拿到回填值并持久化；刷新/重启浏览器后值不变；登录后不带也不报错 | 批次十（后端 `AnonIdFilter` 已实现） | P0 |
+| 2 | 两条流端点对接：首次请求不传 `cursor`/`snapshotId`；后续原样回传；`reset=true` 清空列表并按新快照重拉；`hasMore=false` 停止加载 | 入参 `cursor`、`snapshotId`、`pageSize`、`zoneCode`（仅文章流）；出参 `items`、`cursor`、`snapshotId`、`hasMore`、`reset` | 连续翻页不重复/不跳条；快照失效时列表清空重来；`hasMore=false` 后不再发请求 | 批次十 | P0 |
+| 3 | 降级提示：按 `degraded` 四值分别处理 `redis-down` / `build-failed`（服务繁忙、内容有限）、`hot-empty`（热门暂缺）、`last-good`（终页，弱提示「内容有限」） | 出参 `degraded` | 四值都有明确文案；`last-good` 不显示无限加载、不请求下一页 | 批次十 | P0 |
+| 4 | 频控与未授权处理：`code=10005`（当前 HTTP 200 + 业务码；网关若返回 HTTP 429 同样按频控处理）统一提示并退避；`code=10002`（未登录）只在点赞/收藏等需登录接口出现，统一引导登录，不当作普通错误（流接口本身允许匿名，不应因未登录报错） | 响应 `code/message`；错误码 `10005`/`10002` | 超频有提示且不自动死循环重试；未登录刷流正常；点赞/收藏时弹登录引导；登录态恢复后正常续刷 | 批次十 + 批次十一 | P0 |
+| 5 | 点击归因：从流进入文章/书籍详情时带 `from=feed&snapshotId=...`，可选 `position`；非流入口不带 | 详情接口查询参数 `from`、`snapshotId`、`position` | 流内跳转详情请求参数齐全（`from=feed` + 当前 `snapshotId`，`position` 可选）；直接搜索/收藏入口进入时不带；后端按日聚合 `click_count/exposure_count`，未带参数时只计曝光不计点击 | 批次十一（11.6） | P0 |
+| 6 | 点赞/取消点赞交互：未登录时拦截并引导登录；作者本人点赞时展示后端明确业务码对应的提示（不要当成成功） | 批次十一新增 `POST/DELETE /like`；`targetType`、`targetId`；返回业务码 | 三种拒绝（未登录/目标不可见/作者自赞）都有明确提示；点赞状态与计数刷新正确 | 批次十一（11.8） | P0 |
+| 7 | 负反馈入口（后端已就绪）：卡片/详情「不感兴趣」、作者「屏蔽该作者」、分类「屏蔽该分类」；提交成功后当前列表立即移除对应条目；撤销需前端自己保存 `(feedbackType, stream, targetId, targetKey)`（**后端本期不提供名单查询接口**，待确认是否需要补一个列表接口） | `POST /api/content/feed/feedback`（body `{feedbackType, stream, targetId, targetKey}`）、`DELETE` 同参；必须登录，20/60s | 三维度都能提交成功；重复提交不报错（幂等）；`feedbackType=1` 当页起消失；`feedbackType=2/3` 下一代快照消失；未登录返回 10002 | 批次十一（11.11） | 后端已就绪，待前端 |
+| 8 | 阅读时长心跳：本轮**仅预留**上报字段，后端不写入、不统计；前端先不上报，等心跳口径（间隔/有效判定/聚合方式）定稿后再接入 | `PUT /api/content/reading-history` 可选参数 `durationMs`（当前被显式忽略） | 当前无验收：传与不传都不影响历史上报结果 | 批次十一（11.11 预留） | 仅预留接口 |
+
+**处理约定**
+
+- `last-good` 是终页：响应无 `cursor`、`hasMore=false`，前端不得再发续页请求。
+- `reset=true` 时必须丢弃旧列表与旧 `snapshotId`，用本次响应重新渲染，避免快照混用。
+- 频控当前是 HTTP 200 + 业务码（不是 HTTP 429）；若网关或代理返回 429，统一按频控分支处理。
+- 第 5 条（点击归因）已按 2026-11-06 决策转为 P0 可开发；第 6 条（点赞）后端已完成；第 7 条（负反馈）后端已完成、待前端接入；第 8 条（时长心跳）仅预留参数，前端暂不开发。
+- 负反馈已知表现：`feedbackType=1`（单条）当页立即生效（切片二次过滤）；`feedbackType=2/3`（作者/分类）**只在下一次快照生效**，旧快照剩余页仍可能出现，属预期，不要当 bug 报。
+- 负反馈无法匿名提交（匿名身份不稳定，做不了长期屏蔽）；匿名用户点「不感兴趣」应先引导登录。
+- 完读统计（11.13）是服务端离线统计，前端**无需埋点**，也不提供展示接口（本轮只进 `book_read_quality` 表）。
+- 条目与批次十一任务的对应关系：第 5 条对应 11.6，第 6 条对应 11.8，第 7 条对应 11.11，第 8 条对应 11.11 预留项（时长心跳）；批次十条目沿用 [next_update.md](../next/next_update.md) 批次十已确认决策。
+
 

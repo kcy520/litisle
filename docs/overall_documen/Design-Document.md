@@ -1,4 +1,4 @@
-> 更说明**：相较 v1.0，移除 Sentinel Dashboard / Zipkin / Prometheus / Grafana / SkyWalking 五个独立中间件容器；限流熔断改用 Sentinel SDK（无 Dashboard，规则代码内联）、链路追踪用 MDC traceId（日志即可）、监控用 Spring Boot Actuator + 日志即可。文件存储统一为 SeaweedFS。
+> **版本说明**：本版按 2026-11 代码核对校订。早期设想的 Sentinel Dashboard / Zipkin / SkyWalking 均未引入；链路追踪用 MDC traceId（日志即可）；监控已接入 Micrometer + Prometheus（content 8085 / search 8086 暴露 `/actuator/prometheus`，配 4 组告警规则，详见 §1.4 与 System-architecture-design.md §2.2）；文件存储统一为 SeaweedFS。
 
 ---
 
@@ -22,13 +22,13 @@
                                                 │ HTTPS
                           ┌─────────────────────▼────────────────────┐
                           │           litisle-gateway（网关）           │
-                          │  JWT校验 · 路由 · Sentinel限流 · WS透传      │
+                          │  Sa-Token 校验 · 路由 · WS 透传      │
                           └──┬──────────┬──────────┬──────────┬──────┘
                              │  OpenFeign│(同步)    │ WebSocket │
         ┌────────────┬───────┼──────────┼──────────┼──────────┐
         │            │       │          │          │          │
    litisle-auth  litisle-user  litisle-content  litisle-social  litisle-ai
-   (认证/JWT)    (账号/角色)    (文章/书籍/草稿)  (关注/赞/评/私信)  (小月/小审)
+   (认证/Sa-Token) (账号/角色)  (文章/书籍/草稿)  (关注/赞/评/私信)  (小月/小审)
         │            │       │          │          │          │
         │            │       │   ┌──────▼──────┐   │          │
         │            │       │   │litisle-review│  │          │
@@ -70,16 +70,16 @@
 | ---------- | -------------------------------------- | ------------------------------------------------------------ |
 | 运行时     | JDK 25 + Spring Boot 3.5.15            | 现有 pom 已锁定；Boot 3.5 ↔ Cloud 2025.0.x ↔ SCA 2025.0.0.0 兼容 |
 | 微服务     | Spring Cloud 2025.0.3 + SCA 2025.0.0.0 | Nacos / Gateway / OpenFeign / Sentinel / Seata 一站式        |
-| 安全       | Spring Security 6 + OAuth2 + JWT       | 层次化角色用 `RoleHierarchy` 实现                            |
+| 安全       | Sa-Token（Redis 会话）+ BCrypt         | 网关 `SaReactorFilter` 统一登录校验，业务服务 `@SaCheckLogin`；角色/权限由 `StpInterfaceImpl` + `RoleLevel` 输出 |
 | ORM        | MyBatis-Plus 3.5.7                     | 乐观锁、逻辑删除、配置加密                                   |
 | 缓存       | Redis + Redisson 3.52.0                | Set/String/Hash/BitMap + 分布式锁                            |
 | 搜索       | Elasticsearch 8.18.8                   | 全文检索 + dense_vector KNN                                  |
 | MQ         | RabbitMQ                               | Confirm + 手动 ACK + DLQ + 延迟消息                          |
 | 分布式事务 | Seata AT                               | 仅积分商城一处跨服务事务                                     |
-| 限流熔断   | Sentinel SDK（无 Dashboard）           | 规则代码内联 + Nacos 动态规则，无需独立容器                  |
+| 限流熔断   | common-redis `@RateLimiter` + 业务服务 Sentinel SDK | 常规接口走 Redis 固定窗口限流（本地兜底可用）；Feign 降级/热点保护用 Sentinel（无 Dashboard，规则 Nacos 持久化）；网关不引入 |
 | AI         | LangChain4j                            | 单服务多 Agent（小月有状态 / 小审无状态）+ RAG 知识库        |
 | 向量存储   | Elasticsearch dense_vector             | 复用现有 ES 集群，KNN 检索百万级 chunk 够用，零新增中间件    |
-| 敏感词     | sensitive-word                         | DFA + MySQL 词库 + Redis Pub 热更新                          |
+| 敏感词     | 自研 DFA（`litisle-api` 的 `dfa` 包）   | AcdatTextScanEngine 多模式匹配 + `WordLibraryLoader` 词库加载，`WordlibChangedMessage` 触发重载 |
 | 文件存储   | **SeaweedFS**                          | 海量小文件 + 卷级扩容 + S3 兼容                              |
 | 文档       | Knife4j 4.5.0                          | 网关聚合各服务文档                                           |
 | 链路追踪   | MDC + traceId（日志即可）              | 不引入 Zipkin，日志带 traceId 足够排查                       |
@@ -97,7 +97,7 @@
 | RabbitMQ      | docker 单实例（未来可镜像队列）               | 持久化卷                       | 基础设施             |
 | Seata Server  | docker 独立容器                               | file/DB 模式                   | 基础设施（仅积分商城用）     |
 
-> **移除项说明**：Sentinel Dashboard（规则改为代码内联+Nacos动态规则）、Zipkin（改用MDC traceId）、Prometheus+Grafana（改用Actuator+日志）、SkyWalking（不启用）。
+> **移除项说明**：Sentinel Dashboard（规则改为代码内联+Nacos动态规则）、Zipkin（改用MDC traceId）、SkyWalking（不启用）；**Prometheus+Grafana 口径修正（2026-11 按代码核对）**：不再是「改用 Actuator + 日志」——content / search 已引入 `micrometer-registry-prometheus`，在业务端口暴露 `/actuator/prometheus`（content 8085 / search 8086），抓取配置与告警规则已落在 `docker/init/prometheus/prometheus.yml`、`alert-rules.yml`（`metrics_path: /actuator/prometheus`）；Grafana 面板未接入，compose 也未把 Prometheus 作为常驻服务，指标当前以 Prometheus 抓取 + 告警规则为主。
 
 ## 1.5 通信协议
 
@@ -121,13 +121,16 @@
 3. **读放大流**：读请求先查 Redis（热点/计数/关注关系），未命中查 DB 回填，布隆过滤器防穿透、随机 TTL 防雪崩、互斥锁防击穿。
 4. **事务一致性流**：积分商城下单 = payment 扣用户币(AT 分支) + shop 创建订单/扣库存(AT 分支) + 生成运单，TC 全局提交/回滚。赞赏改为 payment 单库本地事务，无需 Seata。
 5. **RAG 知识库流**：Content 发 `content.published` → AI 服务接收 → 质量门控（字数/角色/可见性/DFA） → 正文清洗切片 → Embedding 向量化 → 写入 ES dense_vector 索引。文章下线时监听 `content.unpublished` 移除对应向量。
+6. **推荐流流**（批次十/十一，content 侧）：按身份（`u{userId}` / `a{anonId}`）与流类型（article/book）→ 读画像缓存（未命中回源聚合）→ 四路 DB 召回（关注/热度/分类偏好/新内容，P0 唯一实现为 `db`，`es` 为 P1 占位）→ 融合打分（七项权重 + 贝叶斯平滑）→ 探索位与打散 → 按代次生成快照 `content:feed:snapshot:{stream}:{identity}:{gen}` → 翻页只按游标切片 + 当日曝光 Set 去重 + 负反馈过滤 → 切片曝光异步落 `feed_exposure_daily`；Redis 不可用 / 建池失败 / 空池分别走 `redis-down` / `build-failed` / `last-good` / `hot-empty` 降级标记，降级页同样应用负反馈过滤。
+7. **统计与对账流**：写操作（收藏/点赞/浏览刷回/评论回写）同步更新 `article_stat` / `book_stat`（计数真源），`article.like_cnt` 仅作展示镜像；`ContentStatWindowJob` 每日预计算 30/90 天窗口到 `content_stat_window`；`ContentStatReconcileJob` 每日比对真源与源表聚合，按 6 类 type 写 `litisle_content_stat_reconcile_diff` Gauge（0 也上报），超阈值打 ERROR 日志，人工修复走 `tools/db-repair/content-stat-backfill.sql`。
+8. **索引同步流**（search 侧）：content/social/user 事件 → 10 条同步队列消费 → 文本事件按 articleId 幂等 upsert/删（含索引版本守卫与下架墓碑防乱序回灌）→ 互动事件只累加 Redis 热度待刷新键（`HINCRBY`，取消点赞负数累加）→ `IndexHeatFlushJob` 定时 `_bulk` 重算 heat → 消费失败指数退避延迟重投，超限入 DLQ。
 
 ## 1.7 模块全景（13 模块）
 
 | 类型      | 模块                                                         | 职责                             |
 | --------- | ------------------------------------------------------------ | -------------------------------- |
 | 共享·库   | `litisle-common` / `litisle-api` / `litisle-file`            | 技术基建 / 跨服务契约 / 文件接入 |
-| 边界·服务 | `litisle-gateway`                                            | JWT/路由/限流/WS透传             |
+| 边界·服务 | `litisle-gateway`                                            | Sa-Token 鉴权/路由/白名单/traceId 透传（无 JWT 全局过滤器；WebSocket 仅按路由透传） |
 | 业务·服务 | `litisle-auth` / `litisle-user` / `litisle-content` / `litisle-social` / `litisle-review` / `litisle-ai` / `litisle-payment` / `litisle-shop` / `litisle-search` / `litisle-notification` | 10 个业务微服务                  |
 
 ---
@@ -138,45 +141,63 @@
 
 ### 2.1.1 litisle-common（技术基建库）
 
-**模块拆分**：拆分为 3 个子模块，避免"少数模块引入多余依赖"。
+**模块拆分**：拆分为 **4 个子模块**（2026-11 核对代码，较原文 3 个新增 `common-mq`），避免"少数模块引入多余依赖"。
 
 ```
 litisle-common
 ├── common-core/      # 核心基础（所有服务必须依赖）
-│   ├── exception/    # 全局异常处理 + BizException + ErrorCode
-│   ├── result/       # Result<T> / PageResult<T> 统一响应
-│   ├── constant/     # CommonConstant / HeaderConstant
-│   ├── enums/        # StatusEnum / DelFlagEnum
-│   ├── util/         # AssertUtil / JsonUtil / PageUtil
-│   ├── config/       # JacksonConfig / MyBatisPlusConfig
-│   └── sensitive/    # DFA 敏感词引擎（多场景策略 + 双 buffer 热更新）
+│   ├── config/       # Jackson / MyBatis-Plus / 枚举转换等自动配置
+│   ├── constant/     # CommonConstant / HeaderConstant / PageConstant / SaTokenSessionKeyConstant
+│   ├── converter/    # 枚举字典转换工厂（IntDict / StringToDict）
+│   ├── enums/        # StatusEnum / DelFlag / AuditModule / AuditOperation
+│   ├── exception/    # GlobalExceptionHandler / BizException / ErrorCode
+│   ├── query/        # PageQuery 分页入参基类
+│   ├── resolver/     # UserIdResolver（用户ID解析接口，common-security 的 Sa-Token 实现）
+│   ├── result/       # Result<T> / PageResult<T>
+│   └── utils/        # AssertUtil / JsonUtil / PageUtil / DesensitizeUtil / TraceIdSanitizer / UidGenerator
 ├── common-redis/     # Redis 工具（大部分服务需要，网关可选）
-│   ├── config/       # RedisConfig / RedissonConfig
-│   ├── util/         # RedisUtil（String/Hash/Set/ZSet/List）
-│   ├── lock/         # DistributedLock 接口 + RedissonLock 实现
 │   ├── bloom/        # BloomFilter 布隆过滤器
-│   └── constant/     # CacheConstant（Redis Key 前缀）
-└── common-security/  # 安全上下文（业务服务需要，网关不需要完整实现）
-    ├── context/      # SecurityContext + SecurityContextHolder（ThreadLocal）
-    ├── annotation/   # @RequireRole / @RequirePermission
-    ├── aspect/       # RoleCheckAspect（角色校验切面）
-    ├── feign/        # FeignAuthInterceptor（透传 userId/traceId）
-    ├── audit/        # @AuditLog + AuditLogAspect（审计日志）
-    ├── idempotent/   # @Idempotent + IdempotentAspect（接口幂等性）
-    ├── desensitize/  # @Sensitive + SensitiveSerializer（数据脱敏）
-    └── xss/          # XssFilter + XssHttpServletRequestWrapper（XSS 防护）
+│   ├── config/       # RedisConfig / RedissonConfig / RateLimitFallbackProperties
+│   ├── constant/     # CacheConstant / IdempotentConstant
+│   ├── guard/        # RedisGuard 健康守卫
+│   ├── idempotent/   # @Idempotent + 幂等切面 + key 构建
+│   ├── lock/         # DistributedLock / RedissonLock
+│   ├── login/        # LoginRetryLimiter 登录失败重试限制
+│   ├── ratelimit/    # @RateLimiter + Redis/本地限流器 + key 构建
+│   ├── session/      # DeviceSession 多端会话
+│   └── util/         # RedisUtil（String/Hash/Set/ZSet/List）
+├── common-security/  # 鉴权与安全（业务服务需要，网关只用 Sa-Token 校验部分）
+│   ├── anonymous/    # @Anonymous + 白名单扫描/匿名访问（litisle.security.anonymous.paths）
+│   ├── audit/        # @AuditLog + AuditLogAspect（审计日志）
+│   ├── config/       # CommonSecurityAutoConfiguration
+│   ├── constant/     # RoleCode / PermissionCode
+│   ├── crypto/       # AES-256-GCM / HMAC-SHA256 / 密码加密（litisle.security.crypto）
+│   ├── desensitize/  # @Sensitive + Jackson 序列化器（数据脱敏）
+│   ├── enums/        # RoleCodeEnum / PermissionEnum / RoleLevel
+│   ├── feign/        # FeignAuthInterceptor（透传 userId/traceId）
+│   ├── satoken/      # Sa-Token 自动装配 / 异常处理 / StpInterfaceImpl / 用户ID解析 / 事件监听
+│   ├── trace/        # TraceIdFilter
+│   ├── utils/        # SaRoleHelper
+│   └── xss/          # XssFilter + 请求包装 + JSON 清洗
+└── common-mq/        # MQ 基建（消费方按需引入）
+    ├── config/       # CommonMqAutoConfiguration
+    ├── consume/      # MqAckHelper（手动 ACK）/ MqIdempotentHelper（eventId 幂等）/ MqTraceSupport
+    ├── metrics/      # MqMetrics（收发/重试/死信指标）
+    └── send/         # MqSendUtil（统一发送入口）
 ```
 
 **核心能力**：
 
-- DFA 敏感词过滤（文章/评论/用户名/私信四策略）
-- 审计切面（@AuditLog 自动记录操作日志）
-- JWT 上下文透传（Feign 调用自动透传用户信息）
+- Sa-Token 登录校验与用户解析（网关 `SaReactorFilter`，业务服务 `@SaCheckLogin` + `SaTokenUserIdResolver`）
+- 审计切面（`@AuditLog` 自动记录操作日志）
+- Feign 透传（`FeignAuthInterceptor` 透传 userId / traceId）
 - 统一异常响应（GlobalExceptionHandler + ErrorCode）
-- Redis 工具（六大数据结构 + 分布式锁 + 布隆过滤器）
-- **接口幂等性**（@Idempotent 基于 Redis SETNX，防重复提交）
-- **数据脱敏**（@Sensitive 基于 Jackson 序列化器，手机号/身份证/邮箱自动脱敏）
-- **XSS 防护**（全局过滤器清洗 HTML 标签，防跨站脚本攻击）
+- Redis 工具（六大数据结构 + 分布式锁 + 布隆过滤器 + RedisGuard）
+- **接口幂等性**（`@Idempotent` 在 common-redis，基于 Redis SETNX 防重复提交）
+- **数据脱敏**（`@Sensitive` 基于 Jackson 序列化器，手机号/身份证/邮箱自动脱敏）
+- **XSS 防护**（`XssFilter` 全局清洗 HTML 标签，防跨站脚本攻击）
+- **MQ 基建**（common-mq：MqSendUtil 统一发送 + MqAckHelper 手动 ACK + MqIdempotentHelper eventId 幂等 + MqMetrics 指标）
+- **敏感词 DFA 不在本模块**：实现在 `litisle-api` 的 `dfa` 包（`DfaFacade` / `AcdatTextScanEngine` / `WordLibraryLoader`），供 review 等模块共用
 
 ### 2.1.2 litisle-api（跨服务契约库）
 
@@ -213,33 +234,27 @@ litisle-file
 
 ```
 litisle-gateway
-├── filter/           # JwtGlobalFilter / SentinelGatewayFilter
-├── config/           # AuthProperties（白名单）/ CorsConfig / RouteConfig
-└── handler/          # GlobalExceptionHandler / WsHandler
+├── filter/           # TraceIdFilter（WebFilter）/ UserContextHeaderFilter（GlobalFilter）/ GlobalExceptionHandler
+└── config/           # SaTokenGatewayConfig / GatewayJwtProperties / GatewayFilterConfig
 ```
 
 | 项       | 内容                                                         |
 | -------- | ------------------------------------------------------------ |
-| 主要职责 | 唯一外部入口：JWT 校验、路由、限流、WS 透传、Knife4j 聚合    |
-| 核心功能 | 路由分发；白名单（登录/注册/公开内容）；Token 解析 → 注入 `X-User-Id`/`X-Roles` header；Sentinel 限流；WS 路由透传 |
-| 关键组件 | `JwtGlobalFilter`、`AuthProperties`、`SentinelGatewayFilter`、路由配置(Nacos) |
-| 数据模型 | 无（路由配置存 Nacos）                                       |
-| 外部依赖 | spring-cloud-gateway、Sentinel SDK、Nacos、Redis（Token 黑名单） |
-| API      | 透传所有下游 `/api/{service}/**`                             |
-| 流程     | 请求 → 白名单判断 → JWT 校验 → 注入用户上下文 → Sentinel 限流 → 路由转发 |
-| 错误处理 | 401（未登录）/403（无权限）/429（限流）统一响应体            |
-| 安全     | Token 黑名单校验（Redis，TTL=Token 剩余寿命）；多端登录校验（同账号最多 N 端，N 由 yml 配置）；敏感 Header 过滤（移除客户端伪造的 X-User-Id/X-Roles）；CORS 白名单 |
-| 审计     | RequestLogGlobalFilter 记录：traceId、userId、请求方法、路径、入参摘要、响应状态、耗时 |
-| 性能     | 响应式（Netty）；路由缓存；限流维度=接口+用户；请求日志异步写入 |
+| 主要职责 | 唯一外部入口：Sa-Token 登录校验、路由转发、内部 Header 注入、Knife4j 聚合 |
+| 核心功能 | 路由分发（`application.yml` 静态配置，未走 Nacos 动态路由）；白名单放行（`GatewayJwtProperties#paths` → `SaReactorFilter.addExclude`）；`StpUtil.checkLogin()` 校验登录；已登录请求注入 `X-User-Id`/`X-Username`/`X-Roles`/`X-Permissions`；WebSocket 按服务路由透传 |
+| 关键组件 | `SaReactorFilter`(order=-100)、`UserContextHeaderFilter`(order=-90)、`TraceIdFilter`、`GlobalExceptionHandler`、`SaTokenGatewayConfig`、`GatewayJwtProperties` |
+| 数据模型 | 无（路由与白名单在 application.yml；会话在 Redis，网关只读校验不写入） |
+| 外部依赖 | spring-cloud-gateway(WebFlux)、Sa-Token（reactor starter + redis-jackson）、Nacos（注册/配置）、Redis（共享会话） |
+| API      | 透传所有下游 `/api/{service}/**`；另含本地断点 `block-review-punish-status`（处罚状态开关，非业务路由） |
+| 流程     | 请求 → `TraceIdFilter`（注入/回传 traceId）→ `SaReactorFilter`（白名单放行 / 校验登录）→ `UserContextHeaderFilter`（注入用户 Header）→ 路由转发（`lb://litisle-*`） |
+| 错误处理 | 401（未登录）/403（无权限）统一 JSON（`GlobalExceptionHandler`）；限流 429 由业务服务返回 |
+| 安全     | 客户端伪造的 `X-User-Id`/`X-Roles` 等 Header 由网关覆盖，仅在登录后注入；鉴权真相源是 Redis 共享会话（下游 `StpUtil` 直查），Header 仅作日志/调试辅助；跨域未在网关集中配置（按部署环境确认） |
+| 审计     | 靠 `TraceIdFilter` 注入/回传 traceId + 应用日志，未实现独立请求日志过滤器 |
+| 性能     | 响应式（Netty）；路由与白名单启动时加载；网关不做应用层限流（限流下沉业务服务 `@RateLimiter` / Sentinel） |
 
-**AuthProperties 配置（白名单 + 匿名访问）**：
+**网关白名单配置（GatewayJwtProperties）**：
 
-网关从 Nacos 读取白名单配置，支持两种匿名访问控制方式：
-
-1. **配置方式**：`litisle.security.anonymous.paths` 配置路径模式
-2. **注解方式**：业务服务 Controller 标注 `@Anonymous`，网关通过 Feign 调用各服务的 `/actuator/anonymous-paths` 端点动态收集白名单（启动时加载，变更时刷新）
-
-两种方式合并为最终白名单，匹配命中的请求跳过 JWT 校验，直接路由转发。
+白名单从 `application.yml` 的 `litisle.gateway.jwt.paths` 读取（`GatewayJwtProperties#paths`），由 `SaReactorFilter.addExclude` 生效，未登录可访问的路径（登录/注册/公开文章等）在此维护；不采用「Feign 收集各服务 `@Anonymous`」的早期方案。业务服务侧另有 common-security 的 `@Anonymous` + `litisle.security.anonymous.paths` 作为本地兜底白名单。
 
 ---
 
@@ -249,116 +264,65 @@ litisle-gateway
 
 ```
 litisle-auth
-├── controller/        # AuthController / OAuth2Controller
-├── service/           # AuthService / SmsCodeService / CaptchaService
+├── controller/        # AuthController / CaptchaController / DeviceController（OAuth2、Sms 控制器已注释未启用）
+├── service/           # AuthService / CaptchaService / DeviceSessionService / PunishAuditService / PunishSnapshotService
+├── service/oauth2/    # OAuth2LoginService（预留，未接入）
+├── dfa/               # AuthDfaConfig / RedisWordLibraryLoader / WordlibChangeSubscriber / UsernameRejectRecordAdapter
+├── mq/                # PunishResultConsumer / PunishConsumeConfig / PunishMqConfig
 ├── domain/
-│   ├── entity/        # （复用 user 库实体，无本服务独立实体）
-│   ├── dto/           # LoginDTO / RefreshDTO
-│   └── vo/            # TokenVO / CaptchaVO
-├── enums/             # （本服务无私有枚举，使用 api 共享）
-├── constant/          # AuthConstant（Token 有效期、黑名单 TTL 等）
-├── security/          # JwtTokenProvider / SessionManager
-├── oauth/             # WechatHandler / QQHandler
-├── redis/             # TokenBlacklist / SessionCache
-└── config/            # AuthProperties（yml + JavaBean） / AuthConfig
+│   ├── dto/           # PasswordLoginDTO / EmailLoginDTO / RegisterRequestDTO / RefreshTsuccessenDTO / BindPhoneDTO
+│   └── vo/            # LoginUserInfoVO / DeviceSessionVO / CaptchaImgVO
+├── constant/          # AuthCacheKey / RateLimitConstant / CaptchaConstant / MailConstant
+├── enums/             # EmailRedisKey / EmailCodeUsage
+├── utils/             # CaptchaCodeUtil / IpUtil
+└── config/            # AuthProperties（litisle.auth）/ CaptchaProperties / SaTokenWebConfig
 ```
 
 | 项       | 内容                                                         |
 | -------- | ------------------------------------------------------------ |
-| 主要职责 | 注册/登录/退出/OAuth2(微信/QQ)/图形验证码/JWT 签发与刷新/在线设备管理 |
-| 核心功能 | 账密+手机验证码+OAuth2 三方式；JWT 双 Token；同账号最多 N 端在线；记住我；退出加 Redis 黑名单 |
-| 关键组件 | `AuthService`、`JwtTokenProvider`、`SmsCodeService`、`CaptchaService`、`OAuth2LoginHandler`、`SessionManager`、`AuthProperties` |
-| 数据模型 | 复用 user 库的 `sys_user`；新增 `sms_code`、`oauth_binding`（在 user 库） |
-| 外部依赖 | spring-security、JWT、Redis、短信网关、UserFeign、litisle-common(DFA 校验用户名) |
-| API      | `POST /auth/register`、`POST /auth/login`、`POST /auth/logout`、`POST /auth/refresh`、`GET /auth/captcha`、`POST /auth/oauth/{provider}` |
-| 流程     | 登录：校验验证码 → UserFeign 查账号 → BCrypt 校验 → 签 JWT → 写 Redis session(踢出超额设备) → 返回 Token |
-| 错误处理 | 账号冻结/注销返回特定码；连续失败 5 次锁 15 分钟             |
-| 安全     | 密码 BCrypt；Token 短效 + Refresh；黑名单 TTL=Token 剩余寿命；OAuth2 防 state CSRF |
-| 性能     | JWT 无状态签发；session 走 Redis；验证码图片缓存             |
+| 主要职责 | 注册/登录/退出/验证码/刷新令牌/在线设备管理/处罚联动，Sa-Token 登录态签发 |
+| 核心功能 | 账密登录 + 邮箱验证码登录（短信通道未实现）；图形验证码 + 邮箱验证码；Sa-Token 会话（`timeout` 1 天 / `active-timeout` 7 天）；refreshToken 一次性轮换（7 天）；设备会话列表与踢出（`litisle.auth.max-devices` 默认 5）；用户名 DFA 校验与拒绝记录；处罚结果 MQ 消费写封禁/禁言快照 |
+| 关键组件 | `AuthServiceImpl`、`CaptchaServiceImpl`、`DeviceSessionServiceImpl`、`SaTokenWebConfig`、`PunishResultConsumer`、`AuthDfaConfig`、`AuthProperties` |
+| 数据模型 | 复用 user 库 `sys_user`；验证码、设备会话、refreshToken 均在 Redis（`AuthCacheKey`） |
+| 外部依赖 | Sa-Token（Redis 共享会话）、Redis、MQ（处罚结果）、UserFeign、litisle-common、`litisle-api` 的 dfa |
+| API      | `POST /api/auth/register`、`POST /api/auth/login`、`POST /api/auth/login/sms`、`POST /api/auth/logout`、`POST /api/auth/refresh`、`GET /api/auth/me`、`GET /api/auth/devices`、`DELETE /api/auth/devices/{deviceId}`、`GET /api/auth/captcha/img`、`POST /api/auth/captcha/email`、`POST /api/auth/captcha/img/verify`、`POST /api/auth/captcha/email/verify`（OAuth2 接口未启用） |
+| 流程     | 登录：验证码校验 → UserFeign 查账号 → BCrypt 校验 → `StpUtil.login(userId, SaLoginModel extras)` → 写设备会话 → 返回 Token（Header 名 `Authorization`） |
+| 错误处理 | 账号冻结/注销返回特定码；登录失败由 common-redis `LoginRetryLimiter` 限制次数 |
+| 安全     | 密码 BCrypt；图形/邮箱验证码一次性消费；refreshToken 一次性轮换；退出 `StpUtil.logout()` 服务端会话失效（不做 Token 黑名单） |
+| 性能     | 会话存 Redis 共享，网关与业务服务直查；验证码图片短期缓存 |
 
 **认证配置（yml + JavaBean）**：
 
 使用 `@ConfigurationProperties` 将 yml 配置绑定到 JavaBean，集中管理认证相关参数。
 
 ```yaml
-# application.yml
+# application.yml（认证相关）
+sa-token:
+  token-name: Authorization
+  timeout: 86400          # 单次会话有效期（秒，1 天）
+  active-timeout: 604800  # 活跃续期上限（秒，7 天，即"记住我"）
+  max-login-count: -1     # 不限 Sa-Token 会话数，多端数量由设备会话控制
+
 litisle:
-  security:
-    # JWT 配置
-    jwt:
-      secret: ${JWT_SECRET:litisle-secret-key-at-least-256-bits-for-hs256}
-      # 记住我模式：长效 Token（默认 7 天）
-      remember-me-expire: 604800
-      # 普通模式：短效 Token（默认 30 分钟）
-      access-token-expire: 1800
-      # Refresh Token（默认 7 天）
-      refresh-token-expire: 604800
-    # 会话配置
-    session:
-      # 同账号最大同时在线数（踢出最旧的）
-      max-concurrent: 2
-      # 会话过期时间（秒）
-      session-timeout: 604800
-    # 登录失败锁定策略
-    login:
-      # 连续失败阈值
-      max-fail-count: 5
-      # 锁定时长（分钟）
-      lock-minutes: 15
-    # 匿名访问白名单
-    anonymous:
-      paths:
-        - /api/auth/login
-        - /api/auth/register
-        - /api/auth/captcha
-        - /api/auth/oauth/**
-        - /api/content/article/list
-        - /api/content/article/{id}
+  auth:
+    refresh-token-expire: 604800  # refreshToken 有效期（秒，7 天）
+    max-devices: 5                # 同账号最大在线设备数
 ```
 
 ```java
-// AuthProperties.java（JavaBean 绑定）
-@Data
-@Component
-@ConfigurationProperties(prefix = "litisle.security")
+// AuthProperties.java（实际绑定前缀 litisle.auth）
+@ConfigurationProperties(prefix = "litisle.auth")
 public class AuthProperties {
-    private Jwt jwt = new Jwt();
-    private Session session = new Session();
-    private Login login = new Login();
-    private Anonymous anonymous = new Anonymous();
-    
-    @Data
-    public static class Jwt {
-        private String secret;
-        private long rememberMeExpire = 604800;
-        private long accessTokenExpire = 1800;
-        private long refreshTokenExpire = 604800;
-    }
-    
-    @Data
-    public static class Session {
-        private int maxConcurrent = 2;
-        private long sessionTimeout = 604800;
-    }
-    
-    @Data
-    public static class Login {
-        private int maxFailCount = 5;
-        private int lockMinutes = 15;
-    }
-    
-    @Data
-    public static class Anonymous {
-        private List<String> paths = new ArrayList<>();
-    }
+    private long refreshTokenExpire = 604800L;
+    private int maxDevices = 5;
 }
 ```
 
 **关键能力说明**：
 
-- **限制用户同时登录最大数**：`SessionManager` 基于 Redis List 维护用户会话列表，新登录时检查 `max-concurrent`，超出则踢出最旧的会话（加入 Token 黑名单）
-- **记住我模式**：登录接口接收 `rememberMe` 参数，为 `true` 时使用 `remember-me-expire` 作为 Token TTL，否则使用 `access-token-expire`
-- **匿名认证**：配合 common-security 的 `@Anonymous` 注解，网关扫描注解 + yml 白名单双重控制匿名访问
+- **多端会话**：`DeviceSessionService` 在 Redis 维护设备列表，登录时按 `max-devices` 踢出最旧设备；`DELETE /api/auth/devices/{deviceId}` 支持主动下线
+- **记住我**：由 Sa-Token `active-timeout` 控制 7 天活跃续期，不再使用独立双 Token
+- **匿名访问**：网关白名单由 `GatewayJwtProperties#paths` 管理；服务内 `@Anonymous` + `litisle.security.anonymous.paths` 作为本地兜底
 
 ### 2.3.2 litisle-user（用户服务）
 
@@ -415,38 +379,66 @@ openId 不会被"已注销"记录占位，同一个微信/QQ 可以随时重新�
 
 ```
 litisle-content
-├── controller/        # ArticleController / BookController / DraftController
-├── service/           # ArticleService / BookService / DraftService / FeedService
-├── mapper/            # ArticleMapper / BookMapper
+├── controller/        # ArticleController / ArticlePublishController / BookController / DraftController
+│                      # / FavoriteController / FeedController / LikeController / ReadingHistoryController / TagController
+│   └── feign/         # ContentFeignProviderController（review 回查正文/配图反查）
+├── service/           # ArticleService / ArticlePublishService / BookService / DraftService / FavoriteService
+│                      # / FeedService / FeedStreamService（无限刷） / FeedFeedbackService（负反馈）
+│                      # / LikeService（点赞） / ReadingHistoryService / TagService / ContentInternalService
+│   ├── impl/          # 实现类（事务边界与 CAS 收口）
+│   └── support/       # FeedHotRankSupport / FeedScoreSupport（统一打分）/ FeedSnapshotSupport / FeedProfileSupport
+│                      # / FeedExposureSupport / FeedFeedbackSupport / PublishDraftSnapshotSupport / BookReadSupport
+│                      # / ViewCounterSupport / ReadingHistorySupport / FavoriteStateSupport 等
+├── support/           # FeedItemAssembler（卡片装配）/ FeedRateLimitSupport / LikeRateLimitSupport
+├── metrics/           # ContentMetrics（Counter + 对账差异 Gauge 统一打点）
+├── mapper/            # Article / Book / Draft / Image / Tag / BookChapter / ReadingHistory / Favorite / EventOutbox
+│                      # / UserLike / ArticleStat / BookStat / ContentStatWindow / BookReadQuality
+│                      # / FeedFeedback / FeedExposureDaily / ContentStatReconcile
 ├── domain/
-│   ├── entity/        # Article / Book / ArticleDraft / BookChapter / ArticleImage
-│   ├── dto/           # ArticleCreateDTO / DraftSaveDTO
-│   └── vo/            # ArticleDetailVO / BookCardVO
-├── enums/             # （本服务无私有枚举，使用 api 共享）
-├── constant/          # ContentBizConstant（推荐流长度等；切片字数上限已归 review 侧 llm.max-text-chars）
-├── mq/                # ContentEventProducer（submitted/published/unpublished）
-└── config/            # ContentConfig
+│   ├── entity/        # Article / Book / ArticleDraft / BookChapter / ArticleImage / ArticleTag / Tag
+│   │                  # / Favorite / ReadingHistory / EventOutbox / UserLike / ArticleStat / BookStat
+│   │                  # / ContentStatWindow / BookReadQuality / FeedFeedback / FeedExposureDaily
+│   ├── dto/           # ArticlePublishDTO / ArticleUpdateDTO / DraftSaveDTO / BookChapterReorderDTO
+│   │                  # / FeedQuery / FeedFeedbackDTO / FeedSnapshot / FeedProfile
+│   └── vo/            # ArticleDetailVO / BookCardVO / BookChapterDetailVO / FeedItemVO
+│   ├── statemachine/  # ArticleStateMachine
+│   └── router/        # ZoneRouter
+├── enums/             # Article/Visibility/Zone/BookStatus/Align/TagStatus/ArticleCategory/FavoriteTargetType/FeedFeedbackType
+├── constant/          # ContentBizConstant / FeedConstant / ContentLimitConstant
+├── mq/                # ContentEventProducer（九发送方法统一收口 + outbox 必达）
+│   └── consumer/      # ModerationResultConsumer / ModerationAppealResultConsumer / UserBannedConsumer
+├── cache/             # FollowRelationCache / UnpublishedCacheCleaner
+├── dfa/               # ContentDfaConfig / ContentLastHashRedisAdapter / ContentRedisWordLibraryLoader / WordlibChangeSubscriber
+├── utils/             # ArticleHtmlSanitizer / ContentLengthGuard / LogSanitizeUtil
+├── job/               # FeedHotRankRefillJob / ViewCountFlushJob / TagCountReconcileJob / ArticleScheduledPublishJob
+│                      # / EventOutboxResendJob / ContentStatWindowJob / ContentStatReconcileJob
+│                      # / BookReadQualityJob / FeedExposureCleanupJob
+└── config/            # ContentProperties / ContentRabbitConfig / SaTokenWebConfig
 ```
 
 | 项       | 内容                                                         |
 | -------- | ------------------------------------------------------------ |
-| 主要职责 | 文章/书籍/合集/草稿、分区(普通/作家/推荐流)、图片插入与对齐、大篇幅送审（切片/聚合收口 review 消费端） |
-| 核心功能 | 草稿自动保存；图片任意位置插入+5 种对齐；分区互斥；普通→作家升级申请；合集章节目录+阅读历史；章节批量重排（批次5 2026-11-02：PUT /book/{id}/chapters/reorder 全量提交新序 1..N，两阶段偏移解 uk(book_id,chapter_no) 冲突，整单校验+book 粒度分布式锁，下架书拒重排）；送审仅发单条 `content.submitted`（事件体不含正文，切片禁静默截断由 review 侧兑底）；定时发布（项2 2026-11-02）：草稿态文章可设 `scheduled_publish_time`（PUT /article/{id}，仅 status=0，置 NULL 取消），`ArticleScheduledPublishJob` 每 1min 扫描到点草稿复用批量送审链路（CAS 0→1 幂等防重），发布/失败均清定时字段（失败 warn 留痕不静默，作者在"我的文章"可见） |
-| 关键组件 | `ArticleService`、`BookService`、`CollectionService`、`DraftService`、`ZoneRouter`、`ContentEventProducer`、`FeedService`、`FavoriteService` |
-| 数据模型 | `article`、`article_image`、`article_draft`、`book`、`book_chapter`、`reading_history`、`favorite`（一期收藏临时承载） |
+| 主要职责 | 文章/书籍/合集/草稿、分区(普通/作家；**推荐流分区已于阶段12取消，推荐流是 zone1/2 的聚合视图**)、图片插入与对齐、大篇幅送审（切片/聚合收口 review 消费端）、单层收藏（一期临时承载）、**点赞（11.8）**、**推荐流无限刷与负反馈** |
+| 核心功能 | 草稿自动保存；图片任意位置插入+5 种对齐；分区互斥；普通→作家升级申请；合集章节目录+阅读历史；章节批量重排（批次5 2026-11-02）；送审仅发单条 `content.submitted`（事件体不含正文，切片禁静默截断由 review 侧兜底）；定时发布（项2 2026-11-02）：草稿态可设 `scheduled_publish_time`，`ArticleScheduledPublishJob` 每 1min 扫描到点草稿复用批量送审链路（CAS 0→1 幂等防重）；**批次十/十一新增**：文章流/书籍流两条无限刷（游标+快照代次分页、四路 DB 召回、七项权重融合打分、探索位+打散、冷启动、匿名 `X-Anon-Id` 可刷与频控）；点赞/取消（`user_like` 幂等、作者禁赞、计数原子增减带下限）；负反馈三维度（不感兴趣/屏蔽作者/屏蔽分类，支持撤销）；曝光批量落库与点击归因（`from`/`snapshotId`/`position`）；统计真源 `article_stat`/`book_stat` + 30/90 天窗口 + 每日对账 |
+| 关键组件 | `ArticleService`、`BookService`、`DraftService`、`ZoneRouter`、`ContentEventProducer`、`FeedService`、`FeedStreamService`、`FeedFeedbackService`、`LikeService`、`FavoriteService`、`FeedScoreSupport`、`FeedSnapshotSupport`、`ContentMetrics`（合集由 `BookService` 承载，无独立 CollectionService） |
+| 数据模型 | `litisle_content` **17 张表**：`article`、`article_image`、`article_draft`、`book`、`book_chapter`、`reading_history`、`tag`、`article_tag`、`favorite`、`event_outbox`、`article_stat`、`book_stat`、`content_stat_window`、`user_like`、`feed_exposure_daily`、`feed_feedback`、`book_read_quality` |
 | 章节阅读编排（阶段17） | BookService 三读方法（getDetail/pageChapters/getChapterDetail）：visibilities 按查看者计算（作者全可见/匿名仅公开/关注者回查降级），章节正文复用文章判定链，BookReadSupport 承接浏览计数+书籍历史（fail-safe）；出参 BookDetailVO（首尾章+lastRead*+favorited）/ BookChapterDetailVO（prev/next 导航） |
-| 外部依赖 | MyBatis-Plus、Redis、litisle-file、litisle-api(AI/Review/User Feign)、MQ |
-| API      | `POST /content/article`、`PUT /content/article/{id}`、`POST /content/draft/save`、`POST /content/book`、`GET /content/feed`、`POST /content/upgrade-apply` |
-| 流程     | 发布：校验+落库（CAS 0/3→1）→ afterCommit 发单条 `content.submitted`（切片/聚合收口 review 消费端）→ `moderation.result` 事件驱动回写状态 → 已发布/驳回 |
-| 错误处理 | 草稿保存幂等；切片失败重试不静默截断（review 消费端兑底）；分区冲突拒绝；正文长度硬上限 256KB（应用层兜底拦截，错误码 CONTENT_TOO_LONG=30018，发布/建档/编辑/草稿保存四路收口，超限提示拆分书籍章节）；定时发布到点送审失败不重试（清定时字段+warn 日志，文章停留草稿态待作者处理）                     |
-| 安全     | 作家分区跳 DFA 全量人工；图片走 file 鉴权                    |
-| 性能     | 推荐流预计算+缓存；正文大字段延迟加载；切片并行(线程池)      |
+| 外部依赖 | MyBatis-Plus、Redis、litisle-file、litisle-api(AI/Review/User Feign)、MQ（含本地 outbox 必达）、spring-boot-starter-actuator + micrometer-registry-prometheus |
+| API      | `POST /api/content/article`、`PUT /api/content/article/{id}`、`POST /api/content/draft/save`、`POST /api/content/book`、`GET /api/content/feed`、`GET /api/content/feed/articles`、`GET /api/content/feed/books`、`POST|DELETE /api/content/feed/feedback`、`POST|DELETE /api/content/like`、`PUT /api/content/reading-history`（统一 `/api/content/*` 前缀；分区升级申请属 user 侧，不在 content） |
+| 流程     | 发布：校验+落库（CAS 0/3→1）→ afterCommit 发单条 `content.submitted`（切片/聚合收口 review 消费端）→ `moderation.result` 事件驱动回写状态 → 已发布/驳回；推荐流：身份(u/a)+流类型 → 画像（未命中回源）→ 四路召回 → 融合打分 → 探索/打散 → 建快照（代次 INCR）→ 翻页按游标切片（当日曝光 Set + 负反馈过滤）→ 曝光异步落库 |
+| 错误处理 | 草稿保存幂等；切片失败重试不静默截断（review 消费端兜底）；分区冲突拒绝；正文长度硬上限 256KB（错误码 CONTENT_TOO_LONG=30018，发布/建档/编辑/草稿保存四路收口）；定时发布到点送审失败不重试（清定时字段+warn 日志）；**点赞错误码** 40002 ALREADY_LIKED / 40004 LIKE_TARGET_NOT_VISIBLE / 40005 LIKE_SELF_FORBIDDEN；统计落后不报错，靠 `ContentStatReconcileJob` + `litisle_content_stat_reconcile_diff` Gauge 发现                     |
+| 安全     | 作家分区跳 DFA 全量人工；图片走 file 鉴权；点赞/负反馈必须登录，重复点赞幂等，作者不可自赞                    |
+| 性能     | 推荐流快照+游标切片（翻页不重算召回）；正文大字段延迟加载；曝光与历史落库 fail-safe 不阻断主链路；热度榜增量灌榜（水位按 `stat_update_time`） |
 
 
 
 
 
 ### 2.3.4 litisle-social（社交服务）
+
+> **现状（2026-11 核对）**：`litisle-social` 目前只有启动类骨架（`LitisleSocialApplication`），本节为**规划设计，尚未落地**。一期点赞/收藏暂由 content 承载（`user_like` / `favorite`），后续迁移计划见 [temporarily-04-deferred.md](../next/temporarily/temporarily-04-deferred.md)「点赞与收藏迁入 social 模块」。
+>
+> **迁移口径（2026-11-07 已确认）**：本批只迁点赞与收藏（行为不变、位置改变），骨架一次建齐（库 / 模块 / Feign 契约 / 监控接入 / 双写切读开关）；后续功能按 关注 → 评论 → 私信 单独排期。计数真源留在 content（`article_stat` / `book_stat` / `content_stat_window`），social 只做互动真源；互动提交后经 outbox 调 `ContentClient#updateCounters` 以绝对值回写，30/90 天窗口聚合在 social 计算后回写 `content_stat_window`，不建长期影子表（灰度期临时影子表终态删除）。旧接口 `/api/content/like`、`/api/content/favorite` 按「连续 30 天零调用」下线，不按时间。
 
 ```
 litisle-social
@@ -469,13 +461,13 @@ litisle-social
 | 主要职责 | 关注/点赞/评论(三级折叠)/收藏夹(一期 content favorite 临时承载单层收藏，立项后迁移/合并)/佳句佳段收藏/私信(陌生人3条限制+确认机制) |
 | 核心功能 | 关注上限(500/2000)；点赞防重+计数；评论三级；收藏分组；佳句带出处+备注；私信关系策略(互关/单向/陌生人/关闭) |
 | 关键组件 | `FollowService`、`LikeService`、`CommentService`、`FavoriteService`、`QuoteFavoriteService`、`MessageService`、`StrangerQuotaService`、`MessageConfirmService` |
-| 数据模型 | `follow`、`like_record`、`comment`、`favorite_folder`、`favorite_item`、`quote_favorite`、`conversation`、`message`、`message_blacklist`、`message_setting` |
+| 数据模型 | `follow`、`like_record`、`comment`、`favorite_folder`、`favorite_item`、`quote_favorite`、`conversation`、`message`、`message_blacklist`、`message_setting`（一期 `user_like` / `favorite` 自 content 同构迁入，收藏夹完整版落地时再与 `like_record` / `favorite_item` 合并） |
 | 外部依赖 | Redis、Redisson、MQ、litisle-api(User/Content Feign)、litisle-common(DFA+小审私信) |
-| API      | `POST /social/follow`、`POST /social/like`、`POST /social/comment`、`POST /social/favorite`、`POST /social/quote`、`POST /social/message/send`、`POST /social/message/confirm` |
+| API      | `POST /api/social/follow`、`POST /api/social/like`、`POST /api/social/comment`、`POST /api/social/favorite`、`POST /api/social/quote`、`POST /api/social/message/send`、`POST /api/social/message/confirm`（前缀与网关 `Path=/api/social/**` 路由一致） |
 | 流程     | 陌生人发首条：校验 quota→发(1/3)→DFA+小审→对方收通知[确认/忽略/拉黑]→确认建通道/忽略不可续/拉黑永久禁 |
 | 错误处理 | quota 用尽提示；被拉黑提示"对方已关闭私信"；点赞幂等         |
 | 安全     | 私信实时过 DFA+骚扰检测；评论走审核链路；佳句备注≤200 字     |
-| 性能     | 关注/点赞纯 Redis；计数 String incr；私信长连接走 notification |
+| 性能     | 关注/点赞状态纯 Redis；计数真源在 content（social 不维护计数镜像，互动提交后经 outbox 绝对值回写）；私信长连接走 notification |
 
 ### 2.3.5 litisle-review（审核服务）
 
@@ -613,31 +605,41 @@ litisle-shop
 
 ```
 litisle-search
-├── controller/        # SearchController / SimilarController
-├── service/           # SearchService / VectorService / KnnRecommender
+├── controller/        # SearchController / SimilarController / SearchHistoryController / VectorRebuildAdminController
+│   └── feign/         # SearchFeignProviderController（implements SearchClient）
+├── service/           # SearchService / SuggestService / SimilarService / SearchHistoryService
+│                      # / VectorService / VectorRebuildService / ArticleIndexService / BookIndexService
+│                      # / UserIndexService / ArticleChunkService / HeatPendingService / HotQueryCacheService
+│                      # / ArticleTombstoneService（下架墓碑）
+│   ├── impl/          # 实现类（门控/幂等/乱序防御）
+│   └── support/       # IndexVersionGuard（索引版本防错位）
 ├── domain/
-│   ├── entity/        # （无 MySQL 实体，ES 索引文档）
-│   ├── dto/           # SearchRequestDTO
-│   └── vo/            # SearchResultVO / ArticleDocVO / BookDocVO / UserDocVO
+│   ├── entity/        # ArticleIndexDoc / ArticleHeatDoc / ArticleMetaDoc / BookIndexDoc / UserIndexDoc
+│   │                  # / ArticleChunkDoc（ES 文档）+ SearchHistory（唯一 MySQL 实体）
+│   └── vo/            # SearchHistoryVO / VectorRebuildResultVO（契约出入参在 litisle-api）
+├── mapper/            # SearchHistoryMapper（唯一 MySQL 表 litisle_search.search_history）
 ├── enums/             # SearchSortEnum / SearchTypeEnum
-├── constant/          # SearchBizConstant（索引名称、权重配置等）
-├── es/                # ElasticsearchClient 配置
-├── mq/                # IndexSyncConsumer
-└── config/            # SearchConfig
+├── constant/          # SearchBizConstant（队列/交换机命名、PUBLIC 闸门、ES 字段名、热度 pending 键前缀）
+├── es/                # ElasticsearchConfig / EsIndexInitializer（四索引幂等创建）
+├── mq/                # SearchMqConfig（十同步队列 + DLX/DLQ + 延迟交换机）
+│   └── consumer/      # IndexSyncConsumer / HeatEventConsumer / IndexDlqConsumer
+├── metrics/           # SearchMetrics（检索/降级/DLQ/热度刷写/积压 gauge）
+├── job/               # IndexHeatFlushJob / IndexBacklogCollectJob / HotQueryCacheEvictJob
+└── config/            # SearchProperties（prefix litisle.search.*）
 ```
 
 | 项       | 内容                                                         |
 | -------- | ------------------------------------------------------------ |
-| 主要职责 | ES 索引同步、文章/书籍/用户多维度检索、dense_vector KNN 相似推荐、分类筛选 |
-| 核心功能 | 标题(最高权重)→标签→摘要→全文；用户笔名模糊；相似推荐=标签重合+向量+行为加权 |
-| 关键组件 | `IndexSyncConsumer`(MQ)、`SearchService`、`VectorService`、`KnnRecommender` |
-| 数据模型 | ES 索引：`article_idx`(title^4,tags^3,summary^2,content,vec_dense)、`book_idx`、`user_idx`（无 MySQL 表） |
-| 外部依赖 | Elasticsearch 8.18、MQ、litisle-api                          |
-| API      | `GET /search?q=&type=&sort=`、`GET /search/similar/{articleId}` |
-| 流程     | 收 `content.published`/`social.liked` → 增量更新索引与热度向量 → 查询走 bool+function_score |
-| 错误处理 | ES 不可用降级查 DB；索引失败入 DLQ 重试                      |
-| 安全     | 查询参数转义防注入                                           |
-| 性能     | 索引异步；向量预计算；热点查询缓存                           |
+| 主要职责 | ES 索引同步（文章/书籍/用户三类）、全文/多维度检索、联想、搜索历史、dense_vector KNN 相似推荐、索引版本守卫与下架墓碑、热度回写 |
+| 核心功能 | 标题(最高权重)→标签→摘要→全文；用户笔名模糊；相似推荐=标签重合+向量+行为加权；**联想**（completion+prefix，标签复用 content 接口）；**搜索历史**（同词幂等、上限懒删、关键词不入 ES）；**索引同步**：文本事件幂等 upsert/删 + 乱序版本门控 + 墓碑防回灌；互动事件只累加 Redis 热度待刷新键，定时 `_bulk` 重算 heat（取消点赞负数累加 + 下限保护） |
+| 关键组件 | `IndexSyncConsumer` / `HeatEventConsumer` / `IndexDlqConsumer`（MQ）、`SearchService`、`SuggestService`、`SimilarService`、`VectorService`、`HeatPendingService`、`IndexVersionGuard`、`ArticleTombstoneService`、`SearchMetrics` |
+| 数据模型 | ES 索引：`article_idx`(title^4,tags^3,summary^2,content,vec_dense,suggest)、`book_idx`、`user_idx`、`article_chunks`（RAG）；MySQL：`litisle_search.search_history`（唯一自有表） |
+| 外部依赖 | Elasticsearch 8.18、MQ、Redis（热度 pending/热点缓存）、litisle-api、actuator + micrometer-registry-prometheus |
+| API      | `GET /api/search?q=&type=&sort=`、`GET /api/search/suggest?q=`、`GET /api/search/similar/{articleId}`、`GET|DELETE /api/search/history` |
+| 流程     | 收 `content.published` → 回查+版本门控 → Embedding → upsert `article_idx` + 摄入 chunks；`content.unpublished` → 删文档+旧块+落墓碑；`social.liked/unliked/commented`、`content.view-count-flushed` → Redis 热度键增量 → 定时 `_bulk` 重算 heat → 查询走 bool+function_score |
+| 错误处理 | 降级为返回 content 热门列表（`/api/content/article/hot` 同源，`source=DEGRADED` 不缓存），降级开关关闭或热门获取失败抛 `SEARCH_ES_UNAVAILABLE`(100004)；索引同步失败按指数退避延迟重投（baseDelayMs×2^n，超 `retry.max-count`=5 入 DLQ），死信按队列名路由并计数告警 |
+| 安全     | 查询参数转义防 ES 注入；强制 filter `visibility=PUBLIC`；search 只存 ES 投影不回写业务数据                    |
+| 性能     | 索引异步；向量预计算；热点查询缓存（脏标记合并失效）；热度刷写按 `batch-size`×`concurrency` 分片；查询超时与分页窗口上限（10000） |
 
 ### 2.3.10 litisle-notification（通知服务）
 
@@ -699,7 +701,11 @@ litisle-notification
 | `content.submitted`      | content          | review                                    |
 | `content.published`      | content          | search、notification、ai(RAG 摄入)        |
 | `content.unpublished`    | content          | search、ai(RAG 移除向量)；覆盖删除/转私密/复审驳回下架/封禁连带下架 |
-| `social.liked/commented` | social           | notification、search(热度)                |
+| `content.article-updated` | content          | search（仅更新元数据，不动向量与 chunks；批次五 B3） |
+| `content.view-count-flushed` | content       | search（浏览量绝对值覆盖写热度键；批次B B7） |
+| `content.book-changed`   | content          | search（`book_idx` upsert；批次五 B4）    |
+| `social.liked / social.unliked / social.commented` | **content（点赞/取消点赞，11.8 收进 content）**；social（评论） | notification、search(热度；unliked 按负数累加并做 0 下限保护，11.14) |
+| `user.registered / user.profile-updated` | user    | search（`user_idx` upsert；批次五 B5）     |
 | `moderation.result`      | review           | content(自筛 bizType)、notification、file(仅 bizType=6) |
 | `moderation.appeal.result` | review         | content(自筛 bizType=1)、评论模块(自筛 bizType=2) |
 | `payment.rewarded`       | payment          | notification                              |
@@ -708,7 +714,7 @@ litisle-notification
 | `user.banned`            | user（review 仅发 punish.result） | content(下架)、social(禁言)、ai(封禁会话) |
 | `sensitiveword.updated`  | review(运营后台) | 全服务(订阅刷新本地 DFA)                  |
 
-> 事件必达兜底（本地 outbox，content 批次3 2026-11-02）：content 侧 ContentEventProducer 四类事件（submitted/published/unpublished/image.submit）发送前先落 `event_outbox` 表（发送前崩溃/发送失败两类丢失有重发兜底，EventOutboxResendJob 定时补发，超限放弃留痕），消费端按 eventId 幂等去重，重发无副作用；其余服务事件仍为尽力而为（失败自然兜底路径各异），后续按需复用同款 outbox 模式。
+> 事件必达兜底（本地 outbox，content 批次3 2026-11-02，批次十一扩容）：content 侧 `ContentEventProducer` 目前共 **9 个发送方法**（submitted / published / unpublished / image.submit / article-updated / view-count-flushed / book-changed / social.liked / social.unliked），发送前先落 `event_outbox` 表（发送前崩溃/发送失败两类丢失有重发兜底，`EventOutboxResendJob` 定时补发，超限放弃留痕），消费端按 eventId 幂等去重，重发无副作用；其余服务事件仍为尽力而为，后续按需复用同款 outbox 模式。
 
 ---
 
@@ -738,7 +744,7 @@ litisle-notification
 
 - **同步**：Feign + FallbackFactory + 超时 + Sentinel。
 - **异步**：MQ + 幂等(biz_id) + DLQ + 重试退避。
-- **上下文**：Gateway 注入 `X-User-Id/X-Roles`，common 的 `FeignAuthInterceptor` 透传，业务用 `SecurityContext` 读取。
+- **上下文**：Gateway 注入 `X-User-Id/X-Roles`，common 的 `FeignAuthInterceptor` 透传；业务侧当前用户由 `StpUtil` / `SaTokenUserIdResolver` 获取（不再有 ThreadLocal SecurityContext）。
 - **事务**：单服务本地事务；跨服务仅积分商城用 Seata AT（shop 发起全局事务，payment 参与 AT 分支）；其余最终一致 + 对账。
 
 ---
@@ -896,7 +902,7 @@ Master×3 (Raft HA)  ←  Volume Server×3  ←  Filer×1 (S3 API + 路径)  ←
 
 ---
 
-## 文章存储设计
+## 2.8 文章存储设计
 
 
 
@@ -958,17 +964,17 @@ Master×3 (Raft HA)  ←  Volume Server×3  ←  Filer×1 (S3 API + 路径)  ←
 
 #### 二、文章正文中的图片存储方案
 
-### 2.1 核心问题
+### 2.8.1 核心问题
 
 > 富文本编辑器中，图片可以插入在正文的**任意位置**（段落之间、文字中间），且支持 **5 种对齐方式**。如何存储才能保证图片位置不丢失、对齐方式可还原？
 
-### 2.2 整体方案
+### 2.8.2 整体方案
 
 > **SeaweedFS 存文件 + MySQL `article_image` 表存元数据 + HTML 占位符嵌入**
 
 ---
 
-### 2.3 图片文件存储 → SeaweedFS
+### 2.8.3 图片文件存储 → SeaweedFS
 
 - 图片文件本体存储在 **SeaweedFS Volume Server** 中
 - 上传后获取 `file_id`（如 `3,01637037d6`）
@@ -976,7 +982,7 @@ Master×3 (Raft HA)  ←  Volume Server×3  ←  Filer×1 (S3 API + 路径)  ←
 
 ---
 
-### 2.4 图片位置与对齐 → MySQL `article_image` 表
+### 2.8.4 图片位置与对齐 → MySQL `article_image` 表
 
 #### 为什么独立建表，而不把对齐信息存 HTML 属性里？
 
@@ -1062,13 +1068,13 @@ Master×3 (Raft HA)  ←  Volume Server×3  ←  Filer×1 (S3 API + 路径)  ←
 
 ---
 
-### 三、汇总
+### 2.8.5 汇总
 
 
 
 ---
 
-#### 3.2 文章存储方案核心结论
+#### 2.8.5.1 文章存储方案核心结论
 
 | 问题                             | 结论                                                         |
 | -------------------------------- | ------------------------------------------------------------ |
@@ -1079,7 +1085,7 @@ Master×3 (Raft HA)  ←  Volume Server×3  ←  Filer×1 (S3 API + 路径)  ←
 
 ---
 
-### 四、文档整合建议
+### 2.8.6 文档整合建议
 
 > 你可以在以下位置补充上述设计思路：
 

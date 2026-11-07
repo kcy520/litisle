@@ -54,4 +54,10 @@ public class SocialLikedEvent implements Serializable {
 
     /** 互动发起用户 ID（点赞人；消费端按需留痕，不参与索引字段更新） */
     private Long bizUserId;
+
+    /**
+     * 点赞计数增量（批次十一 11.14：点赞事件固定 +1）：
+     * 消费端统一按本字段累加 article_idx.like_cnt，旧消息缺失时按 +1 兜底
+     */
+    private Integer delta;
 }
