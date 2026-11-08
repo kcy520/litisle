@@ -239,6 +239,7 @@ public class LikeServiceImpl implements LikeService {
      */
     private void publishLikeEventIfArticle(Long userId, FavoriteTargetTypeEnum type, Long targetId, int delta) {
         if (type == FavoriteTargetTypeEnum.ARTICLE) {
+            //发送点赞事件
             likeEventSupport.publishLikeEventAfterCommit(userId, targetId, delta);
         } else {
             log.debug("书籍点赞不发布索引事件（book_idx 无 likeCnt），userId={}, bookId={}, delta={}",

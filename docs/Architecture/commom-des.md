@@ -154,12 +154,18 @@ common-mq ❌ 不依赖 common-redis / common-security
 
 ### 3.2 分布式锁
 
-| 类                 | 说明                             | 生效方式 |
-| ----------------- | ------------------------------ | ---- |
-| `DistributedLock` | 分布式锁接口                         | 注入使用 |
-| `RedissonLock`    | Redisson 实现（可重入、watchdog 自动续期） | 注入使用 |
+| 类                 | 说明                                                                                                                                                                                                 | 生效方式 |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| `DistributedLock` | 分布式锁接口：三参 `tryLock(key,waitTime,unit)`（waitTime 内抢锁，租期 -1 启用看门狗）/ 四参 `tryLock(key,waitTime,leaseTime,unit)`（固定租期，到期自动释放、不续期；`leaseTime<=0` 或 `waitTime<0` 抛 `IllegalArgumentException`）/ `lock` / `unlock` | 注入使用 |
+| `RedissonLock`    | Redisson 实现（可重入；看门狗仅租期 -1 时启用，固定租期靠 TTL 自愈）                                                                                                                   | 注入使用 |
 
-**面试亮点**：基于 Redisson 的 `RLock`，支持可重入；watchdog 机制自动续期（默认 30s，每 10s 续一次）；业务执行完自动释放，避免死锁。
+**key 约定**：调用方必须传含 `lock:` 前缀的完整 key（工具内部不再拼前缀，`CacheConstant.LOCK_PREFIX` 仍保留供调用方拼接）；同一把锁的 `unlock` 必须与 `tryLock`/`lock` 传完全相同的 key。
+
+**waitTime 与租期**：三参重载的 `waitTime` 是「最多等待抢锁的时间」，不是租期，不会让锁自动释放；只有 `waitTime=0` 才是「抢不到立即返回 false」，`waitTime>0` 会阻塞等待。租期 -1 时由看门狗续期（默认 30s，约每 10s 续一次），需显式 `unlock` 才释放；需要「到期自动放锁」的场景改用四参固定租期重载。
+
+**unlock 异常留痕（不静默吞异常）**：当前线程未持有锁 → warn 后跳过；`IllegalMonitorStateException`（跨线程/重复释放）→ warn 忽略；其他异常（如 Redis 不可用）→ error 记录 key/线程/异常类型，便于排查残留锁。
+
+**面试亮点**：基于 Redisson 的 `RLock`，支持可重入；看门狗只在租期 -1 时生效；锁必须显式 `unlock`（或固定租期到期）才释放，不存在「业务执行完自动释放」的隐式行为，避免误判死锁处理。
 
 ### 3.3 布隆过滤器
 
@@ -431,6 +437,8 @@ sa-token:
 **透传的 Header 列表**：`X-User-Id`、`X-Username`、`X-Roles`、`X-Permissions`、`Authorization`、`X-Trace-Id`
 
 **实现方式**：通过 Sa-Token 的 `StpUtil` API 获取用户信息（`StpUtil.getLoginId()`、`StpUtil.getRoleList()`、`StpUtil.getPermissionList()` 等），替代原 `SecurityContextHolder`。
+
+**非 Web 线程降级**：MQ 消费、定时任务等线程没有 SaToken 上下文，拦截器不再抛异常，而是降级为只透传 `X-Trace-Id`；HTTP 请求线程逻辑不变（仍透传 userId/roles/permissions/token/traceId）。这样 MQ 消费中的 Feign 回查不会因「未登录」阻断消费，也不会伪造用户身份。
 
 ### 4.4 审计日志
 
@@ -946,7 +954,7 @@ logging:
 | `CommonMqAutoConfiguration` | Jackson2JsonMessageConverter（事件体 JSON 统一口径，禁 Java 原生反序列化）+ RabbitTemplate 定制 | `AutoConfiguration.imports` 自动 |
 | `MqSendUtil`                | 两档发送语义 + traceId 注入 Header                                                   | 手动调用                           |
 | `MqTraceSupport`            | 消费侧 traceId 恢复/清理                                                            | 手动调用（restore/clear）            |
-| `MqAckHelper`               | 手动 ACK 模板（SSOT，防毒丸）                                                          | 手动调用                           |
+| `MqAckHelper`               | 手动 ACK/重试模板（`executeWithAck` / `executeWithRetry`，SSOT，防毒丸）                     | 手动调用                           |
 | `MqIdempotentHelper`        | SETNX 幂等消费辅助（预置工具）                                                           | 自动 Bean（可选）                    |
 | `MqMetrics`                 | mq\_send\_total / mq\_consume\_total 埋点（预置工具）                                | 自动 Bean（可选）                    |
 
@@ -961,11 +969,15 @@ logging:
 
 ### 11.4 MqAckHelper ACK 纪律（SSOT）
 
+> 下表以 `executeWithAck` 为例；`executeWithRetry` 对非 `BizException` 的差异见本节末尾。
+
 | 分支             | 处理                                  | 理由                                                                                         |
 | -------------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
 | 业务成功           | `basicAck(tag, false)`              | 正常确认                                                                                       |
 | `BizException` | warn 后 ack 丢弃                       | 重试无意义，重投即毒丸                                                                                |
 | 其他 Exception   | error 后 `nack(requeue=false)` 入 DLQ | 环境故障交 DLQ 兑底；Jackson 失败的 `MessageConversionException` 也走此路径——改动 catch 结构前必读类头【毒丸防护·隐式依赖路径】 |
+
+**两条模板的差异（业务方选异常类型的关键约束）**：`executeWithAck` 对其他 Exception 直接 nack 入 DLQ；`executeWithRetry` 对其他 Exception 先按 `baseDelayMs × 2^n` 指数退避延迟重投，重投失败或重试耗尽才 nack 入 DLQ。两者对 `BizException` 都是 warn 后 ack 丢弃。因此可重试的环境类异常**不能**抛成 `BizException`，否则会被当作业务性失败直接丢弃、不会进入重试。
 
 标准用法：`MqTraceSupport.restore(message)` → `try { MqAckHelper.executeWithAck(...) } finally { MqTraceSupport.clear() }`
 

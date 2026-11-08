@@ -3,6 +3,7 @@ package com.litisle.litislefile.task;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.exception.BizException;
+import com.litisle.commonredis.constant.CacheConstant;
 import com.litisle.commonredis.lock.DistributedLock;
 import com.litisle.litislefile.client.SeaweedFsClient;
 import com.litisle.litislefile.config.FileProperties;
@@ -46,8 +47,8 @@ public class FileReconcileTask {
     /** 每日 02:00 触发；可用配置 litisle.file.reconcile-task.cron 覆盖 */
     private static final String CRON_DAILY_2AM = "${litisle.file.reconcile-task.cron:0 0 2 * * ?}";
 
-    /** 多实例互斥锁 key（RedissonLock 追加 lock: 前缀，与 file:sha: 风格统一） */
-    private static final String LOCK_KEY = "file:reconcile";
+    /** 多实例互斥锁 key（调用方自带 lock: 全名前缀，工具不再补前缀） */
+    private static final String LOCK_KEY = CacheConstant.LOCK_PREFIX + "file:reconcile";
 
     // 对账阈值参数已外置到 yml/Nacos：litisle.file.reconcile-task.compensate-threshold-minutes / physical-clean-delay-days
     // （原 COMPENSATE_THRESHOLD_MINUTES / PHYSICAL_CLEAN_DELAY_DAYS 私有常量随外置移除，改经 FileProperties.getReconcileTask() 读取）

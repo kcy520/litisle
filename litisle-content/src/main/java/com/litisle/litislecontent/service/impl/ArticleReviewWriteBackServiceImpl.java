@@ -250,18 +250,42 @@ public class ArticleReviewWriteBackServiceImpl implements ArticleReviewWriteBack
         }
         // 步骤4.5：改判前先回查作者的处罚状态（[8.1] 查不到/查失败不放行）——防止晚到的申诉
         // 把"封禁连带下架"的文章翻回发布（封禁后还恢复曝光属于治理漏洞；review 裁决端已有源头校验，这里是双保险）。
-        // 回查出错时把异常往外抛，交给 MQ 延迟重试（不允许静默吞错）
+        //
+        // 为什么"非成功即不放行"：处罚态是改判的前置闸门，回查拿不到确定结论（网络异常、业务码非 0、
+        // data 为空）就等于"无法证明作者未被封禁"；此时若继续走改判，等于对封禁用户静默放行，
+        // 所以宁可整单延迟重试，也不做任何改判写入。
+        //
+        // 为什么用抛异常而不是直接 return：return 会被 MqAckHelper.executeWithRetry 当作业务成功 ack 丢弃，
+        // 这条申诉结论就永久丢失；只有抛非 BizException（此处用 IllegalStateException）才会落入
+        // MqAckHelper 的 catch (Exception) 分支，走指数退避延迟重投，重试耗尽后 nack 进 DLQ 转人审，
+        // 全程不会被静默 ack。
+        Result<PunishStatusDTO> punishResult;
         try {
-            Result<PunishStatusDTO> punishResult = reviewClient.getPunishStatus(article.getAuthorId());
-            if (punishResult != null && punishResult.isSuccess() && punishResult.getData() != null
-                    && Boolean.TRUE.equals(punishResult.getData().getBanned())) {
-                log.warn("[3-5] 作者处罚封禁中，拒绝申诉改判：articleId={} authorId={}",
-                        articleId, article.getAuthorId());
-                return;
-            }
+            // 调 review 服务回查作者处罚态（MQ 消费线程无 SaToken 会话，由 FeignAuthInterceptor 仅透传 traceId）
+            punishResult = reviewClient.getPunishStatus(article.getAuthorId());
         } catch (Exception e) {
-            log.error("[3-5] 封禁态回查失败（不放行，交延迟重试），articleId={}", articleId, e);
+            // 网络超时/服务不可用等调用异常：记日志后原样抛出，交 MQ 延迟重试（不catch成静默）
+            log.error("[3-5] 封禁态回查异常（不放行，交延迟重试），articleId={} userId={}",
+                    articleId, article.getAuthorId(), e);
             throw e;
+        }
+        // 调用通了但结果不可用（业务码非 0 / data 缺失）：同样不放行，抛异常交重试
+        if (punishResult == null || !punishResult.isSuccess() || punishResult.getData() == null) {
+            // 记录 userId / 业务码 / 消息，便于从日志直接判断是鉴权失败、限流还是服务端异常
+            log.error("[3-5] 封禁态回查结果不可用（不放行，交延迟重试），articleId={} userId={} code={} message={}",
+                    articleId, article.getAuthorId(),
+                    punishResult == null ? "null" : punishResult.getCode(),
+                    punishResult == null ? "null" : punishResult.getMessage());
+            // 抛非 BizException：命中 MqAckHelper 的 catch (Exception) 重试分支，避免被当成业务性失败 ack 丢弃
+            throw new IllegalStateException("封禁态回查结果不可用，articleId=" + articleId
+                    + "，userId=" + article.getAuthorId()
+                    + "，code=" + (punishResult == null ? "null" : punishResult.getCode()));
+        }
+        // 只有回查明确成功才继续原判定：封禁中拒绝改判，未封禁正常放行
+        if (Boolean.TRUE.equals(punishResult.getData().getBanned())) {
+            log.warn("[3-5] 作者处罚封禁中，拒绝申诉改判：articleId={} authorId={}",
+                    articleId, article.getAuthorId());
+            return;
         }
         // 步骤5：带条件的两向恢复（[8.1] 只允许两种：3→2 首发驳回恢复 / 4→2 下架恢复，仅申诉触发，对齐 §2.3 状态机）
         // 5.1 首发 3→2

@@ -281,7 +281,7 @@ file_ref 为纯计数登记不伤数据（隔离图到期软删时调用，恢�
 1. **上传安全**：大小限制（双层）+ MIME 白名单 + **魔数校验**（FileMagicValidator 只读文件头，防伪造 Content-Type）+ 登录态校验
 2. **私有文件**：LICENSE 类强制 PRIVATE，仅预签名短时效 URL 可访问（默认 30 分钟）
 3. **软删除（方案C）**：删除=解除 file_ref 引用；无活跃引用才 `del_flag=1`；file_ref 有 uk_ref 唯一索引保证 bindRef 并发幂等
-4. **去重并发**：SHA256 秒传查询与写入间用分布式锁（Redisson，看门狗续期）双重检查防并发重复上传
+4. **去重并发**：SHA256 秒传查询与写入间用分布式锁（Redisson；key 为 `lock:file:sha:{hash}`，三参 `tryLock` 的 5s 是 waitTime、租期 -1 启用看门狗）双重检查防并发重复上传
 5. **存储配额**：per-user 总容量/文件数限制，锁内校验，秒传不占配额（软限模型，见 next_update.md）
 6. **限流三层**：@RateLimiter(USER) 单用户 → FileGlobalQpsInterceptor 全站 QPS → Sentinel 熔断（存储资源 + Feign 调用，规则外置 Nacos DEFAULT_GROUP，热更新）
 7. **Redis 故障降级**：RedisRateLimiter 走 Resilience4j CircuitBreaker 熔断（显式等价配置：窗口 3 次全失败即开；半开 1 个探测许可、自动转半开）+ LocalRateLimiter 本地兜底（配额分摊宁严勿松）；登录防爆破由 `@RateLimiter` 按 IP 限频，原 `LoginRetryLimiter`/`RedisGuard` 已删除（2026-11-07）

@@ -75,6 +75,7 @@ public class PublishDraftSnapshotSupport {
         } else {
             draft.setDraftVersion(nextVersion);
         }
+        
         // 步骤4：覆盖快照字段（null 字段语义与 DraftServiceImpl.save 一致：
         // 新增时由 DB 落默认值；更新时被 MP not_null 策略跳过=沿用草稿旧值，不误清已有分类/可见性）
         draft.setTitle(title)

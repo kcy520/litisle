@@ -1,5 +1,5 @@
-> **归档说明**：新建板块文件（批次九，2026-11-05 归档）——迁自 docs/next/next_update.md search 模块「批次九：收尾、验证与遗漏补齐」节，仅收录已完成部分：9.2 a/b、9.3、9.4-3、9.7、9.8 P0-E/P0-D、9.9 A~D 与 F；正文原样搬运（含 ✅ 摘要、偏差说明与待环境验证点）。
-> **来源**：[next_update.md](../../next/next_update.md) 批次九；未完成项（9.1、9.4-1/2、9.5、9.6、9.8 待拍板）仍在原文档；挂起项（9.2-c/d、9.8-P2、9.9-E/G/H）见 [temporarily-04-deferred.md](../../next/temporarily/temporarily-04-deferred.md)。
+> **归档说明**：新建板块文件（批次九，2026-11-05 归档）——迁自 docs/next/next_update.md search 模块「批次九：收尾、验证与遗漏补齐」节，仅收录已完成部分：9.2 a/b、9.3、9.4-3、9.7、9.8 P0-E/P0-D、9.9 A~D 与 F；正文原样搬运（含 ✅ 摘要、偏差说明与待环境验证点）。**2026-11-08 追加 9.6-B（search 的 TestNG 编译期依赖清理）**。
+> **来源**：[next_update.md](../../next/next_update.md) 批次九；未完成项（9.1、9.4-1/2、9.5、9.6-A、9.8-P1/P2）仍在原文档；挂起项（9.2-c/d、9.8-P2、9.9-E/G/H）见 [temporarily-04-deferred.md](../../next/temporarily/temporarily-04-deferred.md)。
 
 ## 板块十：批次九收尾已完成部分（2026-11-05 归档）
 
@@ -85,3 +85,14 @@
   - ✅ 2026-11-05：新增 `IndexBacklogCollectJob`（job 包）定时采集 3 个文章索引同步队列（published / unpublished / article-updated，队列名取 `MqConstant` 常量，无字面量）消息数，经 `AmqpAdmin#getQueueInfo(...).getMessageCount()` 写入 gauge `litisle_search_index_backlog{queue}`（`SearchMetrics#recordIndexBacklog`，数值载体按队列缓存，防同名 gauge 重复注册导致长期为 0）；采集间隔 `litisle.search.metrics.backlog-collect-interval-ms`（默认 15000）+ 首次延迟 `backlog-collect-initial-delay-ms`（默认 15000），`SearchProperties.Metrics` 与 application.yml 已同步并带中文注释；容错——单队列读取失败仅 WARN 跳过该队列、整体异常 try/catch 兜底不静默、采集跑在独立单线程执行器且 CAS 标记防重入（调度线程提交后立即返回，MQ 卡顿不阻塞热度刷写与缓存合并任务，fixedDelay 下不堆积）；本项编码/编译不依赖 ES/Redis/MQ 运行。
   - 遗留/待环境：① 指标需启动 search + RabbitMQ + Prometheus 后在 `/actuator/prometheus` 确认出现并随积压变化；② 按登记口径只采集 3 个文章队列，浏览量 / 社交互动 / 书籍 / 用户共 6 个队列是否纳入（追加 `BACKLOG_QUEUES` 常量即可）待确认；③ 告警规则（>20 + for 5m）尚未加入 `alert-rules.yml`，触发验证待环境。
   - ✅ 2026-11-05（补齐遗留）：`BACKLOG_QUEUES` 由 3 个文章队列扩展为 search 实际监听的全部 9 个业务队列——content published / unpublished / article-updated / view-count-flushed / book-changed + social liked / commented + user registered-index / profile-updated-index（与 `IndexSyncConsumer`、`HeatEventConsumer` 的 `@RabbitListener` 逐一核对，队列名取 `MqConstant` 常量）；DLQ 不纳入（已有 `litisle_search_index_dlq_total{originQueue}` 计数器与独立告警，避免两套口径）；gauge 标签仍为 `queue`，基数固定 9 不膨胀。`docker/init/prometheus/alert-rules.yml` 的 `litisle-search` 组新增 `SearchIndexBacklogHigh`：`max by (application, queue) (litisle_search_index_backlog) > 20`，`for: 5m`，`severity: warning`——按单队列判定（避免多队列零散瞬时消息求和误报，且保留 queue 标签可直接定位）；采集失败无样本时该规则表现为 no data（不触发、不误报），采集器自身失效需另配 `absent()` 规则（未纳入）。YAML 解析校验通过（3 组 / search 6 条规则），编译验证通过（2026-11-05）。
+
+## 9.6-B：search 的 TestNG 编译期依赖清理（2026-11-08 追加归档）
+
+> 迁自 [next_update.md](../../next/next_update.md) 批次九「9.6 测试补齐」组的 9.6-B 条目，原文搬运（含现象 / 动作 / 代价 / 验收 / 实测）；同组 9.6-A（Testcontainers 集成测试）仍为主清单待办。
+
+- [x] 【清理｜9.6-B】search 的 TestNG 编译期依赖清理（[pom.xml:169-174](../../../litisle-search/pom.xml#L169-L174)）
+  - **现象**：`org.testng:testng` 版本写 `RELEASE`、`scope=compile`，测试框架被当成编译期依赖打进运行期；`litisle-search/src` 内 `org.testng` 精确检索 0 命中，实际无人使用。
+  - **动作**：直接删除该依赖块（保留 `spring-boot-starter-test` 的 JUnit 5）；若后续确需 TestNG，再以 `scope=test` 引入并锁定版本，不用 `RELEASE`。
+  - **代价 / DDL**：1 处 pom 改动；无 DDL、无配置。**验收**：`mvn -pl litisle-search -am test` 通过，`mvn -pl litisle-search dependency:tree` 中编译/运行期不再出现 testng。
+  - **已拍板（2026-11-08｜第一批·零风险）**：先删除 TestNG 依赖，改为仅 JUnit 5；不改变运行时行为。
+  - ✅ 2026-11-08：全仓 java 复核 `org.testng` 0 命中后，已删除 search pom 的 TestNG 依赖块；`mvn -pl litisle-search -am -DskipTests compile` 通过。另发现 `litisle-file/pom.xml:187` 也有 TestNG 声明，不在本条范围，未动。

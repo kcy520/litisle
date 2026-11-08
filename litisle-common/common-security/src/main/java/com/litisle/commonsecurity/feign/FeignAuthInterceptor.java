@@ -1,6 +1,7 @@
 package com.litisle.commonsecurity.feign;
 
 
+import cn.dev33.satoken.exception.SaTokenContextException;
 import cn.dev33.satoken.session.SaSession;
 import cn.dev33.satoken.stp.StpUtil;
 import com.litisle.commoncore.constant.CommonConstant;
@@ -65,7 +66,24 @@ public class FeignAuthInterceptor implements RequestInterceptor {
         }
 
         // 2. 检查是否登录（Sa-Token 方式，替代原 SecurityContextHolder.getContext()）
-        if (!StpUtil.isLogin()) {
+        //    【为什么允许无上下文降级】
+        //    本拦截器在 Feign 调用线程中执行，而 Feign 不一定发生在 HTTP 请求线程：
+        //    MQ 消费线程、定时任务线程天然没有 SaTokenContext，此时 StpUtil.isLogin()
+        //    会抛 SaTokenContextException（"SaTokenContext 上下文尚未初始化"），
+        //    使 MQ 消息被判定为消费失败并反复延迟重投，最终堆积到 DLQ。
+        //    服务间调用本身不依赖"当前线程的登录态"：下游 /api/feign/** 内部端点
+        //    已排除登录校验，且网关不路由该前缀（外部不可达），因此无上下文时
+        //    降级为仅透传 traceId 是安全的——不伪造用户身份、不抛异常。
+        //    HTTP 请求线程上下文存在时行为完全不变（登录用户照旧注入用户身份）。
+        boolean login;
+        try {
+            login = StpUtil.isLogin();
+        } catch (SaTokenContextException e) {
+            // 无 SaToken 上下文（MQ/定时任务等非 Web 线程）：按匿名内部调用处理
+            log.debug("Feign 调用无 SaToken 上下文（非 Web 线程），降级为仅透传 traceId={}", traceId);
+            return;
+        }
+        if (!login) {
             // 未登录场景（如内部定时任务调用），仅透传 traceId
             log.debug("Feign 调用无用户上下文（未登录场景），仅透传 traceId={}", traceId);
             return;

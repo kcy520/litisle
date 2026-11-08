@@ -1,6 +1,5 @@
 package com.litisle.litislecontent.service.support;
 
-import com.litisle.commoncore.constant.HeaderConstant;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commonredis.ratelimit.RedisRateLimiter;
@@ -10,7 +9,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 /**
  * 推荐流频控组件（批次十 10.2，需求条款 9）
@@ -31,6 +29,9 @@ public class FeedRateLimitSupport {
 
     /** Redis 固定窗口限流器（与注解式限流共用同一 Lua 计数脚本与故障降级） */
     private final RedisRateLimiter redisRateLimiter;
+
+    /** 客户端 IP 解析组件（统一口径：XFF 首段 → X-Real-IP → RemoteAddr → UNKNOWN_IP） */
+    private final ClientIpSupport clientIpSupport;
 
     /**
      * 执行一次频控校验，超限抛业务异常
@@ -67,30 +68,7 @@ public class FeedRateLimitSupport {
         if (userId != null) {
             return FeedConstant.LIMIT_KEY_USER_PREFIX + userId + FeedConstant.LIMIT_KEY_SUFFIX;
         }
-        return FeedConstant.LIMIT_KEY_IP_PREFIX + resolveClientIp(request) + FeedConstant.LIMIT_KEY_SUFFIX;
-    }
-
-    /**
-     * 解析客户端真实 IP（优先级：X-Forwarded-For 首个 > X-Real-IP > RemoteAddr）
-     * <p>与 common-redis 限流 Key 构建器同口径；IP 可信性由网关/Nginx 层保证，本方法只负责解析</p>
-     *
-     * @param request HTTP 请求
-     * @return 客户端 IP；解析失败返回 unknown（同 IP 汇聚计数，偏严不偏松）
-     */
-    private String resolveClientIp(HttpServletRequest request) {
-        // 优先取代理头 X-Forwarded-For，多级代理时取第一个（客户端）地址
-        String ip = request.getHeader(HeaderConstant.X_FORWARDED_FOR);
-        if (StringUtils.hasText(ip)) {
-            ip = ip.split(",")[0].trim();
-        }
-        // 代理头无效时回退 X-Real-IP
-        if (!StringUtils.hasText(ip) || "unknown".equalsIgnoreCase(ip)) {
-            ip = request.getHeader(HeaderConstant.X_REAL_IP);
-        }
-        // 仍无效则取直连地址
-        if (!StringUtils.hasText(ip) || "unknown".equalsIgnoreCase(ip)) {
-            ip = request.getRemoteAddr();
-        }
-        return StringUtils.hasText(ip) ? ip : "unknown";
+        // 匿名维度复用统一 IP 解析组件，避免与 ClientIpSupport 产生两份口径
+        return FeedConstant.LIMIT_KEY_IP_PREFIX + clientIpSupport.resolveClientIp(request) + FeedConstant.LIMIT_KEY_SUFFIX;
     }
 }

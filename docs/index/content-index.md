@@ -50,7 +50,7 @@ service/support/  PublishDraftSnapshotSupport（发布保稿 REQUIRES_NEW）/ Fe
                   / ArticleImageRefSupport / ArticleImageRenderSupport / ClientIpSupport
                   / FeedSnapshotSupport（批次十：快照/游标/曝光/last-good）/ FeedProfileSupport（画像聚合+Redis 缓存）
                   / FeedScoreSupport（11.10 统一打分入口）/ FeedFeedbackSupport（11.11 负反馈名单）/ FeedExposureSupport（11.6 曝光落库）
-support/          FeedItemAssembler（卡片装配）/ FeedRateLimitSupport / LikeRateLimitSupport（运行时限流，按登录态切 USER/IP）
+                  / FeedItemAssembler（卡片装配）/ FeedRateLimitSupport / LikeRateLimitSupport（运行时限流，按登录态切 USER/IP）
 job/              FeedHotRankRefillJob / ViewCountFlushJob / TagCountReconcileJob / ArticleScheduledPublishJob / EventOutboxResendJob
                   / ContentStatWindowJob（11.3）/ ContentStatReconcileJob（11.16）/ BookReadQualityJob（11.13）/ FeedExposureCleanupJob（11.6）
 utils/            ArticleHtmlSanitizer（白名单净化）/ ContentLengthGuard（256KB 上限）/ LogSanitizeUtil（日志脱敏）
@@ -77,7 +77,7 @@ metrics/          ContentMetrics（feed 降级/快照/画像缓存/曝光与点�
 | PUT | `/article/{id}` | owner | — | 编辑：status=0/3 全字段；2 仅元数据（方案B）；定时发布（项2：`scheduledPublishTime` / `cancelScheduledPublish` 互斥） |
 | POST | `/article/{id}/submit` | owner | 10 | 驳回重提（CAS 3→1） |
 | DELETE | `/article/{id}` | owner/ADMIN | — | 软删 + 必发 content.unpublished（@AuditLog） |
-| GET | `/article/{id}` | 按 visibility | — | 详情（判定链收口；触发浏览计数+自动落历史）；带 `from`/`snapshotId`/`position` 时记推荐流**点击**（11.6，写 `feed_exposure_daily.click_count`） |
+| GET | `/article/{id}` | 按 visibility | — | 详情（判定链收口；触发浏览计数（作者自浏览不计，11.11-A）+自动落历史）；带 `from`/`snapshotId`/`position` 时记推荐流**点击**（11.6，写 `feed_exposure_daily.click_count`；作者自点击不计，11.11-B） |
 | GET | `/article/list` · `/article/hot` | 匿名 | — | 公开列表（不带大字段）/ 热门（热度榜序 `CONTENT_FEED_HOT_ZSET`，榜空回退 view_cnt 直查+缓存三防；2026-11-03 批次E P5/D-3 切流，语义由 view_cnt 排序改为 heat 榜序，前端知会） |
 | GET | `/article/my` | 登录 | — | 我的文章（author_id 硬收口；status 细粒度/published 二值过滤） |
 | POST | `/article/publish-batch` | 登录 | 3 | 批量发布（≤20，逐篇独立事务+回执） |
@@ -124,6 +124,9 @@ metrics/          ContentMetrics（feed 降级/快照/画像缓存/曝光与点�
 - `ReadingHistoryService`（ReadingHistoryServiceImpl）：单表双类型 UPSERT / 章节归属校验 / 仅前进不回退 / 懒删最旧（`history.max-per-user=1000` 条上限，在读保留 10 条不受限；`duration_ms` 暂不写入）
 - `TagService`（TagServiceImpl）：前缀搜索/热门榜 / 挂载取消（≤5）/ 新建过 DFA 闸门
 - `ArticleReviewWriteBackService`（ArticleReviewWriteBackServiceImpl）：moderation.result 五防线回写（bizType 自筛→SUSPICIOUS 忽略→scene 分流→陈旧性防线→CAS 白名单）/ 双链路聚合槽 / handleAppeal / handleUserBanned
+- `ViewCounterSupport`（service/support）：浏览计数 PV+去重（Redis SetNX 24h 窗口）；**作者本人浏览直接返回不计 PV**（11.11-A）；`BookReadSupport` 复用同一口径，并仅对「登录非作者」落书籍历史
+- `FeedExposureSupport`（service/support）：曝光/点击日聚合落 `feed_exposure_daily`；**作者本人点击不计入 click_count**（11.11-B，曝光在翻页时已记不受影响）
+- `ClientIpSupport`（service/support，阶段17）：统一客户端 IP 解析 `X-Forwarded-For` 首段 → `X-Real-IP` → `RemoteAddr` → `unknown`（15.2-A）；匿名频控与曝光去重共用，替代旧私有解析逻辑
 - `ContentInternalService`（ContentInternalServiceImpl）：social 计数回写冗余列（updateCounters，D10 TODO 增量重算接线点）
 
 ## 七、数据模型（17 表摘要，DDL 见 Sql-Document §二 + `docker/init/mysql/schema/content-schema.sql`；原 `zz-*.sql` 补丁已于 2026-11-06 合并进 schema 并删除）
@@ -142,7 +145,7 @@ metrics/          ContentMetrics（feed 降级/快照/画像缓存/曝光与点�
 | `book_stat` | book_id 主键；collect_count / reader_count / chapter_count / like_count / view_count / stat_update_time；`reader_count` 只增不减，`chapter_count` 只算公开可见章节 |
 | `content_stat_window` | `uk_target_window(target_type, target_id, window_days)`；collect_count / read_count；11.3 窗口预计算（30/90 天，聚合排除作者自收藏） |
 | `user_like` | `uk_user_target(user_id, target_type, target_id)`；`idx_target`；11.8 点赞幂等，取消物理删除 |
-| `feed_exposure_daily` | `uk_feed_exposure_daily(stat_date, stream, target_id, identity_type)`；exposure_count / click_count；11.6/11.12 CTR 分身份 |
+| `feed_exposure_daily` | `uk_feed_exposure_daily(stat_date, stream, target_id, identity_type)`；exposure_count / click_count；11.6/11.12 CTR 分身份，作者自点击不计入 click_count（11.11-B） |
 | `feed_feedback` | `uk_user_type_stream_target(user_id, feedback_type, stream, target_id, target_key)`；`idx_user_time`；11.11 负反馈 |
 | `book_read_quality` | book_id 主键；finish_reader_count / eligible_reader_count / stat_update_time；11.13 只读完读统计，不参与排序 |
 
@@ -160,7 +163,7 @@ metrics/          ContentMetrics（feed 降级/快照/画像缓存/曝光与点�
   - `sendArticleUpdated` / `sendViewCountFlushed` / `sendBookChanged`：文章编辑、浏览数落库、书籍变更同步（前批次已存在，非本批新增）
 - **消费**（手动 ACK + `MqAckHelper`：成功 ack / 业务失败 warn 后 ack 防毒丸 / 异常指数退避延迟重投，耗尽 nack 入 DLQ；`MqTraceSupport` 恢复 traceId；prefetch=10）：
   - `moderation.result` → `ModerationResultConsumer`（bizType=1 自筛；PASS→1→2 / REJECT→1→3 首发 / 2→4 复审下架兜底；CAS 前比对 contentHash 防陈旧事件）
-  - `moderation.appeal.result` → `ModerationAppealResultConsumer`（删 last-hash → 回查 ReviewClient.getPunishStatus → CAS 3→2 / 4→2 仅申诉来源 → 连带 FileClient.unquarantine → 发 published）
+  - `moderation.appeal.result` → `ModerationAppealResultConsumer`（删 last-hash → 回查 ReviewClient.getPunishStatus（封禁中不放行；回查异常/业务码非 0/data 空同样不放行并抛异常交延迟重试）→ CAS 3→2 / 4→2 仅申诉来源 → 连带 FileClient.unquarantine → 发 published）
   - `user.banned` → `UserBannedConsumer`（批量 CAS 2→4 + 逐篇 unpublished + 三键失效 + 审计 operator=system(mq)）
 - 路由键统一引用 `litisle-api` MqConstant，禁私自新建交换机（ContentRabbitConfig 声明）
 
@@ -242,7 +245,7 @@ metrics/          ContentMetrics（feed 降级/快照/画像缓存/曝光与点�
 - `content:follow:relation:{ownerId:viewerId}`：关注关系缓存，TTL 60s ±10% 抖动（值 1-关注 0-非关注，负缓存防穿透）
 - `content:article:review-agg:{articleId}`：双链路聚合槽（Hash field text/img → verdict），TTL 7200s
 - `content:article:view:pending:{articleId}`：浏览计数增量（INCR 累计，ViewCountFlushJob GETDEL 刷回）
-- `content:article:view:dedup:{articleId:visitorHash}`：浏览去重窗口，TTL 86400s（PV+去重口径，非纯 UV）
+- `content:article:view:dedup:{articleId:visitorHash}`：浏览去重窗口，TTL 86400s（PV+去重口径，非纯 UV；作者自浏览在写键前已排除，11.11-A）
 - 批次十推荐流（`FeedConstant` 收口）：
   - `content:feed:profile:u{userId}` / `content:feed:profile:a{anonId}`：画像缓存，TTL 900s（阅读行为不主动失效）
   - `content:feed:exposed:{stream}:{identity}:{yyyyMMdd}`：当日曝光 Set，TTL 172800s；建池与切片各过滤一次

@@ -206,7 +206,7 @@ public class IdempotentAspect {
     /**
      * 解析客户端真实 IP（支持多级代理）
      * 优先级：X-Forwarded-For(首个) > X-Real-IP > RemoteAddr
-     * 无 web 环境（如异步任务）时返回 "unknown"
+     * 无 web 环境（如异步任务）时返回 {@link IdempotentConstant#UNKNOWN_IP}
      */
     private String resolveClientIp() {
         try {
@@ -237,7 +237,7 @@ public class IdempotentAspect {
     }
 
     /**
-     * 判断 IP 是否为空或未知（"unknown"）
+     * 判断 IP 是否为空或未知（{@link IdempotentConstant#UNKNOWN_IP}）
      */
     private boolean isBlankOrUnknown(String ip) {
         return ip == null || ip.isEmpty() || IdempotentConstant.UNKNOWN_IP.equalsIgnoreCase(ip);

@@ -26,6 +26,9 @@ public class FeedProfileCache implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+//    FeedProfileCache和FeedProfile  为什么要区分？字段不是一样么？
+//    可以看到，三个枚举字段全部被转成了 int/string，只有纯基本类型/集合字段保持原样   枚举序列化走的是“展示文案”，不是“常量名”
+
     /** 是否冷启动（近期无文章阅读行为） */
     private boolean coldStart = true;
 

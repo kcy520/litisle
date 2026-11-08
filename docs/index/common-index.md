@@ -27,6 +27,7 @@
 
 - `send/MqSendUtil` ✅：`send(exchange,routingKey,event)` 尽力而为（失败仅记 error）；`sendCritical(...)` 必达（重试 1 次后抛 `MQ_SEND_FAILED`）。两档均注入 traceId 到 Header
 - `consume/MqAckHelper.executeWithAck(queue,message,channel,Runnable)` ✅：成功 ack / `BizException` warn+ack 丢弃（防毒丸）/ 其他异常 nack(requeue=false) 入 DLQ
+- `consume/MqAckHelper.executeWithRetry(queue,message,channel,maxRetryCount,baseDelayMs,retryPublisher,business)` ✅：`BizException` 同 executeWithAck（warn+ack 丢弃）；其他 Exception 走指数退避延迟重投（`baseDelayMs × 2^n`），重投失败或耗尽才 nack 入 DLQ。**可重试的环境异常不能抛成 `BizException`**，否则会被当业务失败直接丢弃、不进入重试
 - `consume/MqTraceSupport.restore(message)`/`clear()` ✅：消费线程 MDC traceId 恢复与清理（**finally 必调**）
 - `consume/MqIdempotentHelper` ✅：`tryAcquire`（降级放行）/`tryAcquireStrict`（降级拦截）；key=`litisle:mq:idempotent:{queue}:{eventId}`
 - `metrics/MqMetrics` ✅：`mq_send_total{exchange,result}`/`mq_consume_total{queue,result}`，null 静默空转
@@ -36,7 +37,9 @@
 
 - `ratelimit/`：`@RateLimiter(time,timeUnit,count,keyType)` + 切面；`KeyType`(USER/IP/DEFAULT)；`RedisRateLimiter`/`LocalRateLimiter`（Redis 不可用本地兜底）
 - `idempotent/`：`@Idempotent` + 切面；`IdempotentConstant`（占位值/匿名前缀）
-- `lock/`：`DistributedLock` 接口 + `RedissonLock`（`tryLock(key,waitTime,unit)`/`lock`/`unlock`）
+- `lock/`：`DistributedLock` 接口 + `RedissonLock`（`tryLock(key,waitTime,unit)` 看门狗续期 / `tryLock(key,waitTime,leaseTime,unit)` 固定租期不续期 / `lock`/`unlock`）
+- `lock/` **key 约定**：调用方必须传含 `lock:` 前缀的全名（如 `lock:content:feed:hot:refill`），工具内部不再补前缀；同一把锁的 `unlock` 必须与 `tryLock` 传完全相同的 key
+- `lock/` **参数/异常口径**：三参的 `waitTime` 是等锁时长（不是租期），只有 `waitTime=0` 才抢不到立即返回 false，`waitTime>0` 会阻塞等待；四参 `leaseTime<=0` 或 `waitTime<0` 抛 `IllegalArgumentException`；`unlock` 不静默吞异常（未持有→warn 跳过、`IllegalMonitorStateException`→warn 忽略、其他→error 留痕）
 - `guard/RedisGuardMetrics` ✅：熔断指标桥接（Gauge `redis.guard.degraded` + Counter `redis.guard.state.change`，状态机为 Resilience4j CircuitBreaker）
 - `bloom/BloomFilter`、`util/RedisUtil`、`session/DeviceSession`
 - `constant/`：`CacheConstant`（各业务 key 前缀，如 `user:info:`）、`IdempotentConstant`
@@ -50,7 +53,8 @@
 - `utils/SaRoleHelper` ✅：`isAuthor/isAdmin/isReviewer`、`checkAuthor/checkAdmin`、`checkNotSameOrHigherLevel(roleCodes)`（越权校验）
 - `crypto/`：`Aes256GcmCrypto`/`HmacSha256Crypto`/`PasswordCrypto`（AES-256 需 32 字节 Base64 密钥）
 - `xss/`：`XssFilter`/`XssHttpServletRequestWrapper`/`XssStringJsonDeserializer`/`XssProperties`
-- `trace/TraceIdFilter`（HTTP 生成+MDC）、`audit/`（`@AuditLog`+切面）、`feign/FeignAuthInterceptor`、`anonymous/`（匿名放行扫描）
+- `trace/TraceIdFilter`（HTTP 生成+MDC）、`audit/`（`@AuditLog`+切面）、`anonymous/`（匿名放行扫描）
+- `feign/FeignAuthInterceptor`：HTTP 线程透传 userId/roles/permissions/token/traceId；MQ/定时任务等非 Web 线程无 SaToken 上下文时降级为只透传 `X-Trace-Id`（不抛异常、不伪造身份）
 - `desensitize/`（`@Sensitive`+策略）、`enums/`（`RoleCodeEnum`/`RoleLevel`/`PermissionEnum`）
 
 ## 六、与 3-1 的依赖映射

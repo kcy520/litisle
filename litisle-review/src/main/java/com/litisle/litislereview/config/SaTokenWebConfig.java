@@ -19,9 +19,14 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * 转统一 Result），但不负责注册拦截器——拦截器与各服务的路径白名单强相关，由各服务自行声明
  *
  * 【白名单说明】
- * review 模块全部接口均为登录/角色后用（无 @Anonymous 匿名端点），
- * 白名单仅保留文档与健康检查；网关已将 /api/review/** 全部纳入认证，
- * 此处白名单为纵深防御口径，防止服务端口被直连时文档/监控端点被拦截
+ * 1. 对外接口：review 模块全部对外接口均为登录/角色后用（无 @Anonymous 匿名端点），
+ *    白名单仅保留文档与健康检查；网关已将 /api/review/** 全部纳入认证，
+ *    此处白名单为纵深防御口径，防止服务端口被直连时文档/监控端点被拦截
+ * 2. 内部契约端点：ReviewClient 的 /api/feign/** 与 /api/review/punish/status 必须放行——
+ *    Feign 服务端线程无用户会话（MQ 消费者、定时任务等场景 FeignAuthInterceptor 仅透传 traceId 无 token），
+ *    若纳入拦截会直接打断 content/auth 的跨服务调用链路（表现为业务码 10002 未登录）；
+ *    对外安全性由网关保证：路由表无 /api/feign/** 前缀（公网 404），
+ *    /api/review/punish/status 在网关有显式 404 拦截路由（防公网探测他人处罚态）
  *
  * @author litisle
  */
@@ -43,7 +48,13 @@ public class SaTokenWebConfig implements WebMvcConfigurer {
                         "/favicon.ico",
 
                         // ===== 健康检查 =====
-                        "/actuator/**"
+                        "/actuator/**",
+
+                        // ===== 内部契约端点（Feign 服务端线程无用户会话，靠网关不路由/显式拦截防护）=====
+                        // 对应 ReviewClient：用户名拒绝取证落库（/api/feign/moderation/**）
+                        "/api/feign/**",
+                        // 对应 ReviewClient#getPunishStatus（历史契约路径，未置于 /api/feign 前缀下）
+                        "/api/review/punish/status"
                 );
     }
 }

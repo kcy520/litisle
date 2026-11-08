@@ -3,6 +3,7 @@ package com.litisle.litislecontent.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
+import com.litisle.commoncore.constant.HeaderConstant;
 import com.litisle.commoncore.enums.AuditModule;
 import com.litisle.commoncore.enums.AuditOperation;
 import com.litisle.commoncore.result.PageResult;
@@ -166,15 +167,17 @@ public class ArticleController {
         // 未登录（匿名）viewerId 传 null；登录取当前人
         Long viewerId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
         ArticleDetailVO detail = articleService.getDetail(articleId, viewerId);
-        // 阶段8①：详情命中（可见性判定通过）后记录浏览（PV+去重窗口；fail-safe 不影响响应）
-        viewCounterSupport.recordView(articleId, viewerId, clientIpSupport.resolveClientIp(request), request.getHeader("User-Agent"));
         // 阶段15：阅读即落历史——走到此处详情已可见性判定通过（异常/不可见/软删不会到这里）；
         // 匿名/自读过滤、归属判定（独立文章/章节文章/多书歧义）与 UPSERT 收口在 Support/Service；
         // detail 为 null 时防御性跳过；落库异常由 Support fail-safe 吞掉，不阻断详情返回
         if (detail != null) {
+            // 阶段8①/11.11-A：详情命中后记录浏览（PV+去重窗口），作者本人浏览不计 PV
+            viewCounterSupport.recordView(articleId, detail.getAuthorId(), viewerId,
+                    clientIpSupport.resolveClientIp(request), request.getHeader(HeaderConstant.USER_AGENT));
             readingHistorySupport.recordArticleHistory(viewerId, articleId, detail.getAuthorId());
-            // 批次十一 11.6：可见性判定通过后才计推荐流点击；参数不齐/重复点击/写库失败均由 Support 内部收口
-            feedExposureSupport.recordClick(FeedConstant.STREAM_ARTICLE, articleId, viewerId,
+            // 批次十一 11.6/11.11-B：可见性判定通过后才计推荐流点击；作者自点击不计入 CTR 分子，
+            // 参数不齐/重复点击/写库失败均由 Support 内部收口
+            feedExposureSupport.recordClick(FeedConstant.STREAM_ARTICLE, articleId, detail.getAuthorId(), viewerId,
                     request.getHeader(FeedConstant.ANON_ID_HEADER), from, snapshotId);
         }
         return Result.success(detail);

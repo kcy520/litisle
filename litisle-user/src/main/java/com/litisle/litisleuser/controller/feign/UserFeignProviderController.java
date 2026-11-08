@@ -289,7 +289,13 @@ public class UserFeignProviderController implements UserClient {
         dto.setBio(user.getBio());
         dto.setStatus(user.getStatus() == null ? null : user.getStatus().getCode());
         dto.setDelFlag(user.getDelFlag() == null ? null : user.getDelFlag().getCode());
+        // 9.8-P1：版本源取「用户主表」与「资料表」的最大值，供 search 的 IndexVersionGuard 比较；
+        // 只改笔名等资料字段时 sys_user.update_time 不前进，若只回填主表时间，索引会被守卫永远判旧而无法更新
         dto.setUpdateTime(user.getUpdateTime());
+        if (profile != null && profile.getUpdateTime() != null
+                && (dto.getUpdateTime() == null || profile.getUpdateTime().isAfter(dto.getUpdateTime()))) {
+            dto.setUpdateTime(profile.getUpdateTime());
+        }
         return Result.success(dto);
     }
 

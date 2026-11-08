@@ -27,8 +27,8 @@ service/          SearchService（检索编排）/ SuggestService / SimilarServi
                   / VectorService（Embedding）/ VectorRebuildService / ArticleIndexService / BookIndexService
                   / UserIndexService / ArticleChunkService / HeatPendingService（热度待刷新键）/ HotQueryCacheService
                   / ArticleTombstoneService（下架墓碑）
-service/impl/     对应实现（门控/幂等/乱序防御在实现类；ArticleIndexServiceImpl 含 isStaleVersion 乱序门控）
-service/support/  IndexVersionGuard（索引版本防错位）
+service/impl/     对应实现（门控/幂等/写路径编排；版本比较统一委托 IndexVersionGuard）
+service/support/  IndexVersionGuard（article/book/user 三索引写入版本守卫：现有 updateTime ≥ 新快照（含相等）跳过；读 ES 失败抛异常交 MQ 重试）
 mq/               SearchMqConfig（**十同步队列** + 独立 DLX/DLQ + 延迟交换机拓扑声明）
 mq/consumer 级：   IndexSyncConsumer（published/unpublished/article-updated/book-changed/user.registered/user.profile-updated）
                   / HeatEventConsumer（onLiked/onUnliked🆕/onCommented/onViewCountFlushed，只累加 Redis 热度键不直写 ES）
@@ -72,11 +72,11 @@ config/           SearchProperties（prefix litisle.search.*）/ SearchMqConfig 
 
 | 事件 | 消费方法 | 动作 |
 |---|---|---|
-| `content.published` | IndexSyncConsumer.onPublished | 回查元数据 → 乱序门控（status=2 且 PUBLIC 才写）→ Embedding 预计算 → upsert article_idx + 摄入 article_chunks |
+| `content.published` | IndexSyncConsumer.onPublished | 回查元数据 → 乱序门控（status=2 且 PUBLIC 才写）→ **IndexVersionGuard 版本比较**（旧/同版本跳过）→ Embedding 预计算 → upsert article_idx + 摄入 article_chunks |
 | `content.unpublished` | onUnpublished | 删 article_idx 文档 + article_chunks 旧块（幂等 404 视为成功）+ 落下架墓碑 |
-| `content.article-updated` | onArticleUpdated | partial update 元数据字段（不动向量与 chunks） |
+| `content.article-updated` | onArticleUpdated | **IndexVersionGuard 版本比较** → partial update 元数据字段（不动向量与 chunks） |
 | `content.book-changed` | onBookChanged | upsert book_idx（批次五 B4） |
-| `user.registered` / `user.profile-updated` | onUserRegistered / onUserProfileUpdated | upsert user_idx（批次五 B5） |
+| `user.registered` / `user.profile-updated` | onUserRegistered / onUserProfileUpdated | upsert user_idx（批次五 B5）；版本源取 `user.update_time` 与 `user_profile.update_time` 的较大者，写入前过 IndexVersionGuard |
 | `social.liked` | HeatEventConsumer.onLiked | `HINCRBY` 累加 like 增量（按 SocialLikedEvent.delta，无 delta 兜底 +1、delta=0 跳过） |
 | `social.unliked` 🆕 | onUnliked（11.14） | 负数累加（delta=-1）；写回 ES 前 `Math.max(0,…)` 下限保护防 likeCnt 负值 |
 | `social.commented` | onCommented | `HINCRBY` 累加 comment 增量 |
@@ -84,6 +84,7 @@ config/           SearchProperties（prefix litisle.search.*）/ SearchMqConfig 
 
 - 互动事件**只累加 Redis 热度待刷新键，不直写 ES**（A7：带向量整文档重写写放大严重）；`IndexHeatFlushJob` 定时（默认 15min）聚合 `_bulk` 重算 heat，按 batch-size(1000)×concurrency(2) 分片。
 - 可靠性：手动 ACK + ACK 后置（Redis 累加成功才 ACK）+ eventId 幂等 + **指数退避延迟重投**（baseDelay 30s × 2^n，超 5 次入 DLQ）；死信按队列名路由（`deadLetterRoutingKey(queueName)`）。
+- 版本守卫：文本索引写入前统一经 `IndexVersionGuard` 比较 ES 现有 `updateTime`（相等也跳过；读 ES 失败抛可恢复异常交延迟重试）；MQ 消费线程调用 Feign 回查无 SaToken 上下文时，`FeignAuthInterceptor` 降级为仅透传 traceId（不伪造身份、不抛异常）。
 
 ## 七、配置速查（`litisle.search.*`）
 

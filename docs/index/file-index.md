@@ -140,7 +140,7 @@ REST 层已按业务域拆分：上表端点分别落在 FileUploadController / 
 
 读类（getUrl/batchGetUrls/download/presign）权限扩为 owner/REVIEWER/ADMIN；`getContent` 不过闸口（申诉复核需重取隔离图）；`getUrl`/`batchGetUrls` 的占位图取自 `litisle.file.moderation.pending-placeholder-url`。
 
-## 十二、对账任务（`FileReconcileTask`，每日 02:00，Redisson 锁互斥）
+## 十二、对账任务（`FileReconcileTask`，每日 02:00，Redisson 锁互斥：key=`lock:file:reconcile`，三参 `tryLock` waitTime=0、租期 -1 看门狗）
 
 - Step1 补偿：`status=0` 超 30min → head 存在置 1 / 不存在软删
 - Step2 清理：`del_flag=1` 超 7 天 → 校验 file_ref 无活跃引用 → 删对象+缩略图+元数据（删除语义统一后**不再豁免** `quarantine/` 前缀：隔离图软删与其他文件同一套「软删 → 缓冲 7 天 → 物理清理」纪律，缓冲期内可恢复，期满不可恢复）

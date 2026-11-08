@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>口径：</p>
  * <ul>
- *   <li>浏览计数：所有访问者都记（含匿名/作者本人），复用 ViewCounterSupport
+ *   <li>浏览计数：匿名与普通读者都记，作者本人浏览不计（11.11-A 自浏览排除），复用 ViewCounterSupport
  *       （PV + 去重窗口，Redis 异步刷回），与文章详情计数口径一致</li>
  *   <li>阅读历史：仅「登录 + 非书籍作者」时记（阶段15 自读口径），
  *       走 ReadingHistoryService#recordBookRead 显式 book 上下文（uk_user_biz 幂等）</li>
@@ -45,9 +45,9 @@ public class BookReadSupport {
      */
     public void recordChapterRead(Long bookId, Long chapterId, Long articleId,
                                   Long bookAuthorId, Long viewerId, String ip, String ua) {
-        // 步骤1：浏览计数——所有访问者都记（含匿名/作者本人）；失败只记日志不影响章节响应
+        // 步骤1：浏览计数——匿名与普通读者都记，作者本人浏览不计（11.11-A）；失败只记日志不影响章节响应
         try {
-            viewCounterSupport.recordView(articleId, viewerId, ip, ua);
+            viewCounterSupport.recordView(articleId, bookAuthorId, viewerId, ip, ua);
         } catch (Exception e) {
             log.warn("章节浏览计数失败（fail-safe 忽略），bookId={}, chapterId={}, articleId={}",
                     bookId, chapterId, articleId, e);

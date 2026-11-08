@@ -4,6 +4,7 @@
 > [Search-Architecture.md](../Architecture/Search-Architecture.md)，RAG 知识库论证看
 > [Design-Document.md](../overall_documen/Design-Document.md) §2.3.9 / §2.6）。
 > 现状声明（2026-11-06 更新）：**litisle-search 已落地**——批次二~九已于 2026-11-04/05 实现并归档（见 [search 归档索引](../archive/search/search-implemention-records.md)），批次十一 11.14 补取消点赞链路；本文早期「全 ☆ 待建」标注为设计先行口径，阅读时以代码为准。
+> 2026-11-08 修订：补齐 `IndexVersionGuard` 版本守卫、`user_idx` 版本源（`user` 与 `user_profile` 取较新）、MQ 消费线程无 SaToken 上下文时 `FeignAuthInterceptor` 只透传 traceId 的降级口径。
 > 2026-11-03 增补定版：检索参数补齐（category/zone/时间范围）、搜索联想、空结果兜底（相似推荐）、搜索历史（search_history 唯一自有表）；任务登记见 [temp.md](../temp/temp.md) search模块 批次1/批次2。
 > 阅读方式：每个板块固定两段——**设计版**（设计类名+机制）→ **通俗版**（无代码名）。文末附「契约缺口清单」，落地前须先补契约。
 
@@ -46,6 +47,7 @@ content.unpublished（四条下架路径必发）
 litisle-search
 ├─ controller              # SearchController（GET /search）/ SimilarController（GET /search/similar/{id}）
 ├─ service                 # SearchService（检索编排）/ VectorService（Embedding+KNN）/ KnnRecommender（相似加权）
+│  └─ support              # IndexVersionGuard（article/book/user 三索引写入版本守卫）
 ├─ mq                      # IndexSyncConsumer（published/unpublished/liked/commented + DLQ 消费者）
 ├─ es                      # ElasticsearchClient 配置（连接/索引初始化/mapping/生命周期）
 ├─ domain                  # vo/SuggestVO / SearchHistoryVO（仅 REST 用）；契约出入参 SearchRequestDTO / SearchResultVO / SimilarArticleVO
@@ -65,9 +67,10 @@ litisle-search
 **设计版**：
 
 1. 订阅队列绑定 `content.published` / `content.unpublished`（MqConstant 现有路由键）+ `content.article-updated` / `content.view-count-flushed`（元数据编辑 / 浏览量 flush 事件，2026-11-03 批次A A2/A5 定案，✅ 契约与 content 侧发布点均已落地，批次B B7）；`search.index.sync.queue` + 独立 DLX（配置外置）。
-2. **published upsert 编排**：事件体不含元数据（对齐 content-index §八：事件只带定位键）→ `ContentClient.getContent(bizType, bizId)` 回查标题/正文/标签等 → **乱序防御门控**：回查后文章须 `status=2 且 visibility=1(PUBLIC)`，否则丢弃不写（防 unpublished 先到后 published 迟到把已删内容写回）→ `VectorService` Embedding 预计算 `vec_dense` → 按 id 幂等 upsert `article_idx`。
+2. **published upsert 编排**：事件体不含元数据（对齐 content-index §八：事件只带定位键）→ `ContentClient.getContent(bizType, bizId)` 回查标题/正文/标签等 → **乱序防御门控**：回查后文章须 `status=2 且 visibility=1(PUBLIC)`，否则丢弃不写（防 unpublished 先到后 published 迟到把已删内容写回）→ **版本守卫**：`IndexVersionGuard` 读 ES 现有 `updateTime`，现有版本 ≥ 本次快照（含相等）就跳过，读 ES 失败抛异常交 MQ 重试（防旧快照覆盖新文档、等版本重复写）→ `VectorService` Embedding 预计算 `vec_dense` → 按 id 幂等 upsert `article_idx`。
 3. **unpublished 删除**：按 articleId 删 article_idx 文档（404 视为成功幂等）**并删 article_chunks 对应块**（板块四红线）；同步失效热点查询缓存。
-3.5. **元数据编辑同步**（2026-11-03 批次A A2 定案）：已发布文章编辑 title/tags/summary/cover 后，content 在事务提交后（afterCommit）发 `content.article-updated` → search 轻量回查 → partial update 索引元数据字段（不动向量与 chunks），防止索引字段与正文永久过期。
+3.5. **元数据编辑同步**（2026-11-03 批次A A2 定案）：已发布文章编辑 title/tags/summary/cover 后，content 在事务提交后（afterCommit）发 `content.article-updated` → search 轻量回查 → **同一 `IndexVersionGuard` 版本比较**（旧快照/等版本跳过）→ partial update 索引元数据字段（不动向量与 chunks），防止索引字段与正文永久过期。
+3.6. **用户索引同步**（批次五 B5）：`user.registered` / `user.profile-updated` → `UserClient.getUserIndexDoc(userId)` 回查 → 门控（无公开资料不建/已不可索引则删）→ `IndexVersionGuard` 版本比较 → upsert `user_idx`。**版本源取 `user.update_time` 与 `user_profile.update_time` 的较大者**——只改笔名/简介时主表时间可能不前进，单取主表会被版本守卫永久判旧而丢更新。MQ 消费线程没有 SaToken 上下文，`FeignAuthInterceptor` 自动降级为只透传 traceId，不伪造用户身份、也不抛异常阻断消费。
 4. **热度更新**（2026-11-03 批次A A5/A7 定案 + 增强采纳；批次十一 11.14 补取消点赞）：liked/unliked/commented → `HINCRBY` 累加 Redis 热度待刷新键的 like/comment 增量——点赞按 SocialLikedEvent.delta 累加（无 delta 兜底 +1、delta=0 跳过），取消点赞按 SocialUnlikedEvent.delta=-1 负数累加，IndexHeatFlushJob 写回 ES 前 `Math.max(0, …+likeDelta)` 下限保护防 likeCnt 负值；content 浏览量 flush 任务落库后补推 `content.view-count-flushed` → `HSET` 覆盖写 view_cnt 绝对值；**互动事件均不直写 ES**（A7：article_idx 带 1024 维向量约 4KB，ES partial update 实为整文档重写，爆款逐条互动消费写放大严重）；**累加成功才 ACK**（累加失败 nack 重试，防丢数致热度漂移）→ `IndexHeatFlushJob` 定时（默认 15min、可调 15~30min，fixedDelay 不堆积）聚合 `_bulk` partial update，**按 `batch-size`(1000)×`concurrency`(2) 分片执行**（防单次超大请求被 ES 拒绝；bulk 用 update+doc 只改热度字段，禁 index 整篇替换），按 `heat = (w_like×like_cnt + w_comment×comment_cnt + w_view×view_cnt) × 时间衰减因子` 重算（权重与半衰期外置，默认 2/3/0.1/168h——含浏览量对齐 content 热门榜口径，衰减防旧爆款长期霸榜），不动向量（向量随发布一次写入，查询期零 Embedding 开销）；heat 仅作排序信号，容忍 15~30min 滞后；pending 键 TTL 2h 兜底（≥2 个刷写周期，正常路径原子取走 TTL 仅保险）。
 5. **可靠性范式**（对齐全站消费规范）：手动 ACK；MqIdempotentHelper 按 eventId 幂等；业务失败 warn 后 ack 防毒丸；异常指数退避延迟重投，耗尽 nack 入 DLQ；DLQ Consumer 告警留痕，人工重投。
 

@@ -387,8 +387,8 @@ litisle-content
 │   ├── impl/          # 实现类（事务边界与 CAS 收口）
 │   └── support/       # FeedHotRankSupport / FeedScoreSupport（统一打分）/ FeedSnapshotSupport / FeedProfileSupport
 │                      # / FeedExposureSupport / FeedFeedbackSupport / PublishDraftSnapshotSupport / BookReadSupport
-│                      # / ViewCounterSupport / ReadingHistorySupport / FavoriteStateSupport 等
-├── support/           # FeedItemAssembler（卡片装配）/ FeedRateLimitSupport / LikeRateLimitSupport
+│                      # / ViewCounterSupport / ReadingHistorySupport / FavoriteStateSupport
+│                      # / FeedItemAssembler（卡片装配）/ FeedRateLimitSupport / LikeRateLimitSupport 等
 ├── metrics/           # ContentMetrics（Counter + 对账差异 Gauge 统一打点）
 ├── mapper/            # Article / Book / Draft / Image / Tag / BookChapter / ReadingHistory / Favorite / EventOutbox
 │                      # / UserLike / ArticleStat / BookStat / ContentStatWindow / BookReadQuality

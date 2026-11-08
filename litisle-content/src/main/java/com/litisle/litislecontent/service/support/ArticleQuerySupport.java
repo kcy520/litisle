@@ -282,6 +282,7 @@ public class ArticleQuerySupport {
 
         // pageSize 钳制到全局上限（防超大 N 拖垮数据库）
         int safeSize = Math.min(pageSize, PageConstant.MAX_PAGE_SIZE);
+
         // ① 榜链路：与 feed 热榜同源取 TopN（TopN 关 count，消除 orderByDesc(view_cnt) filesort）
         if (contentProperties.getFeed().getHot().isEnabled()) {
             List<Long> hotIds = feedHotRankSupport.topArticleIds(1, safeSize);
@@ -302,7 +303,10 @@ public class ArticleQuerySupport {
                         .collect(Collectors.toList());
             }
         }
+
+
         // ② 回退链路：view_cnt 倒序直查；排除 content_html 大字段（延迟加载红线）
+        //直接查数据库，按 view_cnt（浏览量）从高到低排序取前 N 条
         LambdaQueryWrapper<Article> wrapper = new LambdaQueryWrapper<Article>()
                 .select(Article.class, i -> !Article.COLUMN_CONTENT_HTML.equals(i.getColumn()))
                 .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED)

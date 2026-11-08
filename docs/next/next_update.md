@@ -97,8 +97,11 @@
 | 板块一~九（content） | 模块基建、草稿、发布、可见性、书籍、标签、推荐流、审核回写、临时清单 | 已归档（前序） | [content-implemention-records.md](../archive/content/content-implemention-records.md)（索引页） |
 | 批次八/九（search） | 搜索模块前序批次（索引同步、召回、降权等） | 已归档（前序） | [search-implemention-records.md](../archive/search/search-implemention-records.md)（索引页） |
 | 13.1~13.11 | 自研 RedisGuard 熔断降级切换 Resilience4j（批次十三，common-redis 基础设施） | 已归档（11 项） | [common-redis-13-resilience4j.md](../archive/common-redis/common-redis-13-resilience4j.md) |
+| 9.6-B | search TestNG 编译期依赖清理（批次九「9.6 测试补齐」） | 已归档（1 项） | [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)（9.6-B 节） |
+| 15.1、15.2-B | content `support` 包收敛文档同步 + `unknown` 常量提取（批次十五） | 已归档（2 项） | [content-15-structure-governance.md](../archive/content/content-15-structure-governance.md) |
+| 16.1 | Feign 拦截器无 SaToken 上下文安全降级（批次十六，common-security） | 已归档（1 项） | [common-security-16-feign-interceptor.md](../archive/common-security/common-security-16-feign-interceptor.md) |
 
-> 注意：search 的 9.1（7 项）、9.4（2 项）、9.5、9.6、9.8 仍有未完成项在本文档，第 5 行「已归档」指的是前序批次，不含这些活跃项。
+> 注意：search 的 9.1（7 项）、9.4（2 项）、9.5、9.6-A、9.8-P1/P2 仍有未完成项在本文档，第 5 行「已归档」指的是前序批次，不含这些活跃项。
 
 **本文件保留的编号空缺**：
 
@@ -106,6 +109,22 @@
 - 批次十一：仅 11.11 在本文档，11.1~11.10、11.12~11.17 已在归档（见上表第 2 行）。
 - 批次十二：仅「已知风险 R1~R3」在本文档，12.1~12.3 已在归档（见上表第 3 行）。
 - 批次十三：13.1~13.11 全部归档（见上表第 6 行），本文件只保留指针，无剩余待办。
+- 批次九 9.6：仅 9.6-A 在本文档，9.6-B 已归档（见上表 9.6-B 行）。
+- 批次十五：仅 15.2-A 在本文档，15.1、15.2-B 已归档（见上表批次十五行）。
+- 批次十六：仅 16.1-V1 在本文档，16.1 已归档（见上表 16.1 行）。
+
+### 执行排期（2026-11-08 用户拍板）
+
+> 状态口径：「已拍板待执行」保持 `- [ ]` / `- [~]`，**不改成 `- [x]`**；`- [x]` 仅表示实际已完成。下表只反映执行顺序，不代表已经实施。
+
+| 批次 | 条目 | 一句话说明 |
+| --- | --- | --- |
+| 第一批（零风险，先做） | 15.1、15.2-B、9.6-B | 仅文档同步、常量引用替换、测试依赖作用域清理，不改变运行时行为 |
+| 第二批（必修，需回归） | 9.8-P1、11.11-A（含 11.11-B）、15.2-A | 改行为；回归文章详情、章节阅读、匿名刷流三种身份 |
+| 第三批（需 DDL） | 9.8-P2 | 四张表升 `datetime(3)`，攒到下次动库时一起执行 |
+| 第四批（大工程，单独排期） | 9.6-A、14.1 | Testcontainers 集成测试；验证码/文件上传纳入 breaker 评估 |
+| 延后 | 11.11-C1；10.7、10.8 | 影子统计等真实互动量；两个端到端验证并入下次环境验证 |
+| 保持不做 | 9.8-P3 | 单调版本号，不进入实施 |
 
 --------------------------
 
@@ -188,20 +207,50 @@
 
 - [ ] 【必须】前端 DEGRADED 提示联调（来源：批次八 8.1「前端提示搜索不可用」；证据：`SearchServiceImpl.java:792-798` 已返回 `source=DEGRADED`，仓库内无前端代码承接；前置：search V3 通过；验收：停 ES 时前端展示「搜索暂不可用」，BOOK/USER 空页不误报；降级固定第一页、total=当页条数口径经前端确认）
 
-###### 9.6 测试补齐（可选，1 项）
+###### 9.6 测试补齐（Testcontainers 方案已定，2026-11-08）
 
-- [ ] 【可选】search 关键路径自动化测试（来源：批次二~八均仅编译验证；前置：测试环境与 Testcontainers/嵌入式 ES 方案确定；验收：检索参数组合、兜底不缓存、降级开关、KNN 强制 PUBLIC、索引版本守卫至少各有 1 条集成用例通过）
-  - **执行状态（2026-11-08 补记）**：上次「`updateTime` 精度核查与测试方案建议」会话被取消、无结论留存；本条需重跑，不得视为已验证。
+- [ ] 【可选｜9.6-A】search 关键路径自动化测试（来源：批次二~八均仅编译验证）
+  - **方案结论（2026-11-08）**：选 **Testcontainers**，不用嵌入式 ES。理由：ES 8.x 无官方进程内支持；社区 `embedded-elasticsearch` 停在 7.x，与 `elasticsearch-java 8.18.8` 不兼容；项目自定义 IK 镜像的分词与 KNN 行为无法被嵌入式方案代表。
+  - **容器边界**：只让 ES 走真容器（项目镜像 `elasticsearch:8.18.8-ik`、单节点、关闭安全认证）；`ContentClient`、`UserClient`、Redis 全部用 Mockito 替身，不引入额外容器。
+  - **前置**：先执行 `docker build -t elasticsearch:8.18.8-ik docker/init/elasticsearch`（[compose.yaml:265-269](../../compose.yaml#L265-L269) 已使用同一镜像名）；测试运行机需 Docker 可用。
+  - **隔离要求**：测试使用本次运行唯一的索引名（如 `article_idx_it_<uuid>`），用例结束在 `finally` 中删除；不得读写本地固定的 `article_idx` / `book_idx` / `user_idx`，避免污染开发数据。
+  - **动哪些文件**：`litisle-search/pom.xml`（新增 `org.testcontainers:elasticsearch` 等测试依赖，版本按 Spring Boot BOM 或显式锁定）、`litisle-search/src/test/` 下新增集成测试与容器/索引清理夹具；不改业务代码。
+  - **代价 / DDL**：新增测试依赖与容器/索引清理夹具，CI 需具备 Docker 能力；无 DDL、不改业务代码。
+  - **验收**：检索参数组合、兜底不缓存、降级开关、KNN 强制 PUBLIC、索引版本守卫（含同秒相等跳过）至少各有 1 条集成用例通过；无 Docker 时用例明确 skip，而不是失败。
+  - **已拍板（2026-11-08｜第四批·大工程）**：单独排期，不与本轮小改动混做。
+
+> —9.6-B 已完成并归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md) 的 9.6-B 节（2026-11-08）；9.6-A 仍为本文档待办。
 
 ###### 9.7 低成本优化（已完成，2 项）
 
 > —已归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)（2026-11-05）。
 
-###### 9.8 并发竞态修复与下架墓碑（已完成 2 项 + P2 条件项 1 条）
+###### 9.8 并发竞态修复与下架墓碑（已完成 2 项）+ `updateTime` 精度（P1/P2/P3）
 
 > —P0-E / P0-D 已完成并归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)；P2 条件项已迁出至 [temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md)（2026-11-05）。
-- [ ] 【待拍板】`updateTime` 精度（来源：版本守卫以秒级 `updateTime` 比较；风险：同一秒内两次编辑会被判为旧）；建议后续补毫秒或单调版本号，本轮不实施。
-  - **执行状态（2026-11-08 补记）**：上次「`updateTime` 精度核查与测试方案建议」会话被取消、无结论留存（未产出可落地的毫秒/单调版本号方案与测试设计）；需重跑，不得视为已验证。
+> **核查结论（2026-11-08，替换原「需重跑」写法）**：`article`、`book`、`user`（以及 `sys_user_profile`）的 `update_time` 均为 `datetime` 无小数位（秒精度）；search 没有水位线批量拉取，是**纯事件驱动 + `IndexVersionGuard` 文档级比较**（现有 `updateTime` ≥ 新快照即跳过）。因此：同秒内改两次会漏（第二次被判定为不前进）；先改后删不会漏（删除走门控删索引，不经版本比较）；重复投递天然幂等（相等即跳过）。以下 P1/P2/P3 按此结论拆分，不再要求重跑核查；此处的 P1/P2/P3 指精度方案优先级，与上方已迁出的「P2 条件项」无关。
+
+- [x] 【P1｜必修｜9.8-P1】`user_idx` 版本源补上 `sys_user_profile.update_time`
+  - **问题**：`getUserIndexDoc` 只回填 `user.getUpdateTime()`（[UserFeignProviderController.java:292](../../litisle-user/src/main/java/com/litisle/litisleuser/controller/feign/UserFeignProviderController.java#L292)），而 `user_profile.pen_name` 只改笔名时不刷新 `sys_user.update_time`；`IndexVersionGuard` 判定版本未前进 → 索引永不更新，属**必然漏**（不是同秒竞态）。
+  - **改法**：同一方法已加载 `profile`（[同文件:281-283](../../litisle-user/src/main/java/com/litisle/litisleuser/controller/feign/UserFeignProviderController.java#L281-L283)），把回填改为 `max(user.getUpdateTime(), profile == null ? null : profile.getUpdateTime())`；`UserProfile#getUpdateTime` 已存在（[UserProfile.java:58-60](../../litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/UserProfile.java#L58-L60)）。
+  - **动哪些文件 / 代价**：1 处代码（1 个文件）；无 DDL、无新配置。
+  - **验收**：只修改笔名（不动 user 主表）→ 触发 `UserProfileUpdatedEvent` → `user_idx` 的 `penName` 更新且 `updateTime` 前进；只改主表简介同样正常。
+  - **已拍板（2026-11-08｜第二批·必修，需回归）**：按 `max(user.updateTime, profile.updateTime)` 实施；回归文章详情、章节阅读、匿名刷流三种身份。
+  - ✅ 2026-11-08（版本源 + 索引写入均已实测通过）：`getUserIndexDoc` 已取 `user` / `profile` 的 `updateTime` 最大值，复用同方法已加载的 `profile`、未新增查询。
+    - **已验通过（版本源）**：启动 user + search（直连 8081/8086），`PUT /api/user/profile` 只改笔名后，`sys_user.update_time` 全程保持 `2026-11-08 03:26:45`（乱码写入、正确 UTF-8 写入、复原三次均未变），`sys_user_profile.update_time` 前进到 `11:40:54`；`GET /api/feign/user/index-doc?userId=2002` 返回 `updateTime=2026-11-08 11:40:54`，证明 `max(user.updateTime, profile.updateTime)` 生效。
+    - **未通过（索引写入）**：search 消费 `user.profile-updated` 报 `SaTokenContext 上下文尚未初始化`（[FeignAuthInterceptor.java:68](../../litisle-common/common-security/src/main/java/com/litisle/commonsecurity/feign/FeignAuthInterceptor.java#L68) 的 `StpUtil.isLogin()` 在 MQ 消费线程无上下文），消息重投后进 DLQ，ES `user_idx` count=0、doc 2002 返回 404。故「索引 `updateTime` 前进且笔名已更新」无实测证据，**不标 `[x]`**。该缺陷为本轮之前即存在的基础设施问题，非 9.8-P1 改动引入。
+    - **复原**：笔名已改回 `林间有风`（`HEX(pen_name)=E69E97E997B4E69C89E9A38E`，`profile.update_time=11:41:42`）；因 `user_idx` 自始至终未写入，「改回后索引是否同步回去」无同步对象可验。
+    - **后续闭环（2026-11-08 12:29:25）**：批次十六 16.1 修复 `FeignAuthInterceptor` 无上下文异常后重跑，`user_idx` 文档成功写入：`penName=林间有风`（HEX `E69E97E997B4E69C89E9A38E`）、`updateTime=2026-11-08T12:29:25`（与 `sys_user_profile.update_time` 一致），`sys_user.update_time` 未因笔名变化，本次验收完整通过。
+- [ ] 【P2｜该修｜9.8-P2】四张表的时间列升级为 `datetime(3)`
+  - **范围**：`article.update_time`（[content-schema.sql:43](../../docker/init/mysql/schema/content-schema.sql#L43)）、`book.update_time`（[content-schema.sql:110](../../docker/init/mysql/schema/content-schema.sql#L110)）、`sys_user.update_time`（[user-schema.sql:60](../../docker/init/mysql/schema/user-schema.sql#L60)）、`sys_user_profile.update_time`（[user-schema.sql:134](../../docker/init/mysql/schema/user-schema.sql#L134)）。
+  - **改法**：`ALTER TABLE ... MODIFY COLUMN update_time datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`；同步修改初始化 schema，保持全新库一致。**代码零改动**：守卫比较逻辑不用变、ES mapping 已支持毫秒、DTO 已是 `LocalDateTime`。
+  - **代价 / DDL**：需要一次 DDL 窗口（四张表），存量行的毫秒位补 `.000`，无需回填；有 DDL、无代码改动。
+  - **验收**：`SHOW COLUMNS` 四列均为 `datetime(3)`；同一秒内连续两次编辑，第二次索引不被守卫跳过；跨秒/乱序仍按现有规则跳过旧快照。
+  - **已拍板（2026-11-08｜第三批·需 DDL）**：攒到下次动库时一起执行，本轮不改库。
+- 【保持不做｜9.8-P3】不引入单调版本号
+  - **理由**：单调版本号要横跨 content 与 user 的全部写路径（文章/书籍/章节/用户/资料等），每条写入都必须递增并透传到 DTO/事件/索引；漏掉任意一处就会让该实体版本永久不前进（比同秒漏更严重且不可自愈）；同时要改契约与存量回填，收益仅为消除同秒窗口。故不做，改由 P2 的毫秒精度覆盖。
+  - **代价 / DDL**：0（不实施）；无 DDL、无代码改动。**验收**：无需验收，仅需确认该方案不进入实施。
+  - **已拍板（2026-11-08｜保持不做）**：维持不做，不进入任何批次；避免与「已完成」混淆，本项不再使用 `[x]`。
 
 ###### 9.9 search 索引同步与可观测性（本轮仅登记，未执行）
 
@@ -219,6 +268,7 @@
 - [ ] 【必须】文章流端到端验证（来源：10.3/10.5/10.6；前置：联调环境（content/Redis/MySQL 可用）；验收：连续 15 页不重不漏、同作者/同分类打散生效、私密与下架与未过审内容 0 命中、匿名与登录序列不同、快照过期续刷正常、频控按维度触发）
   - **待环境验证（2026-11-06，情况 B，未实测、不勾选）**：本机探测 MySQL84 服务 Stopped、Redis 6379/6380 未监听、content 8085 与 Nacos 8848 未启动。恢复环境后按下列命令逐条执行：
     - **执行状态（2026-11-08 补记）**：上次「推荐流端到端验证 10.7/10.8」会话被取消、无结论留存，需重跑；当前仍未实测。
+    - **已拍板（2026-11-08｜延后）**：与下次环境验证合并执行，不单独排期；上次会话 canceled、无结论，仍需重跑，不能视为已验证。
     - 前置：`Start-Service MySQL84,Redis`；启动 content（IDE 或 `mvn -pl litisle-content -am spring-boot:run`）；`Test-NetConnection 127.0.0.1 -Port 8085` 应为 True
     - 连续 15 页不重不漏：`$h=@{"X-Anon-Id"=[guid]::NewGuid().ToString()};$c=$null;$s=$null;$ids=@(); 1..15|%{$u="http://127.0.0.1:8085/api/content/feed/articles?pageSize=20"+$(if($c){"&cursor=$c"})+$(if($s){"&snapshotId=$s"});$r=Invoke-RestMethod $u -Headers $h;$ids+=$r.data.items.articleId;$c=$r.data.cursor;$s=$r.data.snapshotId}`；判定：`$ids` 无重复、每页 20 条、cursor 单调递增；池 300 耗尽（第 16 页）后 snapshotId 递增且 reset=false
     - 打散：首屏相邻 authorId 连续 ≤1、category 连续 ≤2；两个 zone 近似 1:1 交替
@@ -232,6 +282,7 @@
 - [ ] 【必须】书籍流端到端验证（来源：10.4/10.6；前置：10.7 通过；验收：书籍门控正确（下架/软删 0 命中）、收藏与阅读人数排序与 SQL 聚合一致、新书保底曝光生效、书籍流不依赖 zone、停 Redis 后仍可刷、匿名频控触发）
   - **待环境验证（2026-11-06，情况 B，未实测、不勾选）**：环境同上不可用。恢复后执行：
     - **执行状态（2026-11-08 补记）**：上次「推荐流端到端验证 10.7/10.8」会话被取消、无结论留存，需重跑；当前仍未实测。
+    - **已拍板（2026-11-08｜延后）**：与下次环境验证合并执行，不单独排期；上次会话 canceled、无结论，仍需重跑，不能视为已验证。
     - 连续翻页：同 10.7 循环，端点改 `/api/content/feed/books`，断言 `items.id` 无重复、每页 20 条、cursor 递增
     - 门控 0 命中：断言 items 中无 `status=2`（下架）/`del_flag=1` 书籍；抽查 `SELECT id,status,del_flag FROM book WHERE id IN (<首页ID>)`
     - 计数与 SQL 一致：`SELECT book_id,COUNT(*) FROM favorite WHERE target_type=2 AND book_id IN (<首页ID>) GROUP BY book_id` 对照返回收藏数；`SELECT biz_id,COUNT(DISTINCT user_id) FROM reading_history WHERE biz_type=1 AND biz_id IN (<首页ID>) GROUP BY biz_id` 对照阅读人数
@@ -249,8 +300,18 @@
 - [~] 【P1｜前端配合：是】11.11 反作弊与负反馈登记（部分完成，来源：问题 11；前置：11.6 有曝光点击数据；涉及 content/api/前端）
   - 已完成部分（负反馈提交/撤销/幂等、当页剔除与下一代快照生效）见 [content-11-interaction-stats.md](../archive/content/content-11-interaction-stats.md) 的 11.11 条目与「八、附录：环境验证清单」第 8 项，验收转入批次十二 [12.1](../archive/content/content-12-batch12-closing.md)；此处不再复述。
   - **11.11-A（必须）作者自浏览排除**：给 `ViewCounterSupport#recordView` 增加带 `authorId` 的重载，内部判断「浏览者 == 文章作者」直接 `return`；两个调用点（[ArticleController.java:170](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/ArticleController.java#L170)、[BookReadSupport.java:50](../../litisle-content/src/main/java/com/litisle/litislecontent/service/support/BookReadSupport.java#L50)）改走重载。依据：文章详情无条件调 `recordView`，章节阅读注释明确写「含匿名/作者本人」；`article_stat.view_count` 是文章流排序四个统计量之一（权重 0.03），是当前唯一仍会污染推荐权重的自互动。成本约 30 行、3 个文件，无 DDL、无新配置；历史数据不回滚。验收：作者本人浏览不再增加 `view_count`，他人与匿名计数不变。
+  - **已拍板（2026-11-08｜第二批·必修，需回归）**：作者自浏览排除进入实施；回归文章详情、章节阅读、匿名刷流三种身份。
+  - ✅ 2026-11-08（运行态实测通过｜文章侧 + 章节侧双路径）：`ViewCounterSupport` 带 `authorId` 的重载内部短路；`ArticleController` 的 `recordView` 在 `detail != null` 分支传 `detail.getAuthorId()`；`BookReadSupport` 改传 `bookAuthorId`。启动 auth/user/content 直连实测（服务需带 `--sa-token.token-name=Authorization` 才能识别 auth 签发的 `Authorization: Bearer <token>`，否则 viewerId=null 被当匿名）：
+    - 文章侧（articleId=5001，authorId=2002）：清空 `content:article:view:pending:5001` 后，作者 2002 访问详情 → pending 仍为空（0）；换读者 2001（非作者）访问 → pending=1。
+    - 章节侧（book 6101 / 章节 610101 → article 5001）：作者 2002 阅读章节 → pending 仍为空；新读者 2003 阅读 → pending=1。
+    - DB `article_stat.view_count`：122→127（此前匿名冒烟 5 次）→128（读者 2001 文章侧 1 次）→129（读者 2003 章节侧 1 次，11:40:20 刷回）。作者两次访问均未贡献计数。
   - **11.11-B（可选）推荐流作者自点击排除**：推荐流 `recordClick` 前判断作者自点击并跳过（调用点在 [ArticleController.java:177](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/ArticleController.java#L177)、[BookController.java:192](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/BookController.java#L192)）。只影响 CTR 报表口径，不影响排序；与 11.11-A 独立，可后做。
+  - **已拍板（2026-11-08｜第二批·随 11.11-A 顺手做）**：不单独立项，随 11.11-A 一并实施；只影响 CTR 报表口径。
+  - ✅ 2026-11-08（运行态实测通过｜查库确认）：`FeedExposureSupport#recordClick` 增加 `authorId` 入参与「作者 == 浏览者」短路；`ArticleController`、`BookController` 调用点已同步。实测 `feed_exposure_daily`（target 5004，`from=feed&snapshotId=1`）：
+    - 作者 2002 拉自己的推荐流并点击 5004 → 该行 `exposure_count` 保持 1、`click_count` 保持 0（未 +1）。
+    - 读者 2003 拉流后点击同一条 → 该行 `exposure_count=2`、`click_count=1`（非作者正常 +1）。
   - **11.11-C1（Phase 1｜影子统计，不拦截）异常频次三维度**：实现 R2 单用户持续高频（600s / 80 次）、R3 单内容突增（10min / 25 赞、15 藏，且为 24h 基线的 3 倍）、R4 匿名指纹泛滥（10min / 50 篇）的计数与命中标记；约 150~200 行，无 DDL。Phase 1 只记录「本应命中」与原因，不拒绝、不停计数，先验证阈值误伤。
+  - **已拍板（2026-11-08｜延后）**：等有真实互动量、能看出稳定 24h 基线后再做，避免在无样本时拍阈值。**重启条件**：11.6 的曝光/点击数据已能支撑三维度统计，且单用户/单内容/匿名的真实频次足以形成稳定基线（具体阈值由实施前数据复核确认）；C2、C3 随 C1 顺延。本条保留在清单，不视为遗漏。
   - **11.11-C2（Phase 2｜阈值验证后执行处置）**：按 Phase 1 数据复核阈值后启用处置——R2 超限拒绝、R3 仅打标不拦截、R4 只停计数不断访问；复用 Phase 1 统计口径，不新增表。
   - **11.11-C3（Phase 3｜复盘与可选加固）**：阈值调优、指标/告警接入与误伤复盘。本阶段明确**不做**多账号/IP 关联、设备指纹、独立风控服务（不在本批次范围）。
   - **追溯**：环境验证清单原表已移入归档文件，实测依据以该处为准；四条未验证风险已登记 [constraints R4~R7](../constraints/constraints-index.md)，不进待办区。
@@ -299,6 +360,128 @@
   - 代价：约 1 天；需要按资源名建多个 breaker 实例（避免一个资源拖垮另一个），并补「打开后的业务返回」与「恢复探测」用例；不改 DDL、不新增中间件。
   - 验收：Redis 故障时两条链路进入 OPEN 并按既定策略返回可见错误（或本地兜底），Redis 恢复后自动半开探测回 CLOSED；限流 breaker 与业务 breaker 指标可区分。
   - 边界：file 模块另有 Sentinel `@SentinelResource`（加载情况见 constraints R8），本项不替代 Sentinel，只评估是否需要用统一的 Resilience4j 口径覆盖。
+  - **已拍板（2026-11-08｜第四批·大工程）**：单独立项、单独排期，不与本轮小改动混做。
+
+-------------------------
+
+#### content 结构与口径治理（批次十五：2026-11-08 立项）
+
+> 编号说明：批次十三（common-redis）、批次十四（基础设施）之后，本轮内容侧两项独立登记为批次十五，使用 `15.1` / `15.2`，不与已归档的 11.1~11.17 混排。两项均为结构调整/口径统一，不改业务语义。
+
+##### 15.1 content `support` 包收敛（代码已收敛，文档已同步）
+
+> 已完成并归档，见 [content-15-structure-governance.md](../archive/content/content-15-structure-governance.md) 的 15.1 节（2026-11-08）；现状核对、改动文件清单、验收与风险说明均在归档文件。
+
+##### 15.2 客户端 IP 解析统一 + `unknown` 字面量提取
+
+- [~] 【P1｜15.2-A】统一 content 内两份 IP 解析口径
+  - **现状（口径不同）**：
+    - [ClientIpSupport.java:21-28](../../litisle-content/src/main/java/com/litisle/litislecontent/service/support/ClientIpSupport.java#L21-L28)：`X-Forwarded-For` 首段 → `remoteAddr`，**不读 `X-Real-IP`**，取不到可能返回空串；调用点 [ArticleController.java:170](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/ArticleController.java#L170)（文章浏览去重）、[BookController.java:229](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/BookController.java#L229)（章节浏览去重）。
+    - [FeedRateLimitSupport.java:80-95](../../litisle-content/src/main/java/com/litisle/litislecontent/service/support/FeedRateLimitSupport.java#L80-L95)：`X-Forwarded-For` 首段 → `X-Real-IP` → `remoteAddr` → `"unknown"`；用于匿名推荐流限流键（[同文件:70](../../litisle-content/src/main/java/com/litisle/litislecontent/service/support/FeedRateLimitSupport.java#L70)）。
+  - **统一口径（必须一致）**：`X-Forwarded-For` 首段 → `X-Real-IP` → `remoteAddr` → `unknown`。这是 `FeedRateLimitSupport`、common-redis `RateLimiterKeyBuilder`、auth `IpUtil`、`IdempotentAspect` 已有的口径；统一到它等于把 `ClientIpSupport` 补齐，而不是悄悄改匿名限流键的算法。
+  - **改法**：`ClientIpSupport` 改为完整四级回退（并复用 `HeaderConstant.X_FORWARDED_FOR` / `X_REAL_IP` 代替字面头名）；`FeedRateLimitSupport` 的私有方法与 `ClientIpSupport` 合并为一份，二者调用同一组件；`FeedRateLimitSupport` 不再自带解析副本。
+  - **行为影响**：`ClientIpSupport` 的调用点从「不读 X-Real-IP、可能空串」变为「读 X-Real-IP、兜底 unknown」，匿名浏览去重键会更稳定；匿名推荐流限流键口径不变。
+  - **动哪些文件 / 代价**：2 个类（`ClientIpSupport`、`FeedRateLimitSupport`）+ 调用点无需改签名；无 DDL、无配置。
+  - **验收**：同一请求分别经浏览与限流两条路径解析出的 IP 相同；构造仅有 `X-Real-IP`、仅有 `remoteAddr`、四者全缺三种请求，分别断言取到 `X-Real-IP`、`remoteAddr`、`unknown`。
+  - **已拍板（2026-11-08｜第二批·必修，需回归）**：统一口径为 **XFF → X-Real-IP → remoteAddr → unknown**，这是硬性要求；不得改成其他顺序或省略 `X-Real-IP`，否则等于静默改变匿名限流行为。回归文章详情、章节阅读、匿名刷流三种身份。
+  - ⏳ 2026-11-08（代码已改 + 限流/去重冒烟通过；`unknown` 用例不可构造）：`ClientIpSupport` 已统一为四级回退；`FeedRateLimitSupport` 删除自带解析、改注入 `ClientIpSupport`；编译通过。实测（content 8085 + Redis 6380）：①XFF=10.8.8.8 连发 21 次匿名推荐流，前 20 次 `code=0`、第 21 次 `code=10005`，限流键 `rate_limit:feed:ip:10.8.8.8:stream`=21；②仅带 `X-Real-IP=10.7.7.7` 的请求，限流键落在 10.7.7.7（统一组件生效）；③文章详情分别仅带 `X-Real-IP=10.5.5.5` 与四头全不带（`remoteAddr=127.0.0.1`），均生成对应 `content:article:view:dedup:5001:a<hash>` 键。未验证：四头全缺的 `UNKNOWN_IP` 分支在真实 HTTP 下无法构造（`remoteAddr` 恒有值），仅代码评审确认，故不标 `[x]`。
+
+> —15.2-B 已完成并归档，见 [content-15-structure-governance.md](../archive/content/content-15-structure-governance.md) 的 15.2-B 节（2026-11-08，含 `unknown` 使用点清单与常量落点决策）。
+
+-------------------------
+
+#### 服务间调用与 MQ 基础设施治理（批次十六）
+
+> 编号说明：本条为跨服务基础设施缺陷（common-security 的 Feign 拦截器 + MQ 消费线程），不属于内容结构调整，独立登记为批次十六，使用 `16.1`，不与 15.x 混排。
+
+##### 16.1 Feign 拦截器在无 SaToken 上下文线程抛异常，导致索引同步消费重投 / 进 DLQ
+
+> 16.1 已完成并归档，见 [common-security-16-feign-interceptor.md](../archive/common-security/common-security-16-feign-interceptor.md)（2026-11-08）；现象、根因、影响面实测、修法取舍、改动与实测证据均在归档文件。
+
+- [~] 【P1｜16.1-V1】验证其余 MQ 消费者路径的 Feign 降级
+  - **待验路径**：auth `PunishResultConsumer` → `ReviewClient`；review 文本/图片审核消费者 → `ContentClient` / `SocialClient` / `FileClient`；content `UserBannedConsumer`、`ModerationResultConsumer`、`ModerationAppealResultConsumer` → `ReviewClient` / `FileClient`；review 定时任务 `QuarantineSweeper`、`PunishReconcileSweeper`。
+  - **未验原因**：本轮只触发 search 三条索引链路；构造审核 / 处罚事件需要额外测试数据与审核服务联动，且这些路径复用同一个 `FeignAuthInterceptor`（代码层面同一修复点）。
+  - **验收**：上述每条链路各触发一次，日志无 `SaTokenContextException`、无重投，下游回查返回 200。
+
+-------------------------
+
+#### 分布式锁工具与消息中间件凭证收尾（批次十七：2026-11-08 立项）
+
+> 编号说明：批次十三已完成 RedisGuard→Resilience4j 改造，本批次承接其配套的分布式锁收尾（lock 工具语义、调用方租期、自造 SETNX 锁迁移评估）与 auth 消息凭证对齐，编号 17.1~17.5，不重排已有 16.x / 15.x。17.1 本次已完成并附证据，17.2~17.5 待办。
+
+##### 17.1 common-redis 锁工具整改（已完成 ✅）
+
+- [x] 【P0｜17.1】`DistributedLock` 补固定租期重载 + 前缀约定与解锁留痕统一
+  - **现状**：`DistributedLock` / `RedissonLock` 只有三参 `tryLock(key, waitTime, unit)`，底层走 `tryLock(waitTime, -1, unit)` 即 Redisson 看门狗（租期自动续期，直到进程退出或显式 unlock）；工具内部再拼 `CacheConstant.LOCK_PREFIX`，而调用方 key 已自带 `lock:`，content 8 处实际落地键变成 `lock:lock:xxx`；`unlock` 对未持有锁与异常全部静默吞掉；两个接口注释把 `tryLock` 说成「立即返回」、把 `waitTime` 说成租期。
+  - **为什么做**：临界区为「查库 + 占位写库」这类毫秒级短任务时，看门狗会在调用线程卡死（死锁/长时间 GC/挂起）期间无限续租，锁一直不释放；双前缀让同一语义的键分裂，运维按 `lock:` 排查会漏；解锁静默使「未持有锁 / 重复解锁」无从观测。
+  - **改动明细**：
+    - 新增固定租期重载 `tryLock(key, waitTime, leaseTime, unit)`：`leaseTime <= 0` 抛 `IllegalArgumentException`，走固定租期、**不启用看门狗**；旧三参重载语义不变（仍为看门狗）。
+    - key 前缀约定改为「工具不加前缀、调用方给全名且含 `lock:`」；`CacheConstant.LOCK_PREFIX` 保留供调用方拼接；file 两处补前缀，content 8 处 key 未改代码，但落地键由 `lock:lock:xxx` 变为 `lock:xxx`。
+    - `unlock` 不再静默：未持有锁 / `IllegalMonitorStateException` / 其他异常分别留痕（级别区分），签名保持 `void`，不改变调用方契约。
+    - 修正 `DistributedLock`、`RedissonLock` 注释：`tryLock` 是「最多等待 waitTime」，`waitTime` 不是租期；固定租期语义指向新重载。
+  - **验收标准**：固定租期重载在 `leaseTime <= 0` 时抛 `IllegalArgumentException`；持锁线程不主动 unlock 时锁在 leaseTime 到期后自动释放（无续期）；旧三参重载行为不变；解锁异常有日志可检索；content 实际锁键为 `lock:content:...` 单前缀。
+  - **涉及文件**：[DistributedLock.java](../../litisle-common/common-redis/src/main/java/com/litisle/commonredis/lock/DistributedLock.java) · [RedissonLock.java](../../litisle-common/common-redis/src/main/java/com/litisle/commonredis/lock/RedissonLock.java) · [CacheConstant.java:162](../../litisle-common/common-redis/src/main/java/com/litisle/commonredis/constant/CacheConstant.java#L162) · [FileReconcileTask.java:51](../../litisle-file/src/main/java/com/litisle/litislefile/task/FileReconcileTask.java#L51) · [FileUploadServiceImpl.java:99](../../litisle-file/src/main/java/com/litisle/litislefile/service/impl/FileUploadServiceImpl.java#L99) · content 8 处 key（未改代码，仅落地键变化）：[ContentBizConstant.java:127-130](../../litisle-content/src/main/java/com/litisle/litislecontent/constant/ContentBizConstant.java#L127-L130)、[ArticleScheduledPublishJob.java:43](../../litisle-content/src/main/java/com/litisle/litislecontent/job/ArticleScheduledPublishJob.java#L43)、[ContentStatWindowJob.java:46](../../litisle-content/src/main/java/com/litisle/litislecontent/job/ContentStatWindowJob.java#L46)、[EventOutboxResendJob.java:54](../../litisle-content/src/main/java/com/litisle/litislecontent/job/EventOutboxResendJob.java#L54)、[BookServiceImpl.java:433](../../litisle-content/src/main/java/com/litisle/litislecontent/service/impl/BookServiceImpl.java#L433)、[FeedHotRankSupport.java:88](../../litisle-content/src/main/java/com/litisle/litislecontent/service/support/FeedHotRankSupport.java#L88)、[FeedServiceImpl.java:124](../../litisle-content/src/main/java/com/litisle/litislecontent/service/impl/FeedServiceImpl.java#L124)、[FeedHotRankRefillJob.java:66](../../litisle-content/src/main/java/com/litisle/litislecontent/job/FeedHotRankRefillJob.java#L66)
+  - ✅ 2026-11-08：9 个模块 `mvn compile` 全部 SUCCESS（锁工具改动为纯新增重载 + 前缀口径与日志调整，旧调用方行为不变）。
+
+-------------------------
+
+##### 17.2 `FileUploadServiceImpl` 秒传判重改固定租期
+
+- [ ] 【P1｜17.2】秒传判重锁由看门狗改固定租期
+  - **现状**：`FileUploadServiceImpl` 秒传判重当前为 `tryLock(DEDUP_LOCK_KEY_PREFIX + sha256, 5, TimeUnit.SECONDS)`（waitTime=5s、租期 -1 → 看门狗续期）。
+  - **为什么做**：临界区只有「查库 + 占位写库」，是毫秒级短任务；用看门狗意味着持锁线程卡死时锁被持续续期，同 sha256 的上传会被阻塞到进程退出。
+  - **改法**：改为 `tryLock(key, 5, 10, TimeUnit.SECONDS)`（等锁 5s、固定租期 10s），不改 key 与业务逻辑。
+  - **验收标准**：上传并发下同一文件不会重复落库；模拟持锁线程异常/卡死时锁在 10s 内自动释放，后续请求恢复。
+  - **涉及文件**：[FileUploadServiceImpl.java:184](../../litisle-file/src/main/java/com/litisle/litislefile/service/impl/FileUploadServiceImpl.java#L184)（调用点）与同文件 [L99](../../litisle-file/src/main/java/com/litisle/litislefile/service/impl/FileUploadServiceImpl.java#L99)（`DEDUP_LOCK_KEY_PREFIX`）。
+
+-------------------------
+
+##### 17.3 review 自造 SETNX 锁的迁移评估
+
+- [ ] 【评估｜17.3】review 四处 sweeper 的 SETNX 锁能否迁到固定租期重载
+  - **现状**：`QuarantineSweeper`、`PunishReconcileSweeper`、`ReviewTaskSweeper`、`WordlibMisreportCleanupSweeper` 各自复制一套 `SETNX + token + GET 比对后 DEL`（释放非原子）；`ModerationTextService#tryLockInFlight` 只 SETNX、靠 TTL 自愈。
+  - **为什么做**：四套手写锁分散维护，释放非原子在并发下可能误删他人的锁；统一到 common-redis 工具可减少重复实现，但**语义不等价**（sweeper 依赖 TTL 自愈、且拿不到锁就跳过本轮，没有「等待」诉求），不能直接把看门狗重载照搬过去。
+  - **改法**：逐个评估——可迁的改用固定租期重载（租期取原 TTL，`waitTime=0` 保持「拿不到即跳过本轮」）；不可迁的明确保持 TTL 语义并注明原因。
+  - **验收标准**：给出迁移方案与风险结论，逐项明确哪些可迁、哪些保持 TTL 语义及理由；不改变 sweeper 的「无锁跳过」行为与定时频率。
+  - **涉及文件**：[QuarantineSweeper.java](../../litisle-review/src/main/java/com/litisle/litislereview/sweeper/QuarantineSweeper.java) · [PunishReconcileSweeper.java](../../litisle-review/src/main/java/com/litisle/litislereview/sweeper/PunishReconcileSweeper.java) · [ReviewTaskSweeper.java](../../litisle-review/src/main/java/com/litisle/litislereview/sweeper/ReviewTaskSweeper.java) · [WordlibMisreportCleanupSweeper.java](../../litisle-review/src/main/java/com/litisle/litislereview/sweeper/WordlibMisreportCleanupSweeper.java) · [ModerationTextService.java](../../litisle-review/src/main/java/com/litisle/litislereview/moderation/service/ModerationTextService.java)
+
+-------------------------
+
+##### 17.4 auth 的 RabbitMQ 凭证与其余服务对齐
+
+- [ ] 【P1｜17.4】auth 补齐 RabbitMQ `username`/`password`
+  - **现状**：`litisle-auth` 的 `spring.rabbitmq` 只配了 `virtual-host: /litisle`，未配 `username`/`password`，走 Spring Boot 默认 `guest@localhost`；content/review/file/user/search 均显式使用 `litisle` / `litisle_pass`。本机 guest 被授予 `/litisle` 权限所以能跑，生产环境 guest 默认禁止远程登录/无该 vhost 权限，auth 队列消费会失败。
+  - **为什么做**：凭证口径必须全服务一致，避免「本机可跑、上线即挂」。
+  - **改法**：auth yml 补 `username: ${litisle.rabbitmq.username:litisle}` 与 `password: ${litisle.rabbitmq.password:litisle_pass}`，与其余服务同一套默认值与环境变量。
+  - **验收标准**：auth 与其余服务使用同一套凭证；`/litisle` vhost 下 auth 队列正常消费（处罚结果等消息可收）。
+  - **涉及文件**：[litisle-auth application.yml:64-67](../../litisle-auth/src/main/resources/application.yml#L64-L67)；对齐基准：[content application.yml:73-75](../../litisle-content/src/main/resources/application.yml#L73-L75) · [review application.yml:59-61](../../litisle-review/src/main/resources/application.yml#L59-L61) · [file application.yml:86-88](../../litisle-file/src/main/resources/application.yml#L86-L88) · [user application.yml:56-58](../../litisle-user/src/main/resources/application.yml#L56-L58)。
+
+-------------------------
+
+##### 17.5 测试数据清理（待执行，需用户确认）
+
+- [ ] 【数据清理｜17.5】清理本轮验证残留数据（**只登记 SQL，未执行**）
+  - **现状**：本轮验证在库中仍留有测试数据——`litisle_review.punish_log` id=2/3/4、`litisle_review.review_task` id=2/3、`litisle_review.moderation_record` id=2、`litisle_content.article_image` id=1、`litisle_file.file_ref`（`file_id='25fd4ac95b6248ec995dd5dd4205d326'`、`biz_type='article'`、`biz_id=5008`）。
+  - **为什么做**：避免验证数据污染审核列表、处罚记录与文件引用对账口径。
+  - **待确认点**：①执行窗口与是否需要先备份；②`litisle_file.file_meta` 对应记录的 `safe_flag` 原值需确认（作为回滚参照）；③`litisle_content.article` id=5008 已回到原值 4，**无需 UPDATE**。
+  - **SQL（登记待确认，禁止直接执行）**：
+    ```sql
+    -- litisle_review
+    DELETE FROM punish_log WHERE id IN (2, 3, 4);
+    DELETE FROM review_task WHERE id IN (2, 3);
+    DELETE FROM moderation_record WHERE id = 2;
+
+    -- litisle_content
+    DELETE FROM article_image WHERE id = 1;
+
+    -- litisle_file
+    DELETE FROM file_ref
+     WHERE file_id = '25fd4ac95b6248ec995dd5dd4205d326'
+       AND biz_type = 'article'
+       AND biz_id = 5008;
+    ```
+  - **验收标准**：上述行均不存在；`article` id=5008 与 `file_meta` 的 `safe_flag` 为预期原值；无其他业务数据被误删。
+  - **涉及文件**：数据库 `litisle_review` / `litisle_content` / `litisle_file`（无代码改动）。
 
 -------------------------
 

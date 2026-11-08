@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.commonredis.constant.CacheConstant;
 import com.litisle.commonredis.lock.DistributedLock;
 import com.litisle.commonredis.util.RedisUtil;
 import io.micrometer.core.instrument.Counter;
@@ -65,7 +66,7 @@ import java.util.concurrent.TimeUnit;
  *    命中 → 直接返回已有 fileId + deduplicated=true（秒传，不落 SeaweedFS）
  *    ⚠️ 命中记录可能是 status=0 在途记录（S3 尚未传完，短暂 404）：已知取舍，
  *    put 秒级完成 + 调用方重试自愈；面试/评审口径见笔记 §3.4.6
- * 4. 未命中 → Redisson 分布式锁 biz:file:sha:{hash}，leaseTime=5s 自动释放（临界区仅查库+写库，5s 足够）
+ * 4. 未命中 → Redisson 分布式锁 lock:file:sha:{hash}，waitTime=5s（等锁上限）+ 看门狗续期（临界区仅查库+写库）
  *    拿锁后双重检查（防等锁期间其他线程已写入）
  * 5. 锁内临界区（只包「查 DB + 写 DB」，不包 IO）：
  *    生成 fileId = UUID（无连字符，32 位十六进制），path = {yyyy/MM/dd}/{fileId}.{ext}
@@ -94,8 +95,8 @@ public class FileUploadServiceImpl implements FileUploadService {
     /** 批量上传上限（正文多图） */
     private static final int MAX_BATCH_SIZE = 9;
 
-    /** 秒传判重分布式锁 Key 前缀（RedissonLock 会追加 "lock:" 全局前缀，实际锁 key 为 lock:file:sha:{hash}） */
-    private static final String DEDUP_LOCK_KEY_PREFIX = "file:sha:";
+    /** 秒传判重分布式锁 Key 前缀（调用方自带 lock: 全名前缀，实际锁 key 为 lock:file:sha:{hash}） */
+    private static final String DEDUP_LOCK_KEY_PREFIX = CacheConstant.LOCK_PREFIX + "file:sha:";
 
     /** path 日期段格式：{yyyy/MM/dd}/{fileId}.{ext} */
     private static final DateTimeFormatter PATH_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy/MM/dd");
@@ -176,7 +177,9 @@ public class FileUploadServiceImpl implements FileUploadService {
 //        丢弃锁外查 = 把秒传读路径强行塞进写锁 + tryLock 快速失败下热点必报错。
 //        这两条任意一条都足以否决这个“简化”。DCL（双重检查锁）在这里的形态是标准且最小化的： 读无锁、写互斥、写前双检
 
-        // 步骤4：Redisson 分布式锁（leaseTime=5s 自动释放，无看门狗续期；临界区仅查库+写库足够）
+        // 步骤4：Redisson 分布式锁（5 是 waitTime，即最多等锁 5s，抢不到直接失败；
+        // 租期传的是 -1 → 启用看门狗续期，锁只有 finally 里的 unlock 才释放；
+        // 临界区仅查库+写库，正常毫秒级完成，远小于看门狗续期间隔）
             //tryLock 快速失败，竞争=报错
         boolean locked = distributedLock.tryLock(DEDUP_LOCK_KEY_PREFIX + sha256, 5, TimeUnit.SECONDS);
         if (!locked) {

@@ -1,5 +1,7 @@
 package com.litisle.commonredis.constant;
 
+import com.litisle.commoncore.constant.ClientIpConstant;
+
 /**
  * 幂等请求业务常量类
  *
@@ -23,8 +25,9 @@ public class IdempotentConstant {
 
     /**
      * 客户端 IP 未知标识（无 HTTP 环境或解析失败时使用）
+     * 值统一引用 {@link ClientIpConstant#UNKNOWN_IP}，保留旧名仅为兼容现有调用方，避免两份字面量各自漂移
      */
-    public static final String UNKNOWN_IP = "unknown";
+    public static final String UNKNOWN_IP = ClientIpConstant.UNKNOWN_IP;
 
     /**
      * IP 列表分隔符（X-Forwarded-For 可能携带多级代理）

@@ -189,7 +189,7 @@ public class BookController {
         BookDetailVO detail = bookService.getDetail(id, viewerId);
         // 批次十一 11.6：详情可见性判定通过后才计推荐流点击；失败/参数不齐由 Support 内部收口
         if (detail != null) {
-            feedExposureSupport.recordClick(FeedConstant.STREAM_BOOK, id, viewerId,
+            feedExposureSupport.recordClick(FeedConstant.STREAM_BOOK, id, detail.getAuthorId(), viewerId,
                     request.getHeader(FeedConstant.ANON_ID_HEADER), from, snapshotId);
         }
         return Result.success(detail);

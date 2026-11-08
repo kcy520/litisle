@@ -58,6 +58,14 @@ spring:
           max-idle: 10
           min-idle: 0
 
+  # ================================
+  # RabbitMQ 配置
+  # ================================
+  rabbitmq:
+    # 虚拟主机：必须与其余服务（content/review/file/user/search）保持一致，统一使用 /litisle；
+    # 否则处罚结果消息会发到默认 vhost "/"，与 review 侧 /litisle 的交换机/队列互不相通，消息到不了 auth
+    virtual-host: /litisle
+
   mail:
     # 发送者邮箱（与 username 一致）
     username: ${litisle.mail.from:}

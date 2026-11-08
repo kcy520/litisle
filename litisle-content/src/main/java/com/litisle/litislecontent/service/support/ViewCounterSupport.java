@@ -39,6 +39,27 @@ public class ViewCounterSupport {
     private long dedupTtlSeconds;
 
     /**
+     * redis记录一次浏览（带作者标识，作者本人浏览不计入 PV）。
+     *
+     * 作用：先判断「浏览者是否为内容作者」，是则直接返回；否则复用原计数链路。
+     * 典型调用方：文章详情、章节阅读（11.11-A 自浏览排除）。
+     *
+     * @param articleId 文章ID
+     * @param authorId  内容作者ID（可为 null；null 表示无法判定，按非作者处理）
+     * @param viewerId  查看者用户ID（null=匿名，不会与作者ID命中）
+     * @param ip        访问者 IP（匿名去重基准之一）
+     * @param userAgent 访问者 User-Agent（匿名去重基准之一）
+     */
+    public void recordView(Long articleId, Long authorId, Long viewerId, String ip, String userAgent) {
+        // 11.11-A：作者本人浏览不计 PV，避免污染 article_stat.view_count（推荐流排序统计量之一）
+        if (authorId != null && authorId.equals(viewerId)) {
+            return;
+        }
+        //redis记录一次浏览
+        recordView(articleId, viewerId, ip, userAgent);
+    }
+
+    /**
      * 记录一次浏览（详情命中后调用，fail-safe：Redis 故障仅 warn 不阻断读链路）。
      *
      * 作用：去重窗口判定（SETNX 抢占）→ 抢占成功才 INCR 待刷回增量；

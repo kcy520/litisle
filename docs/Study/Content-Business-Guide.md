@@ -24,7 +24,8 @@ litisle-content
    ├─ controller              # HTTP 入口（文章/发布编排/草稿/书籍/收藏/阅读历史/标签/推荐流端点）
    │  └─ feign                # 对外 Feign 提供方（review 回查原文等跨服务端点）
    ├─ service                 # 业务编排（发布/文章/草稿/书籍/进度/标签/推荐流/回写/内部）
-   │  └─ impl                 # 接口实现
+   │  ├─ impl                 # 接口实现
+   │  └─ support              # 领域支撑组件（热榜/打分/快照/画像/曝光/频控、浏览与阅读计数、客户端 IP 解析等；顶层 support 包已收敛至此）
    ├─ domain
    │  ├─ entity               # 表实体（article/article_draft/article_image/book/tag 等）
    │  ├─ dto                  # 入参对象（发布/编辑/存稿/挂章节等）
@@ -54,6 +55,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 > - controller：HTTP 端点层，只做参数接收/登录态/@RateLimiter 限流，业务委托 service；其下 feign 子包是 content 作为提供方暴露给 review 的回查端点（送审事件不含正文，review 凭定位键回查原文与配图）
 > - service：业务编排层，事务边界与 CAS 收口都在实现类——发布编排（板块一）、文章域（板块二）、草稿/图片（板块三）、书籍/进度（板块四）、标签（板块五）、推荐流（板块六）、审核回写（板块七）、申诉/封禁处理（板块八）；impl 子包为接口实现
+> - service.support：原顶层 support 包已整体迁入 service 下（`FeedItemAssembler` / `FeedRateLimitSupport` / `LikeRateLimitSupport` / `ClientIpSupport` 等），按“领域支撑组件”归位。此树此前未列该子包，补上以对齐代码现状，避免误以为支撑类仍在顶层。
 > - domain：数据契约与领域规则——entity 对应表；dto/vo 防裸实体透传；statemachine 是状态机白名单载体（所有 status 流转的前置校验收口）；router 是分区权限收口（防各入口内联 if 口径漂移）
 > - mapper：MyBatis 持久层，发布 CAS 0→1/0→2、回写 CAS 终态、草稿乐观锁等条件更新都定义在这层
 > - enums：状态与类型枚举，状态机白名单的代码化载体
@@ -476,7 +478,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 
 - 书籍详情（GET /book/{id}）：元数据 + 可见章节数 + 首章/最新章定位 + 上次阅读信息（登录且历史章节当前可见才回填）+ 收藏状态；匿名可读公开书籍
 - 章节列表（GET /book/{id}/chapters）：chapter\_no 升序分页（默认 50/页上限 100），SQL 层过滤「已发布+未删+查看者可见」；「上次读到」高亮由前端用详情 lastReadChapterId 对比
-- 章节详情（GET /book/{id}/chapter/{chapterId}）：正文复用文章可见性判定链 + 相邻章导航（prev/next 随详情返回，SQL 按 visibilities 过滤自动跳过不可见章）；成功后触发浏览计数（所有访问者，按文章维度）+ 书籍阅读历史（登录非作者，uk\_user\_biz 幂等，fail-safe）
+- 章节详情（GET /book/{id}/chapter/{chapterId}）：正文复用文章可见性判定链 + 相邻章导航（prev/next 随详情返回，SQL 按 visibilities 过滤自动跳过不可见章）；成功后触发浏览计数（匿名与普通读者都记，**作者本人自浏览不计**（11.11-A），按文章维度）+ 书籍阅读历史（登录非作者，uk\_user\_biz 幂等，fail-safe）
 - 可见性范围：作者 \[1,2,3] 全可见 / 匿名 \[1] / 登录非作者按书内是否有关注者章节决定是否回查关注关系，social 不可用降级仅公开
 
 **功能描述——通俗版：**
@@ -665,6 +667,7 @@ litisle-api（契约层，宿主服务与 review 共用，参考）
 **频控与超限表现**
 
 - 限流键：登录 `rate_limit:feed:user:{userId}:stream`，匿名 `rate_limit:feed:ip:{客户端IP}:stream`（前缀常量 `CacheConstant.RATE_LIMIT` + `FeedConstant.LIMIT_KEY_*`）。
+- 客户端 IP 统一由 `ClientIpSupport` 解析（15.2-A）：`X-Forwarded-For` 首段 → `X-Real-IP` → `RemoteAddr` → `unknown`；匿名频控与曝光去重共用同一结果，禁止各入口再写私有解析逻辑。
 - 超限抛 `BizException(ErrorCode.TOO_MANY_REQUESTS)`：统一 `Result` 返回 `code=10005`、提示「推荐流请求过于频繁，请稍后再试」；content 当前由 `GlobalExceptionHandler` 包裹为 HTTP 200 + 业务码，前端应以 `code` 判定而非仅看 HTTP 状态（若网关后续按码映射 429，以网关实际为准）。
 
 **调用示例（Windows 11 PowerShell）**
@@ -706,6 +709,7 @@ curl.exe "http://localhost:8080/api/content/feed/articles?pageSize=20"
 
 - `feed_exposure_daily` 唯一键 `(stat_date, stream, target_id, identity_type)`——按「日期 + 流 + 内容 ID + 身份」唯一，切片阶段批量 upsert 累加曝光；点击上报在同一行累加 `click_count`。
 - CTR = click_count / exposure_count，**分身份**统计：登录按 userId、匿名按 `X-Anon-Id` 单独成列，不混算（匿名身份易变，混算会把「换标识」当成新用户行为）。
+- 自互动排除（11.11）：`ViewCounterSupport` 在写浏览计数前比对内容作者与查看者，作者本人浏览直接返回不计 PV（11.11-A）；`FeedExposureSupport.recordClick` 同理排除作者自点击，只影响 `click_count`/CTR 分子，曝光在翻页时已记不受影响（11.11-B）。
 - 已知偏差：曝光去重是 Redis Set + 日聚合入库，切页与切片并发时**可能双计**；本轮只做统计展示，不进排序。
 
 **负反馈（11.11）**
@@ -840,7 +844,7 @@ curl.exe "http://localhost:8080/api/content/feed/articles?pageSize=20"
 **链路位置**：完整链路阶段六 · 异议与连带
 
 > 1. 作者申诉 → review 改判裁决 → appeal.result 回流 → `ModerationAppealResultConsumer` 消费委托 `ArticleReviewWriteBackServiceImpl#handleAppeal`\
->    删 last-hash 免审键 → 回查处罚权威态 `ReviewClient.getPunishStatus`（封禁中不放行）\
+>    删 last-hash 免审键 → 回查处罚权威态 `ReviewClient.getPunishStatus`（封禁中不放行；回查非成功同样不放行，抛异常交延迟重试）\
 >    CAS 对称恢复 3→2 首发 / 4→2 下架（仅此两向、仅申诉来源）\
 >    连带逐张 `FileClient.unquarantine` 恢复隔离配图与封面 → 发 content.published 恢复索引对称性
 > 2. 用户被封 → `UserBannedConsumer` 消费委托 `handleUserBanned`\
@@ -854,7 +858,7 @@ curl.exe "http://localhost:8080/api/content/feed/articles?pageSize=20"
 - 申诉改判 `handleAppeal`：\
   bizType 分流 → appealPass = false 维持原判 ack；\
   **删 last-hash 免审键**（键里可能存 REJECT 结论，不清则发布侧误提示；fail-safe 不阻断）；\
-  改判前回查处罚权威态 `reviewClient.getPunishStatus`（封禁中拒绝放行，防晚到申诉翻转封禁连带结果；回查异常穿透交延迟重试，禁静默吞错）；\
+  改判前回查处罚权威态 `reviewClient.getPunishStatus`（封禁中拒绝放行，防晚到申诉翻转封禁连带结果；**回查非成功一律不放行**——调用异常、业务码非 0、data 为空都视为“无法证明作者未被封禁”，抛非 BizException 交 `MqAckHelper` 指数退避重试，禁 return 被当业务成功 ack 丢弃）；\
   CAS allow-list 对称恢复 **3→2 首发 / 4→2 下架（仅此两向、仅申诉来源）**；\
   4→2 连带逐张 `fileClient.unquarantine` 恢复隔离配图与封面（幂等，单张失败留痕不阻断；封面恢复成功单独按 COVER 四元组补登记引用）；\
   发 content.published 恢复 search/ai(RAG) 索引对称性

@@ -90,7 +90,9 @@ public class FeedController {
                                                        HttpServletRequest request) {
         // 登录用户ID：未登录为 null，后续按匿名口径处理
         Long userId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
+
         // 匿名标识：登录用户不使用；匿名时取过滤器写入的请求属性
+        //匿名 ID 并不是在 Controller 里生成的，而是在前面的过滤器（Filter）/拦截器（Interceptor）中生成并写入 request 的。
         String anonId = userId == null ? (String) request.getAttribute(FeedConstant.ANON_ID_ATTRIBUTE) : null;
 
         // 频控校验（登录 60/60s、匿名 20/60s，超限直接抛业务异常）
@@ -110,6 +112,8 @@ public class FeedController {
 
     /**
      * 书籍流（批次十 10.2）：登录与匿名均可刷，不参与 zone，按 category 组织
+     *
+     * 书籍流 = 和文章流并列的第二个推荐流，专门给用户刷"书籍"内容，逻辑架构完全复用文章流，但业务规则有差异。
      *
      * @param cursor     下一页游标（首次请求为空）
      * @param snapshotId 快照版本号（首次请求为空）

@@ -44,7 +44,7 @@ litisle-content
 │   │                  # / PublishDraftSnapshotSupport / BookReadSupport / ViewCounterSupport
 │   │                  # / ReadingHistorySupport / FavoriteStateSupport / ArticleImageRefSupport
 │   │                  # / ArticleImageRenderSupport / ClientIpSupport
-├── support/           # FeedItemAssembler（卡片装配）/ FeedRateLimitSupport / LikeRateLimitSupport（按登录态切 USER/IP 维度）
+│   │                  # / FeedItemAssembler（卡片装配）/ FeedRateLimitSupport / LikeRateLimitSupport（按登录态切 USER/IP 维度）
 ├── metrics/           # ContentMetrics（Counter+Gauge 统一打点收口，MeterRegistry 未装配时静默空转）
 ├── mapper/            # ArticleMapper / BookMapper / ArticleDraftMapper / ArticleImageMapper / ArticleTagMapper
 │                      # / BookChapterMapper / ReadingHistoryMapper / FavoriteMapper / TagMapper / EventOutboxMapper
@@ -97,14 +97,14 @@ litisle-content
 | 书籍/合集 | book + book_chapter，章节序号即排序键 | `uk(book_id, chapter_no)`；章节挂载校验文章归属本人 |
 | 阅读历史 | 书籍历史（含最后章节）/ 独立文章历史 / 阅读即落历史（详情命中自动落，fail-safe） | 单表 biz_type=1/2，`uk_user_biz` 每人每类型每对象一行；PUT 上报：章节归属校验 + 2/60s 限频 + 仅前进不回退；自动路径按「最后一次阅读」刷新可回退；**增长治理（2026-11-02）：单用户每类型上限 500 条，新插入行后懒删最旧行（idx_user_time 支撑，fail-safe 不影响落历史，零 job 零 yml）** |
 | 收藏 | 文章/书籍收藏（一期 content 临时承载单层收藏） | `uk_user_target` 幂等；写入前目标可见性校验（不可见按 NOT_FOUND）；详情回填 favorited，列表态走 /check；social 立项后迁移 |
-| 书籍阅读闭环 | 章节列表 / 章节详情 / 上一章下一章 / 上次阅读（阶段17） | 三读端点可选登录；章节正文复用文章可见性判定链；visibilities 按查看者计算（作者全可见/匿名仅公开/关注者回查，social 不可用降级）；章节详情触发浏览计数+书籍历史（fail-safe） |
+| 书籍阅读闭环 | 章节列表 / 章节详情 / 上一章下一章 / 上次阅读（阶段17） | 三读端点可选登录；章节正文复用文章可见性判定链；visibilities 按查看者计算（作者全可见/匿名仅公开/关注者回查，social 不可用降级）；章节详情触发浏览计数（作者自浏览不计，11.11-A）+书籍历史（fail-safe） |
 | 书籍发现入口 | 公开书籍列表（匿名）/ 我的书籍（登录） | status!=下架 && 未软删 Service 硬条件；category 精确过滤；my 端 author_id 硬收口（含下架书作者自查）；排序走 PageQuery 默认 update_time 倒序；书籍搜索为 search 外部依赖一期不做（P2 2026-10-28） |
 | 大篇幅切片 | 切片与聚合判定收口 review 消费端（SSOT）；content 仅发单条 content.submitted（事件体不含正文） | 禁止静默截断（review 侧兜底）；任一片段 REJECT→整体驳回 |
 | 标签系统 | tag + article_tag 多对多，每篇 ≤5 | 新建走 DFA 闸门；一期不参与推荐流排序权重 |
 | 发布前预检 | 仅返回 `{hit, risk}` 不回吐命中词 | @RateLimiter(USER) 限频；不替代发布闸门 |
 | 点赞（2026-11 批次十一收进 content） | 文章/书籍点赞与取消，social.liked / social.unliked 事件驱动 search 热度索引 | user_like 表幂等（唯一键含 identity_type）；`uk_user_target` 禁自赞；计数真源 article_stat/book_stat，article.like_cnt 只作展示镜像；重复点赞 40002、不可见目标 40004、自赞 40005 |
 | 负反馈（11.11） | 不感兴趣（内容）/ 屏蔽作者 / 屏蔽分类，feed_feedback 单表承载，支持撤销（幂等） | 建池、切片、last-good 兜底三层过滤收口 FeedFeedbackSupport；屏蔽分类按分类名匹配 `ArticleCategoryEnum` 合法值 |
-| 推荐曝光/点击归因 | 切片曝光批量落 feed_exposure_daily（按日聚合）；详情点击带 from/snapshotId/position 才计归因点击 | FeedExposureSupport fail-safe 不阻断翻页；FeedExposureCleanupJob 清理过期明细 |
+| 推荐曝光/点击归因 | 切片曝光批量落 feed_exposure_daily（按日聚合）；详情点击带 from/snapshotId/position 才计归因点击；**作者本人点击不计入 click_count（11.11-B，防自刷 CTR）** | FeedExposureSupport fail-safe 不阻断翻页；FeedExposureCleanupJob 清理过期明细 |
 | 统计真源与对账（11.15/11.16） | article_stat / book_stat 为计数真源，卡片计数统一读统计表；content_stat_window 供 30/90 天窗口权重 | ContentStatReconcileJob 每轮对账 6 类差异，Gauge `litisle_content_stat_reconcile_diff` 预注册（0 值可见）；超阈值（默认 50）ERROR 告警；存量修复走 tools/db-repair（不参与初始化） |
 
 ### 2.2 状态与字段字典
@@ -125,7 +125,7 @@ book.status  // 0-连载中 / 1-已完结 / 2-下架
                                       └──复审驳回/封禁连带──→ 4-下架
 3-驳回 ──修改重提──→ 1-待审核
 0/3-驳回 ──免审直落──→ 2-已发布（3 为竞态余量：review last-hash「非驳回态才免审」实际排除，白名单防御性保留）
-3-驳回/4-下架 ──申诉改判──→ 2-已发布（仅 moderation.appeal.result 来源；改判前回查封禁态，成功后发 content.published）
+3-驳回/4-下架 ──申诉改判──→ 2-已发布（仅 moderation.appeal.result 来源；改判前回查封禁态，封禁中不放行，回查失败/结果不可用同样不放行并抛异常交延迟重试 → 成功后发 content.published）
 ```
 
 - 发布 CAS：`status in (0,3) and del_flag=0`；**禁止 2→1**（改判只认申诉来源）
@@ -221,7 +221,7 @@ D2 GET /book/{id}/chapters → 章节列表分页（chapter_no 升序，50/页�
 读章（GET /book/{id}/chapter/{chapterId}）：
 C1 书可读校验 → 章节归属校验（BOOK_CHAPTER_MISMATCH）
 C2 正文复用文章可见性判定链（不可见 ARTICLE_NOT_FOUND）→ prev/next 随详情返回（visibilities 过滤，跳过不可见章）
-C3 成功后 BookReadSupport：浏览计数（所有访问者，按文章维度）+ 书籍历史 recordBookRead（登录非作者，fail-safe）
+C3 成功后 BookReadSupport：浏览计数（匿名与普通读者都记，作者本人自浏览不计（11.11-A），按文章维度）+ 书籍历史 recordBookRead（登录非作者，fail-safe）
 ```
 
 ------
@@ -353,6 +353,8 @@ C3 成功后 BookReadSupport：浏览计数（所有访问者，按文章维度�
 | GET `/tags?keyword=` | 30 | 标签搜索防爬（矩阵外补充，TAG_SEARCH_MAX_COUNT） |
 | POST/DELETE `/like` | 20 | 点赞/取消（LIKE_MAX_COUNT，批次十一 11.8；阈值由 `litisle.content.like.rate-limit-max-count` 可配，默认取常量） |
 | POST/DELETE `/feed/feedback` | 20 | 负反馈提交/撤销（FEEDBACK_MAX_COUNT，批次十一 11.11） |
+
+> 客户端 IP 统一走 `ClientIpSupport`（15.2-A）：`X-Forwarded-For` 首段 → `X-Real-IP` → `RemoteAddr` → `unknown`；匿名频控、曝光/点击去重均复用同一解析结果，禁各入口私拼。
 
 ### 3.2 事件矩阵（ContentEventProducer）
 

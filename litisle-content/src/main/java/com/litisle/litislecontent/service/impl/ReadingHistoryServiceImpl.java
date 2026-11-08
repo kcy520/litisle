@@ -41,6 +41,9 @@ import java.util.stream.Collectors;
  * recordFromArticle/recordBookRead 为阅读即落历史（最后一次阅读语义，回读旧章可回退）；
  * pageMyHistory/getLastRead/getLastChapter 供历史列表、书籍详情续读与续读接口使用；
  * 三条写入路径共用 upsertHistory（同一套 UPSERT 与唯一键冲突处理），靠 uk_user_biz 幂等。
+ *
+ * 【依赖注入】构造器由 Lombok @RequiredArgsConstructor 按 final 字段自动生成，
+ * 各构造参数（即下方字段）的作用见对应字段注释。
  */
 @Service
 @Slf4j
@@ -97,6 +100,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
         // 步骤1+（Q5）：书状态校验——下架书非作者拒上报（读路径 requireReadableBook 已挡下架书，
         // 收口「读不了但能报进度」的不一致；作者本人放行=与读路径「下架书仅作者可读」同口径）。
         // book 为 null（章节校验后书被软删的极窄窗口）跳过校验不阻塞上报
+        // 本次上报对应的书籍行，仅用于判断书是否已下架；查不到时跳过状态校验
         Book book = bookMapper.selectById(bookId);
         if (book != null && book.getStatus() == BookStatusEnum.TAKEN_DOWN
                 && !book.getAuthorId().equals(userId)) {
@@ -209,7 +213,9 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
         Page<ReadingHistory> historyPage = historyMapper.selectMyHistoryPage(
                 Page.of(pageNo, pageSize), userId,
                 targetType == null ? null : targetType.getCode());
+        // 本页命中的历史行，后续按 bizId 批量补全书籍/文章信息
         List<ReadingHistory> rows = historyPage.getRecords();
+        // 出参分页容器：沿用 SQL 分页的页码/每页条数/总数，只替换记录集
         Page<ReadingHistoryItemVO> result = new Page<>(
                 historyPage.getCurrent(), historyPage.getSize(), historyPage.getTotal());
         if (rows.isEmpty()) {
@@ -245,15 +251,19 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                 articleMapper::selectBatchIds, Article::getId);
         // 步骤5：组装出参并按步骤1 顺序重排
         List<ReadingHistoryItemVO> items = new ArrayList<>(rows.size());
+        // 逐行组装：按步骤1 的原始顺序追加，保证出参与 SQL 分页排序一致
         for (ReadingHistory row : rows) {
             if (ReadingTargetTypeEnum.BOOK == row.getBizType()) {
+                // 当前历史行对应的书籍；为 null 表示书籍已软删
                 Book book = bookMap.get(row.getBizId());
                 if (book == null) {
                     // 对象已软删：静默跳过（历史行保留，不物理删）
                     continue;
                 }
+                // 当前历史行记录的最后阅读章节；章节行已被删除时为 null
                 BookChapter chapter = row.getChapterId() == null
                         ? null : chapterMap.get(row.getChapterId());
+                // 最后阅读章节对应的文章，用来取章节标题；文章已删则标题留空
                 Article chapterArticle = chapter == null
                         ? null : chapterArticleMap.get(chapter.getArticleId());
                 items.add(new ReadingHistoryItemVO()
@@ -269,6 +279,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
                                 ? null : chapterArticle.getTitle())
                         .setLastReadTime(row.getUpdateTime()));
             } else {
+                // 当前历史行对应的独立文章；为 null 表示文章已软删
                 Article article = articleMap.get(row.getBizId());
                 if (article == null) {
                     // 对象已软删：静默跳过
@@ -312,6 +323,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
             upsertHistory(userId, ReadingTargetTypeEnum.ARTICLE, articleId, null, null, false);
         } else if (mounts.size() == 1) {
             // 步骤3：唯一挂载 → 落该书书籍历史（章节信息随行）
+            // 唯一挂载的章节行，其 bookId/chapterId 随本次历史落库
             BookChapter chapter = mounts.get(0);
             upsertHistory(userId, ReadingTargetTypeEnum.BOOK, chapter.getBookId(), chapter.getId(), chapter, false);
         } else {
@@ -378,6 +390,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
      */
     private void upsertHistory(Long userId, ReadingTargetTypeEnum bizType, Long bizId,
                                Long chapterId, BookChapter chapter, boolean onlyForward) {
+        // 库里已存在的历史行；null 表示该用户还没读过这个对象，走插入分支
         ReadingHistory current = selectHistory(userId, bizType, bizId);
         if (current == null) {
             // 首次写入：插入；并发首写撞唯一索引 → 转查询走更新分支
@@ -415,6 +428,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
             // 仅前进不回退：经章节表反查双方序号比对，新序号 ≤ 当前序号 → 多端乱序，忽略；
             // 当前章节行缺失（被退章重排）：无法比对，容错放行更新
             // 文章没有章节id，文章的章节id直接返回null，不需要考虑章节前进与否
+            // 之前最后阅读的章节行，用于比较章节序号；章节行已被删时为 null
             BookChapter lastChapter = current.getChapterId() == null
                     ? null : bookChapterMapper.selectById(current.getChapterId());
             if (lastChapter != null && chapter != null
@@ -423,6 +437,7 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
             }
         }
 
+        // 待更新的历史行：只改最后阅读章节与最后阅读时间，其余字段保持原值
         ReadingHistory upd = new ReadingHistory();
         upd.setId(current.getId());
         upd.setChapterId(chapterId);

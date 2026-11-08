@@ -19,8 +19,12 @@ import com.litisle.litislecontent.mapper.ArticleMapper;
 import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.ReadingHistoryMapper;
 import com.litisle.litislecontent.metrics.ContentMetrics;
+import com.litisle.litislecontent.service.impl.FeedStreamServiceImpl;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.boot.autoconfigure.cache.CacheProperties.Redis;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -86,6 +90,50 @@ public class FeedProfileSupport {
     /** 观测指标（画像缓存命中/未命中打点；MeterRegistry 未装配时静默空转） */
     private final ContentMetrics contentMetrics;
 
+
+/// ### 聚合流程（FeedProfileSupport.java:aggregate）
+// 1. 取样本 ：查近`readWindowDays` 天的文章阅读历史（按更新时间倒序，限量`profileSampleSize` 条，走分页插件）；
+// 2. 反查内容 ：按已读文章 ID 批量反查分区/分类（只取三列，避开正文大字段）；
+// 3. 计数取 Top-N ：统计各分区/分类的阅读次数，分区取第 1 名、分类取前 2 名；
+// 4. 冷启动判定 ：窗口内 没有任何文章阅读记录 ⇒`coldStart=true` ，两路个性化召回全部跳过；
+// 5. 完结偏好 （ resolvePreferredBookStatus ）：取最近 50 条书籍阅读历史反查书籍状态， 完结占比 > 50% 判定为偏好完结，否则偏好连载；无样本默认完结。
+// ###  缓存策略
+// 画像按身份隔离缓存到 Redis：登录`content:feed:profile:u{userId}` 、匿名`content:feed:profile:a{anonId}` ，绝不混用。TTL 由`profile-cache-ttl-seconds` 控制， 阅读行为不主动失效 （画像只影响排序不影响可见性，滞后 ≤TTL 可接受）。缓存载体用`FeedProfileCache` （int/string 表示枚举）避免枚举反序列化歧义。
+
+/// ## 偏好如何生效：FeedStreamServiceImpl 的两个环节
+//    文章偏好和书籍偏好是「分开算的、独立存储的、互不干扰的两套维度」，不是统一综合成一个画像。并且同一画像对象内的两类独立维度
+// 以文章流为例（ FeedStreamServiceImpl.java:L323-L379 ）：
+// ① 召回阶段（个性化扩池） ：非冷启动时，在“最热 + 最新”两路全局召回之外，增加“常看分区”和“常看分类”两路召回（各取`perPath` 条，`putIfAbsent` 去重入池）。冷启动则跳过，退化为全局热门+最新。
+// ② 打分阶段（个性化排序） ：....
+
+/// ## 什么是“召回”？
+// 推荐流生成通常分两个阶段，这是工业界标准做法：
+// `全量内容库（可能几万篇）
+//     ↓ ① 召回（Recall）：多路并行"捞"出一小批候选，宁滥勿缺 —— 目标：快
+//     ↓ ② 打分排序（Ranking）：对候选逐篇精算分数，排成最终 feed 流 —— 目标：准`
+// 为什么不直接对全库打分？ 因为精算分数很贵（要查统计表、窗口表、算新鲜度）。所以先用廉价的查询（走索引取 Top-N）从几万篇里筛出几百篇候选池，再对池子里这几十上百篇做精细打分。 召回决定“谁有资格参赛”，排序决定“谁排前面”。
+
+/// ## 这个项目里的四路召回
+// 对应代码在 FeedStreamServiceImpl.java:L232-L264 （`buildArticleSnapshot` 方法）。每路召回就是一个简单的 Mapper 查询，取`perPath` 条：
+// 路 名称 召回逻辑 作用 路1 最热 复用热度榜 ZSet，直接取`topArticleIds(1, perPath)` 保证头部热门内容一定出现 路2 最新 按`create_time` 倒序取 N 条（走`idx_create_time` 索引） 保证新内容有曝光机会，不被热度压制 路3 常看分区 `zone IN (用户偏好的分区)` ，取 perPath 条 个性化：保证用户爱看的分区内容入池 路4 常看分类 `category IN (用户偏好的分类)` ，取 perPath 条 个性化：保证用户爱看的分类内容入池
+// 四路召回各自取一小批，合并去重后的候选池天然就包含了“热门保障 + 新鲜保障 + 个性化保障”三类内容，后续打分只需按权重决定它们的相对位置。
+
+///### 打分
+//    全库文章（几万篇）
+//            ↓ 四路召回（每路各取 perPath 条，走索引的轻量查询）
+//    候选池（~几百篇）
+//            ↓ 过滤（作用域/负反馈/当日曝光）
+//    最终候选（再少一点）
+//            ↓ ★ 打分只发生在这里，逐篇循环算分 ★  打分使用自己配置的打分函数，以及自行配置的打分条件的权重
+
+
+/// reading_history（唯一真源）
+//     → FeedProfileSupport.aggregate()（窗口内计数取 Top-N + 完结占比判定）
+//     → Redis 缓存（按 userId/anonId 隔离，TTL 滞后可接受）
+//     → FeedStreamServiceImpl：召回扩池（分区/分类两路） + 打分加权（zoneMatch/categoryMatch/finishMatch） + 已读降权
+//     → FeedScoreSupport.computeArticleScore / computeBookScore（唯一公式收口，热门榜偏好项传 0）
+
+
     /**
      * 加载用户画像（文章流与书籍流共用；批次十 10.5：带 Redis 缓存）
      *
@@ -128,7 +176,7 @@ public class FeedProfileSupport {
         // 步骤3：回源结果写回缓存（匿名冷启动画像同样按 anonId 隔离缓存，便于后续接入匿名行为时格式一致）
         if (cacheKey != null) {
             writeCachedProfile(cacheKey, profile);
-        }
+        } 
         return profile;
     }
 
@@ -370,6 +418,7 @@ public class FeedProfileSupport {
         if (bookHistories.isEmpty()) {
             return BookStatusEnum.COMPLETED;
         }
+        
         // 已读书籍 ID 集合
         Set<Long> bookIds = bookHistories.stream()
                 .map(ReadingHistory::getBizId)

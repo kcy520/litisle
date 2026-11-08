@@ -14,6 +14,10 @@ import java.util.Collection;
 /**
  * 推荐流曝光/点击归因支撑（批次十一 11.6 + 11.12）
  *
+ *
+ * 曝光 = 一条内容被“翻页接口”实际返回给前端、并出现在用户屏幕上（或即将出现）的那一刻。
+ *同一身份（登录/匿名） + 同一天 + 同一条内容 = 只曝光一次
+ *
  * <p>职责：把「翻页返回」与「详情点击」两个事件落到 {@code feed_exposure_daily} 日聚合表。</p>
  *
  * <p>口径（2026-11-06 已拍板，不重新讨论）：</p>
@@ -50,15 +54,20 @@ public class FeedExposureSupport {
     /**
      * 记录一页实际返回的曝光（批量 upsert，一条 SQL 多行）。
      *
+     * 把"当前这一页翻页接口实际返回给用户的每一条内容"的曝光计数，在日聚合表里各 +1。
+     * 用户刷到了第 N 页，这一页里有 20 篇文章被返回给前端。这 20 篇文章今天"被递到用户眼前"的次数，各自 +1。
+     *
      * @param streamType 流类型（FeedConstant.STREAM_ARTICLE / STREAM_BOOK）
      * @param identity   身份标识（u{userId} / a{anonId}）
      * @param ids        本页实际返回的内容 ID（已按当日曝光 Set 过滤）
      */
     public void recordExposure(String streamType, String identity, Collection<Long> ids) {
+
         // 空页不写库，避免产生无意义 SQL
         if (ids == null || ids.isEmpty()) {
             return;
         }
+
         // 身份口径由身份前缀推导：u=登录、a=匿名
         String identityType = resolveIdentityType(identity);
         if (identityType == null) {
@@ -66,13 +75,16 @@ public class FeedExposureSupport {
             log.warn("推荐流曝光身份非法（跳过写库）：stream={}, identity={}", streamType, identity);
             return;
         }
+
         try {
+            //曝光批量累加
             // 一页只发一条 SQL（多行 values + on duplicate key update），避免每页 20 次往返
             feedExposureDailyMapper.batchIncreaseExposure(LocalDate.now(), streamType, identityType, ids);
         } catch (Exception exception) {
             // 批次十一 11.6：曝光写失败不得阻断翻页，只记 WARN 与失败计数
             log.warn("推荐流曝光写库失败（不影响翻页）：stream={}, identityType={}, count={}, error={}",
                     streamType, identityType, ids.size(), exception.getMessage());
+            //记录一次曝光写库失败
             contentMetrics.recordFeedExposureWriteFailure(streamType);
         }
     }
@@ -80,21 +92,29 @@ public class FeedExposureSupport {
     /**
      * 记录一次推荐流点击（详情接口调用）。
      *
+     * 推荐流点击 = 用户在推荐流里看到一条内容后，点进去看了详情。
+     *
      * <p>只有带齐归因参数（from=feed 且 snapshotId 非空）才计点击；否则视为普通浏览直接返回。
      * 匿名点击必须携带合法的 X-Anon-Id，缺失/非法时无法稳定识别身份，按不计点击处理
      * （对应 2026-11-06 决策第 5 条的前置约束：点击侧必须稳定带同一个匿名标识）。</p>
      *
      * @param streamType 流类型（FeedConstant.STREAM_ARTICLE / STREAM_BOOK）
      * @param targetId   内容 ID（文章 ID 或书籍 ID）
+     * @param authorId   内容作者 ID（作者本人点击不计入 CTR 分子；null 表示无法判定）
      * @param viewerId   登录用户 ID（未登录传 null）
      * @param anonId     请求头 X-Anon-Id 原值（未登录时使用，可为空）
      * @param from       归因来源参数（仅 "feed" 计点击）
      * @param snapshotId 快照代次（必带，缺失则不计点击；仅作校验，不落库）
      */
-    public void recordClick(String streamType, Long targetId, Long viewerId, String anonId,
+    public void recordClick(String streamType, Long targetId, Long authorId, Long viewerId, String anonId,
                             String from, String snapshotId) {
         // 内容 ID 缺失无法归因，直接跳过
         if (targetId == null) {
+            return;
+        }
+        // 11.11-B：作者自点击不计入点击口径，避免作者本人刷自己的推荐卡片；
+        // 只影响 feed_exposure_daily 的点击/CTR 分子，曝光已在翻页时记过，不受影响
+        if (authorId != null && authorId.equals(viewerId)) {
             return;
         }
         // 归因参数不齐：只当普通浏览，不写点击（曝光已在翻页时计过）
@@ -109,6 +129,7 @@ public class FeedExposureSupport {
             identityType = FeedConstant.IDENTITY_TYPE_LOGIN;
         } else {
             // 匿名详情页不经过 AnonIdFilter（该过滤器只覆盖推荐流端点），这里直接校验请求头格式；
+
             // 不合法就不计数：若服务端临时生成新标识，每次点击都会变成「新身份」，反而灌大 CTR
             if (!isValidAnonId(anonId)) {
                 log.debug("匿名点击缺少合法 X-Anon-Id（不计点击）：stream={}, targetId={}", streamType, targetId);
@@ -125,9 +146,11 @@ public class FeedExposureSupport {
                 return;
             }
             // 同日同条去重：SADD 返回 0（已点过或 Redis 不可用）时不累计，保证 CTR 分子不被刷新放大
+                //markClicked:标记某内容今天已被该身份点击
             if (!feedSnapshotSupport.markClicked(streamType, identity, targetId)) {
                 return;
             }
+            //在 feed_exposure_daily 表里，把「今天 + 这个流 + 这篇内容 + 这个身份口径」这一行的 click_count +1。
             feedExposureDailyMapper.increaseClick(LocalDate.now(), streamType, targetId, identityType);
         } catch (Exception exception) {
             // 批次十一 11.6：点击写失败不得阻断详情返回，只记 WARN 与失败计数

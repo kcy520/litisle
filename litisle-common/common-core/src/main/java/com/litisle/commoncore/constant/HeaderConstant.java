@@ -67,4 +67,6 @@ public class HeaderConstant {
      * 反向代理真实 IP 请求头
      */
     public static final String X_REAL_IP = "X-Real-IP";
+
+    public static final String USER_AGENT = "User-Agent";
 }
