@@ -18,7 +18,7 @@ import com.litisle.litislecontent.mapper.UserLikeMapper;
 import com.litisle.litislecontent.service.LikeService;
 import com.litisle.litislecontent.service.support.ContentStatSupport;
 import com.litisle.litislecontent.service.support.LikeEventSupport;
-import com.litisle.litislecontent.support.LikeRateLimitSupport;
+import com.litisle.litislecontent.service.support.LikeRateLimitSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;

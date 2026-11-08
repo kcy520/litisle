@@ -92,7 +92,8 @@ public class CommonMqAutoConfiguration {
     }
 
     /**
-     * MQ 收发指标埋点 Bean（预置工具，按需使用；照搬 RedisGuard optional 模式）。
+     * MQ 收发指标埋点 Bean（预置工具，按需使用；注入方式对齐 RedisGuardMetrics 的
+     * ObjectProvider&lt;MeterRegistry&gt; 可选注入）。
      *
      * <p>@ConditionalOnClass(MeterRegistry.class)：消费方未引 micrometer 时（provided 不传递）
      * 跳过注册；已引 actuator 的服务自动获得。容器内无 MeterRegistry Bean 时注入 null，

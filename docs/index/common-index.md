@@ -37,10 +37,11 @@
 - `ratelimit/`：`@RateLimiter(time,timeUnit,count,keyType)` + 切面；`KeyType`(USER/IP/DEFAULT)；`RedisRateLimiter`/`LocalRateLimiter`（Redis 不可用本地兜底）
 - `idempotent/`：`@Idempotent` + 切面；`IdempotentConstant`（占位值/匿名前缀）
 - `lock/`：`DistributedLock` 接口 + `RedissonLock`（`tryLock(key,waitTime,unit)`/`lock`/`unlock`）
-- `guard/RedisGuard` ✅：Redis 三态熔断（CLOSED/OPEN/HALF_OPEN），`acquire()→Path{REDIS,PROBE,LOCAL}` + `onSuccess/onFailure`
-- `bloom/BloomFilter`、`login/LoginRetryLimiter`、`util/RedisUtil`、`session/DeviceSession`
+- `guard/RedisGuardMetrics` ✅：熔断指标桥接（Gauge `redis.guard.degraded` + Counter `redis.guard.state.change`，状态机为 Resilience4j CircuitBreaker）
+- `bloom/BloomFilter`、`util/RedisUtil`、`session/DeviceSession`
 - `constant/`：`CacheConstant`（各业务 key 前缀，如 `user:info:`）、`IdempotentConstant`
 - 配置：`litisle.rate-limit.fallback.{enabled,cooldownSeconds,instanceCount}`
+- 归档：批次十三（`RedisGuard` → Resilience4j、`LoginRetryLimiter`/`RedisGuard` 删除）见 [common-redis-implemention-records.md](../archive/common-redis/common-redis-implemention-records.md)
 
 ## 五、common-security（`com.litisle.commonsecurity`）
 
@@ -59,5 +60,5 @@
 | 3-1.3 骨架/ACK/traceId | `MqAckHelper`·`MqTraceSupport`·`MqIdempotentHelper` |
 | 3-1.10 DFA 送审 | `DfaFacade`（litisle-api） |
 | 3-1.12 发 result | `MqSendUtil` |
-| 3-7 成本护栏 | `@RateLimiter`·`RedisGuard`·`LocalRateLimiter` |
+| 3-7 成本护栏 | `@RateLimiter`·`CircuitBreaker`·`LocalRateLimiter` |
 | 观测埋点 | `MqMetrics`·`MeterRegistry`(optional) |

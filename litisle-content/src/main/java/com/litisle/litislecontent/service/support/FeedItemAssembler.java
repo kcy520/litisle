@@ -1,4 +1,4 @@
-package com.litisle.litislecontent.support;
+package com.litisle.litislecontent.service.support;
 
 import com.litisle.litislecontent.domain.entity.Article;
 import com.litisle.litislecontent.domain.entity.ArticleStat;

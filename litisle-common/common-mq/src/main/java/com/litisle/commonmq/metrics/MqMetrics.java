@@ -4,7 +4,8 @@ package com.litisle.commonmq.metrics;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * MQ 收发指标埋点（common-mq 预置工具，按需使用；照搬 RedisGuard 成熟模式）。
+ * MQ 收发指标埋点（common-mq 预置工具，按需使用；观测语义对齐 common-redis 的 RedisGuardMetrics：
+ * 指标注册 + MeterRegistry 缺失时静默空转）。
  *
  * 【指标】
  * - mq_send_total{exchange, result}     result ∈ success | failure

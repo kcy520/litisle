@@ -11,7 +11,7 @@ e:\NewJavaPro\LitIsle\docs\commom-des.md
 ```
 litisle-common/
 ├── common-core          # 基础工具：异常/响应/枚举/常量/工具类/配置/接口
-├── common-redis         # Redis 能力：序列化/分布式锁/布隆过滤器/幂等性/限流/登录重试限制
+├── common-redis         # Redis 能力：序列化/分布式锁/布隆过滤器/幂等性/限流降级
 ├── common-security      # 安全控制：Sa-Token 集成/审计/脱敏/XSS/匿名认证/数据加密/Feign 透传
 └── common-mq            # MQ 机制层：消息转换/两档发送/手动 ACK/traceId 恢复/幂等/指标（拓扑留各服务）
 ```
@@ -198,7 +198,6 @@ public Result<Void> createOrder(@RequestBody OrderDTO dto) { ... }
 | `RateLimiterKeyBuilder`       | 限流 key 构建器                                                                       | 内部使用                                            |
 | `RedisRateLimiter`            | Redis 固定窗口限流器（Lua 脚本 SSOT + Resilience4j 熔断 + 本地兜底）                                | 注入使用                                            |
 | `LocalRateLimiter`            | 本地兜底限流器（Redis 故障期单机固定窗口计数）                                                       | 内部使用                                            |
-| `RedisGuard`                  | Redis 熔断适配层（状态机由 Resilience4j CircuitBreaker 承载，为 LoginRetryLimiter 保留既有签名）             | 内部使用                                            |
 | `RedisGuardMetrics`           | 熔断指标桥接（同名 Gauge `redis.guard.degraded` / Counter `redis.guard.state.change`，告警规则零改动）  | 自动（需 actuator + micrometer-registry-prometheus） |
 | `RateLimitFallbackProperties` | 降级配置（yml: litisle.rate-limit.fallback）                                           | yml 配置                                          |
 
@@ -219,7 +218,7 @@ public Result<LoginVO> login(@RequestBody LoginDTO dto) { ... }
 - **CLOSED**：正常走 Redis；连接/超时类失败连续达 3 次 → OPEN（业务类异常如脚本返回 null 不算故障；等价配置为 `failureRateThreshold=100` + `slidingWindowSize=3` + `minimumNumberOfCalls=3` 三项一起对齐）
 - **OPEN**：冷却期内直接走本地兜底，不碰 Redis（避免每请求都吃连接超时）
 - **HALF\_OPEN**：冷却到期后由 `automaticTransitionFromOpenToHalfOpenEnabled=true` 自动进入，仅放单个探测许可（`permittedNumberOfCallsInHalfOpenState=1`），成功 → CLOSED，失败 → 回 OPEN（防惊群 + 防侥幸恢复）
-- 状态机由 Resilience4j `CircuitBreaker` 承载（单例名 `redisGuard`，见 guard 包）；`RedisRateLimiter` 直接注入 `CircuitBreaker` 调编程式 API，`LoginRetryLimiter` 经 `RedisGuard` 薄适配层调用，两者共用同一实例，避免降级语义漂移；**禁止用 `@CircuitBreaker` 注解**（同类自调用不走 AOP 会静默失效）
+- 状态机由 Resilience4j `CircuitBreaker` 承载（单例名 `redisGuard`，见 guard 包）；`RedisRateLimiter` 直接注入 `CircuitBreaker` 调编程式 API，降级状态在进程内唯一；**禁止用 `@CircuitBreaker` 注解**（同类自调用不走 AOP 会静默失效）
 
 **本地兜底（LocalRateLimiter）**：ConcurrentHashMap 槽位单机计数，窗口与 Redis 路径墙钟对齐（降级切换时口径连续）；返回计数 × instanceCount 折算为集群等效计数（等效「本地阈值 = 集群阈值 ÷ 实例数」），保证降级期「更严或等严」；约每 1024 次操作清理一次过期槽位，内存有界。仅由 RedisRateLimiter 内部调用，业务方不直接使用。
 
@@ -231,7 +230,7 @@ public Result<LoginVO> login(@RequestBody LoginDTO dto) { ... }
 | `cooldown-seconds` | 5    | 熔断 OPEN 冷却期（秒），到期进入 HALF\_OPEN 放探测请求  |
 | `instance-count`   | 1    | 集群实例数（本地配额分摊基数）；扩缩容后需人工同步             |
 
-**Micrometer 监控指标**（`RedisGuardMetrics` 监听 CircuitBreaker 状态切换事件，限流与登录防爆破均受益）：
+**Micrometer 监控指标**（`RedisGuardMetrics` 监听 CircuitBreaker 状态切换事件，供限流降级观测）：
 
 | 指标                         | 类型                     | 说明                                                    |
 | -------------------------- | ---------------------- | ----------------------------------------------------- |
@@ -259,22 +258,20 @@ public Result<LoginVO> login(@RequestBody LoginDTO dto) { ... }
 
 **说明**：设备会话的**管理逻辑**（注册/踢人/多设备限制）已移交 Sa-Token 框架处理。`DeviceSession` 保留作为数据模型，供业务侧记录设备信息到 Sa-Token Session 时使用。
 
-### 3.7 登录重试限制
+### 3.7 登录重试限制（已移除）
 
-| 类                   | 说明              | 生效方式 |
-| ------------------- | --------------- | ---- |
-| `LoginRetryLimiter` | 登录重试限制器（暴力破解防护） | 手动调用 |
+原 `LoginRetryLimiter`（失败计数 + 账户锁定 + 手动解锁）已于 2026-11-07 删除：唯一调用方是 content 模块的文章密码校验链路，该链路移除后组件长期无业务调用。
 
-**Redis 数据结构**：
+**历史结构（随组件删除）**：
 
 ```
 login:fail:{identifier}  → 连续失败次数（String，TTL 15min）
 login:lock:{identifier}  → 锁定标记（String，TTL 15min）
 ```
 
-**核心机制**：INCR 原子递增 + 首次失败设 TTL；双 Key 职责分离。
+（原机制：INCR 原子递增 + 首次失败设 TTL，双 Key 职责分离；上述双键常量 `CacheConstant.LOGIN_FAIL_CNT` / `LOGIN_LOCK` 已同步删除。）
 
-**Redis 故障降级**：接入 `RedisGuard` 三态熔断（与 RedisRateLimiter 共用同一状态机），降级期走组件自有本地兜底判断（宁严勿松，锁定/失败计数判定不因 Redis 故障而放行）。
+（原降级：接入三态熔断，降级期「宁严勿松」；承载该路径的 `RedisGuard` 与本地判断逻辑已删除，此描述仅作历史记录。）
 
 ***
 
@@ -739,7 +736,6 @@ litisle:
 | `RedissonLock`             | common-redis    | 分布式锁                                       |
 | `BloomFilter`              | common-redis    | 布隆过滤                                       |
 | `RedisRateLimiter`         | common-redis    | 固定窗口计数（@RateLimiter 切面与系统级限流共用）            |
-| `LoginRetryLimiter`        | common-redis    | 登录重试限制                                     |
 
 ***
 
@@ -1056,7 +1052,6 @@ common-redis/src/main/java/com/litisle/commonredis/
 │   ├── CacheConstant.java
 │   └── IdempotentConstant.java
 ├── guard/
-│   ├── RedisGuard.java
 │   └── RedisGuardMetrics.java
 ├── idempotent/
 │   ├── Idempotent.java
@@ -1065,8 +1060,6 @@ common-redis/src/main/java/com/litisle/commonredis/
 ├── lock/
 │   ├── DistributedLock.java
 │   └── RedissonLock.java
-├── login/
-│   └── LoginRetryLimiter.java
 ├── ratelimit/
 │   ├── LocalRateLimiter.java
 │   ├── RateLimiter.java
@@ -1132,12 +1125,17 @@ common-security/src/main/java/com/litisle/commonsecurity/
 
 ***
 
-**文档版本**：v2.2
+**文档版本**：v2.3
 **最后更新**：2026-11-07
 **维护者**：LitIsle 团队
 
 **更新记录**：
 
+- **v2.3（2026-11-07）**：删除无调用方的登录重试链路
+  - 删除：`login/LoginRetryLimiter`、`guard/RedisGuard` 薄适配层、`CommonRedisAutoConfiguration` 中两个对应 Bean、`CacheConstant.LOGIN_FAIL_CNT` / `LOGIN_LOCK`
+  - 原因：唯一调用方（content 文章密码校验链路）已移除，组件长期零业务调用
+  - 保留：`CircuitBreakerConfig` / `CircuitBreakerRegistry` / `CircuitBreaker` / `RedisGuardMetrics` 四个 Bean，限流降级语义与告警规则不变
+  - 测试：`RedisGuardCircuitBreakerTest` 改写为直接针对 CircuitBreaker 配置与 `RedisRateLimiter` 降级路径（5 条用例通过）
 - **v2.2（2026-11-07）**：熔断组件切换 Resilience4j
   - 新增：`RedisGuardMetrics`（同名指标桥接：Gauge `redis.guard.degraded` + Counter `redis.guard.state.change`，`alert-rules.yml` 零改动）
   - 更新：`RedisGuard` 退化为薄适配层（acquire/onSuccess/onFailure 委托 CircuitBreaker，仅保留 LoginRetryLimiter 既有签名；OPEN 态非探测成功不再打回 CLOSED）

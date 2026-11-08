@@ -96,6 +96,7 @@
 | 12.1~12.3 | 批次十二收口（屏蔽下代生效 / 对账 0 值可观测 / user schema 补列） | 已归档（3 项） | [content-12-batch12-closing.md](../archive/content/content-12-batch12-closing.md) |
 | 板块一~九（content） | 模块基建、草稿、发布、可见性、书籍、标签、推荐流、审核回写、临时清单 | 已归档（前序） | [content-implemention-records.md](../archive/content/content-implemention-records.md)（索引页） |
 | 批次八/九（search） | 搜索模块前序批次（索引同步、召回、降权等） | 已归档（前序） | [search-implemention-records.md](../archive/search/search-implemention-records.md)（索引页） |
+| 13.1~13.11 | 自研 RedisGuard 熔断降级切换 Resilience4j（批次十三，common-redis 基础设施） | 已归档（11 项） | [common-redis-13-resilience4j.md](../archive/common-redis/common-redis-13-resilience4j.md) |
 
 > 注意：search 的 9.1（7 项）、9.4（2 项）、9.5、9.6、9.8 仍有未完成项在本文档，第 5 行「已归档」指的是前序批次，不含这些活跃项。
 
@@ -104,6 +105,7 @@
 - 批次十：仅 10.7、10.8 在本文档，10.1~10.6、10.9 已在归档（见上表第 1 行）。
 - 批次十一：仅 11.11 在本文档，11.1~11.10、11.12~11.17 已在归档（见上表第 2 行）。
 - 批次十二：仅「已知风险 R1~R3」在本文档，12.1~12.3 已在归档（见上表第 3 行）。
+- 批次十三：13.1~13.11 全部归档（见上表第 6 行），本文件只保留指针，无剩余待办。
 
 --------------------------
 
@@ -189,6 +191,7 @@
 ###### 9.6 测试补齐（可选，1 项）
 
 - [ ] 【可选】search 关键路径自动化测试（来源：批次二~八均仅编译验证；前置：测试环境与 Testcontainers/嵌入式 ES 方案确定；验收：检索参数组合、兜底不缓存、降级开关、KNN 强制 PUBLIC、索引版本守卫至少各有 1 条集成用例通过）
+  - **执行状态（2026-11-08 补记）**：上次「`updateTime` 精度核查与测试方案建议」会话被取消、无结论留存；本条需重跑，不得视为已验证。
 
 ###### 9.7 低成本优化（已完成，2 项）
 
@@ -198,6 +201,7 @@
 
 > —P0-E / P0-D 已完成并归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)；P2 条件项已迁出至 [temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md)（2026-11-05）。
 - [ ] 【待拍板】`updateTime` 精度（来源：版本守卫以秒级 `updateTime` 比较；风险：同一秒内两次编辑会被判为旧）；建议后续补毫秒或单调版本号，本轮不实施。
+  - **执行状态（2026-11-08 补记）**：上次「`updateTime` 精度核查与测试方案建议」会话被取消、无结论留存（未产出可落地的毫秒/单调版本号方案与测试设计）；需重跑，不得视为已验证。
 
 ###### 9.9 search 索引同步与可观测性（本轮仅登记，未执行）
 
@@ -214,6 +218,7 @@
 
 - [ ] 【必须】文章流端到端验证（来源：10.3/10.5/10.6；前置：联调环境（content/Redis/MySQL 可用）；验收：连续 15 页不重不漏、同作者/同分类打散生效、私密与下架与未过审内容 0 命中、匿名与登录序列不同、快照过期续刷正常、频控按维度触发）
   - **待环境验证（2026-11-06，情况 B，未实测、不勾选）**：本机探测 MySQL84 服务 Stopped、Redis 6379/6380 未监听、content 8085 与 Nacos 8848 未启动。恢复环境后按下列命令逐条执行：
+    - **执行状态（2026-11-08 补记）**：上次「推荐流端到端验证 10.7/10.8」会话被取消、无结论留存，需重跑；当前仍未实测。
     - 前置：`Start-Service MySQL84,Redis`；启动 content（IDE 或 `mvn -pl litisle-content -am spring-boot:run`）；`Test-NetConnection 127.0.0.1 -Port 8085` 应为 True
     - 连续 15 页不重不漏：`$h=@{"X-Anon-Id"=[guid]::NewGuid().ToString()};$c=$null;$s=$null;$ids=@(); 1..15|%{$u="http://127.0.0.1:8085/api/content/feed/articles?pageSize=20"+$(if($c){"&cursor=$c"})+$(if($s){"&snapshotId=$s"});$r=Invoke-RestMethod $u -Headers $h;$ids+=$r.data.items.articleId;$c=$r.data.cursor;$s=$r.data.snapshotId}`；判定：`$ids` 无重复、每页 20 条、cursor 单调递增；池 300 耗尽（第 16 页）后 snapshotId 递增且 reset=false
     - 打散：首屏相邻 authorId 连续 ≤1、category 连续 ≤2；两个 zone 近似 1:1 交替
@@ -226,6 +231,7 @@
 
 - [ ] 【必须】书籍流端到端验证（来源：10.4/10.6；前置：10.7 通过；验收：书籍门控正确（下架/软删 0 命中）、收藏与阅读人数排序与 SQL 聚合一致、新书保底曝光生效、书籍流不依赖 zone、停 Redis 后仍可刷、匿名频控触发）
   - **待环境验证（2026-11-06，情况 B，未实测、不勾选）**：环境同上不可用。恢复后执行：
+    - **执行状态（2026-11-08 补记）**：上次「推荐流端到端验证 10.7/10.8」会话被取消、无结论留存，需重跑；当前仍未实测。
     - 连续翻页：同 10.7 循环，端点改 `/api/content/feed/books`，断言 `items.id` 无重复、每页 20 条、cursor 递增
     - 门控 0 命中：断言 items 中无 `status=2`（下架）/`del_flag=1` 书籍；抽查 `SELECT id,status,del_flag FROM book WHERE id IN (<首页ID>)`
     - 计数与 SQL 一致：`SELECT book_id,COUNT(*) FROM favorite WHERE target_type=2 AND book_id IN (<首页ID>) GROUP BY book_id` 对照返回收藏数；`SELECT biz_id,COUNT(DISTINCT user_id) FROM reading_history WHERE biz_type=1 AND biz_id IN (<首页ID>) GROUP BY biz_id` 对照阅读人数
@@ -241,9 +247,13 @@
 > 已完成 16 项（11.1~11.10、11.12~11.17）并归档，见 [content-11-interaction-stats.md](../archive/content/content-11-interaction-stats.md)。批次内的背景、现状问题清单、方案 13 条、已确认决策、待确认项、执行注意项 15 条、环境验证清单与收尾记录均已整体移入该文件（**唯一副本**）。**编号不重排**，本文件仅保留 11.11。
 
 - [~] 【P1｜前端配合：是】11.11 反作弊与负反馈登记（部分完成，来源：问题 11；前置：11.6 有曝光点击数据；涉及 content/api/前端）
-  - **已完成**：负反馈三维度（不感兴趣 / 屏蔽作者 / 屏蔽分类）的提交、撤销、幂等，以及当页剔除与下一代快照生效（含 last-good 兜底过滤）。落地与收口实测见 [content-11-interaction-stats.md](../archive/content/content-11-interaction-stats.md) 的 11.11 条目与「八、附录：环境验证清单」第 8 项，验收转入批次十二 [12.1](../archive/content/content-12-batch12-closing.md)。
-  - **未做**：作者自互动过滤、异常频次规则——原设计明确另拆实施项，不是遗漏。
-  - **追溯**：环境验证清单原表已移入归档文件，实测依据以该处为准。
+  - 已完成部分（负反馈提交/撤销/幂等、当页剔除与下一代快照生效）见 [content-11-interaction-stats.md](../archive/content/content-11-interaction-stats.md) 的 11.11 条目与「八、附录：环境验证清单」第 8 项，验收转入批次十二 [12.1](../archive/content/content-12-batch12-closing.md)；此处不再复述。
+  - **11.11-A（必须）作者自浏览排除**：给 `ViewCounterSupport#recordView` 增加带 `authorId` 的重载，内部判断「浏览者 == 文章作者」直接 `return`；两个调用点（[ArticleController.java:170](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/ArticleController.java#L170)、[BookReadSupport.java:50](../../litisle-content/src/main/java/com/litisle/litislecontent/service/support/BookReadSupport.java#L50)）改走重载。依据：文章详情无条件调 `recordView`，章节阅读注释明确写「含匿名/作者本人」；`article_stat.view_count` 是文章流排序四个统计量之一（权重 0.03），是当前唯一仍会污染推荐权重的自互动。成本约 30 行、3 个文件，无 DDL、无新配置；历史数据不回滚。验收：作者本人浏览不再增加 `view_count`，他人与匿名计数不变。
+  - **11.11-B（可选）推荐流作者自点击排除**：推荐流 `recordClick` 前判断作者自点击并跳过（调用点在 [ArticleController.java:177](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/ArticleController.java#L177)、[BookController.java:192](../../litisle-content/src/main/java/com/litisle/litislecontent/controller/BookController.java#L192)）。只影响 CTR 报表口径，不影响排序；与 11.11-A 独立，可后做。
+  - **11.11-C1（Phase 1｜影子统计，不拦截）异常频次三维度**：实现 R2 单用户持续高频（600s / 80 次）、R3 单内容突增（10min / 25 赞、15 藏，且为 24h 基线的 3 倍）、R4 匿名指纹泛滥（10min / 50 篇）的计数与命中标记；约 150~200 行，无 DDL。Phase 1 只记录「本应命中」与原因，不拒绝、不停计数，先验证阈值误伤。
+  - **11.11-C2（Phase 2｜阈值验证后执行处置）**：按 Phase 1 数据复核阈值后启用处置——R2 超限拒绝、R3 仅打标不拦截、R4 只停计数不断访问；复用 Phase 1 统计口径，不新增表。
+  - **11.11-C3（Phase 3｜复盘与可选加固）**：阈值调优、指标/告警接入与误伤复盘。本阶段明确**不做**多账号/IP 关联、设备指纹、独立风控服务（不在本批次范围）。
+  - **追溯**：环境验证清单原表已移入归档文件，实测依据以该处为准；四条未验证风险已登记 [constraints R4~R7](../constraints/constraints-index.md)，不进待办区。
 
 ##### 批次十二：11.11 屏蔽下代生效 + 11.16 对账 0 值可观测（2026-11-06 立项）
 
@@ -269,79 +279,26 @@
 
 -------------------------
 
-##### 批次十三：自研 RedisGuard 熔断降级切换 Resilience4j（2026-11-07 立项）
+##### 批次十三：自研 RedisGuard 熔断降级切换 Resilience4j（已归档）
 
-> 来源：用户 2026-11-07 提出；**只读核查已于同日完成，结论直接沿用，不重新调研**。切换前必须先完成「四、待决策项」第 1 条，未拍板前本批次不进入实施。**2026-11-07 用户已拍板执行 13.1~13.9，13.10 保持现状不动。**
-> 板块归属：**common-redis 为主**（组件本体与自动配置），联动 litisle-auth（唯一暴露 prometheus 端点的服务）与文档层；content / file / review 等模块只涉及注释与指标消费，不改逻辑。
-> 范围边界：32 个直接持有 `RedisTemplate` / `StringRedisTemplate` / `RedissonClient` 的类**按设计绕开熔断**，不在本次范围（`ReactiveRedisTemplate` 全项目 0 处）。
+> 13.1~13.11 共 11 项已于 2026-11-08 完成并归档，见 [common-redis-13-resilience4j.md](../archive/common-redis/common-redis-13-resilience4j.md)（唯一副本：含核查结论、实施细节、验证证据，以及 4 条待真实审核流量复核的 Moderation 告警说明）。**编号不重排**，本文件不再保留批次十三正文。
+> 归属说明：本批次是 common-redis 基础设施改造（含 Prometheus 抓取/告警联动），不归属 content/search/review/file，归档落点 `docs/archive/common-redis/`。
 
-**一、背景与现状（迁自只读核查，2026-11-07）**
+-------------------------
 
-- 组件本体：`litisle-common/common-redis` 的 `RedisGuard`，手写三态（`int` 常量 `CLOSED=0` / `OPEN=1` / `HALF_OPEN=2`），`AtomicInteger state` + `AtomicInteger consecutiveFailures` + `volatile long openAtMillis`，无锁 CAS 实现。
-- 失败口径：**连续 3 次失败**跳闸（`FAILURE_THRESHOLD=3`）；半开只放行 1 个探测线程；冷却默认 5 秒（`litisle.rate-limit.fallback.cooldown-seconds`）。
-- 指标：自建 Gauge `redis.guard.degraded`（1=降级，**无 label**）+ Counter `redis.guard.state.change`（tag `from`/`to`）；`docker/init/prometheus/alert-rules.yml` 的 `RedisGuardDegraded` 告警直接依赖 `redis_guard_degraded == 1`。
-- 入口：状态机唯一承载点 `RedisRateLimiter`（`acquire()` 3 处、`onSuccess`/`onFailure` 共 10 处），向上被 6 个类消费，再往上 77 处 `@RateLimiter` 注解、37 个文件全走切面。
-- 测试：组件**零单元测试**。
-- 现状疑点：`LoginRetryLimiter` **全项目没有任何业务类注入**，等于这套熔断当前实际只服务「限流」一个场景。
+#### 基础设施与安全加固（批次十四：批次十三配套遗留）
 
-**二、方案（4 条，含 1 条硬性要求）**
+> 编号说明：批次十三已归档收口，本项作为新批次十四第 1 项登记，避免回写已归档批次；与 11.x 反作弊、13.x 限流降级均不混排。
 
-1. **等价映射必须显式配置（硬性要求，不是建议）**：`failureRateThreshold=100`、`slidingWindowSize=3`、`minimumNumberOfCalls=3`。原因：手写是「连续 3 次失败」，Resilience4j 默认是「窗口失败率 50% / 最小 100 次调用」；直接用默认值会出现 **Redis 连挂三次也不跳闸**，故障期继续吃连接超时。
-2. **三态映射**：`CLOSED/OPEN/HALF_OPEN` 直接对应 `CircuitBreaker.State`；`acquire()` 改用 `CircuitBreaker#tryAcquirePermission()`，`Path.PROBE` 语义重写为「半开许可」，不再手写探测线程标记。
-3. **指标策略**：优先**保留同名 Gauge 桥接**（`redis.guard.degraded` 由 `CircuitBreaker#getState` 派生），告警规则可不动；若确要改名，指标与规则必须同一提交内切换，不允许只改一边。
-4. **本地兜底不动**：`Path.LOCAL` 仍走 `LocalRateLimiter`（含 `instanceCount` 分摊），不得简化成「OPEN 就直接返回」。
+##### 14.1 验证码与文件上传纳入熔断覆盖评估（待评估）
 
-**三、任务项（10 项：P0 9 项 + 待决策 1 项）**
+> **为什么单独立项**：批次十三的 breaker 只包住 `RedisRateLimiter` 的限流调用；验证码与文件上传是「在线必经 + 无本地兜底」，不属于限流降级，混进其他小节会掩盖真实风险面。本项只做评估，不在本轮实施。
+> **判断依据**：全仓 38 个直连 Redis 的业务类中，[CaptchaServiceImpl.java](../../litisle-auth/src/main/java/com/litisle/litisleauth/service/impl/CaptchaServiceImpl.java)（验证码）与 [FileUploadServiceImpl.java](../../litisle-file/src/main/java/com/litisle/litislefile/service/impl/FileUploadServiceImpl.java)（文件上传）直接依赖 Redis 完成在线必经步骤，且没有本地兜底；Redis 故障时不是「降级限流」，而是功能不可用。
 
-- [x] 【P0｜13.1】`RedisGuard` 退化为薄适配层：`acquire()` / `onSuccess` / `onFailure` / `resetFailure` 全部改为委托 `CircuitBreaker#tryAcquirePermission` / `onSuccess` / `onError` / `getState`；保留 `Path` 枚举（REDIS / PROBE / LOCAL）与「业务异常不算故障」的判定口径
-  - 关键：`resetFailure` 不得再借 `onSuccess` 把 OPEN 直接打回 CLOSED（现状会绕过半开探测），改为「仅 CLOSED 下清零计数」或显式 `transitionToClosedState`
-  - 验收：三处调用点（`RedisRateLimiter#increment`、`LoginRetryLimiter` 的探测与复位）签名不变、行为等价
-  - ✅ 2026-11-07：`RedisGuard` 改为持有 `CircuitBreaker` + `RateLimitFallbackProperties`；`acquire()` 按「enabled 开关 → OPEN 直接 LOCAL → tryAcquirePermission 拒绝则 LOCAL → 申请瞬间 HALF_OPEN 为 PROBE」判定；`onSuccess(isProbe)` 探测成功上报并记恢复日志、非探测成功仅在 CLOSED 下上报（OPEN/HALF_OPEN 一律忽略，即 `resetFailure` 复位路径不再绕过半开探测）；`onFailure` 委托 `onError` 并只在真实状态切换点打日志。注：原 `RedisGuard` 并无 `resetFailure` 方法（复位在 `LoginRetryLimiter#resetFailure` 内以 `onSuccess(false)` 表达），本轮按「不在适配层新增死方法」处理
-- [x] 【P0｜13.2】`RedisRateLimiter`：注入类型 `RedisGuard` → `CircuitBreaker`；`Path.PROBE` 改为半开许可语义；`localIncrement` 兜底路径原样保留（`instanceCount` 分摊逻辑不动）｜前置 13.1
-  - ✅ 2026-11-07：字段/构造参数改为 `CircuitBreaker`；`increment` 直接 `getState` + `tryAcquirePermission` + `onSuccess/onError`（半开探测由「申请瞬间 state==HALF_OPEN」判定）；`enabled=false` 走 `tryRedis(..., reportToBreaker=false)` 不申请许可也不上报；`localIncrement` 与 `instanceCount` 分摊零改动
-- [x] 【P0｜13.3】`CommonRedisAutoConfiguration`：`redisGuard` Bean 换成 `CircuitBreakerRegistry` + `CircuitBreakerConfig`，显式写入 `failureRateThreshold=100`、`slidingWindowSize=3`、`minimumNumberOfCalls=3`、`waitDurationInOpenState=cooldownSeconds`、`permittedNumberOfCallsInHalfOpenState=1`、`automaticTransitionFromOpenToHalfOpenEnabled=true`
-  - 关键：**`ObjectProvider<MeterRegistry>` 必须保留**，不得改为构造注入强依赖（未引 actuator 的服务会启动失败）
-  - 验收：未接入 actuator 的 content / file / review 启动正常
-  - ✅ 2026-11-07：新增 `CircuitBreakerConfig`（静态工厂 `createCircuitBreakerConfig`，供测试直接断言）、`CircuitBreakerRegistry`（实例名 `redisGuard`）、`CircuitBreaker` 三个 Bean；`MeterRegistry` 仍由 `ObjectProvider` 可选传入，null 时指标静默跳过；`RedisGuard`/`RedisRateLimiter` 注入同一 `CircuitBreaker` 单例。未引 actuator 服务的启动验证属运行态项（随 13.8 一起，见下）
-- [x] 【P0｜13.4】`RateLimitFallbackProperties`：`cooldownSeconds` 映射到 `waitDurationInOpenState`；`enabled`、`instanceCount` 保留（本地兜底仍需要）；前缀 `litisle.rate-limit.fallback` 不变（全项目无 yml 显式配置，走默认值）｜前置 13.3
-  - ✅ 2026-11-07：字段与默认值不变（`cooldownSeconds=5L` 由自动配置映射为 `waitDurationInOpenState`），仅补齐映射关系与用途注释；前缀零改动
-- [x] 【P0｜13.5】`docker/init/prometheus/alert-rules.yml`：指标名联动；首选保留 `redis.guard.degraded` 同名桥接、规则零改动；若改名则 `expr` 与 `for` 同提交调整｜前置 13.3
-  - ✅ 2026-11-07：按首选方案执行——`RedisGuardMetrics` 用同名 Gauge `redis.guard.degraded`（由 `CircuitBreaker#getState` 派生）与同名 Counter `redis.guard.state.change`（tag `from`/`to`）桥接；`alert-rules.yml` 的 `RedisGuardDegraded`（`expr: redis_guard_degraded == 1`、`for: 5m`）**零改动**
-- [x] 【P0｜13.6】上游 6 个消费者与 2 处类注释同步：`RateLimiterAspect`、`FileGlobalQpsInterceptor`、`LikeRateLimitSupport`、`FeedRateLimitSupport`、`ModerationModelQpsGuard`、`ModerationGlobalQpsInterceptor` 注释里的 "RedisGuard" 字样；`RedisRateLimiter`、`LocalRateLimiter` 类注释同步｜前置 13.1/13.2
-  - ✅ 2026-11-07：全仓 java 精准检索确认 6 个消费者**均无 "RedisGuard"/"三态"/"熔断" 字样**（其注释只写「故障降级/本地兜底」，语义仍准确），故无需改动；已同步 `RedisRateLimiter`（改为「Resilience4j 熔断 + 编程式 API，禁止注解」并保留原降级口径说明）与 `LocalRateLimiter`（补「与熔断器实现的关联：只做单机计数，不参与状态判定」）两处类注释
-- [x] 【P0｜13.7】新增 3 条测试：①降级（连续 3 次失败 → OPEN）②半开（冷却到期放行且仅 1 个 permit）③恢复（探测成功回 CLOSED / 探测失败重新 OPEN）
-  - 验收：3 条用例通过；断言覆盖 `permittedNumberOfCallsInHalfOpenState=0` 这种配置错误不会上线
-  - ✅ 2026-11-07：新增 `RedisGuardCircuitBreakerTest`（纯内存、真实 CircuitBreaker），含 5 条用例：①连续 3 次失败打开 ②1s 冷却到期自动半开且仅 1 个 PROBE ③探测成功回 CLOSED / 再探测失败回 OPEN ④无许可复位在 OPEN/HALF_OPEN 下不打回 CLOSED、不吃探测许可 ⑤生产配置值断言（100/3/3、半开许可 1、自动转半开 true，防 `permittedNumberOfCallsInHalfOpenState=0` 上线）。`mvn -pl litisle-common/common-redis -am -Dtest=RedisGuardCircuitBreakerTest test`：**Tests run: 5, Failures: 0, Errors: 0, Skipped: 0，BUILD SUCCESS**
-- [ ] 【P0｜13.8】灰度验证：只有 `litisle-auth` 暴露 `health,prometheus` 端点，验证只能在这一处做（停 Redis → 观察状态切换、`redis_guard_degraded` 取值、告警触发与恢复）｜前置 13.3/13.5
-  - ⏳ 2026-11-07：**未执行（环境未就绪）**。本机无 Docker/Redis/auth 运行态，无法停 Redis 观测；代码与配置侧已就绪（同名指标 + 规则零改动），恢复环境后按本条验收
-- [x] 【P0｜13.9】文档联动：`docs/Architecture/commom-des.md`（组件表、故障降级章节、目录树、变更记录）、`docs/Architecture/File-Architecture.md`（限流体系与配置表）、`docs/overall_documen/Design-Document.md`（`guard/` 目录说明与 Redis 工具表述）｜前置 13.1~13.3
-  - ✅ 2026-11-07：`commom-des.md` 组件表两行、故障降级章节三条、Micrometer 章节标题与说明、guard/ 目录树（新增 `RedisGuardMetrics.java`）、版本号 v2.1→v2.2 与变更记录；`File-Architecture.md` 配置表与「Redis 故障降级」条目；`Design-Document.md` `guard/` 目录说明与 Redis 工具表述
-- [ ] 【待决策｜13.10】`LoginRetryLimiter` 处置：核查发现全项目无业务类注入 → 三选一（跟着换 / 接线后再换 / 直接删除），见「四、待决策项」第 2 条
-
-**四、待决策项（2 条，单列，不替用户拍板）**
-
-1. **是否真的切换**：收益 = 免维护自研状态机 + 标准熔断指标语义；成本 = 3~4 人天；行为上无提升（三态与连续失败口径已能满足现有需求）。
-2. **`LoginRetryLimiter` 怎么处理**：①跟着换（保留共用状态机，继续无调用方）②接线后再换（先确认登录防爆破确实要接入）③直接删除（**需用户明确同意删文件**，且要确认没有外部依赖）。
-
-**五、验收标准**
-
-- 连续 3 次连接/超时失败后进入 OPEN；冷却到期后首个请求进入半开且**仅放行 1 个**；探测成功回 CLOSED，探测失败重新 OPEN。
-- 降级期间 `RedisRateLimiter` 走本地兜底，阈值与现状一致（`instanceCount` 分摊不丢失，不得实质放宽 N 倍）。
-- `redis.guard.degraded` 与 `redis.guard.state.change` 在 `litisle-auth` 的 `/actuator/prometheus` 可查；`RedisGuardDegraded` 告警触发与恢复各验证一次。
-- 3 条测试通过；全服务（含未引 actuator 的模块）启动无报错。
-
-**六、执行注意项（6 条，每条都写清后果）**
-
-1. **只能用编程式 API**：`RedisRateLimiter#increment` 内部 `this.tryRedis(...)` 属自调用，不走 AOP；挂 `@CircuitBreaker` 会**静默失效且不报错**。
-2. **告警会静默消失**：指标名变更后 `expr: redis_guard_degraded == 1` 返回 **no data 而不是报错**；必须同名 Gauge 桥接，或指标与规则同时切换。
-3. **半开不自动转**：`automaticTransitionFromOpenToHalfOpenEnabled` 默认 `false`；`permittedNumberOfCallsInHalfOpenState=0` 会导致降级后**永不恢复**。
-4. **兜底口径漂移**：不能把 `Path.LOCAL` 简化成「OPEN 就直接返回」，否则丢掉 `LocalRateLimiter` 的 `instanceCount` 分摊，故障期阈值实质放宽 N 倍。
-5. **`ObjectProvider<MeterRegistry>` 必须保留**：未引 actuator 的服务改用构造注入强依赖会启动失败。
-6. **`resetFailure` 触发 `onSuccess`** 会让 OPEN 直接回 CLOSED，绕过半开探测——迁移时必须单独处理这条路径。
-
-**七、工期**
-
-3~4 人天，落在「入口统一但需重做指标、告警、补测试」这一档。依据：入口已收敛（3 处 `acquire()` + 10 处回调），**不需要先做收口**；否则属「多入口分散改造」档，工期 15~25 人天。
+- [ ] 【评估｜P1】14.1 验证码与文件上传纳入 breaker：按资源名拆分熔断实例（`captcha` / `file-upload`），覆盖真正的 Redis 调用点，而不是继续只包限流
+  - 代价：约 1 天；需要按资源名建多个 breaker 实例（避免一个资源拖垮另一个），并补「打开后的业务返回」与「恢复探测」用例；不改 DDL、不新增中间件。
+  - 验收：Redis 故障时两条链路进入 OPEN 并按既定策略返回可见错误（或本地兜底），Redis 恢复后自动半开探测回 CLOSED；限流 breaker 与业务 breaker 指标可区分。
+  - 边界：file 模块另有 Sentinel `@SentinelResource`（加载情况见 constraints R8），本项不替代 Sentinel，只评估是否需要用统一的 Resilience4j 口径覆盖。
 
 -------------------------
 

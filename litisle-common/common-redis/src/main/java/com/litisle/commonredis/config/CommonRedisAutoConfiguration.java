@@ -2,10 +2,8 @@ package com.litisle.commonredis.config;
 
 import com.litisle.commoncore.resolver.UserIdResolver;
 import com.litisle.commonredis.bloom.BloomFilter;
-import com.litisle.commonredis.guard.RedisGuard;
 import com.litisle.commonredis.guard.RedisGuardMetrics;
 import com.litisle.commonredis.lock.DistributedLock;
-import com.litisle.commonredis.login.LoginRetryLimiter;
 import com.litisle.commonredis.idempotent.IdempotentAspect;
 import com.litisle.commonredis.idempotent.IdempotentKeyBuilder;
 import com.litisle.commonredis.lock.RedissonLock;
@@ -47,7 +45,7 @@ import java.time.Duration;
 @EnableConfigurationProperties(RateLimitFallbackProperties.class)//把 RateLimitFallbackProperties 这个 @ConfigurationProperties 类注册成 Bean，并自动绑定 yml / properties 里的配置项
 public class CommonRedisAutoConfiguration {
 
-    /** 熔断器实例名：RedisRateLimiter 与 LoginRetryLimiter 按该名称共享同一个状态机 */
+    /** 熔断器实例名：RedisRateLimiter 按该名称获取状态机 */
     private static final String REDIS_GUARD_INSTANCE_NAME = "redisGuard";
 
     // ==================== 工具类 ====================
@@ -81,19 +79,6 @@ public class CommonRedisAutoConfiguration {
     }
 
     // ==================== 服务类 ====================
-
-    /**
-     * 登录重试限制器
-     *
-     * 防止暴力破解，记录连续登录失败次数，超限后临时锁定账户
-     * litisle-auth 在登录校验时手动调用
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public LoginRetryLimiter loginRetryLimiter(StringRedisTemplate stringRedisTemplate,
-                                               RedisGuard redisGuard) {
-        return new LoginRetryLimiter(stringRedisTemplate, redisGuard);
-    }
 
     /**
      * 布隆过滤器封装
@@ -136,17 +121,11 @@ public class CommonRedisAutoConfiguration {
     }
 
     /**
-     * Redis 固定窗口限流器（可复用组件）
-     *
-     * 抽取自原 RateLimiterAspect 的 Lua 脚本，供 @RateLimiter 切面与业务侧
-     * 系统级限流（如 FileGlobalQpsInterceptor）共用，保证单一事实来源
-     */
-    /**
      * Redis 熔断器配置（显式等价映射自研「连续 3 次失败即开」口径）
      *
      * 【为什么必须显式配置，不能吃 Resilience4j 默认值】
      * Resilience4j 默认是「滑动窗口失败率 50% / 最小调用数 100 次」；
-     * 自研 RedisGuard 是「连续 3 次失败即 OPEN」。若沿用默认值，
+     * 原自研降级实现是「连续 3 次失败即 OPEN」。若沿用默认值，
      * Redis 连挂 3 次也不会跳闸，故障期会持续吃连接超时拖垮接口延迟。
      * 因此三项必须一起显式对齐：失败率 100%（窗口内全失败）+ 窗口 3 次 + 最小调用数 3 次。
      */
@@ -194,7 +173,7 @@ public class CommonRedisAutoConfiguration {
     public CircuitBreakerRegistry redisGuardCircuitBreakerRegistry(
             CircuitBreakerConfig circuitBreakerConfig,
             ObjectProvider<MeterRegistry> meterRegistryProvider) {
-        // 单一实例名：RedisRateLimiter 与 LoginRetryLimiter 共用同一个熔断器
+        // 单一实例名：RedisRateLimiter 通过该名称获取唯一熔断器实例
         CircuitBreakerRegistry registry = CircuitBreakerRegistry.of(circuitBreakerConfig);
         CircuitBreaker circuitBreaker = registry.circuitBreaker(REDIS_GUARD_INSTANCE_NAME);
         // ObjectProvider 可选注入（绝不能改成构造注入强依赖）：无 actuator 时指标静默停用，状态机照常工作
@@ -212,17 +191,6 @@ public class CommonRedisAutoConfiguration {
     @ConditionalOnMissingBean
     public CircuitBreaker redisGuardCircuitBreaker(CircuitBreakerRegistry registry) {
         return registry.circuitBreaker(REDIS_GUARD_INSTANCE_NAME);
-    }
-
-    /**
-     * Redis 三态熔断守护（薄适配层：仅为 LoginRetryLimiter 保持既有 acquire/onSuccess/onFailure 签名）
-     * 状态机由 Resilience4j CircuitBreaker 承载，见 guard/RedisGuard
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public RedisGuard redisGuard(CircuitBreaker redisGuardCircuitBreaker,
-                                 RateLimitFallbackProperties fallbackProperties) {
-        return new RedisGuard(redisGuardCircuitBreaker, fallbackProperties);
     }
 
     /**

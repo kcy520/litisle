@@ -36,7 +36,7 @@ import com.litisle.litislecontent.service.support.FeedHotRankSupport;
 import com.litisle.litislecontent.service.support.FeedProfileSupport;
 import com.litisle.litislecontent.service.support.FeedScoreSupport;
 import com.litisle.litislecontent.service.support.FeedSnapshotSupport;
-import com.litisle.litislecontent.support.FeedItemAssembler;
+import com.litisle.litislecontent.service.support.FeedItemAssembler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

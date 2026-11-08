@@ -6,7 +6,7 @@
 
 #### 停 Redis 一次合并验证
 
-受限接口应正常放行且出现「进入降级」日志，第二次起走本地计数；同时观察登录防爆破「本地兜底降级」日志；Redis 恢复后冷却期探测成功，日志出现「恢复」回归 Redis 计数。（可同步用 Prometheus 观察：redis_guard_degraded 0→1→0，Alertmanager 告警 inactive→pending→firing→resolved，一次演练同时验收告警链路。）
+受限接口应正常放行且出现「进入降级」日志，第二次起走本地计数；Redis 恢复后冷却期探测成功，日志出现「恢复」回归 Redis 计数。（可同步用 Prometheus 观察：redis_guard_degraded 0→1→0，Alertmanager 告警 inactive→pending→firing→resolved，一次演练同时验收告警链路。）
 
 > 设计思路 / 实现细节 / 完成记录见 `docs/archive/20260929-implementation-records.md` §一。
 

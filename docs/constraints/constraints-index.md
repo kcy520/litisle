@@ -17,6 +17,11 @@
 | --- | --- | --- |
 | R1 | 存量统计回填能力已移出初始化脚本（关键词：回填 / content-stat-backfill） | [content-constraints.md](content-constraints.md) |
 | R3 | `00-init-databases.sql` 对 `MYSQL_USER` 的隐含依赖（关键词：MYSQL_USER / 授权） | [content-constraints.md](content-constraints.md) |
+| R4 | 作者自评论是否计入 `comment_count` 未验证（关键词：自评论 / comment_count / social） | [content-constraints.md](content-constraints.md) |
+| R5 | `view-count-flushed` 事件进入 search 后对热度的实际影响未逐行核验（关键词：view-count-flushed / heat） | [content-constraints.md](content-constraints.md) |
+| R6 | 推荐流召回不排除本人作品是否为设计意图未确认（关键词：召回 / 作者本人 / author 过滤） | [content-constraints.md](content-constraints.md) |
+| R7 | 曝光去重实现仅按注释确认、未逐行核验（关键词：曝光去重 / 快照 / CTR） | [content-constraints.md](content-constraints.md) |
+| R8 | file 模块 Sentinel 降级规则是否真正加载未验证（关键词：Sentinel / SeaweedFS / degrade-rules） | [file-constraints.md](file-constraints.md) |
 
 ## 尚未归入
 

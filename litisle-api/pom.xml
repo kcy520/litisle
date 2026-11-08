@@ -70,6 +70,21 @@
             <artifactId>opencc4j</artifactId>
         </dependency>
 
+        <!-- ✅ heaven（opencc4j 的运行期依赖，必须显式声明）
+             opencc4j 内部 ZhConverterUtil 静态初始化会调用 Instances.singleton，
+             该能力在 heaven 中，但 opencc4j 只在自身 POM 里以传递依赖形式带入；
+             传递依赖的作用域会被下游模块更近的同名依赖压成 test（review 的 sensitive-word 即如此），
+             结果运行期缺少 com.github.houbb.heaven.support.instance.impl.Instances。
+             这里在 litisle-api 直接声明 compile，保证使用 DFA/CharNormalizer 的服务
+             在 IDE 直跑与打包 jar 时都能加载到该类。
+             版本取 0.13.0：与 sensitive-word 0.27.1 依赖的版本一致，避免同 GA 双版本；
+             已核对 opencc4j 1.8.1 引用的 9 个 heaven 类在 0.13.0 中全部存在且签名兼容。 -->
+        <dependency>
+            <groupId>com.github.houbb</groupId>
+            <artifactId>heaven</artifactId>
+            <version>0.13.0</version>
+        </dependency>
+
         <!-- ✅ hankcs ACDAT（DFA 引擎切换批次1：AhoCorasickDoubleArrayTrie 双数组 trie 匹配内核，
              严格 O(文本长度)，官方基准英文 5 倍 / 中文 9 倍于朴素 trie + fail 指针实现；
              Maven Central 直引，零传递依赖。批次2 工厂接线、批次3 删旧引擎 AcTextScanEngine

@@ -86,7 +86,7 @@ litisle-common/
 
 > **包结构索引**：详见 [Design-Document.md](Design-Document.md) §2.1.1（唯一详述处，本文不再重复展开）。
 >
-> **能力**：Redis 工具与序列化配置、Redisson 分布式锁、布隆过滤器、接口幂等、限流降级、登录重试、多端会话、Redis 健康守卫。
+> **能力**：Redis 工具与序列化配置、Redisson 分布式锁、布隆过滤器、接口幂等、限流降级、多端会话、Redis 健康守卫。
 
 > 【架构说明】idempotent 放在 common-redis 而非 common-security，因为幂等性强依赖 Redis。与分布式锁、布隆过滤器同级，都是"基于 Redis 的功能"，避免 common-security 被迫依赖 Redis。
 
@@ -424,8 +424,8 @@ litisle-gateway/
 
 **现状（已落地）**：
 
-- **指标端点**：content（8085）与 search（8086）在业务端口暴露 `/actuator/prometheus`，依赖 `spring-boot-starter-actuator` + `micrometer-registry-prometheus`；其余服务尚未接入。
-- **抓取与告警配置**：[prometheus.yml](../../docker/init/prometheus/prometheus.yml) 固定 `job_name: litisle-services`，`metrics_path: /actuator/prometheus` 抓取两个业务端口；[alert-rules.yml](../../docker/init/prometheus/alert-rules.yml) 声明 **4 个规则组**：`litisle-redis-guard` / `litisle-moderation` / `litisle-search` / `litisle-content`；[alertmanager.yml](../../docker/init/prometheus/alertmanager.yml) 仅 `dev-null` 接收器（落控制台不外发）。
+- **指标端点**：auth（8082）、user（8081）、file（8083）、content（8085）、search（8086）、review（8084）六个业务服务均在业务端口暴露 `/actuator/prometheus`，依赖 `spring-boot-starter-actuator` + `micrometer-registry-prometheus`；网关未引 actuator，不暴露该端点。
+- **抓取与告警配置**：[prometheus.yml](../../docker/init/prometheus/prometheus.yml) 固定 `job_name: litisle-services`，`metrics_path: /actuator/prometheus` 抓取上述六个业务端口；[alert-rules.yml](../../docker/init/prometheus/alert-rules.yml) 声明 **4 个规则组**：`litisle-redis-guard` / `litisle-moderation` / `litisle-search` / `litisle-content`；[alertmanager.yml](../../docker/init/prometheus/alertmanager.yml) 仅 `dev-null` 接收器（落控制台不外发）。
 - **部署现状**：compose 未包含 Prometheus / Alertmanager 服务，上述配置需独立启动；Grafana 面板未接入。
 
 **命名与类型约定**：

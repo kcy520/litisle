@@ -14,7 +14,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * - cooldown-seconds 已映射为 Resilience4j `waitDurationInOpenState`（熔断 OPEN 冷却期）
  * - instance-count 依赖人工配准，实例扩缩容后需同步
  *   （后续可接 Nacos 服务发现动态计算实例数）
- * - enabled=false 时回退为纯 fail-open（Redis 故障放行），仅建议本地调试关闭
+ * - enabled=false 时只跳过熔断器调度（不申请许可、不切换三态），
+ *   每个请求仍直连 Redis，Redis 异常时依旧回退本地计数兜底；
+ *   代价是故障期每个请求都要吃一次连接超时，仅建议本地调试时关闭
+
  *
  * @author litisle
  */
@@ -22,7 +25,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "litisle.rate-limit.fallback")
 public class RateLimitFallbackProperties {
 
-    /** 是否启用本地兜底限流；false 时 Redis 故障回退为纯 fail-open（放行） */
+    /**
+     * 熔断降级总开关：true 走「熔断器 + 本地兜底」；
+     * false 只跳过熔断器调度（恒走 Redis，异常时仍本地计数兜底，不做三态切换）
+     */
     private boolean enabled = true;
 
     /**

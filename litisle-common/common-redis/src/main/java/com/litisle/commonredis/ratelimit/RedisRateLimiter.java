@@ -101,15 +101,15 @@ public class RedisRateLimiter {
      */
     private final RateLimitFallbackProperties fallbackProperties;
 
-    // ==================== 熔断三态（状态机由 Resilience4j CircuitBreaker 承载，与 LoginRetryLimiter 共用同一实例） ====================
+    // ==================== 熔断三态（状态机由 Resilience4j CircuitBreaker 承载） ====================
 
     /**
      * 熔断器（CLOSED/OPEN/HALF_OPEN 状态机）
      *
-     * 【为什么直接注入 CircuitBreaker 而不是 RedisGuard】
+     * 【为什么直接注入 CircuitBreaker 做编程式调用】
      * 本类只需「申请许可 + 上报成败」两个动作，直接调 Resilience4j 编程式 API；
-     * RedisGuard 保留给 LoginRetryLimiter 的既有签名（薄适配层，见 guard/RedisGuard）。
-     * 两者注入的是同一个 CircuitBreaker 单例，降级状态天然共享。
+     * 这样可以在 increment 这类同类自调用里生效（注解方式走不到 AOP 代理）。
+     * 实例由 CommonRedisAutoConfiguration 统一注册，状态在进程内唯一。
      */
     private final CircuitBreaker circuitBreaker;
 

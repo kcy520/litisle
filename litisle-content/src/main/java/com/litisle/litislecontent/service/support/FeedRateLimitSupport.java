@@ -1,4 +1,4 @@
-package com.litisle.litislecontent.support;
+package com.litisle.litislecontent.service.support;
 
 import com.litisle.commoncore.constant.HeaderConstant;
 import com.litisle.commoncore.exception.BizException;

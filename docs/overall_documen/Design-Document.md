@@ -1,4 +1,4 @@
-> **版本说明**：本版按 2026-11 代码核对校订。早期设想的 Sentinel Dashboard / Zipkin / SkyWalking 均未引入；链路追踪用 MDC traceId（日志即可）；监控已接入 Micrometer + Prometheus（content 8085 / search 8086 暴露 `/actuator/prometheus`，配 4 组告警规则，详见 §1.4 与 System-architecture-design.md §2.2）；文件存储统一为 SeaweedFS。
+> **版本说明**：本版按 2026-11 代码核对校订。早期设想的 Sentinel Dashboard / Zipkin / SkyWalking 均未引入；链路追踪用 MDC traceId（日志即可）；监控已接入 Micrometer + Prometheus（auth 8082 / user 8081 / file 8083 / content 8085 / search 8086 / review 8084 均暴露 `/actuator/prometheus`，Prometheus 抓取这六个业务端口，配 4 组告警规则，详见 §1.4 与 System-architecture-design.md §2.2）；文件存储统一为 SeaweedFS。
 
 ---
 
@@ -83,7 +83,7 @@
 | 文件存储   | **SeaweedFS**                          | 海量小文件 + 卷级扩容 + S3 兼容                              |
 | 文档       | Knife4j 4.5.0                          | 网关聚合各服务文档                                           |
 | 链路追踪   | MDC + traceId（日志即可）              | 不引入 Zipkin，日志带 traceId 足够排查                       |
-| 监控       | Spring Boot Actuator + 日志            | 不引入 Prometheus/Grafana，actuator 端点 + 日志告警          |
+| 监控       | Spring Boot Actuator + Micrometer/Prometheus | 六个业务服务暴露 `/actuator/prometheus`，Prometheus 抓取 + 告警规则；不引入 Grafana 面板 |
 
 ## 1.4 中间件落地矩阵（精简版）
 
@@ -97,7 +97,7 @@
 | RabbitMQ      | docker 单实例（未来可镜像队列）               | 持久化卷                       | 基础设施             |
 | Seata Server  | docker 独立容器                               | file/DB 模式                   | 基础设施（仅积分商城用）     |
 
-> **移除项说明**：Sentinel Dashboard（规则改为代码内联+Nacos动态规则）、Zipkin（改用MDC traceId）、SkyWalking（不启用）；**Prometheus+Grafana 口径修正（2026-11 按代码核对）**：不再是「改用 Actuator + 日志」——content / search 已引入 `micrometer-registry-prometheus`，在业务端口暴露 `/actuator/prometheus`（content 8085 / search 8086），抓取配置与告警规则已落在 `docker/init/prometheus/prometheus.yml`、`alert-rules.yml`（`metrics_path: /actuator/prometheus`）；Grafana 面板未接入，compose 也未把 Prometheus 作为常驻服务，指标当前以 Prometheus 抓取 + 告警规则为主。
+> **移除项说明**：Sentinel Dashboard（规则改为代码内联+Nacos动态规则）、Zipkin（改用MDC traceId）、SkyWalking（不启用）；**Prometheus+Grafana 口径修正（2026-11 按代码核对）**：不再是「改用 Actuator + 日志」——auth/user/file/content/search/review 六个服务均已引入 `micrometer-registry-prometheus`，在业务端口暴露 `/actuator/prometheus`（auth 8082 / user 8081 / file 8083 / content 8085 / search 8086 / review 8084），抓取配置与告警规则已落在 `docker/init/prometheus/prometheus.yml`、`alert-rules.yml`（`metrics_path: /actuator/prometheus`）；Grafana 面板未接入，compose 也未把 Prometheus 作为常驻服务，指标当前以 Prometheus 抓取 + 告警规则为主。
 
 ## 1.5 通信协议
 
@@ -159,10 +159,9 @@ litisle-common
 │   ├── bloom/        # BloomFilter 布隆过滤器
 │   ├── config/       # RedisConfig / RedissonConfig / RateLimitFallbackProperties
 │   ├── constant/     # CacheConstant / IdempotentConstant
-│   ├── guard/        # RedisGuard 熔断适配层 + RedisGuardMetrics 熔断指标桥接（状态机为 Resilience4j CircuitBreaker）
+│   ├── guard/        # RedisGuardMetrics 熔断指标桥接（状态机为 Resilience4j CircuitBreaker）
 │   ├── idempotent/   # @Idempotent + 幂等切面 + key 构建
 │   ├── lock/         # DistributedLock / RedissonLock
-│   ├── login/        # LoginRetryLimiter 登录失败重试限制
 │   ├── ratelimit/    # @RateLimiter + Redis/本地限流器 + key 构建
 │   ├── session/      # DeviceSession 多端会话
 │   └── util/         # RedisUtil（String/Hash/Set/ZSet/List）
@@ -192,7 +191,7 @@ litisle-common
 - 审计切面（`@AuditLog` 自动记录操作日志）
 - Feign 透传（`FeignAuthInterceptor` 透传 userId / traceId）
 - 统一异常响应（GlobalExceptionHandler + ErrorCode）
-- Redis 工具（六大数据结构 + 分布式锁 + 布隆过滤器 + Resilience4j CircuitBreaker 熔断 + RedisGuard 适配层）
+- Redis 工具（六大数据结构 + 分布式锁 + 布隆过滤器 + Resilience4j CircuitBreaker 熔断降级）
 - **接口幂等性**（`@Idempotent` 在 common-redis，基于 Redis SETNX 防重复提交）
 - **数据脱敏**（`@Sensitive` 基于 Jackson 序列化器，手机号/身份证/邮箱自动脱敏）
 - **XSS 防护**（`XssFilter` 全局清洗 HTML 标签，防跨站脚本攻击）
@@ -287,7 +286,7 @@ litisle-auth
 | 外部依赖 | Sa-Token（Redis 共享会话）、Redis、MQ（处罚结果）、UserFeign、litisle-common、`litisle-api` 的 dfa |
 | API      | `POST /api/auth/register`、`POST /api/auth/login`、`POST /api/auth/login/sms`、`POST /api/auth/logout`、`POST /api/auth/refresh`、`GET /api/auth/me`、`GET /api/auth/devices`、`DELETE /api/auth/devices/{deviceId}`、`GET /api/auth/captcha/img`、`POST /api/auth/captcha/email`、`POST /api/auth/captcha/img/verify`、`POST /api/auth/captcha/email/verify`（OAuth2 接口未启用） |
 | 流程     | 登录：验证码校验 → UserFeign 查账号 → BCrypt 校验 → `StpUtil.login(userId, SaLoginModel extras)` → 写设备会话 → 返回 Token（Header 名 `Authorization`） |
-| 错误处理 | 账号冻结/注销返回特定码；登录失败由 common-redis `LoginRetryLimiter` 限制次数 |
+| 错误处理 | 账号冻结/注销返回特定码；登录失败不做账号级计数（防爆破由 `@RateLimiter` 按 IP 限频，原 common-redis `LoginRetryLimiter` 已删除） |
 | 安全     | 密码 BCrypt；图形/邮箱验证码一次性消费；refreshToken 一次性轮换；退出 `StpUtil.logout()` 服务端会话失效（不做 Token 黑名单） |
 | 性能     | 会话存 Redis 共享，网关与业务服务直查；验证码图片短期缓存 |
 

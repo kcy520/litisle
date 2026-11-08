@@ -106,6 +106,25 @@
             <!-- 版本显式声明（dependencyManagement 条目已随批次3 ⑤b 删除，仅测试引用） -->
             <version>0.27.1</version>
             <scope>test</scope> <!--注意，是test-->
+            <exclusions>
+                <!-- 排除 sensitive-word 传递带入的 houbb 三件套（heaven/opencc4j/nlp-common）：
+                     它们在此处是 test 作用域，且 heaven 距离更近，会把 litisle-api 中
+                     opencc4j 需要的 heaven 顶成 test 作用域，导致 review 主程序运行期
+                     缺 com.github.houbb.heaven.support.instance.impl.Instances（DFA 初始化炸）。
+                     运行期与测试所需的这三个包统一由 litisle-api 的 compile 依赖提供，版本一致。 -->
+                <exclusion>
+                    <groupId>com.github.houbb</groupId>
+                    <artifactId>heaven</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.github.houbb</groupId>
+                    <artifactId>opencc4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.github.houbb</groupId>
+                    <artifactId>nlp-common</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- ONNX 本地鉴黄（开发期 image-provider=onnx，CPU 推理；版本由父 POM 托管） -->

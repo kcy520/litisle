@@ -15,7 +15,7 @@ import com.litisle.litislecontent.enums.ZoneEnum;
 import com.litisle.litislecontent.service.FeedService;
 import com.litisle.litislecontent.service.FeedFeedbackService;
 import com.litisle.litislecontent.service.FeedStreamService;
-import com.litisle.litislecontent.support.FeedRateLimitSupport;
+import com.litisle.litislecontent.service.support.FeedRateLimitSupport;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
