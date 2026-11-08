@@ -57,7 +57,7 @@ create table if not exists `sys_user`
     `del_flag`        tinyint         not null default 0 comment '删除标志',
     `version`         int             not null default 0 comment '乐观锁',
     `create_time`     datetime        not null default current_timestamp,
-    `update_time`     datetime        not null default current_timestamp on update current_timestamp,
+    `update_time`     datetime(3)     not null default current_timestamp(3) on update current_timestamp(3) comment '更新时间（毫秒精度：供索引版本守卫识别同秒内二次编辑）',
     -- 【2026-11-06 调整】唯一约束改挂在确定性摘要列：AES 随机 IV 使 phone/email 列本身不可唯一比对
     unique key `uk_phone_hash_del` (`phone_hash`, `del_flag`),
     unique key `uk_email_hash_del` (`email_hash`, `del_flag`),
@@ -131,7 +131,7 @@ create table if not exists `sys_user_profile`
     `masterpiece`  varchar(500)    null comment '代表作简介',
     `version`      int             not null default 0,
     `create_time`  datetime        not null default current_timestamp,
-    `update_time`  datetime        not null default current_timestamp on update current_timestamp,
+    `update_time`  datetime(3)     not null default current_timestamp(3) on update current_timestamp(3) comment '更新时间（毫秒精度：供索引版本守卫识别同秒内二次编辑）',
     unique key `uk_pen_name` (`pen_name`), -- 【新增】唯一
     index `idx_user_id` (`user_id`)
     ) engine = InnoDB

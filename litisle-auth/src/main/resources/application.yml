@@ -62,6 +62,10 @@ spring:
   # RabbitMQ 配置
   # ================================
   rabbitmq:
+    # 账号/密码：必须与其余服务（content/review/file/user/search）使用同一套凭证；
+    # 否则默认 guest 在 /litisle vhost 下无权限，本机可能因 guest 被临时授权而可跑，上线即失败
+    username: ${litisle.rabbitmq.username:litisle}
+    password: ${litisle.rabbitmq.password:litisle_pass}
     # 虚拟主机：必须与其余服务（content/review/file/user/search）保持一致，统一使用 /litisle；
     # 否则处罚结果消息会发到默认 vhost "/"，与 review 侧 /litisle 的交换机/队列互不相通，消息到不了 auth
     virtual-host: /litisle

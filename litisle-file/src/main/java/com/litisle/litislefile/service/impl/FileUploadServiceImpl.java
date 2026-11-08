@@ -177,11 +177,11 @@ public class FileUploadServiceImpl implements FileUploadService {
 //        丢弃锁外查 = 把秒传读路径强行塞进写锁 + tryLock 快速失败下热点必报错。
 //        这两条任意一条都足以否决这个“简化”。DCL（双重检查锁）在这里的形态是标准且最小化的： 读无锁、写互斥、写前双检
 
-        // 步骤4：Redisson 分布式锁（5 是 waitTime，即最多等锁 5s，抢不到直接失败；
-        // 租期传的是 -1 → 启用看门狗续期，锁只有 finally 里的 unlock 才释放；
-        // 临界区仅查库+写库，正常毫秒级完成，远小于看门狗续期间隔）
+        // 步骤4：Redisson 分布式锁（等锁 5s、固定租期 10s；抢不到直接失败）
+        // 固定租期不启用看门狗：临界区仅查库+写库，正常毫秒级完成；持锁线程卡死时锁最多占用 10s 自动释放，
+        // 避免看门狗无限续期导致同一 sha256 的上传被永久阻塞
             //tryLock 快速失败，竞争=报错
-        boolean locked = distributedLock.tryLock(DEDUP_LOCK_KEY_PREFIX + sha256, 5, TimeUnit.SECONDS);
+        boolean locked = distributedLock.tryLock(DEDUP_LOCK_KEY_PREFIX + sha256, 5, 10, TimeUnit.SECONDS);
         if (!locked) {
             log.warn("秒传判重锁竞争失败，sha256={}，bizType={}", sha256, bizType);
             throw new BizException(ErrorCode.SYSTEM_ERROR, "系统繁忙，请稍后重试");

@@ -1,5 +1,5 @@
-> **归档说明**：新建板块文件（批次九，2026-11-05 归档）——迁自 docs/next/next_update.md search 模块「批次九：收尾、验证与遗漏补齐」节，仅收录已完成部分：9.2 a/b、9.3、9.4-3、9.7、9.8 P0-E/P0-D、9.9 A~D 与 F；正文原样搬运（含 ✅ 摘要、偏差说明与待环境验证点）。**2026-11-08 追加 9.6-B（search 的 TestNG 编译期依赖清理）**。
-> **来源**：[next_update.md](../../next/next_update.md) 批次九；未完成项（9.1、9.4-1/2、9.5、9.6-A、9.8-P1/P2）仍在原文档；挂起项（9.2-c/d、9.8-P2、9.9-E/G/H）见 [temporarily-04-deferred.md](../../next/temporarily/temporarily-04-deferred.md)。
+> **归档说明**：新建板块文件（批次九，2026-11-05 归档）——迁自 docs/next/next_update.md search 模块「批次九：收尾、验证与遗漏补齐」节，仅收录已完成部分：9.2 a/b、9.3、9.4-3、9.7、9.8 P0-E/P0-D、9.9 A~D 与 F；正文原样搬运（含 ✅ 摘要、偏差说明与待环境验证点）。**2026-11-08 追加 9.6-B（search 的 TestNG 编译期依赖清理）与 9.8-P1（`user_idx` 版本源补 `sys_user_profile.update_time`）**。
+> **来源**：[next_update.md](../../next/next_update.md) 批次九；未完成项（9.1、9.4-1/2、9.5、9.6-A、9.8-P2）仍在原文档；挂起项（9.2-c/d、9.8-P2、9.9-E/G/H）见 [temporarily-04-deferred.md](../../next/temporarily/temporarily-04-deferred.md)。
 
 ## 板块十：批次九收尾已完成部分（2026-11-05 归档）
 
@@ -96,3 +96,25 @@
   - **代价 / DDL**：1 处 pom 改动；无 DDL、无配置。**验收**：`mvn -pl litisle-search -am test` 通过，`mvn -pl litisle-search dependency:tree` 中编译/运行期不再出现 testng。
   - **已拍板（2026-11-08｜第一批·零风险）**：先删除 TestNG 依赖，改为仅 JUnit 5；不改变运行时行为。
   - ✅ 2026-11-08：全仓 java 复核 `org.testng` 0 命中后，已删除 search pom 的 TestNG 依赖块；`mvn -pl litisle-search -am -DskipTests compile` 通过。另发现 `litisle-file/pom.xml:187` 也有 TestNG 声明，不在本条范围，未动。
+
+## 9.8-P1：`user_idx` 版本源补上 `sys_user_profile.update_time`（2026-11-08 追加归档）
+
+> 迁自 [next_update.md](../../next/next_update.md) 批次九「9.8 并发竞态修复与下架墓碑 + `updateTime` 精度」组的 9.8-P1 条目，原文搬运（含问题 / 改法 / 代价 / 验收 / 拍板 / 分阶段实测证据与后续闭环）。同组 9.8-P2（`datetime(3)`，`[~]` 只改初始化脚本未动库）仍在主清单。
+
+- [x] 【P1｜必修｜9.8-P1】`user_idx` 版本源补上 `sys_user_profile.update_time`
+  - **问题**：`getUserIndexDoc` 只回填 `user.getUpdateTime()`（[UserFeignProviderController.java:292](../../../litisle-user/src/main/java/com/litisle/litisleuser/controller/feign/UserFeignProviderController.java#L292)），而 `user_profile.pen_name` 只改笔名时不刷新 `sys_user.update_time`；`IndexVersionGuard` 判定版本未前进 → 索引永不更新，属**必然漏**（不是同秒竞态）。
+  - **改法**：同一方法已加载 `profile`（[同文件:281-283](../../../litisle-user/src/main/java/com/litisle/litisleuser/controller/feign/UserFeignProviderController.java#L281-L283)），把回填改为 `max(user.getUpdateTime(), profile == null ? null : profile.getUpdateTime())`；`UserProfile#getUpdateTime` 已存在（[UserProfile.java:58-60](../../../litisle-user/src/main/java/com/litisle/litisleuser/domain/entity/UserProfile.java#L58-L60)）。
+  - **动哪些文件 / 代价**：1 处代码（1 个文件）；无 DDL、无新配置。
+  - **验收**：只修改笔名（不动 user 主表）→ 触发 `UserProfileUpdatedEvent` → `user_idx` 的 `penName` 更新且 `updateTime` 前进；只改主表简介同样正常。
+  - **已拍板（2026-11-08｜第二批·必修，需回归）**：按 `max(user.updateTime, profile.updateTime)` 实施；回归文章详情、章节阅读、匿名刷流三种身份。
+  - ✅ 2026-11-08（版本源 + 索引写入均已实测通过）：`getUserIndexDoc` 已取 `user` / `profile` 的 `updateTime` 最大值，复用同方法已加载的 `profile`、未新增查询。
+    - **已验通过（版本源）**：启动 user + search（直连 8081/8086），`PUT /api/user/profile` 只改笔名后，`sys_user.update_time` 全程保持 `2026-11-08 03:26:45`（乱码写入、正确 UTF-8 写入、复原三次均未变），`sys_user_profile.update_time` 前进到 `11:40:54`；`GET /api/feign/user/index-doc?userId=2002` 返回 `updateTime=2026-11-08 11:40:54`，证明 `max(user.updateTime, profile.updateTime)` 生效。
+    - **未通过（索引写入）**：search 消费 `user.profile-updated` 报 `SaTokenContext 上下文尚未初始化`（[FeignAuthInterceptor.java:68](../../../litisle-common/common-security/src/main/java/com/litisle/commonsecurity/feign/FeignAuthInterceptor.java#L68) 的 `StpUtil.isLogin()` 在 MQ 消费线程无上下文），消息重投后进 DLQ，ES `user_idx` count=0、doc 2002 返回 404。故「索引 `updateTime` 前进且笔名已更新」无实测证据，**不标 `[x]`**。该缺陷为本轮之前即存在的基础设施问题，非 9.8-P1 改动引入。
+    - **复原**：笔名已改回 `林间有风`（`HEX(pen_name)=E69E97E997B4E69C89E9A38E`，`profile.update_time=11:41:42`）；因 `user_idx` 自始至终未写入，「改回后索引是否同步回去」无同步对象可验。
+    - **后续闭环（2026-11-08 12:29:25）**：批次十六 16.1 修复 `FeignAuthInterceptor` 无上下文异常后重跑，`user_idx` 文档成功写入：`penName=林间有风`（HEX `E69E97E997B4E69C89E9A38E`）、`updateTime=2026-11-08T12:29:25`（与 `sys_user_profile.update_time` 一致），`sys_user.update_time` 未因笔名变化，本次验收完整通过。
+
+## 归档说明
+
+- 本文件共归档 1 项（9.8-P1）；9.6-B 见前节。
+- 9.8-P1 最初因 16.1 缺陷导致「索引写入」未通过而暂不勾选，16.1 修复后于 2026-11-08 12:29:25 补齐实测，本次按完整证据归档。
+- 编号空缺：主清单批次九 9.8 组仅 9.8-P2 在本文档，9.8-P1 指向本文件；编号不重排。

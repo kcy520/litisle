@@ -2,7 +2,7 @@
 
 > 版本：v0.1（2026-11-08，按代码事实核对：`litisle-ai` 仅有启动骨架；review 机审能力按当前实现引用）
 >
-> 关联文档：[AI-Business-Guide.md](../Study/AI-Business-Guide.md)（功能 F1–F22、流程、规则、§十六 决策台账）· [AI-Doc-Checklist.md](../docs_design/AI-Doc-Checklist.md)（Q1–Q29 / R1–R10，临时工作目录）· [Design-Document.md](../overall_documen/Design-Document.md) §2.3.6 / §2.6 · [Api-Architecture.md](Api-Architecture.md) §4.5 · [Review-Architecture.md](Review-Architecture.md) · [Content-Architeche.md](Content-Architeche.md) · [File-Architecture.md](File-Architecture.md) · [Search-Architecture.md](Search-Architecture.md) · [Sql-Document.md](../Sql-Document.md) §五
+> 关联文档：[AI-Business-Guide.md](../Study/AI-Business-Guide.md)（功能 F1–F22、流程、规则、§十六 决策台账）· [AI-Doc-Checklist.md](../docs_design/AI-Doc-Checklist.md)（Q1–Q77 / R1–R11 / V1–V12，临时工作目录）· [Design-Document.md](../overall_documen/Design-Document.md) §2.3.6 / §2.6 · [Api-Architecture.md](Api-Architecture.md) §4.5 · [Review-Architecture.md](Review-Architecture.md) · [Content-Architeche.md](Content-Architeche.md) · [File-Architecture.md](File-Architecture.md) · [Search-Architecture.md](Search-Architecture.md) · [Sql-Document.md](../Sql-Document.md) §五
 
 ## 文档说明
 
@@ -29,7 +29,7 @@
 
 | 维度 | 定音方 | AI 交接物 | 出处 |
 | --- | --- | --- | --- |
-| 裁决 | review（机审分流 + 人工终裁） | 三分态结论 + 类目 + 理由 + 版本标识 | 业务指南 §1.3、§六；Checklist Q7 |
+| 裁决 | review（机审分流 + 人工终裁） | 三分态结论 + 类目 + 理由 + 版本标识 | 业务指南 §1.3、§六 |
 | 状态 | content（文章状态机 CAS 回写）、file（`safe_flag`） | 带 `contentHash` 的结论事件，供业务方丢弃陈旧判定 | Review-Architecture §2.2；业务指南 F10 |
 | 存储 | file（隔离前缀、软删、引用解绑） | 只给判定，不移动/删除对象、不设隔离期 | File-Architecture v1.4；业务指南 F11 |
 | 检索 | search（索引同步 + `IndexVersionGuard` 版本守卫） | 无关；AI 不写 ES、不做索引同步 | Search-Architecture §1.2 |
@@ -399,9 +399,9 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | 项 | 设计口径 | 状态 |
 | --- | --- | --- |
 | 分账 | 机审预算与生成预算独立；机审优先；生成预算打满只停生成 | 🟡 设计态 |
-| 用途打标 | 机审文本 / 机审图片 / 摘要 / 标签 / 问答五类（Q28 建议粒度，待确认） | 🟡 设计态 |
+| 用途打标 | 机审文本 / 机审图片 / 摘要 / 标签 / 问答五类（已定，与业务指南 §5.3「成本可见」的枚举一致，Q28） | 🟡 设计态 |
 | 用户配额 | 普通用户按日低配额，按等级放开；VIP 高额度但不限量为否；与全局日/月预算挂钩 | 🟡 设计态 |
-| 扣减与退还 | 调用前校验 + 成功后扣减；失败是否退还待确认（Q8） | 🟡 设计态 |
+| 扣减与退还 | 调用前原子预扣 + 成功后确认；失败退还；按请求键幂等（Q8 已修） | 🟡 设计态 |
 | 机审预算耗尽 | 降级为全量人工 + 告警，**不得降低机审判定频率、不得静默放行** | 🟡 设计态 |
 | 计量落点 | AI 调用入口统一打标，写入 `ai_token_usage` 或等价计数 | 🟡 设计态 |
 
@@ -411,12 +411,12 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 
 | 故障/场景 | 处理 | 用户可见 | 是否可能漏审 | 状态 |
 | --- | --- | --- | --- | --- |
-| 模型超时 | provider 侧超时控制 + 调用方重试；内容保持待审 | 审核中延迟 | 否 | 🟡 设计态（超时参数待定稿） |
+| 模型超时 | provider 侧超时控制 + 调用方重试；内容保持待审 | 审核中延迟 | 否 | 🟡 设计态（仅 provider 单次调用超时待定稿；送审重试沿用 review 既有 5 次 / 30s 基准） |
 | 限流/配额超限 | 机审：保持待审并延迟重试；生成：拒绝并提示稍后 | 生成不可用；审核延迟 | 否 | 🟡 设计态（机审侧 review 已有 QPS 行为） |
 | 模型不可用/未配置 | 显式告警 + 全量转人工；不默认放行 | 长期审核中 | 否 | ✅ review 已实现降级（AI 供给缺失导致全转人工） |
 | 重试耗尽 | 入 DLQ → 死信消费转人审 | 审核中延长 | 否 | ✅ 已实现（review） |
 | 幂等 | 送审按定位键 + 指纹；生成按请求键去重（待确认） | 无感 | 否 | ✅ review / 🟡 生成侧 |
-| 熔断/隔离 | 设计存在两种口径：`AiLimiter`（Sentinel 线程隔离，Design-Document）与 Resilience4j（项目 common-redis 已用于 Redis 故障熔断，但 AI pom 未引入）；选型待确认 | 生成可降级；机审转人工 | 否 | 🟡 设计态 |
+| 熔断/隔离 | **按用途分开计数、服务级熔断（Q52）**：同一用途连续失败达 N 次（N 待定值，见 Checklist V5）即打开；打开期间新任务直接转人工、在途任务停止重试；半开探测（自检）成功后自动恢复，恢复前后的结论按 §4.5 规则打 `degraded` 标记。实现优先复用项目已有的 Redis 计数与限流惯例（review 的 QPS guard 同款），不新增 Sentinel/Resilience4j 组件；若后续确需线程隔离再评估引入 | 生成可降级；机审转人工 | 否 | 🟡 设计态（计数键与 N 待定稿） |
 | RAG 不可用 | 降级为不引用回答并明确标注 | 回答无引用卡片 | 不适用 | 🟡 设计态 |
 | 生成失败 | 提示"暂时无法生成"，可手动填写；不落库 | 功能不可用 | 不适用 | 🟡 设计态 |
 | 告警定位 | "哪类能力不可用"须能在 5 分钟内定位 | 运维侧 | 不适用 | 🟡 设计态 |
@@ -455,12 +455,17 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | `moderation_punish_total{action}` | 处罚动作 | review | ✅ 已实现 |
 | `ai_call_total{purpose,provider,result}` | 五类用途、provider、成功/失败 | AI | 🟡 待建 |
 | `ai_call_latency{purpose}`（Timer） | P50/P95/P99 | AI | 🟡 待建 |
+| `moderation_e2e_latency{scene}`（Timer） | 入队→结论落库，P50/P95 | review + AI | 🟡 待建 |
 | `ai_token_usage{purpose}` | 输入/输出/总 token | AI | 🟡 待建 |
 | `ai_quota_exceeded_total{purpose}` | 配额/预算超限 | AI | 🟡 待建 |
 | `ai_generation_total{scene,result}` | 摘要/标签/问答 | AI | 🟡 待建 |
 | `ai_guard_state{provider}` | 熔断/降级状态 | AI | 🟡 待建 |
 
 命名沿用 review 的 `moderation_*` 风格：代码侧用点号（Micrometer），Prometheus 渲染为下划线。
+
+**端到端时延口径**：`moderation_e2e_latency` 覆盖排队 + 调用 + 重试 + 落库，P95 用 5 分钟滚动窗口、告警看日聚合；业务指南 §5.1 验收与 §11.3「调用时延」统一引用该指标，provider 侧 `ai_call_latency` 只用于定位慢在哪一段。
+
+**按用户用量**：不用指标标签（避免高基数），由调用明细按日汇总到 `ai_usage_daily(user_id, purpose, date, token_in, token_out, cost)`，F9 与运营报表读该表；指标只承担全局告警。
 
 ### 11.2 日志字段
 
@@ -488,6 +493,12 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | 调用时延 | P95 > 60s 持续 10 分钟告警 | 🟡 待建（验收基线为 95% 在 60s 内） |
 | 配额超限突增 | 单场景小时环比 > 3 倍告警（防刷） | 🟡 待建 |
 | 采纳率/误判率 | 周环比降 20% 或误判率连续 3 天超基线 1.5 倍告警 | 🟡 待建（F13） |
+
+> **唯一出处约定（Q72）**：本表是告警阈值与统计窗口的唯一出处，业务指南「F13.3 告警建议」只保留业务含义并链接到此处，不再重复数值。
+>
+> **校准责任方**：模型效果类基线（采纳率、误判率）由算法负责，人工时效类基线（积压、过期任务占比）由审核运营负责；首次校准在阶段 0 结束时完成，之后每个模型/提示词版本复校一次。责任岗位的具体指定仍待落定（见 Checklist Q45）。
+>
+> **基线未建立时**：沿用 review 已配置值（存疑积压 50 条、DLQ 100 条），其余阈值仅作预警参考，不作为考核判据。
 
 ------
 

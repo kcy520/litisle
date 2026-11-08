@@ -22,6 +22,7 @@ import com.litisle.litislereview.mapper.ModerationRecordMapper;
 import com.litisle.litislereview.mapper.ReviewTaskMapper;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
 import com.litisle.litislereview.mq.publisher.ModerationAppealResultPublisher;
+import com.litisle.litislereview.support.RedisLockReleaseSupport;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
@@ -127,6 +128,9 @@ public class ReviewTaskSweeper {
 
     /** Redis 模板（仅互斥锁用途） */
     private final StringRedisTemplate stringRedisTemplate;
+
+    /** 互斥锁原子释放工具（Lua 比对 token 后删除，消除 GET 与 DEL 之间的误删窗口） */
+    private final RedisLockReleaseSupport lockReleaseSupport;
 
     /** 清扫参数（claim-timeout-minutes / appeal-timeout-days / batch-limit / lock-seconds 外置 yml 运营可调） */
     private final ModerationProperties properties;
@@ -424,11 +428,8 @@ public class ReviewTaskSweeper {
                             task.getId(), task.getScene(), retryCount);
                 } finally {
                     // 释放前置锁：不占住会让消费端步骤8 的 SETNX 失败白耗一轮延迟重试；
-                    // GET 比对 token 归属才 DEL（防本锁 TTL 过期后误删消费端新锁，对齐 releaseLock 纪律）
-                    //Redis 里当前这个 key 的 value，是不是当初自己写进去的那个 token
-                    if (lockToken.equals(stringRedisTemplate.opsForValue().get(dedupKey))) {
-                        stringRedisTemplate.delete(dedupKey);
-                    }
+                    // 改由 Lua 原子执行「取值比对 + 删除」，防本锁 TTL 过期后误删消费端新锁
+                    lockReleaseSupport.releaseIfOwned(dedupKey, lockToken, "补偿重发dedup前置锁");
                 }
             } catch (Exception e) {
                 // 单条失败不阻断整轮（任务保持 status=0），error 留痕下轮重试
@@ -531,21 +532,15 @@ public class ReviewTaskSweeper {
     }
 
     /**
-     * 释放互斥锁（Lua 比对 token 防误删他实例锁；异常仅 warn 留痕由锁 TTL 自愈）
+     * 释放互斥锁（Lua 原子比对 token 防误删他实例锁；异常仅 warn 留痕由锁 TTL 自愈）
      *
      * 作用：比对 token 后删除 Redis 互斥锁，防止误删其他实例的锁。
      *
      * @param token 本实例锁 token
      */
     private void releaseLock(String token) {
-        // 对齐 PunishReconcileSweeper 释放纪律：GET 比对 token 归属后才 DEL（执行超时锁已过期被他人抢占时不误删）
-        try {
-            if (token.equals(stringRedisTemplate.opsForValue().get(LOCK_KEY))) {
-                stringRedisTemplate.delete(LOCK_KEY);
-            }
-        } catch (Exception e) {
-            // 释放异常仅 warn 留痕，由锁 TTL 过期自愈
-            log.warn("清扫互斥锁释放失败（TTL 自愈），key={}", LOCK_KEY, e);
-        }
+        // 原实现是 GET 比对后再 DEL 两步：两步之间锁若 TTL 到期被他人抢占，DEL 会误删他人的锁。
+        // 改为 Lua 原子执行，取值、比对、删除在 Redis 内一次完成
+        lockReleaseSupport.releaseIfOwned(LOCK_KEY, token, "审核任务清扫");
     }
 }

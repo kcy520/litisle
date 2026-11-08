@@ -10,6 +10,7 @@ import com.litisle.litislereview.enums.PunishActionEnum;
 import com.litisle.litislereview.enums.PunishStatusEnum;
 import com.litisle.litislereview.mapper.PunishLogMapper;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
+import com.litisle.litislereview.support.RedisLockReleaseSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -58,6 +59,9 @@ public class PunishReconcileSweeper {
     /** Redis 模板（仅互斥锁用途） */
     private final StringRedisTemplate stringRedisTemplate;
 
+    /** 互斥锁原子释放工具（Lua 比对 token 后删除，消除 GET 与 DEL 之间的误删窗口） */
+    private final RedisLockReleaseSupport lockReleaseSupport;
+
     /** 对账参数（batch-limit / revoke-lookback-days / lock-seconds 外置 yml 运营可调） */
     private final ModerationProperties properties;
 
@@ -85,9 +89,8 @@ public class PunishReconcileSweeper {
             }
         } finally {
             // 步骤3：仅当锁 value 仍为本实例 token 时释放（执行超时锁已过期被他人抢占时不误删）
-            if (token.equals(stringRedisTemplate.opsForValue().get(LOCK_KEY))) {
-                stringRedisTemplate.delete(LOCK_KEY);
-            }
+            // 改为 Lua 原子执行：取值、比对、删除在 Redis 内一次完成，消除两步之间的误删窗口
+            lockReleaseSupport.releaseIfOwned(LOCK_KEY, token, "处罚对账");
         }
     }
 

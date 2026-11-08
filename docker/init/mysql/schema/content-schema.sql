@@ -40,7 +40,7 @@ create table if not exists `article`
     `del_flag`      tinyint         not null default 0 comment '删除标志：0-未删除 1-已删除',
     `version`       int             not null default 0 comment '乐观锁版本号',
     `create_time`   datetime        not null default current_timestamp comment '创建时间',
-    `update_time`   datetime        not null default current_timestamp on update current_timestamp comment '更新时间（业务编辑/状态流转刷新；浏览量刷回显式保留原值，防老文章被顶到「最新列表」顶部）',
+    `update_time`   datetime(3)     not null default current_timestamp(3) on update current_timestamp(3) comment '更新时间（毫秒精度：供索引版本守卫识别同秒内二次编辑；业务编辑/状态流转刷新；浏览量刷回显式保留原值，防老文章被顶到「最新列表」顶部）',
     `stat_update_time` datetime      not null default current_timestamp comment '热度信号统计时间（仅浏览/点赞/评论计数回写刷新；热度榜增量灌榜按此列捞变更，与 update_time「最新列表」语义解耦）',
     index `idx_author_id` (`author_id`),
     index `idx_zone_status` (`zone`, `status`),
@@ -107,7 +107,7 @@ create table if not exists `book`
     `del_flag`     tinyint         not null default 0 comment '删除标志',
     `version`      int             not null default 0 comment '乐观锁版本号',
     `create_time`  datetime        not null default current_timestamp comment '创建时间',
-    `update_time`  datetime        not null default current_timestamp on update current_timestamp comment '更新时间',
+    `update_time`  datetime(3)     not null default current_timestamp(3) on update current_timestamp(3) comment '更新时间（毫秒精度：供索引版本守卫识别同秒内二次编辑）',
     index `idx_author_id` (`author_id`),
     index `idx_feed` (`del_flag`, `status`, `category`, `create_time`)
     ) engine = InnoDB

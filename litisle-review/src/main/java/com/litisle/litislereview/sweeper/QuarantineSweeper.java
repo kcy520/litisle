@@ -12,6 +12,7 @@ import com.litisle.litislereview.enums.VerdictEnum;
 import com.litisle.litislereview.mapper.AppealMapper;
 import com.litisle.litislereview.mapper.ModerationRecordMapper;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
+import com.litisle.litislereview.support.RedisLockReleaseSupport;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
@@ -101,6 +102,9 @@ public class QuarantineSweeper {
 
     /** Redis 模板（仅互斥锁用途） */
     private final StringRedisTemplate stringRedisTemplate;
+
+    /** 互斥锁原子释放工具（Lua 比对 token 后删除，消除 GET 与 DEL 之间的误删窗口） */
+    private final RedisLockReleaseSupport lockReleaseSupport;
 
     /** Micrometer 注册中心（optional 模式：未接 actuator 静默跳过，对齐 ReviewTaskSweeper 惯例） */
     private final ObjectProvider<MeterRegistry> registryProvider;
@@ -298,18 +302,13 @@ public class QuarantineSweeper {
     }
 
     /**
-     * 释放互斥锁（GET 比对 token 归属后才 DEL，防误删他实例锁；异常仅 warn 留痕由锁 TTL 自愈）
+     * 释放互斥锁（Lua 原子比对 token 归属后才 DEL，防误删他实例锁；异常仅 warn 留痕由锁 TTL 自愈）
      *
      * @param token 本实例锁 token
      */
     private void releaseLock(String token) {
-        try {
-            if (token.equals(stringRedisTemplate.opsForValue().get(LOCK_KEY))) {
-                stringRedisTemplate.delete(LOCK_KEY);
-            }
-        } catch (Exception e) {
-            // 释放异常仅 warn 留痕，由锁 TTL 过期自愈
-            log.warn("隔离清扫互斥锁释放失败（TTL 自愈），key={}", LOCK_KEY, e);
-        }
+        // 原实现是 GET 比对后再 DEL 两步：两步之间锁若 TTL 到期被他人抢占，DEL 会误删他人的锁。
+        // 改为 Lua 原子执行，取值、比对、删除在 Redis 内一次完成
+        lockReleaseSupport.releaseIfOwned(LOCK_KEY, token, "隔离清扫");
     }
 }

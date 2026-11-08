@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.litisle.litislereview.domain.entity.WordlibMisreport;
 import com.litisle.litislereview.mapper.WordlibMisreportMapper;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
+import com.litisle.litislereview.support.RedisLockReleaseSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -40,6 +41,9 @@ public class WordlibMisreportCleanupSweeper {
     private final WordlibMisreportMapper wordlibMisreportMapper;
     private final ModerationProperties properties;
     private final StringRedisTemplate stringRedisTemplate;
+
+    /** 互斥锁原子释放工具（Lua 比对 token 后删除，消除 GET 与 DEL 之间的误删窗口） */
+    private final RedisLockReleaseSupport lockReleaseSupport;
 
     /**
      * 天级清理入口（05:00 与既有 sweeper 错峰；多实例互斥锁先行）
@@ -81,18 +85,13 @@ public class WordlibMisreportCleanupSweeper {
     }
 
     /**
-     * 释放互斥锁（GET 比对 token 归属后才 DEL，防误删他实例锁；异常仅 warn 留痕由锁 TTL 自愈）
+     * 释放互斥锁（Lua 原子比对 token 归属后才 DEL，防误删他实例锁；异常仅 warn 留痕由锁 TTL 自愈）
      *
      * @param token 本实例锁 token
      */
     private void releaseLock(String token) {
-        try {
-            String current = stringRedisTemplate.opsForValue().get(LOCK_KEY);
-            if (token.equals(current)) {
-                stringRedisTemplate.delete(LOCK_KEY);
-            }
-        } catch (Exception e) {
-            log.warn("[误报记录清理] 互斥锁释放失败（TTL 自愈），key={}", LOCK_KEY, e);
-        }
+        // 原实现是 GET 比对后再 DEL 两步：两步之间锁若 TTL 到期被他人抢占，DEL 会误删他人的锁。
+        // 改为 Lua 原子执行，取值、比对、删除在 Redis 内一次完成
+        lockReleaseSupport.releaseIfOwned(LOCK_KEY, token, "[误报记录清理] ");
     }
 }
