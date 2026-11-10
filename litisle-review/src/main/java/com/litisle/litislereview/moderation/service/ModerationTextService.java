@@ -7,7 +7,6 @@ import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.commonmq.send.MqSendUtil;
 import com.litisle.litisleapi.constant.ModerationConstant;
-import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.dfa.WordLibraryLoader;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.dto.social.MessageDTO;
@@ -16,6 +15,7 @@ import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litisleapi.feign.SocialClient;
 import com.litisle.litisleapi.moderation.MachineRejectPunishGate;
+import com.litisle.litislereview.constant.ReviewRedisKeyConstant;
 import com.litisle.litislereview.dfa.WordlibHitStatRecorder;
 import com.litisle.litislereview.domain.entity.ModerationRecord;
 import com.litisle.litislereview.domain.entity.ReviewTask;
@@ -30,6 +30,7 @@ import com.litisle.litislereview.enums.VerdictEnum;
 import com.litisle.litislereview.mapper.ModerationRecordMapper;
 import com.litisle.litislereview.mapper.ReviewTaskMapper;
 import com.litisle.litislereview.moderation.ModerationModelQpsGuard;
+import com.litisle.litislereview.mq.publisher.ModerationResultPublisher;
 import com.litisle.litislereview.mq.publisher.PunishResultPublisher;
 import com.litisle.litislereview.moderation.cache.ModerationResultCache;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
@@ -68,12 +69,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ModerationTextService {
 
-    /**
-     * 在途去重短锁 key（review 侧内部口径，3-7.3 单内容护栏复用同款）：
-     * %s 依次为 provider、contentHash——两段均服务端派生（枚举/SHA256），禁拼用户原串（§2.12）
-     */
-    private static final String DEDUP_KEY = "review:dedup:%s:%s";
-
     /** moderation_record.reason 列长度（落库前截断，防超长中断审核写入） */
     private static final int REASON_MAX_LENGTH = 500;
 
@@ -103,8 +98,8 @@ public class ModerationTextService {
     private final ModerationProperties moderationProperties;
     /** Redis（在途去重短锁 SETNX） */
     private final StringRedisTemplate stringRedisTemplate;
-    /** MQ 发送工具（事务提交后发 result 事件，sendCritical 必达语义） */
-    private final MqSendUtil mqSendUtil;
+    /** 机审结果事件发布器（按 bizType 统一解析路由键后发 result 事件；发布失败内部转 IllegalStateException 走 DLQ 兑底） */
+    private final ModerationResultPublisher moderationResultPublisher;
     /** 编程式事务模板（persistAndPublish 由 process 内部调用，自调用不走代理，@Transactional 会失效，故用编程式事务） */
     private final TransactionTemplate transactionTemplate;
     /** 机审 REJECT 处罚落库适配器（5-1.1：punish_log 落行 + violation_score 原子累加，契约见 MachineRejectPunishGate.RejectPunishAdapter） */
@@ -214,7 +209,9 @@ public class ModerationTextService {
         evt.setBizId(String.valueOf(task.getBizId()));
         evt.setVerdict(task.getModVerdict().getCode());
         evt.setReviewTaskId(task.getId());
-        mqSendUtil.send(MqConstant.EXCHANGE_MODERATION, MqConstant.ROUTING_MODERATION_RESULT, evt);
+        // 复用发布器的尽力而为补发通道（send 语义，不保证必达）；路由键由发布器按 bizType 统一解析
+        // （Q87 修复：原直发 moderation.result 与 content 侧 text.result 绑定不匹配，消息到不了消费队列）
+        moderationResultPublisher.republish(evt);
     }
 
     /**
@@ -224,7 +221,7 @@ public class ModerationTextService {
      * @param contentHash 内容指纹（key 段之一，SHA256 派生）
      */
     private void tryLockInFlight(ModerationProviderEnum provider, String contentHash) {
-        String dedupKey = String.format(DEDUP_KEY, provider.getCode(), contentHash);
+        String dedupKey = String.format(ReviewRedisKeyConstant.REVIEW_DEDUP_KEY_FORMAT, provider.getCode(), contentHash);
         Boolean locked = stringRedisTemplate.opsForValue()
                 .setIfAbsent(dedupKey, "1", Duration.ofSeconds(moderationProperties.getDedup().getLockSeconds()));
         if (!Boolean.TRUE.equals(locked)) {
@@ -452,6 +449,31 @@ public class ModerationTextService {
                 // （含留痕/任务 CAS 同生共死），Consumer nack 入 DLQ 延迟重试
                 throw new IllegalStateException("机审 REJECT 处罚记账落库失败，回滚审核事务，taskId=" + task.getId());
             }
+            // 步骤3：注册事务提交后回调——写缓存 + 发 result 事件（均在事务成功提交后执行，防脏缓存/脏事件）。
+            // 注册必须放在事务模板 lambda 内（此刻事务同步处于活动状态）：若在 execute 返回后才注册，
+            // 独立事务场景下事务同步已随提交清理，必抛 Transaction synchronization is not active（Q88 修复）
+            String sceneCode = task.getScene().getCode();
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    // 步骤4：落库成功后写审核结果缓存（仅 PASS/REJECT 终局结论；SUSPICIOUS 内部跳过）
+                    moderationResultCache.save(sceneCode, event.getContentHash(), wordlibVer, fewShotVer,
+                            result.verdict(), result.category(), result.reason(), record.getId());
+                    ModerationResultEvent evt = new ModerationResultEvent();
+                    evt.setEventId(UUID.randomUUID().toString());
+                    evt.setEventTime(LocalDateTime.now());
+                    evt.setTraceId(MDC.get(MqSendUtil.TRACE_ID_MDC_KEY));
+                    evt.setVersion(1);
+                    evt.setBizType(task.getBizType().getCode());
+                    evt.setBizId(String.valueOf(task.getBizId()));
+                    evt.setVerdict(result.verdict().getCode());
+                    evt.setReviewTaskId(task.getId());
+                    // 复用结果发布器统一发送（Q87 修复）：按 bizType 解析路由键（1,2,4→text.result / 5→message.result / 6→image.result），
+                    // 原直发 moderation.result 与 content 侧 text.result 绑定不匹配，消息无法路由到消费队列；
+                    // sendCritical 必达语义，发布失败发布器内部转 IllegalStateException → 消费端 nack 入 DLQ 兑底
+                    moderationResultPublisher.publish(evt);
+                }
+            });
             return record.getId();
         });
         // 并发已处理→直接返回（本次消息 ack，不重复发事件）
@@ -464,33 +486,6 @@ public class ModerationTextService {
         // 复用 requireWordScene 归一映射场景（ARTICLE_FEATURED 等审核场景 → ARTICLE 词库场景）；
         // recorder 内部单词失败仅 error 继续、整体不抛——统计属运营证据，绝不影响审核主链路
         wordlibHitStatRecorder.recordFromSnapshot(requireWordScene(task.getScene()), task.getHitWords());
-
-        String sceneCode = task.getScene().getCode();
-        // 步骤3：注册事务提交后回调——写缓存 + 发 result 事件（均在事务成功提交后执行，防脏缓存/脏事件）
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                // 步骤4：落库成功后写审核结果缓存（仅 PASS/REJECT 终局结论；SUSPICIOUS 内部跳过）
-                moderationResultCache.save(sceneCode, event.getContentHash(), wordlibVer, fewShotVer,
-                        result.verdict(), result.category(), result.reason(), recordId);
-                ModerationResultEvent evt = new ModerationResultEvent();
-                evt.setEventId(UUID.randomUUID().toString());
-                evt.setEventTime(LocalDateTime.now());
-                evt.setTraceId(MDC.get(MqSendUtil.TRACE_ID_MDC_KEY));
-                evt.setVersion(1);
-                evt.setBizType(task.getBizType().getCode());
-                evt.setBizId(String.valueOf(task.getBizId()));
-                evt.setVerdict(result.verdict().getCode());
-                evt.setReviewTaskId(task.getId());
-                try {
-                    // 发布失败抛 BizException(MQ_SEND_FAILED)——但 MqAckHelper 会把 BizException 按业务性失败 ack，
-                    // 事件将静默丢失，故转 IllegalStateException 走非预期分支→nack 入 DLQ 兑底
-                    mqSendUtil.sendCritical(MqConstant.EXCHANGE_MODERATION, MqConstant.ROUTING_MODERATION_RESULT, evt);
-                } catch (BizException e) {
-                    throw new IllegalStateException("审核结果事件发布失败（事务已提交），转 DLQ 兑底", e);
-                }
-            }
-        });
     }
 
     /**

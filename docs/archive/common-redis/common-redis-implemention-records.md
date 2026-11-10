@@ -13,4 +13,4 @@
 | 批次 | 主题 | 文件 |
 | --- | --- | --- |
 | 批次十三 | 自研 `RedisGuard` 熔断降级切换 Resilience4j（含 `LoginRetryLimiter`/`RedisGuard` 删除、测试重写、Prometheus 8084 抓取补齐） | [common-redis-13-resilience4j.md](common-redis-13-resilience4j.md) |
-| 批次十七 | 分布式锁工具整改（固定租期重载、`lock:` 前缀口径、解锁留痕）+ review 自造 SETNX 锁迁移评估（结论暂不迁移 + 禁单侧迁移硬约束） | [common-redis-17-distributed-lock.md](common-redis-17-distributed-lock.md) |
+| 批次十七 | 分布式锁工具整改（固定租期重载、`lock:` 前缀口径、解锁留痕）+ review 自造 SETNX 锁迁移评估（结论暂不迁移 + 禁单侧迁移硬约束）+ sweeper 5 处锁释放改 Lua 原子删除（运行态验证 PASS）+ `review:dedup` 键格式抽成共享常量（17.7） | [common-redis-17-distributed-lock.md](common-redis-17-distributed-lock.md) |

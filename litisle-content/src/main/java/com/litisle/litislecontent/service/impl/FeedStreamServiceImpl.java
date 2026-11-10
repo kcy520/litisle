@@ -39,6 +39,8 @@ import com.litisle.litislecontent.service.support.FeedSnapshotSupport;
 import com.litisle.litislecontent.service.support.FeedItemAssembler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.boot.autoconfigure.cache.CacheProperties.Redis;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -98,40 +100,80 @@ public class FeedStreamServiceImpl implements FeedStreamService {
     /** 统计窗口 Mapper（批次十一 11.3：收藏/阅读 30/90 天窗口值批量读取，翻页不聚合源表） */
     private final ContentStatWindowMapper contentStatWindowMapper;
 
-    /** 热度榜支撑（最热召回只复用 topArticleIds 取榜；打分改由 FeedScoreSupport 统一） */
+    /**
+     * 热度榜支撑（最热召回只复用 topArticleIds 取榜；打分改由 FeedScoreSupport 统一）
+     * <p>作用：直接拿现成的热度榜来用，「最热」这一路召回复用它，不另算一套热度计算。</p>
+     */
     private final FeedHotRankSupport feedHotRankSupport;
 
-    /** 统一打分入口（批次十一 11.10：文章/书籍排序与热度榜共用同一公式，禁止另算一套） */
+    /**
+     * 统一打分入口（批次十一 11.10：文章/书籍排序与热度榜共用同一公式，禁止另算一套）
+     * <p>作用：统一的打分公式——推荐流和热度榜共用同一套，保证分数口径一致（同一内容在两边不会算出不同的分）。</p>
+     */
     private final FeedScoreSupport feedScoreSupport;
 
-    /** 用户画像聚合（reading_history 分区/分类偏好） */
+    /**
+     * 用户画像聚合（reading_history 分区/分类偏好）
+     * <p>作用：聚合用户画像——常看哪些分区/分类、最近读过什么文章；个性化召回和打分都依赖它，
+     * 新用户没有行为数据时画像为空（冷启动），两路个性化退化为全局热门+最新。</p>
+     */
     private final FeedProfileSupport feedProfileSupport;
 
-    /** 快照/曝光/种子存储 */
+    /**
+     * 快照/曝光/种子存储
+     * <p>作用：把排好序的整份推荐结果存进 Redis，翻页时按偏移取出来（保证翻页不重不乱）；
+     * 当日曝光去重、会话种子、降级兜底副本的读写也全部收口在这个类。</p>
+     */
     private final FeedSnapshotSupport feedSnapshotSupport;
 
-    /** 曝光/点击日聚合写入（批次十一 11.6：切片曝光批量落库，失败只告警不阻断翻页） */
+    /**
+     * 曝光/点击日聚合写入（批次十一 11.6：切片曝光批量落库，失败只告警不阻断翻页）
+     * <p>作用：把每次翻页返回的内容按「天+用户」汇总落库，供后续运营统计（如点击率分析）。</p>
+     */
     private final FeedExposureSupport feedExposureSupport;
 
-    /** 负反馈名单读取（批次十一 11.11：建池过滤内容/作者/分类，切片过滤单条内容） */
+    /**
+     * 负反馈名单读取（批次十一 11.11：建池过滤内容/作者/分类，切片过滤单条内容）
+     * <p>作用：读取用户的负反馈名单——屏蔽了哪些内容/作者/分类，建池与切片阶段据此剔除，
+     * 降级兜底路径也不允许绕过该过滤。</p>
+     */
     private final FeedFeedbackSupport feedFeedbackSupport;
 
     /** 推荐流配置（分页、召回池、权重、TTL、配额） */
     private final ContentProperties contentProperties;
 
-    /** 推荐流观测指标（降级/快照创建打点；MeterRegistry 未装配时静默空转） */
+    /**
+     * 推荐流观测指标（降级/快照创建打点；MeterRegistry 未装配时静默空转）
+     * <p>作用：监控打点——记录降级次数、快照创建次数等指标，供监控大盘观察推荐流运行健康度。</p>
+     */
     private final ContentMetrics contentMetrics;
 
     // ==================== 文章流（10.3） ====================
 
+// ### 看完整的降级链路（四级）
+// 正常路径：读快照切片（翻页稳定、有曝光去重）
+//    ↓ Redis 不可用 / 建池失败 / 快照为空
+// 第一兜底：last-good 上一代成功快照（内存副本或 Redis 指针）
+//    ↓ 连 last-good 也没有（比如实例刚重启、Redis 也挂了）
+// ★ 最后手段：实时计算一页（realtimeArticlePage）★
+//降级链路的兜底描述： Redis 挂掉时，系统从“读快照切片”退化为“每次现场算一页” ——召回、画像、打分、屏蔽过滤这些核心推荐功能全部保留（它们本来就不依赖 Redis），丢掉的是快照机制带来的 翻页稳定性 （固定排序、会话种子、曝光去重、无限续刷），并且通过`degraded` 标记把降级状态透传给前端。整个设计的哲学是：Redis 是性能与体验的优化层，而不是功能的正确性依赖——任何基础设施挂掉，业务主链路都不该断。
+
     /**
      * 文章流：按游标返回一页可推荐文章
      *
+     * 
      * @param query 查询入参（身份/游标/快照/页大小/分区筛选）
      * @return 游标分页结果
      */
     @Override
     public FeedPageVO<FeedItemVO> feedArticles(FeedQuery query) {
+      
+// 前端带上 snapshotId + cursor（偏移量）
+//     ↓
+// 步骤5：readSnapshot(scope, snapshotId) —— 读同一份快照
+//     ↓
+// 步骤7：sliceArticlePage —— 按 cursor 偏移切出 [offset, offset+pageSize) 这一页
+      
         // 步骤1：校验召回模式（P0 仅 db；配置为 es 时告警并回落，保证不出现不可用空分支）
         warnIfEsRecallConfigured();
 
@@ -210,9 +252,13 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         return sliceArticlePage(snapshot, cursorState, pageSize, identity, stream, query.getUserId());
     }
 
+
     /**
      * 建文章快照：四路召回 → 去重/曝光过滤 → 打分排序 → 探索位与打散 → 落 Redis
      *
+     * 不是漏了，而是 ES 初筛这一路本来就没实现，当前版本就是直接查 MySQL 。这是有意的分阶段设计：
+     * 
+     * 
      * @param query    查询入参
      * @param identity 身份标识
      * @param scope    快照作用域
@@ -221,14 +267,15 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      */
     private FeedSnapshot buildArticleSnapshot(FeedQuery query, String identity, String scope,
                                               ContentProperties.Stream stream) {
-        // 用户画像（匿名/无行为数据 → coldStart=true，两路个性化退化全局；10.5 走 Redis 缓存）
+        // 用户画像：聚合「常看哪些分区/分类、最近读过什么」，个性化召回和打分都依赖它
+        // （匿名/无行为数据 → coldStart=true，两路个性化退化全局；10.5 走 Redis 缓存）
         FeedProfile profile = feedProfileSupport.load(query);
         // 每路召回条数
         int perPath = stream.getRecallLimitPerPath();
         // 候选池（LinkedHashMap 去重，同一文章多路命中只保留一份）
         Map<Long, Article> candidates = new LinkedHashMap<>();
 
-        // 路1：最热（复用现有热度榜 ZSet，不另建热度计算）
+        // 路1：最热——直接拿现成的热度榜来用（复用热度榜 ZSet，不另算一套热度计算）
         List<Long> hotIds = feedHotRankSupport.topArticleIds(1, perPath);
         // 热度榜为空标记：榜空时改由「最新」单独兜底，并把最新召回量放大到整池
         boolean hotEmpty = hotIds.isEmpty();
@@ -268,8 +315,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
             candidates.entrySet().removeIf(entry -> entry.getValue().getZone() != query.getZone());
         }
 
-        // 批次十一 11.11：建池阶段过滤负反馈名单（内容/作者/分类三类都在这里生效）
-        // 名单按「用户 + 流」缓存；匿名用户返回空名单，不做长期屏蔽
+        // 批次十一 11.11：建池阶段过滤负反馈名单——作用：读取用户屏蔽的内容/作者/分类，命中即从候选池剔除
+        // （内容/作者/分类三类都在这里生效；名单按「用户 + 流」缓存；匿名用户返回空名单，不做长期屏蔽）
         FeedFeedbackExclusions feedback = feedFeedbackSupport.loadExclusions(
                 query.getUserId(), FeedConstant.STREAM_ARTICLE);
         if (!feedback.isEmpty()) {
@@ -290,7 +337,7 @@ public class FeedStreamServiceImpl implements FeedStreamService {
             candidates.keySet().removeAll(exposed);
         }
 
-        // 会话种子（同一快照窗口内稳定，跨会话可变）
+        // 生成会话种子（同一快照窗口内稳定，跨会话可变）
         long seed = feedSnapshotSupport.resolveSessionSeed(scope);
         // 打分排序 + 探索位 + 打散
         List<FeedSnapshotItem> items = rankArticles(candidates, profile, stream, stream.getPoolSize(), seed);
@@ -306,8 +353,9 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                 .setItems(items)
                 // 热度榜为空的降级标记随快照落库，续页返回体也能识别同一代快照的降级态
                 .setDegraded(hotEmpty ? FeedConstant.DEGRADED_HOT_EMPTY : null);
+        // 写快照落 Redis：同时登记活动快照索引（自动裁剪旧代次）、记录 last-good 兜底副本
         feedSnapshotSupport.writeSnapshot(scope, snapshot);
-        // 快照创建指标：cold_start 维度来自本次画像，便于区分新用户与老用户建池量
+        // 快照创建指标（监控打点）：cold_start 维度来自本次画像，便于区分新用户与老用户建池量
         contentMetrics.recordFeedSnapshotCreated(FeedConstant.STREAM_ARTICLE, profile.isColdStart());
         return snapshot;
     }
@@ -351,7 +399,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
             double zoneMatch = profile.getPreferredZones().contains(article.getZone()) ? 1.0 : 0.0;
             // 分类匹配：命中用户常看分类记 1，否则 0
             double categoryMatch = profile.getPreferredCategories().contains(article.getCategory()) ? 1.0 : 0.0;
-            // 统一打分：浏览/点赞/评论/收藏/新鲜度/分区/分类权重全部来自 yml
+            // 统一打分：推荐流和热度榜共用同一套公式，保证分数口径一致（同一内容两边不会算出不同的分）；
+            // 浏览/点赞/评论/收藏/新鲜度/分区/分类权重全部来自 yml
             double score = feedScoreSupport.computeArticleScore(
                     stat, collectCount, article.getCreateTime(), zoneMatch, categoryMatch);
             // 已读降权（不剔除）：窗口内已读文章扣分，保证长刷仍能看到但排位靠后
@@ -377,6 +426,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
     /**
      * 文章页切片：按偏移取一页 → 展示前门控回查 → 标记当日曝光 → 组装分页结果
      *
+     * （标记当日曝光—只要接口把这页返回给了客户端，整页条目就算曝光，无论用户是否真的滚动看到）
+     * 
      * @param snapshot    快照
      * @param cursorState 游标状态
      * @param pageSize    页大小
@@ -388,6 +439,20 @@ public class FeedStreamServiceImpl implements FeedStreamService {
     private FeedPageVO<FeedItemVO> sliceArticlePage(FeedSnapshot snapshot, CursorState cursorState,
                                                     int pageSize, String identity, ContentProperties.Stream stream,
                                                     Long userId) {
+
+// 从快照里取出`[cursor, cursor+pageSize)` 这一页，但不是机械切割：
+// - 切片阶段二次过滤 ：建池时过滤过曝光，但从建池到切片的间隙里内容可能已被曝光（比如并发请求），所以切片时再查一次曝光集合和“不感兴趣”名单， 已曝光/被屏蔽的条目直接跳过，游标照常前进 ，避免同一条内容卡住分页；
+// - 展示前门控回查 ：切片结果回数据库再查一遍，下架/转私密/软删的内容直接丢弃—— 绝不让失效内容出现在用户眼前 ，哪怕快照是几分钟前建的；
+// - 标记曝光 ：返回的这页全部计入当日曝光，同时写一条曝光日聚合记录（失败只告警不阻断翻页）；
+// - 游标语义 ：cursor = “已消费条数”（含被跳过的），返回给前端；翻到池末尾但池是满的，说明可以生成下一代快照继续刷（无限刷的关键）。                                                        
+        
+// 降级链路
+// 正常路径：读快照切片（翻页稳定 + 曝光去重）
+//    ↓ Redis 不可用 / 建池失败 / 快照为空
+// 第一兜底：last-good 上一代成功快照（lastGoodArticlePage）
+//    ↓ 连 last-good 都没有（实例刚重启 + Redis 也挂了）
+// 最后手段：实时计算一页（realtimeArticlePage）
+        
         // 快照条目全集（已按分数与打散规则排好序）
         List<FeedSnapshotItem> all = snapshot.getItems();
         // 批次十一 11.11：旧快照里被「不感兴趣」的内容在切片阶段直接跳过（作者/分类屏蔽在建池时生效）
@@ -427,7 +492,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         // 本页实际返回的条目计入当日曝光（后续切片/下一代快照都会按该集合再过滤）
         feedSnapshotSupport.markExposed(FeedConstant.STREAM_ARTICLE, identity,
                 items.stream().map(FeedItemVO::getArticleId).toList());
-        // 批次十一 11.6：曝光日聚合按页批量 upsert（Set 已保证同身份同日同条一次，写入失败只告警）
+        // 批次十一 11.6：曝光日聚合按页批量 upsert——作用：把本页返回内容按「天+用户」汇总落库，供运营统计
+        // （Set 已保证同身份同日同条一次，写入失败只告警）
         feedExposureSupport.recordExposure(FeedConstant.STREAM_ARTICLE, identity,
                 items.stream().map(FeedItemVO::getArticleId).toList());
 
@@ -466,7 +532,7 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         // 最新一路
         articleMapper.selectList(Page.of(1, sampleSize, false), articleGate())
                 .forEach(article -> candidates.putIfAbsent(article.getId(), article));
-        // 最热一路（复用热度榜）
+        // 最热一路（复用热度榜：直接拿现成的热度榜，不另算一套）
         List<Long> hotIds = feedHotRankSupport.topArticleIds(1, sampleSize);
         if (!hotIds.isEmpty()) {
             loadArticlesByIds(hotIds).forEach(article -> candidates.putIfAbsent(article.getId(), article));
@@ -694,7 +760,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      */
     private FeedSnapshot buildBookSnapshot(FeedQuery query, String identity, String scope,
                                            ContentProperties.Stream stream) {
-        // 用户画像（分类偏好与完结偏好来源；10.5 走 Redis 缓存）
+        // 用户画像：聚合「常看哪些分类、偏好完结还是连载」，个性化召回和打分都依赖它
+        // （分类偏好与完结偏好来源；10.5 走 Redis 缓存）
         FeedProfile profile = feedProfileSupport.load(query);
         // 书籍门控 + 默认排序（新建时间倒序，仅决定入池先后，最终按打分重排）
         LambdaQueryWrapper<Book> wrapper = bookGate();
@@ -707,7 +774,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         }
         List<Book> books = bookMapper.selectList(Page.of(1, stream.getPoolSize(), false), wrapper);
 
-        // 批次十一 11.11：建池阶段过滤负反馈名单（书籍按内容ID/作者/分类三类命中剔除）
+        // 批次十一 11.11：建池阶段过滤负反馈名单——作用：读取用户屏蔽的内容/作者/分类，命中即从候选池剔除
+        // （书籍按内容ID/作者/分类三类命中剔除）
         FeedFeedbackExclusions feedback = feedFeedbackSupport.loadExclusions(
                 query.getUserId(), FeedConstant.STREAM_BOOK);
         if (!feedback.isEmpty()) {
@@ -749,8 +817,9 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         FeedSnapshot snapshot = new FeedSnapshot()
                 .setSnapshotId(snapshotId)
                 .setItems(items);
+        // 写快照落 Redis：同时登记活动快照索引（自动裁剪旧代次）、记录 last-good 兜底副本
         feedSnapshotSupport.writeSnapshot(scope, snapshot);
-        // 快照创建指标：书籍流与文章流共用同一套指标名，靠 stream 标签区分
+        // 快照创建指标（监控打点）：书籍流与文章流共用同一套指标名，靠 stream 标签区分
         contentMetrics.recordFeedSnapshotCreated(FeedConstant.STREAM_BOOK, profile.isColdStart());
         return snapshot;
     }
@@ -793,7 +862,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                     stat == null ? 0L : stat.getReaderCount());
             // 新鲜度与完结偏好的取值口径不变（create_time 判定新鲜度，偏好命中记 1）
             double finishMatch = book.getStatus() == profile.getPreferredBookStatus() ? 1.0 : 0.0;
-            // 统一调用 FeedScoreSupport 书籍打分（平滑 m/prior 已切到与文章同一组参数）
+            // 统一打分：推荐流和热度榜共用同一套公式，保证分数口径一致
+            // （平滑 m/prior 已切到与文章同一组参数）
             double score = feedScoreSupport.computeBookScore(
                     stat, collectCount, readerCount, book.getCreateTime(), finishMatch);
             scored.add(new FeedSnapshotItem().setId(book.getId()).setScore(score));
@@ -860,7 +930,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         // 本页实际返回的书籍计入当日曝光（后续切片/下一代快照都会按该集合再过滤）
         feedSnapshotSupport.markExposed(FeedConstant.STREAM_BOOK, identity,
                 items.stream().map(BookFeedItemVO::getId).toList());
-        // 批次十一 11.6：曝光日聚合按页批量 upsert（书籍流与文章流按 stream 分列统计）
+        // 批次十一 11.6：曝光日聚合按页批量 upsert——作用：把本页返回书籍按「天+用户」汇总落库，供运营统计
+        // （书籍流与文章流按 stream 分列统计）
         feedExposureSupport.recordExposure(FeedConstant.STREAM_BOOK, identity,
                 items.stream().map(BookFeedItemVO::getId).toList());
 
@@ -1128,6 +1199,11 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      *
      * <p>随机只发生在内存（{@link Random} 固定种子），不使用 SQL 随机函数。</p>
      *
+     * 探索位`applyExploration` ：
+     * 如果永远只推最高分的内容，用户会看到“信息茧房”，新内容也永远没机会。
+     * 做法是：池子的前 70% 保留严格按分数排的头部，剩下 30% 从低分候选里 用会话种子随机抽取 混入尾部。
+     * 随机用固定种子的 Java`Random` （不用 SQL 随机函数），所以同一会话内翻页不会跳变。冷启动用户探索比例更高（默认 30%），因为对他一无所知，更需要多试试不同内容。
+     * 
      * @param scored     已按分数倒序的候选
      * @param targetSize 目标池大小
      * @param ratio      探索位比例
@@ -1150,9 +1226,16 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         int exploitCount = poolSize - exploreCount;
 
         // 头部按分数直接入池
+        // 前 70%（探索比例）按分数严格排序，是"利用位"
         List<FeedSnapshotItem> exploit = scored.subList(0, exploitCount);
+        
         // 剩余候选里随机抽探索位（同一种子下结果稳定，跨请求不跳变）
+        // 剩余低分候选里随机抽探索位（同一种子下结果稳定，跨请求不跳变）
         List<FeedSnapshotItem> remainder = new ArrayList<>(scored.subList(exploitCount, scored.size()));
+        
+        // 种子的唯一用途 ：作为`new Random(seed)` 的初始值去洗牌（shuffle）。用种子初始化的随机数有个数学性质—— 只要种子相同、输入列表相同，洗出来的顺序就完全相同 （伪随机，可复现）。于是：
+        //- 同一用户、同一会话内，即使池子因为某种原因重建（快照被裁剪、并发请求各建一次），探索位 选中的永远是同一批文章 ；
+        // - 换个会话（种子变了），低分候选里被抽出来混入的内容就换了一批——用户“隔段时间刷新看到不一样的东西”就是这么来的
         Random random = new Random(seed);
         Collections.shuffle(remainder, random);
         List<FeedSnapshotItem> explore = remainder.subList(0, Math.min(exploreCount, remainder.size()));
@@ -1171,6 +1254,10 @@ public class FeedStreamServiceImpl implements FeedStreamService {
     /**
      * 打散：同作者连续不超过上限、同分类连续不超过上限、两分区尽量交替出现
      *
+     * 打散`applyDiversity` ：
+     * 防止“连着 5 篇都是同一个作者/同一个分类”。
+     * 贪心算法：每次从剩余候选里挑第一条不违反约束的最高分条目（同作者连续不超 N 条、同分类连续不超 N 条、两个分区尽量交替）；候选太少全违反时放宽约束，避免死循环。
+     * 
      * <p>贪心选择：每次从剩余候选中找第一条不违反连续约束的最高分条目；
      * 若全部违反（候选太少）则放宽约束取最高分，避免死循环。</p>
      *

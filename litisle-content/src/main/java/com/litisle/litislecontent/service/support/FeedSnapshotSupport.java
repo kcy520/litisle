@@ -62,6 +62,9 @@ public class FeedSnapshotSupport {
     /**
      * last-good 快照内存副本（作用域 → 最近一次成功写入的快照）
      *
+     * - 上限 200 个作用域，超出淘汰最久未访问的（LRU）—— 无论多少用户并发，这份缓存的最大内存是固定的 ；
+     * - 每个条目是一份快照（几百个轻量`FeedSnapshotItem` ），200 份的内存量级在几十 MB 以内，可控。
+     * 
      * <p>为什么需要内存副本：Redis 不可用时只能靠本实例已生成过的快照兜底；
      * 用访问序 LinkedHashMap + 上限淘汰，防止长时间运行下身份作用域无界增长。</p>
      */
@@ -152,6 +155,8 @@ public class FeedSnapshotSupport {
         }
     }
 
+
+
     /**
      * 读取上一代成功快照（批次十 10.6：降级兜底优先返回它，不直接掉实时计算）
      *
@@ -200,6 +205,7 @@ public class FeedSnapshotSupport {
         saveLastGood(scope, snapshot);
     }
 
+
     /**
      * 生成下一个快照代次（Redis INCR，单调递增）
      *
@@ -218,9 +224,14 @@ public class FeedSnapshotSupport {
         return String.valueOf(generation);
     }
 
+    
     /**
      * 读取或生成会话种子
      *
+     * - 先读 Redis 键`seed:{作用域}` ，读得到就直接用（说明这个用户最近建过池， 复用同一种子 ）；
+     * - 读不到就`ThreadLocalRandom.current().nextLong()` 生成一个新种子，并写回 Redis， TTL 与快照 TTL 相同 （比如 30 分钟）。
+     * 关键点： 种子的生命周期 = 快照的生命周期 。同一个用户在同一份快照窗口内（会话内）反复请求，拿到的永远是同一个数字；窗口过期后再来，就是新种子。
+     * 
      * <p>同一身份在快照 TTL 窗口内复用同一 seed（同一会话翻页稳定）；
      * 跨窗口重新生成（跨会话顺序可变）。随机只在内存排序时使用，不下发 SQL。</p>
      *
@@ -389,9 +400,13 @@ public class FeedSnapshotSupport {
         return FeedConstant.CLICKED_KEY_PREFIX + streamType + ":" + identity + ":" + LocalDate.now().format(DATE_FORMATTER);
     }
 
+
     /**
      * 登记活动快照并裁剪超出配额的旧快照
      *
+     * 每次写入新快照，把代次记入索引；超过配置的“最大活动快照数”
+     * （比如 3 代）时，删掉最旧那代的数据键。 防止什么？ 防止一个用户不停翻到底、不停触发“续池”，Redis 里堆积几十代快照浪费内存。
+     * 
      * <p>索引以 JSON 字符串存最近若干代次（最新在前）；超过 maxActiveSnapshots 时
      * 删除最旧代次的数据键并从索引移除（RedisUtil 无 LTRIM，用整体重写替代）。</p>
      *

@@ -327,7 +327,7 @@ litisle-api
 
 | 方法   | 路径                     | 入参                | 出参                 | 降级语义 | 说明                                                         |
 | ------ | ------------------------ | ------------------- | -------------------- | -------- | ------------------------------------------------------------ |
-| `chat` | POST `/api/feign/ai/chat`| `AiChatRequestDTO`  | `AiChatResponseDTO`  | fail-fast | OpenAI 兼容通道（base-url/api-key/model 外置 Nacos）；system+user 双段 prompt 最小对话面，few-shot/防注入/JSON 白名单校验由调用方组织；降级由 review 侧转 SUSPICIOUS 人审 |
+| `chat` | POST `/api/feign/ai/chat`| `AiChatRequestDTO`  | `AiChatResponseDTO`  | fail-fast | OpenAI 兼容通道（base-url/api-key/model 外置 Nacos）；system+user 双段 prompt 最小对话面，few-shot/防注入/JSON 白名单校验由调用方组织；降级由 review 侧转 SUSPICIOUS 人审；**请求须带计量打标字段 `purpose`/`requestId`（用途由调用方显式传入，缺省端点拒绝，见 AI-Architecture「按用途计量与预算分账」）** |
 
 ### 4.6 ContentClient（litisle-content 提供方，端点已落地：ContentFeignProviderController，均 fail-fast）
 
@@ -373,7 +373,7 @@ File / Ai 模块关键 DTO 如下：
 | `FileOwnerDTO`     | fileId, ownerId, bizType                 | 文件归属校验（不脱敏，仅服务间） |
 | `FileRefDTO`       | fileId, bizType, bizId, ownerId          | file_ref 引用登记/解除（四元组幂等） |
 | `FileContentDTO`   | fileId, mime, content（byte[]→Base64）   | 机审取图字节流传输（SSRF 防护唯一入口） |
-| `AiChatRequestDTO` | systemPrompt, userPrompt, temperature    | LLM 通用对话请求（最小对话面，防注入由调用方组织） |
+| `AiChatRequestDTO` | systemPrompt, userPrompt, temperature；计量打标：purpose（`AiPurposeEnum`：MODERATION_TEXT/MODERATION_IMAGE/SUMMARY/TAGGING/QA/OTHER，必传）、requestId（业务侧幂等键，切片×重试复用）、scene（可空） | LLM 通用对话请求 + 用途打标（防注入由调用方组织；打标设计 2026-11-09 定案、待实施，`AiPurposeEnum` 落 litisle-api `dto/ai` 包） |
 | `AiChatResponseDTO`| content, model, providerTraceId          | LLM 通用对话响应（原始文本，结构校验由调用方负责） |
 | `PunishStatusDTO`  | banned, muted, frozenUntil 等             | 处罚权威态快照（ReviewClient 出参） |
 | `PunishAuditDTO` / `PunishSpeakCheckDTO` | — | 处罚审计 / 发言前禁言校验 |

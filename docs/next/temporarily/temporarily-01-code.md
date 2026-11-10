@@ -149,3 +149,33 @@ MessageRecallGate.recall / StrangerQuotaGate.tryAcquire 契约已备；发送链
 #### chat 端点（POST /api/feign/ai/chat，OpenAI 兼容转发）
 
 契约层已就绪（AiClient + AiChatRequestDTO/AiChatResponseDTO + AiClientFallbackFactory fail-fast + 自动装配注册，2026-10-06）；本端点暂不实现（用户决策：LLM 审核留注释占位，AiClient Javadoc 已标 TODO）。base-url/api-key/model 走 Nacos 外置，禁提交密钥；超时对齐 feign.client.config.litisle-ai.read-timeout。触发条件：板块三 3-1 联调前，或 AI 侧 RAG 建设启动时一并落地。
+
+#### 18.1 AI 会话与生成内容超期清理（每日定时、分批、幂等、可开关）
+
+自 next_update.md 批次十八迁入（2026-11-09，用户拍板删除该批次；本项前置未满足，按挂起项转移规则落此，原样保留登记内容）。
+
+**现状核查（2026-11-08）**：
+- `litisle-ai` 模块仅有启动类 `LitisleAiApplication`，`pom.xml` 只依赖 `spring-boot-starter`，无实体、Mapper、表结构；
+- `docker/init/mysql/schema` 五份脚本（content/user/review/search/file）均无 `ai_` 表；
+- 运行库按 `litisle%` 检索 `ai/session/conversation/generate/chat` 无匹配表（唯一命中 `litisle_content.feed_exposure_daily` 为误匹配）；
+- `ai_session` / `ai_message` / `ai_token_usage` 仅存在于设计文档（`docs/Architecture/AI-Architecture.md` 明确标注「代码中不存在」🟡 设计态；`docs/Sql-Document.md` §五 有 DDL 但未落到初始化脚本）。
+
+**结论**：**表与实体均不存在，不做实现，仅登记实施项**（不按设计文档凭空造代码）。
+
+**为什么做**：会话与生成内容长期累积会撑大表与索引，需要按保留窗口定期清理，控制查询开销与存储成本。
+
+**实施要点（表落地后按此实现）**：
+- **每日定时**：低峰时段执行，cron 外置可调；与既有归档清理共用同一时间窗口，避免两个任务同时扫描同一批数据；
+- **分批删除**：按主键/时间游标分页，每批固定条数 + 批间休眠，单批独立事务；禁止一次性大范围删除；
+- **幂等**：以「早于保留窗口」为唯一条件，重复执行不产生额外副作用，中途失败可安全重跑；
+- **可暂停**：提供配置开关（如 `litisle.ai.cleanup.enabled`），关闭时任务直接跳过；
+- **删除前确认无在途事件**：会话/生成内容关联的异步事件（生成任务、索引/摘要回写）未完成时跳过该批，防止清理后消费者回查落空；
+- **日志**：每批记录删除条数、耗时、失败原因；连续失败输出告警日志。
+
+**前置条件**：先落地 `ai_session` / `ai_message` / `ai_token_usage`（或生成内容表）的初始化脚本、实体与 Mapper。
+
+**验收标准**：开启后每日按批删除超期行且总数与统计 SQL 一致；重复执行无重复删除；关闭开关后无删除动作；单批失败不影响下一批；日志含每批条数与失败原因。
+
+**涉及文件**：`litisle-ai`（待建表后实现）、`docker/init/mysql/schema`（待新增 AI 表脚本）、`docs/next/next_update.md`。
+
+**触发条件**：litisle-ai 模块正式立项、AI 表（ai_session / ai_message / ai_token_usage 或生成内容表）初始化脚本与实体/Mapper 落地时，迁回 next_update.md 实施。

@@ -8,6 +8,7 @@ import com.litisle.litisleapi.constant.MqConstant;
 import com.litisle.litisleapi.event.moderation.ImageSubmitEvent;
 import com.litisle.litisleapi.event.moderation.ModerationAppealResultEvent;
 import com.litisle.litisleapi.event.moderation.TextSubmitEvent;
+import com.litisle.litislereview.constant.ReviewRedisKeyConstant;
 import com.litisle.litislereview.domain.entity.Appeal;
 import com.litisle.litislereview.domain.entity.ModerationRecord;
 import com.litisle.litislereview.domain.entity.ReviewTask;
@@ -84,11 +85,6 @@ public class ReviewTaskSweeper {
 
     /** 清扫互斥锁 key（各段服务端派生，无用户原串拼接） */
     private static final String LOCK_KEY = "review:sweep:review-task:lock";
-
-    /** dedup 前置短锁 key 格式：与机审写入侧 ModerationTextService.DEDUP_KEY 同源口径
-     *（review:dedup:{provider.code}:{contentHash}），provider 段取当前配置（与消费端
-     * adapter @ConditionalOnProperty 同源值=枚举 code），禁拼用户原串 */
-    private static final String DEDUP_KEY_FORMAT = "review:dedup:%s:%s";
 
     /** 积压 Gauge 指标名（三态共用 + status 标签区分；重复字面量收敛为常量防拼写漂移，对齐 ModerationMetrics 惯例） */
     private static final String METRIC_BACKLOG = "moderation.backlog";
@@ -406,9 +402,9 @@ public class ReviewTaskSweeper {
                     routingKey = MqConstant.ROUTING_MODERATION_TEXT_SUBMIT;
                     providerCode = properties.getTextProvider();
                 }
-                // ===== 步骤3：重发前抢 dedup 前置短锁（同源口径见 DEDUP_KEY_FORMAT 注释，TTL=dedup.lock-seconds）：
+                // ===== 步骤3：重发前抢 dedup 前置短锁（与机审写入侧共用 ReviewRedisKeyConstant.REVIEW_DEDUP_KEY_FORMAT，TTL=dedup.lock-seconds）：
                 //  SETNX 失败=原请求在途（消费端处理中/延迟重试链路存活）→ 跳过本轮下轮再试，防无谓双发 =====
-                String dedupKey = String.format(DEDUP_KEY_FORMAT, providerCode, task.getContentHash());
+                String dedupKey = String.format(ReviewRedisKeyConstant.REVIEW_DEDUP_KEY_FORMAT, providerCode, task.getContentHash());
                 String lockToken = UUID.randomUUID().toString();
                 Boolean locked = stringRedisTemplate.opsForValue()
                         .setIfAbsent(dedupKey, lockToken,

@@ -2,7 +2,7 @@
 
 > 版本：v0.1（2026-11-08，按代码事实核对：`litisle-ai` 仅有启动骨架；review 机审能力按当前实现引用）
 >
-> 关联文档：[AI-Business-Guide.md](../Study/AI-Business-Guide.md)（功能 F1–F22、流程、规则、§十六 决策台账）· [AI-Doc-Checklist.md](../docs_design/AI-Doc-Checklist.md)（Q1–Q77 / R1–R11 / V1–V12，临时工作目录）· [Design-Document.md](../overall_documen/Design-Document.md) §2.3.6 / §2.6 · [Api-Architecture.md](Api-Architecture.md) §4.5 · [Review-Architecture.md](Review-Architecture.md) · [Content-Architeche.md](Content-Architeche.md) · [File-Architecture.md](File-Architecture.md) · [Search-Architecture.md](Search-Architecture.md) · [Sql-Document.md](../Sql-Document.md) §五
+> 关联文档：[AI-Business-Guide.md](../Study/AI-Business-Guide.md)（功能 F1–F22、流程、规则、§十六 决策台账）· [AI-Doc-Checklist.md](../docs_design/AI-Doc-Checklist.md)（Q 系列 / R1–R12 / V1–V12，临时工作目录；Q 明细已删，仅留索引）· [Design-Document.md](../overall_documen/Design-Document.md) §2.3.6 / §2.6 · [Api-Architecture.md](Api-Architecture.md) §4.5 · [Review-Architecture.md](Review-Architecture.md) · [Content-Architeche.md](Content-Architeche.md) · [File-Architecture.md](File-Architecture.md) · [Search-Architecture.md](Search-Architecture.md) · [Sql-Document.md](../Sql-Document.md) §五
 
 ## 文档说明
 
@@ -77,7 +77,7 @@ review 模块的机审框架已落地，AI 模块只提供模型通道与生成�
 | 组件/资产 | 设计来源 | 说明 | 状态 |
 | --- | --- | --- | --- |
 | `TokenQuotaService` | Design-Document §2.3.6 | 生成式配额与 Token 统计服务；代码中不存在 | 🟡 设计态 |
-| `AiTokenUsage` | Design-Document §2.3.6 / Sql-Document §五 | 日维度用量实体与 `ai_token_usage` 表；代码中不存在 | 🟡 设计态 |
+| `AiTokenUsage` | Design-Document §2.3.6 / Sql-Document §五 | 明细实体与 `ai_token_usage` 表；表结构已按 §8.3 落地（`docker/init/mysql/schema/ai-schema.sql`，2026-11-09），实体/服务代码未开始 | 🟡 设计态（表已建，代码未开始） |
 | `AiLimiter` | Design-Document §2.3.6 | Sentinel 线程隔离限流器；代码中不存在 | 🟡 设计态 |
 | `XiaoyueAgent` / `XiaoshenAgent` | Design-Document §2.3.6 | 生成式 Agent / 无状态判定 Agent；代码中不存在 | 🟡 设计态 |
 | `AiSession` / `AiMessage` | Design-Document §2.3.6 / Sql-Document §五 | 会话与消息实体；代码中不存在 | 🟡 设计态 |
@@ -254,7 +254,7 @@ content 发布/免审直落 → 即使文本免审也必须配图复审（免文
 ```
 
 - AI 不参与改判、不解封、不撤销处罚；申诉时只提供原判定证据（原因码/命中规则/置信度，D14）。
-- 文件解隔离失败无补偿属已知缺口，由 F21 补偿，AI 不越权处理（Checklist Q7）。
+- 文件解隔离失败无补偿属已知缺口，由 F21 补偿，AI 不越权处理（见清单索引 Q7）。
 
 ### 5.5 生成摘要与标签
 
@@ -282,7 +282,7 @@ content 发布/免审直落 → 即使文本免审也必须配图复审（免文
 | --- | --- | --- |
 | 表 | `moderation_record`（litisle_review） | ✅ 已实现 |
 | 关键列（实际） | `id`、`mod_type`、`biz_type`、`biz_id`、`review_task_id`、`scene`、`content_hash`、`provider`、`wordlib_ver`、`model_version`、`verdict`、`category`、`hit_words`、`reason`、`provider_trace_id`、`trace_id`、`operator_id`、`cost_ms`、`create_time` | ✅ 已实现 |
-| 缺口 | 无独立 `reason_code`、`confidence`、`prompt_version` 列；`model_version` 注释覆盖文本 few-shot prompt 版本 | 🟡 待确认（Q2/D14） |
+| 缺口 | 无独立 `reason_code`、`confidence` 列（D14 已定证据构成，字段待随 §6.2 落地）；`prompt_version` 不单独落列：文本场景由 `model_version` 承载（该列在 review 存的就是提示词版本），图片场景无提示词、不另加列 | 🟡 设计态（字段待落） |
 | AI 侧 | 不新增结论表；AI 返回结论经 review 落库 | 🟡 设计态 |
 
 ### 6.2 版本标识与过期标记
@@ -291,7 +291,7 @@ content 发布/免审直落 → 即使文本免审也必须配图复审（免文
 | --- | --- | --- |
 | `model_version` | 模型/接口版本；换版不复用旧结论 | ✅ 已落列（review） |
 | `wordlib_ver` | 词库版本快照；换库不复用 | ✅ 已落列（review） |
-| `prompt_version` | 提示词版本，供 D16 抽样重判与效果对比 | 🟡 设计态（无独立列，待确认） |
+| `prompt_version` | 提示词版本，供 D16 抽样重判与效果对比 | ✅ 文本场景由 `model_version` 承载（该列在 review 存的就是提示词版本）；图片场景无提示词，不另加列 |
 | 过期标记 | 版本变更后标旧结论、抽样重判（D16） | 🟡 设计态 |
 
 ### 6.3 反馈记录（设计态）
@@ -300,7 +300,7 @@ content 发布/免审直落 → 即使文本免审也必须配图复审（免文
 | --- | --- |
 | 暂名 | `moderation_feedback_record`（业务指南 F13.2 暂名，归属 review 还是 ai 待确认） |
 | 用途 | 一次人工操作一条，只增不改；计算采纳率、否决率、误判率、漏判率 |
-| 关键列 | `id`、任务标识、`biz_type`、`biz_id`、`scene`、AI 建议结论、`confidence`、人工结论、是否一致、改判原因标签、`model_version`、`prompt_version`、`rule_version`、操作类型、处理耗时、审核员标识（脱敏）、`created_at`、上一条记录标识、是否最终生效 |
+| 关键列 | `id`、任务标识、`biz_type`、`biz_id`、`scene`、AI 建议结论、`confidence`、人工结论、是否一致、改判原因标签、`model_version`（文本即提示词版本）、`rule_version`、操作类型、处理耗时、审核员标识（脱敏）、`created_at`、上一条记录标识、是否最终生效 |
 | 状态 | 🟡 设计态（D22 强制标签、D23 保留 12 个月） |
 
 ### 6.4 配额与会话记录（设计态）
@@ -309,7 +309,7 @@ content 发布/免审直落 → 即使文本免审也必须配图复审（免文
 | --- | --- | --- | --- |
 | `ai_session` | 会话与 LRU 淘汰 | `id`、`user_id`、`agent_type`、`title`、`mode`、`is_lru`、`last_active_time`、`del_flag` | 🟡 设计态（Sql-Document §五） |
 | `ai_message` | 会话消息与逐条 token | `id`、`session_id`、`role`、`content`、`token_cnt`、`prompt_tokens`、`completion_tokens`、`create_time` | 🟡 设计态（Sql-Document §五） |
-| `ai_token_usage` | 用户日用量 | `id`、`user_id`、`usage_date`、`token_total`、`call_cnt`；`uk(user_id, usage_date)` | 🟡 设计态（Sql-Document §五） |
+| `ai_usage_daily` | 用户日用量汇总（按用户 × 用途 × 日） | `id`、`user_id`、`purpose`、`stat_date`、`calls`、`tokens_in`、`tokens_out`、`cost`、`fail_calls`、`degraded_calls`；`uk(stat_date, user_id, purpose)` | ✅ 表结构已落地（`ai-schema.sql`，2026-11-09）；聚合与查询代码未实现 |
 
 ### 6.5 关系与留存
 
@@ -317,7 +317,7 @@ content 发布/免审直落 → 即使文本免审也必须配图复审（免文
 review_task 1 ── n moderation_record        （一次送审可多次记录/复核轮次）
 review_task 1 ── n moderation_feedback_record（一次任务多次人工操作，只增不改）
 ai_session  1 ── n ai_message
-user        1 ── n ai_session / 1 ── n ai_token_usage(日)
+user        1 ── n ai_session / 1 ── n ai_usage_daily(按用户 × 用途 × 日)
 ```
 
 - DDL 统一指向 `docs/Sql-Document.md` §五，本文不写 DDL。
@@ -376,7 +376,7 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | 结论复用 | 仅终局（PASS/REJECT）；文本按词库+提示词+场景+指纹，图片按 provider+模型版本+sha256 | ✅ 已实现（review 缓存） |
 | 重试 | 最多 5 次，指数退避，约 15.5 分钟；耗尽入 DLQ 转人审 | ✅ 已实现（review） |
 | AI 端点幂等 | 建议以 `traceId`/`requestId` 做调用去重，具体键待确认（AI 无实现） | 🟡 设计态 |
-| 生成式重试 | 失败重试 1 次 → 终态 → 配额退还是否执行待确认（Q8） | 🟡 设计态 |
+| 生成式重试 | 失败重试 1 次 → 终态 → 失败退还已预扣配额，同一 `requestId` 只扣一次（业务指南 §5.3 配额规则；Q8 已闭合） | 🟡 设计态 |
 
 ------
 
@@ -391,19 +391,55 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | 全站 HTTP QPS | `rate_limit:global:moderation:qps`（review 拦截器） | ✅ 已实现（review） |
 | 模型直调 QPS | `rate_limit:global:moderation:model-qps`（review 消费链路） | ✅ 已实现（review） |
 | 按用途计数 | 无；机审与生成共用同一阈值口径，无法分账 | ⬜ 未开始 |
-| Token 计量 | 无（`ai_token_usage` 仅文档设计） | 🟡 设计态 |
+| Token 计量 | 无代码（三张计量表已按 §8.3 建表：`ai-schema.sql`；计量链路未实现，现有仅全站 QPS） | 🟡 设计态（表已建） |
 | 用户配额 | 无（`TokenQuotaService` 仅设计） | 🟡 设计态 |
 
 ### 8.2 设计要点（D15 / D5 / F14）
 
 | 项 | 设计口径 | 状态 |
 | --- | --- | --- |
-| 分账 | 机审预算与生成预算独立；机审优先；生成预算打满只停生成 | 🟡 设计态 |
-| 用途打标 | 机审文本 / 机审图片 / 摘要 / 标签 / 问答五类（已定，与业务指南 §5.3「成本可见」的枚举一致，Q28） | 🟡 设计态 |
-| 用户配额 | 普通用户按日低配额，按等级放开；VIP 高额度但不限量为否；与全局日/月预算挂钩 | 🟡 设计态 |
-| 扣减与退还 | 调用前原子预扣 + 成功后确认；失败退还；按请求键幂等（Q8 已修） | 🟡 设计态 |
+| 分账 | 机审预算与生成预算独立（机审桶 = 文本 + 图片合并计量）；机审优先；生成预算打满只停生成 | 🟡 设计态 |
+| 用途打标 | 机审文本 / 机审图片 / 摘要 / 标签 / 问答五类（已定，与业务指南 §5.3「成本可见」的枚举一致；见清单索引 Q28） | 🟡 设计态 |
+| 用户配额 | 普通用户按日低配额，按等级放开；VIP 高额度但不限量为否；与生成预算科目挂钩（机审预算独立，见 D15） | 🟡 设计态 |
+| 扣减与退还 | 调用前原子预扣 + 成功后确认；失败退还；按请求键幂等（Q8 已闭合） | 🟡 设计态 |
 | 机审预算耗尽 | 降级为全量人工 + 告警，**不得降低机审判定频率、不得静默放行** | 🟡 设计态 |
 | 计量落点 | AI 调用入口统一打标，写入 `ai_token_usage` 或等价计数 | 🟡 设计态 |
+
+### 8.3 按用途计量与预算分账（R2 实施设计）
+
+> 一次改造同时支撑 D15 分账、F14 预算、V8 生成配额、V5 熔断计数；四件事共用同一套埋点与同一套用途枚举，不各写一套。
+
+**① 调用入口统一带用途**
+
+- 单一入口接收 `purpose` 枚举：`MODERATION_TEXT` / `MODERATION_IMAGE` / `SUMMARY` / `TAGGING` / `QA` / `OTHER`。**计费与预算只认前五类**（与业务指南 §5.3「五类为计量打标的唯一定义」一致）；`OTHER` 仅作兜底落明细，**不计入预算与报表**，出现即告警并按「未归类调用」单独观察。
+- 用途由调用方显式传入，**不靠 URL、模型名或表名推断**；缺省时拒绝调用并记告警，避免「忘传」被默认归到机审。
+- 同一次业务请求可能触发多次模型调用（切片、重试），用业务侧生成的 `request_id` 串联，重试复用同一 `request_id`。
+
+**② 明细按日汇入汇总表，不做实时扣减**
+
+- 明细表 `ai_token_usage`（只追加，不更新）：`request_id`、`user_id`（机审无发起用户时为空）、`purpose`、`scene`、`model_version`、`prompt_version`（文本与 `model_version` 同值，图片留空）、`token_in`、`token_out`、`cost`、`status`、`degraded`、`occurred_at`；失败的调用也留一条，避免「失败即无成本」。
+- 汇总表 `ai_usage_daily`：每日定时任务按 `(stat_date, user_id, purpose)` 聚合，字段 `calls`、`tokens_in`、`tokens_out`、`cost`、`fail_calls`、`degraded_calls`；唯一键 `(stat_date, user_id, purpose)`。**保留用户粒度**的依据是 F9（会话与用量管理）与个人配额都要按用户查；运营看板与预算所需的「日 × 用途」全局量由该表按 `(stat_date, purpose)` 求和得出，不另建第二张同名表。
+- 成本口径：单价配置在 `ai_pricing(model_version, currency, unit_price_in, unit_price_out, effective_from)`；金额 = token 数 × 单价，两位小数；配置变更只影响未来日期，不回改历史汇总。
+- 预算判定读 `ai_usage_daily` 当日**按预算桶**的合计（机审桶 = 文本 + 图片合并；生成类按用途各自计数；对用户维度求和），本地缓存 60 秒，**不在每次调用时读写预算键**，避免每次调用多一次写入；预算按自然日 00:00 重置。
+
+**③ 预警与停止**
+
+- 80%：按**预算桶**告警（站内信 + 群机器人），只提醒、不停用。
+- 100%：**只停该用途的新建请求，不牵连其他用途**。预算按 D15 分账：生成类用途（`SUMMARY` / `TAGGING` / `QA`）各自到 100% 只停自己；`MODERATION_TEXT` 与 `MODERATION_IMAGE` 合并计入「机审桶」，机审桶到 100% 时**不停用调用**，转全量人工并告警——机审额度不因生成用途超支而被扣减，也不会被其他用途的 100% 连带停掉。
+- 生成被停时返回明确错误码，前端显示「今日额度已用完」，不得静默返回空结果。
+
+**④ 幂等与重复计量防护**
+
+- 计费以 `request_id` 为唯一键（数据库唯一索引兜底），重复写入按 upsert 跳过；重试不重复计费。
+- 归属日期按「调用完成时间」，不按发起时间；跨天重试只计一次成功成本。
+
+**⑤ 实施落点与组件归属（2026-11-09 定案，设计态待实施）**
+
+- 表结构已落地：`ai_token_usage` / `ai_usage_daily` / `ai_pricing` 三张表（`docker/init/mysql/schema/ai-schema.sql` + Sql-Document「litisle-ai 模块」）。
+- 契约打标（实施落 litisle-api）：`dto/ai` 包新增 `AiPurposeEnum`（`MODERATION_TEXT` / `MODERATION_IMAGE` / `SUMMARY` / `TAGGING` / `QA` / `OTHER` 六值）；`AiChatRequestDTO` 增 `purpose`（必传，缺省端点侧拒绝）、`requestId`（业务侧生成的幂等键）、`scene`（可空）三个字段，契约口径见 Api-Architecture「AiClient」与共享 DTO 表。
+- review 侧传参（实施归属 review）：SPI `ContentModerationService.moderateText` 改收 `TextModerationRequest`（含 requestId/scene）；文本链路 purpose 固定 `MODERATION_TEXT`，requestId 由 `ModerationTextService#moderateWithChunking` 按任务上下文逐片生成 `taskId:chunkIndex`（分片确定性切分保证延迟重试复用同一 requestId，满足「重试不重复计费」），scene 取 `review_task.scene`；图片走本地 ONNX 不经 AI 服务，`MODERATION_IMAGE` 打标待 AI 图片判定端点实现时接入。
+- litisle-ai 计量基建（实施归属 ai）：三表实体与 Mapper；`AiUsageRecordService` 写明细（request_id 幂等，撞唯一键跳过；失败调用也落一条 status=FAIL）；`AiBudgetService` 预算桶判定（机审桶 = 文本 + 图片合并、SUMMARY/TAGGING/QA 各自桶；读 `ai_usage_daily` 当日合计、本地缓存 60 秒；返回 ALLOWED / WARN(≥80%) / EXCEEDED(100%)；预算值来自 `AiBudgetProperties`，≤0 表示未设预算、只计量不限额）；`AiUsageDailyAggregateTask` 定时聚合（每小时 + 启动延迟一次，对当日与前一日幂等覆盖写，保证预算判定当日数据可用；明细与汇总差异 >1% 记日志告警）。
+- 以上组件均为设计态，实施时与「AI 对话端点」批次同批接线；预算具体数值待财务科目定档后补配置。
 
 ------
 
@@ -416,7 +452,7 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | 模型不可用/未配置 | 显式告警 + 全量转人工；不默认放行 | 长期审核中 | 否 | ✅ review 已实现降级（AI 供给缺失导致全转人工） |
 | 重试耗尽 | 入 DLQ → 死信消费转人审 | 审核中延长 | 否 | ✅ 已实现（review） |
 | 幂等 | 送审按定位键 + 指纹；生成按请求键去重（待确认） | 无感 | 否 | ✅ review / 🟡 生成侧 |
-| 熔断/隔离 | **按用途分开计数、服务级熔断（Q52）**：同一用途连续失败达 N 次（N 待定值，见 Checklist V5）即打开；打开期间新任务直接转人工、在途任务停止重试；半开探测（自检）成功后自动恢复，恢复前后的结论按 §4.5 规则打 `degraded` 标记。实现优先复用项目已有的 Redis 计数与限流惯例（review 的 QPS guard 同款），不新增 Sentinel/Resilience4j 组件；若后续确需线程隔离再评估引入 | 生成可降级；机审转人工 | 否 | 🟡 设计态（计数键与 N 待定稿） |
+| 熔断/隔离 | **按用途分开计数、服务级熔断（见清单索引 Q52）**：同一用途连续失败达 5 次（5 分钟窗口，V5 定档 2026-11-08）即打开；打开期间新任务直接转人工、在途任务停止重试；半开探测（自检）成功后自动恢复，恢复前后的结论按 §4.5 规则打 `degraded` 标记。实现优先复用项目已有的 Redis 计数与限流惯例（review 的 QPS guard 同款），不新增 Sentinel/Resilience4j 组件；若后续确需线程隔离再评估引入 | 生成可降级；机审转人工 | 否 | 🟡 设计态（计数键待定稿） |
 | RAG 不可用 | 降级为不引用回答并明确标注 | 回答无引用卡片 | 不适用 | 🟡 设计态 |
 | 生成失败 | 提示"暂时无法生成"，可手动填写；不落库 | 功能不可用 | 不适用 | 🟡 设计态 |
 | 告警定位 | "哪类能力不可用"须能在 5 分钟内定位 | 运维侧 | 不适用 | 🟡 设计态 |
@@ -431,13 +467,13 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | --- | --- | --- | --- |
 | AI 生成标识 | 摘要/问答强制标识；标签标"AI 建议"（D3/D13） | 生成结果落库前与展示前的 UI/字段契约 | 🟡 设计态 |
 | 结论审计 | 结论 append-only 留痕，人工改判全保留 | `moderation_record`（review） | ✅ 已实现 |
-| 版本可追溯 | 结论带模型/词库/提示词版本，支持过期标记与抽样重判（D14/D16） | `model_version`/`wordlib_ver` 已落列；`prompt_version` 待补 | 🟡 部分设计态 |
-| 精简留存 | 只存原因码 + 命中规则 + 置信度，不存模型原始返回全文，6 个月（D14） | `moderation_record` 的 `reason` 字段当前为透传理由（≤500 字），是否等同"精简证据"待确认（Q2） | 🟡 待确认 |
+| 版本可追溯 | 结论带模型/词库/提示词版本，支持过期标记与抽样重判（D14/D16） | `model_version`/`wordlib_ver` 已落列；文本提示词版本由 `model_version` 承载，不另加 `prompt_version` 列（图片无提示词） | 🟡 部分设计态（仅剩过期标记） |
+| 精简留存 | 只存原因码 + 命中规则 + 置信度，不存模型原始返回全文，6 个月（D14） | D14 已定证据构成；`moderation_record` 当前只有透传 `reason`（≤500 字），缺 `reason_code`/`confidence` 列，与证据构成不等价——剩余缺口是字段落地，不是口径未定（Q2 已闭合） | 🟡 设计态（字段待落） |
 | 生成内容留存 | 90 天，可用户删除（D6） | 会话/消息清理 | 🟡 设计态 |
 | 会话上限 | 90 天内 200 会话、单会话 500 条，超限按最久未活跃淘汰（D25） | 会话治理 | 🟡 设计态 |
 | 反馈留存 | 12 个月，前 6 在线、后 6 归档（D23） | 反馈记录 | 🟡 设计态 |
-| 内容出站 | UGC 图片首期不外发（D2）；未公开内容/私信/用户删除内容默认不外发 | provider 出站闸门 | 🟡 设计态（配置与闸门未实现） |
-| 敏感上下文 | 用户原文、私信、草稿进入模型上下文的边界未定（Q2/Q7/R8） | 待法务+安全+后端定稿 | ⬜ 未开始 |
+| 内容出站 | UGC 图片首期不外发（D2）；私信只做机器判定、未公开内容按公开内容处理（V3 定档 2026-11-08）；用户已删除内容仍不外发 | provider 出站闸门 + 出站过滤器 | 🟡 设计态（闸门与脱敏未实现） |
+| 敏感上下文 | 按 V3 执行：脱敏（手机号/邮箱/身份证/地址/外部链接等）+ 出站审计 + 用户告知同意；法务书面确认未到前按待确认处理（R12） | 出站过滤器 + 条款文案 | 🟡 设计态 |
 | 不可信数据 | 站内内容与用户输入不得当指令执行；prompt 注入防护由调用方组织 | provider/调用方 | 🟡 设计态 |
 | 原始输出 | 模型原始输出不直接展示给终端用户，只展示结构化、可解释结论 | 响应组装 | 🟡 设计态 |
 
@@ -456,7 +492,7 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | `ai_call_total{purpose,provider,result}` | 五类用途、provider、成功/失败 | AI | 🟡 待建 |
 | `ai_call_latency{purpose}`（Timer） | P50/P95/P99 | AI | 🟡 待建 |
 | `moderation_e2e_latency{scene}`（Timer） | 入队→结论落库，P50/P95 | review + AI | 🟡 待建 |
-| `ai_token_usage{purpose}` | 输入/输出/总 token | AI | 🟡 待建 |
+| `ai_tokens_total{purpose}` | 输入/输出/总 token | AI | 🟡 待建 |
 | `ai_quota_exceeded_total{purpose}` | 配额/预算超限 | AI | 🟡 待建 |
 | `ai_generation_total{scene,result}` | 摘要/标签/问答 | AI | 🟡 待建 |
 | `ai_guard_state{provider}` | 熔断/降级状态 | AI | 🟡 待建 |
@@ -465,7 +501,7 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 
 **端到端时延口径**：`moderation_e2e_latency` 覆盖排队 + 调用 + 重试 + 落库，P95 用 5 分钟滚动窗口、告警看日聚合；业务指南 §5.1 验收与 §11.3「调用时延」统一引用该指标，provider 侧 `ai_call_latency` 只用于定位慢在哪一段。
 
-**按用户用量**：不用指标标签（避免高基数），由调用明细按日汇总到 `ai_usage_daily(user_id, purpose, date, token_in, token_out, cost)`，F9 与运营报表读该表；指标只承担全局告警。
+**按用户用量**：不用指标标签（避免高基数），由调用明细按日汇总到 `ai_usage_daily(user_id, purpose, stat_date, calls, tokens_in, tokens_out, cost)`；F9 与个人配额读该表，运营报表按 `(stat_date, purpose)` 对同一张表求和（不在指标里加用户维度），指标只承担全局告警。
 
 ### 11.2 日志字段
 
@@ -494,9 +530,9 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | 配额超限突增 | 单场景小时环比 > 3 倍告警（防刷） | 🟡 待建 |
 | 采纳率/误判率 | 周环比降 20% 或误判率连续 3 天超基线 1.5 倍告警 | 🟡 待建（F13） |
 
-> **唯一出处约定（Q72）**：本表是告警阈值与统计窗口的唯一出处，业务指南「F13.3 告警建议」只保留业务含义并链接到此处，不再重复数值。
+> **唯一出处约定（见清单索引 Q72）**：本表是告警阈值与统计窗口的唯一出处，业务指南「F13.3 告警建议」只保留业务含义并链接到此处，不再重复数值。
 >
-> **校准责任方**：模型效果类基线（采纳率、误判率）由算法负责，人工时效类基线（积压、过期任务占比）由审核运营负责；首次校准在阶段 0 结束时完成，之后每个模型/提示词版本复校一次。责任岗位的具体指定仍待落定（见 Checklist Q45）。
+> **校准责任方**：模型效果类基线（采纳率、误判率）由算法负责，人工时效类基线（积压、过期任务占比）由审核运营负责；首次校准在阶段 0 结束时完成，之后每个模型/提示词版本复校一次。责任岗位已按 V9 定档（提示词变更：算法值班评估 + 审核运营负责人审批；自动写入：产品负责人提议 + 运营/法务会签），剩余为岗位名映射到实际花名册，属排期而非待决策（Q45 已闭合）。
 >
 > **基线未建立时**：沿用 review 已配置值（存疑积压 50 条、DLQ 100 条），其余阈值仅作预警参考，不作为考核判据。
 
@@ -510,7 +546,7 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | D2 | UGC 图片首期仅本地/私有化，不外发 | §1.2、§5.2、§10 内容出站、§十三 |
 | D3 | 强制标注 AI 生成/建议 | §10 |
 | D4 | 摘要/标签默认建议态，不自动写入 | §4.1、§5.5 |
-| D5 | 按日低配额 + 等级 + 全局预算，VIP 高额度非不限量 | §8 |
+| D5 | 按日低配额 + 等级 + 生成预算分账（以 D15 为准，机审优先），VIP 高额度非不限量 | §8 |
 | D6 | 生成内容留存 90 天，可删除 | §6.5、§10 |
 | D7 | 只显示状态 + 预计范围，不承诺具体时长 | §5.1、§10 |
 | D8 | 公开内容匿名可问 + IP/设备配额 | §7.1、§十三 |
@@ -541,19 +577,56 @@ user        1 ── n ai_session / 1 ── n ai_token_usage(日)
 | F16 搜索语义供给 | D9：维持 search 自建（ES + 实时 Embedding 兜底），AI 不接管检索与排序 | search 索引能力、D9 翻案条件 | ⬜ 不立项 |
 | F17 文档/音视频多模态 | D10/D11：本期排除；下期从 OCR 文本提取复用文本判定 | 存储、耗时、隐私 | ⬜ 排除 |
 | 本地图片模型与算力 | 模型文件缺失；无算力时按既定降级全量转人工 | R1；D2 硬冲突 | ⬜ 未就绪 |
-| 固定评测集与标注 | D16/D21/D24 的执行前置；无数据集无法放开阈值或评估自动写入 | R4 | ⬜ 未开始 |
-| 计量改造（用途打标 + Token） | D15 分账的执行前置；现有仅全站 QPS | R2；Q28 用途粒度待统一 | 🟡 设计态 |
-| 结论版本标识补齐 | `prompt_version` 无独立列；旧结论无法标过期 | R3 | 🟡 设计态 |
-| 反馈记录实体与工作台强校验 | D22/D23 前置；无表与强校验无法聚类 | R5；Q12 | 🟡 设计态 |
+| 固定评测集与标注 | D16/D21/D24 的执行前置；无数据集无法放开阈值或评估自动写入；可执行设计见第十四章 | R4 | 🟡 设计态（方案已写，数据集未建） |
+| 计量改造（用途打标 + Token） | D15 分账的执行前置；现有仅全站 QPS；可执行设计见 8.3 | R2；用途粒度已统一（见清单索引 Q28） | 🟡 设计态 |
+| 结论版本标识 | `model_version` / `wordlib_ver` 已落列；文本场景 `model_version` 即提示词版本 | R3（已关闭的一半） | ✅ 已实现 |
+| 存量结论过期标记与抽样重判 | 旧结论无法标过期，重判无可执行任务与报告（D16 定方法） | R3（保留的一半）；F19 | 🟡 设计态 |
+| 反馈记录实体与工作台强校验 | D22/D23 前置；无表与强校验无法聚类 | R5（文档侧已闭合）；反馈流程见清单索引 Q12 | 🟡 设计态 |
 | 审核结论通知模板 | 归 notification；AI 只给理由摘要 | D20 | ⬜ 他模块 |
-| 存量结论抽样重判 | D16 定方法，无可执行任务与报告 | R3；F19 | 🟡 设计态 |
 | 会话/内容懒删的定时兜底 | 用户停止使用后懒删不触发，可能超期留存 | R9；D6/D25 | 🟡 设计态 |
-| 归档任务启用与验证 | 归档默认关闭，违规图片长期留存风险 | R10；D14 | ⬜ 未开始 |
+| 敏感上下文出站边界 | 已定（V3，2026-11-08）：私信只做机器判定、未公开内容按公开内容处理；脱敏 + 审计 + 告知同意；法务书面确认未到前按待确认处理 | R12；R8 已闭合 | 🟡 设计态（法务确认未到） |
+| 归档任务启用与验证 | R10 已关闭（当前无违规内容可清理）；事实仍保留：归档任务默认关闭，首次出现违规内容或上线前合规检查时重开 | R10（已关闭，保留触发条件）；D14 | ⬜ 暂不处理 |
 | 评论/私信结论消费方 | social 未启用，结论目前无在线消费方 | D18；R6 | ⬜ 未开始 |
 | 审核人力与排班 | 所有存疑最终落人工，人力是单点 | R6 | ⬜ 非技术项 |
-| 外部模型降级细则 | 重试次数/终态/配额退还已部分明确，AI 侧未实现 | R7；Q8 | 🟡 设计态 |
-| 敏感上下文出站边界 | 用户原文/私信/草稿进入模型的规则未定 | R8；Q2/Q7 | ⬜ 待定稿 |
+| 外部模型降级细则 | 重试次数/终态/配额退还已部分明确，AI 侧未实现 | R7（文档侧已闭合）；配额退还已定（见清单索引 Q8） | 🟡 设计态 |
 | 内容指纹与摘要/标签边界 | 摘要/标签不进正文指纹，不触发正文重审；已写明 | — | ✅ 口径已明确 |
+
+## 十四、固定评测集实施设计（R4）
+
+> 目标：让 V10 三项指标可重复测量，让 D21 报告有固定样本。评测集是「测量工具」，不是训练数据；不允许为了跑分好看而改样本。
+
+**① 首版规模与构成**
+
+- 三套样本量分层，不得混用：**300 条 = 版本总量下限**（D21，模型灰度与质量报告的固定总量）；**50 条 = 单场景配额**（机审文本、机审图片、判定辅助、摘要、标签、问答引用各 50 条）；**≥100 条 = 评估切分格门槛**（业务指南 F13.3，切分格 = 场景 × 模型版本 × 提示词版本）。
+- 按实际开工范围取前 6 类，未开工类别留空位、不凑数；**开工场景不足 6 类时按 50 条/场景实取，总量随之下调，报告须标注「未达 D21 300 条总量」，不得判合格**。
+- 每场景内：违规样本 ≥60%、正常样本 ≥30%、边界或对抗样本 ≥10%；违规类型覆盖现有词库主要类目。
+- 样本来源：历史人工裁决记录（脱敏）+ 人工构造；**不得直接使用未脱敏的真实用户原文**。
+
+**② 标注流程**
+
+- 双人独立标注；标注前先对齐标注手册（每类一句判定标准 + 3 个示例）。
+- 交叉抽检 10%：第三人复核双标一致的样本；不一致率 >10% 时该场景退回重标。
+- 冲突仲裁：两人不一致 → 第三人裁决；仍不一致 → 记为「争议样本」，排除出合格线计算，只做定性观察。
+- 标注人不得是本次被评估的模型或提示词的直接开发者，避免自评。
+
+**③ 版本化与不可变**
+
+- 评测集按版本管理（`eval_set_v1`、`v2`…）；任何增删改都发新版本，旧版本冻结可查。
+- 每份报告必须写明评测集版本 + 模型版本 + 提示词版本；三者缺一不算有效报告。
+- 只有「新增场景」或「发现标注错误」才升版本；为提升分数改样本视为违规。
+
+**④ 报告模板（对齐 V10）**
+
+- 三项必填：可用性 ≥4/5 占比、关键事实错误率、场景准确率（对比阶段 0 基线）。
+- 每项给出分子/分母与样本量；样本不足 300 条时报告标注「不足以判定合格」。
+- 附混淆矩阵与误判 Top5 例子（脱敏），供 F13 回流与提示词调整。
+
+**⑤ 谁能用、多久跑一次、存哪**
+
+- 使用人：算法（评估）、审核运营（抽检）、产品（决策依据）；原始评测集只读，不开放业务方随意复制。
+- 频率：每次模型/提示词/词库版本变更前必跑；无变更时每月一次回归。
+- 存放：样本与标注存 `eval_set` 表（版本、样本、标注、仲裁、冻结标记）；报告按「版本号 + 日期」命名存文档系统。
+- 访问控制：样本含脱敏文本，按「只读 + 水印 + 下载审计」管理。
 
 ------
 

@@ -3,7 +3,7 @@
 > 用途：写码/联调前查 content 模块坐标，**免去逐个 Read**。
 > 标记：✅ 已落地 ｜ 🆕 待补（缺口）。
 > 关联：[Content-Architeche.md](../Architecture/Content-Architeche.md)（架构全貌/决策推演，推荐流见 §3.3）· [Content-Business-Guide.md](../Study/Content-Business-Guide.md)（板块实现讲解，调用示例见 §六）· [Search-Architecture.md](../Architecture/Search-Architecture.md) §10.8（P0 与代码对照/P1 边界）· [api-index.md](api-index.md)（ContentClient 契约/moderation 门面）· [Sql-Document.md](../Sql-Document.md) §二（建表）。
-> **进行中**：批次十（推荐流无限刷）10.1~10.6 代码已落地并编译通过，10.7/10.8 待环境验证；清单与验收证据见 [next_update.md](../next/next_update.md) 批次十，尚未归档，归档后再补归档索引条目。
+> **进行中**：批次十（推荐流无限刷）10.1~10.6 代码已落地并编译通过，10.7/10.8 待环境验证；清单与验收证据见 [next_verify.md](../next/next_verify.md) 的 10.7/10.8 条与 [next_update.md](../next/next_update.md) 批次十，尚未归档，归档后再补归档索引条目。
 > 纪律：状态流转一律走 `ArticleStateMachine` + CAS 条件更新；分区权限一律走 `ZoneRouter`；事件发送一律走 `ContentEventProducer`（禁各业务类直调 RabbitTemplate）；下线必发 content.unpublished（隐私红线）。
 
 ## 一、模块坐标

@@ -1,7 +1,7 @@
 # common-security 批次十六：Feign 拦截器无 SaToken 上下文安全降级（归档）
 
 > **归档日期**：2026-11-08
-> **来源**：迁移自 [next_update.md](../../next/next_update.md)「服务间调用与 MQ 基础设施治理（批次十六）」的已完成条目 16.1，原文搬运（现象 / 根因 / 影响面实测 / 修法取舍 / 改动与代价 / 验收标准 / 实测结果），**未压缩**；编号不重排。
+> **来源**：迁移自 [next_update.md](../../next/next_update.md)「服务间调用与 MQ 基础设施治理（批次十六）」的已完成条目 16.1 与 16.1-V1，原文搬运（现象 / 根因 / 影响面实测 / 修法取舍 / 改动与代价 / 验收标准 / 实测结果；V1 含逐链路验证证据与两条未修复旁路问题），**未压缩**；编号不重排。
 > **归属说明**：缺陷本体在 `litisle-common/common-security` 的 Feign 拦截器，修复只改这一个类；影响面跨 search/user/auth/review/content/file 六个服务的 MQ 与定时任务线程，但代码归属是 common-security，故新建 `docs/archive/common-security/` 按模块归档。
 > **互链**：活跃待办见 [next_update.md](../../next/next_update.md)；模块速查见 [common-index.md](../../index/common-index.md)；本目录索引见 [common-security-implemention-records.md](common-security-implemention-records.md)。
 
@@ -32,8 +32,30 @@
     - 全队列 0、DLQ 0；search 日志无新增 `SaTokenContext` 异常。
   - ✅ 2026-11-08：修复 + search 三条链路运行态验证通过；`mvn -pl litisle-common/common-security -am compile` 与 `mvn -pl litisle-user,litisle-search,litisle-content,litisle-auth -am package -DskipTests` 均通过。
 
+## 16.1-V1 其余 MQ 消费者路径的 Feign 降级验证（已完成 ✅）
+
+- [x] 【P1｜16.1-V1】验证其余 MQ 消费者路径的 Feign 降级
+  - **待验路径**：auth `PunishResultConsumer` → `ReviewClient`；review 文本/图片审核消费者 → `ContentClient` / `SocialClient` / `FileClient`；content `UserBannedConsumer`、`ModerationResultConsumer`、`ModerationAppealResultConsumer` → `ReviewClient` / `FileClient`；review 定时任务 `QuarantineSweeper`、`PunishReconcileSweeper`。
+  - **验收**：上述每条链路各触发一次，日志无 `SaTokenContextException`、无重投，下游回查返回 200。
+  - **运行态验证（2026-11-08，五服务在 8081~8085 同时在线；日志 `%TEMP%\litisle-verify-{auth,user,file,review,content}.log`）**
+    - auth `PunishResultConsumer` → `ReviewClient`：随 17.4 验证，投 `moderation.punish.result`（userId=2002）→ auth 日志 `禁言快照覆盖写入成功` + `封禁即时下线完成`，Redis `auth:punish:snapshot:2002` 写入。
+    - review 文本消费（`RabbitListenerEndpointContainer#3-1`）→ `ContentClient#getContent`：review 日志 `[ContentClient#getContent] <--- HTTP/1.1 200 (29ms)`；content `ContentFeignProviderController` 记录 `远程api调用getContent bizType:1 bizId:5008`，MDC traceId=`84f1a07b...` 已透传。
+    - review 图片消费（`#2-1`）→ `FileClient#getContent`：file 日志多次 `远程api调用getContent fileId:72b89e8c/b71490f2`，traceId=`57d71f99...`/`e22c74ed...` 透传；该消费因 `未知图片机审 provider：none` 走延迟重投（环境缺图片机审 provider，与 Feign 降级无关）。
+    - review 配图复审消费（`#2-1`）→ `ContentClient#listArticleImages`：review 日志 `<--- HTTP/1.1 200 (184ms)`；content 日志 `远程api调用listArticleImages articleId:5008`，traceId=`a239302d...` 透传；随后仍因 `provider：none` 重投（环境问题）。
+    - content `ModerationAppealResultConsumer` → `ReviewClient#getPunishStatus`：review 日志 `Feign 处罚权威态查询: userId=2002`（traceId `934cf662...`）返回 banned=true；`userId=2001`（traceId `4bb1ed71...`）返回 banned=false。无鉴权异常。
+    - content → `FileClient#unquarantine` / `bindRef`：file 日志 `远程api调用unquarantine fileId:72b89e8c...`（traceId `ed0a0244...`，命中幂等闸口 `已处于目标状态`）与 `远程api调用bindRef ... bizId:5011`（traceId `144025beb...`，`file_ref` 插入 1 行）。
+    - content `UserBannedConsumer`：投 `user.banned`（userId=99999）→ 日志 `[8.2] 封禁连带：作者无可下架文章`，正常 ack。
+    - 全量统计：五份日志 `SaTokenContextException` 计数均为 0（`Select-String -SimpleMatch` 实测）。
+  - **未覆盖/旁路问题（2026-11-08 实测发现，当时未修复）**
+    - content `ModerationResultConsumer` 未能端到端触发：review 机审文本结果按其代码用 `ROUTING_MODERATION_RESULT`（`moderation.result`）发布，RabbitMQ 绑定显示该键只投递 `litisle.file.moderation.result.queue`，而 content 队列绑定的是 `moderation.text.result`；本次结果事件被 file 侧消费后忽略（file 日志 `非图片审核结果，file 侧忽略，bizType=1`），content 未收到。命中该 consumer 的 `handleResult` 本身不调用 Feign，故不影响本条 Feign 结论，但链路接线需单独确认。
+    - review `ModerationTextService#persistAndPublish` 在 `transactionTemplate.execute` 返回后才调用 `TransactionSynchronizationManager.registerSynchronization`，事务已提交、同步未激活，实测抛 `Transaction synchronization is not active`，消息延迟重投后才经「已处理任务补发 result」分支自愈。该问题与 Feign 无关，属独立代码缺陷。
+  - **✅ 两条旁路问题已于 2026-11-09 复核收口（修复在位，无需另行立项）**：
+    - ①路由键：`ModerationResultPublisher#resolveRoutingKey` 已按 bizType 分发（1,2,4→`ROUTING_MODERATION_TEXT_RESULT` / 5→message / 6→image，Q87 修复注释在位）；content 队列在 `ContentRabbitConfig` 双向绑定 `EXCHANGE_MODERATION` 与 `EXCHANGE_MODERATION_DELAY` 的 `moderation.text.result` 键；图片链路 image service 直发 `moderation.result` ↔ file `ModerationMqConfig` 绑定同名键自洽；发布器现无 bizType=6 调用方（仅文本侧 3 处调用）。
+    - ②事务同步：`registerSynchronization` 已移入 `transactionTemplate.execute` lambda 内（Q88 修复注释在位），事务提交前注册、同步处于活动状态。
+    - 两处修复均随 commit `053c808`（review 模块重构）落地；2026-11-09 对 litisle-review/litisle-content 及依赖模块编译验证通过。
+
 ## 归档说明
 
-- 本文件共归档 1 项（16.1）。
-- **未归档**：16.1-V1（验证其余 MQ 消费者路径的 Feign 降级，`[~]`）仍有待验路径，正文保留在主清单。
-- 编号空缺说明：主清单批次十六的 16.1 空缺指向本文件；编号不重排。
+- 本文件共归档 2 项（16.1、16.1-V1）。
+- 16.1-V1 的两条未覆盖/旁路问题已于 2026-11-09 复核收口：修复已在位（Q87 路由键分发 + Q88 事务同步移入事务内，随 commit `053c808` 落地），无需另行立项，证据见上方 16.1-V1 节「✅ 两条旁路问题已于 2026-11-09 复核收口」；主清单批次十六仅留指针。
+- 编号空缺说明：主清单批次十六的 16.1、16.1-V1 空缺指向本文件；编号不重排。

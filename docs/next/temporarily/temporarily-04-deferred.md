@@ -151,6 +151,30 @@ search 消费 content.published 建 article_idx/book_idx（Sql-Document §九：
 
 暂不立项——可选缓解：刷回周期 5min → 10~15min（UPDATE 量减半以上，用户无感）/ 批量 UPDATE（JOIN VALUES，省 N 次 round trip）/ 读写分离。拆表评估口径（2026-11-03 复查定论）：article 21 列不拆——content_html 唯一大字段 longtext 行外存储且全链路列投影已排除，计数三列经批次E E.0 量化非瓶颈（167 条/s ≈ 单核 1~3%，无热点行锁竞争），拆计数表反引入 join/跨表事务复杂度。再评估触发条件：计数回写出现热点行锁等待、单行 UPDATE TPS 明显成为瓶颈、或热点文章计数行竞争可观测时，仅拆 `article_stats` 计数表（view/like/comment + stat_update_time 迁出），正文列不动。
 
+#### 11.11-C1\~C3 异常频次反作弊三阶段（延后等真实互动基线，2026-11-08 拍板延后 / 2026-11-09 评审定版迁入）
+
+**触发条件**：11.6 曝光/点击数据**连续 7 天**满足「单内容日互动量 ≥100 或单用户日互动行为 ≥20」任一，即迁回 [next_update.md](../next_update.md) 立项实施 C1 影子统计；C2、C3 随 C1 顺延。满足信号前**不得凭空拍阈值**（无样本时无法验证误伤率，2026-11-08 拍板理由）。
+
+**内容概要**：C1 影子统计——R2 单用户持续高频（600s/80 次）、R3 单内容突增（10min/25 赞或 15 藏且为 24h 基线 3 倍）、R4 匿名指纹泛滥（10min/50 篇）的计数与命中标记，**只记录「本应命中」与原因，不拒绝、不停计数**；C2 处置——R2 只停计数 + 限流软拒绝（2026-11-09 拍板降档，零误伤复盘后才升级硬拒绝）、R3 仅打标不拦截、R4 只停计数不断访问；C3 复盘——阈值调优、指标/告警接入、误伤复盘。约 150\~200 行、无 DDL、复用 11.6 统计口径。
+
+**设计全文与职责分工**：完整三阶段设计（含**前端配合职责**：C1 零改动 / C2 软拒绝复用频控提示 / 只停计数场景禁止本地 +1 假累加等）见 [Content-Architeche.md](../../Architecture/Content-Architeche.md) §五「异常频次反作弊」小节；条目原文与评审结论唯一副本见 [content-11-interaction-stats.md](../../archive/content/content-11-interaction-stats.md)「六」末尾追加块。**边界**：不做多账号/IP 关联、设备指纹、独立风控服务；被针对性薅时优先评估云厂商风控 API。
+
+#### 推荐流 Redis 黑洞型故障熔断（降级链路残余风险，2026-11-09 登记）
+
+**现状（部分解决）**：端口拒绝型故障（Redis 进程挂掉/端口不通）TCP 快速失败，`FeedSnapshotSupport#isRedisAvailable` 探测立即返回 false 进入降级；挂起等待上限由 Lettuce command timeout 配置兜底。残余风险：黑洞型故障（网络分区丢包、连接挂起不回包）无熔断——降级期间每个请求仍要实测一次 Redis，等满 command timeout 才判不可用，降级接口延迟被整体拉长到 timeout 量级。功能不断（召回/画像/打分/屏蔽过滤不依赖 Redis），只损失体验与翻页稳定性。
+
+> 2026-11-09 复核补充：common-redis 已于 2026-11-07 引入 Resilience4j CircuitBreaker（替代原自研 RedisGuard 三态状态机），保护的是 RedisRateLimiter 限流链路的 Redis 调用；推荐流快照链路 `FeedSnapshotSupport` 走 RedisUtil 直连，尚未接入任何熔断，上述残余风险对本链路成立。
+
+**候选方案**：
+
+- 方案A：复用业务模块已引的 Sentinel，对 Redis 探测/读写配熔断规则——不推荐：Redis 操作封装在 `common-redis` 公共库，资源埋点需改公共库，与文末「common-redis 不引 Sentinel（保持轻量）」既定纪律冲突；
+- 方案B：复用 common-redis 已有的 Resilience4j 熔断器，将 feed 快照探测点（`FeedSnapshotSupport#isRedisAvailable`）接入同一 CircuitBreaker——熔断期探测直接返回 false（降级路径零等待），冷却期半开放行一次探测验证恢复；复用既有熔断实例与 `redis_guard_degraded` 指标，不新增依赖、不重写状态机；
+- 方案C：仅调小 command timeout——只压低单次等待上限，不消除「每请求都试一次」的放大效应，作为 B 的配套参数而非独立方案。
+
+**推荐方案**：B（复用 common-redis 已有的 Resilience4j 熔断器，feed 快照探测点接入同一 CircuitBreaker），落地时 command timeout 调小作为配套（C）。理由：熔断点唯一、状态机与降级指标（`redis_guard_degraded`）现成可复用，与「common-redis 不引 Sentinel（保持轻量）」纪律不冲突。登记时（2026-11-09）原推荐「自研轻量熔断」，同日复核发现自研 RedisGuard 已于 2026-11-07 被 Resilience4j 替代（自研路线已被项目否决），故改推荐复用；原方案B 描述（手写三态状态机）作废。
+
+**触发条件**：Redis 黑洞型故障真实发生（或演练复现）且降级接口 P99 被拉长到 command timeout 量级、监控可观测时立项实施；未发生前仅登记不排期。
+
 ### search 模块
 
 #### heat 写路径升级——召回 + 精排分层（迁自 temp.md search 批次A A7 升级路径，2026-11-03）

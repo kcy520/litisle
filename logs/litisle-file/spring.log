@@ -2279,3 +2279,732 @@ java.io.FileNotFoundException: C:\Users\K.1\nacos\config\Config-fixed-public-loc
 17:19:28:037 DEBUG 26336 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.mapper.FileRefMapper.selectCount   : ==>  Preparing: SELECT COUNT( * ) AS total FROM file_ref WHERE (file_id = ? AND biz_type = ? AND biz_id = ? AND owner_id = ?)
 17:19:28:040 DEBUG 26336 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.mapper.FileRefMapper.selectCount   : ==> Parameters: 25fd4ac95b6248ec995dd5dd4205d326(String), article(String), 5008(Long), 2002(Long)
 17:19:28:046 DEBUG 26336 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.mapper.FileRefMapper.selectCount   : <==      Total: 1
+23:19:15:175  INFO 17484 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Ignore load compatible class io.seata.config.ExtConfigurationProvider, because is not assignable from origin type org.apache.seata.config.ExtConfigurationProvider
+23:19:15:247  INFO 17484 --- [litisle-file] [main] o.a.seata.config.ConfigurationFactory    : load Configuration from :FileConfiguration$$EnhancerByCGLIB$$9e6bf6fd
+23:19:15:595  INFO 17484 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Starting LitisleFileApplication v0.0.1-SNAPSHOT using Java 25.0.1 with PID 17484 (E:\NewJavaPro\LitIsle\litisle-file\target\litisle-file-0.0.1-SNAPSHOT.jar started by K.1 in E:\NewJavaPro\LitIsle)
+23:19:15:596 DEBUG 17484 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Running with Spring Boot v3.5.15, Spring v6.2.19
+23:19:15:597  INFO 17484 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : The following 1 profile is active: "local"
+23:19:15:635  INFO 17484 --- [litisle-file] [main] c.a.c.n.c.NacosConfigDataLoader          : [Nacos Config] Load config[dataId=litisle-shared.yaml, group=DEFAULT_GROUP] success
+23:19:15:636  WARN 17484 --- [litisle-file] [main] c.a.c.n.c.NacosConfigDataLoader          : [Nacos Config] config[dataId=litisle-file.yaml, group=DEFAULT_GROUP] is empty
+23:19:17:114  INFO 17484 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+23:19:17:117  INFO 17484 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+23:19:17:147  INFO 17484 --- [litisle-file] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 8 ms. Found 0 Redis repository interfaces.
+23:19:17:404  INFO 17484 --- [litisle-file] [main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=57487e4a-50ab-3cff-a0d7-2f56d0a59d20
+23:19:17:523  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.apache.seata.spring.boot.autoconfigure.SeataCoreAutoConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.SeataCoreAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:523  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'springApplicationContextProvider' of type [org.apache.seata.spring.boot.autoconfigure.provider.SpringApplicationContextProvider] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:524  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.apache.seata.spring.boot.autoconfigure.SeataAutoConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.SeataAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:570  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'failureHandler' of type [org.apache.seata.tm.api.DefaultFailureHandlerImpl] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor []? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:575  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.cloud.commons.config.CommonsConfigAutoConfiguration' of type [org.springframework.cloud.commons.config.CommonsConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:578  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration' of type [org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:579  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'loadBalancerClientsDefaultsMappingsProvider' of type [org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration$$Lambda/0x000000001056fc88] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:581  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'defaultsBindHandlerAdvisor' of type [org.springframework.cloud.commons.config.DefaultsBindHandlerAdvisor] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:587  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'springCloudAlibabaConfiguration' of type [org.apache.seata.spring.boot.autoconfigure.properties.SpringCloudAlibabaConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:590  WARN 17484 --- [litisle-file] [main] trationDelegate$BeanPostProcessorChecker : Bean 'seataProperties' of type [org.apache.seata.spring.boot.autoconfigure.properties.SeataProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [globalTransactionScanner]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+23:19:17:600  INFO 17484 --- [litisle-file] [main] o.a.s.s.b.a.SeataAutoConfiguration       : Automatically configure Seata
+23:19:17:617  INFO 17484 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.spring.annotation.ScannerChecker
+23:19:17:646  INFO 17484 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.integration.tx.api.remoting.RemotingParser
+23:19:17:648  INFO 17484 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Initializing Global Transaction Clients ... 
+23:19:17:944  INFO 17484 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.auth.AuthSigner
+23:19:17:946  INFO 17484 --- [litisle-file] [main] o.a.s.c.r.n.AbstractNettyRemotingClient  : register channel event listener: org.apache.seata.core.rpc.netty.TmNettyRemotingClient$2
+23:19:17:954  INFO 17484 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyClientBootstrap   : NettyClientBootstrap has started
+23:19:17:955  INFO 17484 --- [litisle-file] [main] o.a.s.d.registry.RegistryFactory         : use registry center type: nacos
+23:19:17:961  INFO 17484 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.discovery.registry.RegistryProvider
+23:19:17:966  INFO 17484 --- [litisle-file] [main] o.a.s.d.r.n.NacosRegistryServiceImpl     : Nacos check auth with userName/password.
+23:19:17:966  INFO 17484 --- [litisle-file] [main] o.a.s.d.r.n.NacosRegistryServiceImpl     : Nacos check auth with userName/password.
+23:19:17:969  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Nacos client key init properties: 
+	serverAddr=localhost:8848
+	username=nacos
+	password=n***s
+
+23:19:17:970  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from namespace attribute :null
+23:19:17:976  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : FailoverDataSource type is class com.alibaba.nacos.client.naming.backups.datasource.DiskFailoverDataSource
+23:19:17:983  INFO 17484 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
+23:19:17:984  INFO 17484 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
+23:19:17:984  INFO 17484 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
+23:19:17:985  INFO 17484 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+23:19:17:985  INFO 17484 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+23:19:18:056  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of d4d70e51-f280-47eb-9586-e197180c2f7a
+23:19:18:058  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Create naming rpc client for uuid->d4d70e51-f280-47eb-9586-e197180c2f7a
+23:19:18:058  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] RpcClient init, ServerListFactory = com.alibaba.nacos.client.naming.core.NamingServerListManager
+23:19:18:058  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Registry connection listener to current client:com.alibaba.nacos.client.naming.remote.gprc.redo.NamingGrpcRedoService
+23:19:18:058  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingPushRequestHandler
+23:19:18:059  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingFuzzyWatchNotifyRequestHandler
+23:19:18:059  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
+23:19:18:059  INFO 17484 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
+23:19:18:095  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Success to connect to server [localhost:8848] on start up, connectionId = 1794151158076_172.21.0.1_37344
+23:19:18:096  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
+23:19:18:096  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x0000000010330be0
+23:19:18:096  INFO 17484 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Notify connected event to listeners.
+23:19:18:096  INFO 17484 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.client.naming          : Grpc connection connect
+23:19:18:101  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [SUBSCRIBE-SERVICE] service:seata-server, group:DEFAULT_GROUP, clusters: 
+23:19:18:102  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [GRPC-SUBSCRIBE] service:seata-server, group:DEFAULT_GROUP, cluster: 
+23:19:18:138  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : init new ips(1) service: DEFAULT_GROUP@@seata-server -> [{"instanceId":"192.168.43.221#8091#default#DEFAULT_GROUP@@seata-server","ip":"192.168.43.221","port":8091,"weight":1.0,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"default","serviceName":"DEFAULT_GROUP@@seata-server","metadata":{},"ipDeleteTimeout":30000,"instanceIdGenerator":"simple","instanceHeartBeatTimeOut":15000,"instanceHeartBeatInterval":5000}]
+23:19:18:145  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : current ips:(1) service: DEFAULT_GROUP@@seata-server -> [{"instanceId":"192.168.43.221#8091#default#DEFAULT_GROUP@@seata-server","ip":"192.168.43.221","port":8091,"weight":1.0,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"default","serviceName":"DEFAULT_GROUP@@seata-server","metadata":{},"ipDeleteTimeout":30000,"instanceIdGenerator":"simple","instanceHeartBeatTimeOut":15000,"instanceHeartBeatInterval":5000}]
+23:19:18:162 ERROR 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [NA] failed to write cache for dom:seata-server
+
+java.io.IOException: 拒绝访问。
+	at java.base/sun.nio.ch.FileDispatcherImpl.write0(Native Method) ~[na:na]
+	at java.base/sun.nio.ch.FileDispatcherImpl.write(FileDispatcherImpl.java:74) ~[na:na]
+	at java.base/sun.nio.ch.IOUtil.writeFromNativeBuffer(IOUtil.java:137) ~[na:na]
+	at java.base/sun.nio.ch.IOUtil.write(IOUtil.java:102) ~[na:na]
+	at java.base/sun.nio.ch.IOUtil.write(IOUtil.java:72) ~[na:na]
+	at java.base/sun.nio.ch.FileChannelImpl.implWrite(FileChannelImpl.java:355) ~[na:na]
+	at java.base/sun.nio.ch.FileChannelImpl.write(FileChannelImpl.java:335) ~[na:na]
+	at com.alibaba.nacos.client.utils.ConcurrentDiskUtil.writeFileContent(ConcurrentDiskUtil.java:117) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.naming.cache.DiskCache.write(DiskCache.java:73) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.naming.cache.ServiceInfoHolder.processServiceInfo(ServiceInfoHolder.java:161) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.naming.remote.NamingClientProxyDelegate.subscribe(NamingClientProxyDelegate.java:175) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.naming.NacosNamingService.tryToSubscribe(NacosNamingService.java:382) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.naming.NacosNamingService.getServiceInfoBySubscribe(NacosNamingService.java:369) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.naming.NacosNamingService.getServiceInfo(NacosNamingService.java:355) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.naming.NacosNamingService.getAllInstances(NacosNamingService.java:272) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.naming.NacosNamingService.getAllInstances(NacosNamingService.java:259) ~[nacos-client-3.0.3.jar!/:na]
+	at org.apache.seata.discovery.registry.nacos.NacosRegistryServiceImpl.lookup(NacosRegistryServiceImpl.java:192) ~[seata-all-2.5.0.jar!/:2.5.0]
+	at org.apache.seata.core.rpc.netty.NettyClientChannelManager.getAvailServerList(NettyClientChannelManager.java:320) ~[seata-all-2.5.0.jar!/:2.5.0]
+	at org.apache.seata.core.rpc.netty.NettyClientChannelManager.doReconnect(NettyClientChannelManager.java:194) ~[seata-all-2.5.0.jar!/:2.5.0]
+	at org.apache.seata.core.rpc.netty.NettyClientChannelManager.initReconnect(NettyClientChannelManager.java:183) ~[seata-all-2.5.0.jar!/:2.5.0]
+	at org.apache.seata.core.rpc.netty.TmNettyRemotingClient.initConnection(TmNettyRemotingClient.java:333) ~[seata-all-2.5.0.jar!/:2.5.0]
+	at org.apache.seata.core.rpc.netty.TmNettyRemotingClient.init(TmNettyRemotingClient.java:220) ~[seata-all-2.5.0.jar!/:2.5.0]
+	at org.apache.seata.tm.TMClient.init(TMClient.java:48) ~[seata-all-2.5.0.jar!/:2.5.0]
+	at org.apache.seata.spring.annotation.GlobalTransactionScanner.initClient(GlobalTransactionScanner.java:253) ~[seata-all-2.5.0.jar!/:2.5.0]
+	at org.apache.seata.spring.annotation.GlobalTransactionScanner.afterPropertiesSet(GlobalTransactionScanner.java:536) ~[seata-all-2.5.0.jar!/:2.5.0]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.invokeInitMethods(AbstractAutowireCapableBeanFactory.java:1871) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1820) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:607) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:529) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:373) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:207) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.context.support.PostProcessorRegistrationDelegate.registerBeanPostProcessors(PostProcessorRegistrationDelegate.java:265) ~[spring-context-6.2.19.jar!/:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.registerBeanPostProcessors(AbstractApplicationContext.java:809) ~[spring-context-6.2.19.jar!/:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:612) ~[spring-context-6.2.19.jar!/:6.2.19]
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at com.litisle.litislefile.LitisleFileApplication.main(LitisleFileApplication.java:13) ~[!/:0.0.1-SNAPSHOT]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104) ~[na:na]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565) ~[na:na]
+	at org.springframework.boot.loader.launch.Launcher.launch(Launcher.java:106) ~[litisle-file-0.0.1-SNAPSHOT.jar:0.0.1-SNAPSHOT]
+	at org.springframework.boot.loader.launch.Launcher.launch(Launcher.java:64) ~[litisle-file-0.0.1-SNAPSHOT.jar:0.0.1-SNAPSHOT]
+	at org.springframework.boot.loader.launch.JarLauncher.main(JarLauncher.java:40) ~[litisle-file-0.0.1-SNAPSHOT.jar:0.0.1-SNAPSHOT]
+
+23:19:18:169  WARN 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Duplicate subscribe for groupName: DEFAULT_GROUP, serviceName: seata-server; directly use current cached to notify.
+23:19:18:170  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Invoke event groupName: DEFAULT_GROUP, serviceName: seata-server to Listener: org.apache.seata.discovery.registry.nacos.NacosRegistryServiceImpl$$Lambda/0x00000000105afa10@322f84fd
+23:19:18:170  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [SUBSCRIBE-SERVICE] service:seata-server, group:DEFAULT_GROUP, clusters: 
+23:19:18:171  INFO 17484 --- [litisle-file] [main] o.a.s.c.r.n.NettyClientChannelManager    : will connect to 192.168.43.221:8091
+23:19:18:175  INFO 17484 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : NettyPool create channel to transactionRole:TMROLE,address:192.168.43.221:8091,msg:< RegisterTMRequest{version='2.5.0', applicationId='litisle-file', transactionServiceGroup='litisle_tx_group', extraData='ak=null
+digest=litisle_tx_group,172.28.144.1,1794151158174
+timestamp=1794151158174
+authVersion=V4
+vgroup=litisle_tx_group
+ip=172.28.144.1
+'} >
+23:19:18:243  INFO 17484 --- [litisle-file] [NettyClientSelector_TMROLE_1_1_28] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.serializer.Serializer
+23:19:18:698  INFO 17484 --- [litisle-file] [main] o.a.s.c.rpc.netty.TmNettyRemotingClient  : register TM success. client version:2.5.0, server version:2.5.0,channel:[id: 0xf47d36f1, L:/192.168.43.221:59864 - R:/192.168.43.221:8091]
+23:19:18:703  INFO 17484 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : register success, cost 480 ms, version:2.5.0,role:TMROLE,channel:[id: 0xf47d36f1, L:/192.168.43.221:59864 - R:/192.168.43.221:8091]
+23:19:18:704  INFO 17484 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Transaction Manager Client is initialized. applicationId[litisle-file] txServiceGroup[litisle_tx_group]
+23:19:18:723  INFO 17484 --- [litisle-file] [nacos-grpc-client-executor-localhost-11] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Receive server push request, request = NotifySubscriberRequest, requestId = 5
+23:19:18:724  INFO 17484 --- [litisle-file] [nacos-grpc-client-executor-localhost-11] com.alibaba.nacos.common.remote.client   : [d4d70e51-f280-47eb-9586-e197180c2f7a] Ack server push request, request = NotifySubscriberRequest, requestId = 5
+23:19:18:852  INFO 17484 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.model.ResourceManager
+23:19:18:854  INFO 17484 --- [litisle-file] [main] o.a.seata.rm.datasource.AsyncWorker      : Async Commit Buffer Limit: 10000
+23:19:18:854  INFO 17484 --- [litisle-file] [main] o.a.s.r.datasource.xa.ResourceManagerXA  : ResourceManagerXA init ...
+23:19:18:858  INFO 17484 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyClientBootstrap   : NettyClientBootstrap has started
+23:19:18:859  INFO 17484 --- [litisle-file] [main] o.a.s.c.r.n.AbstractNettyRemotingClient  : register channel event listener: org.apache.seata.core.rpc.netty.RmNettyRemotingClient$1
+23:19:18:859  INFO 17484 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Resource Manager is initialized. applicationId[litisle-file] txServiceGroup[litisle_tx_group]
+23:19:18:859  INFO 17484 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : Global Transaction Clients are initialized. 
+23:19:18:967  INFO 17484 --- [litisle-file] [main] o.a.s.s.a.GlobalTransactionScanner       : The needed enhancement business beans are : []
+23:19:18:989  INFO 17484 --- [litisle-file] [main] ServiceLoader$InnerEnhancedServiceLoader : Load compatible class io.seata.core.context.ContextCore
+23:19:19:752  INFO 17484 --- [litisle-file] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8083 (http)
+23:19:19:772  INFO 17484 --- [litisle-file] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+23:19:19:772  INFO 17484 --- [litisle-file] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.55]
+23:19:19:880  INFO 17484 --- [litisle-file] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+23:19:19:881  INFO 17484 --- [litisle-file] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 4242 ms
+23:19:19:890  INFO 17484 --- [litisle-file] [main] c.litisle.commonsecurity.xss.XssFilter   : XSS 过滤器已注册，拦截路径: /*，排除路径: []
+23:19:20:387  INFO 17484 --- [litisle-file] [main] org.redisson.Version                     : Redisson 3.52.0
+23:19:20:919  INFO 17484 --- [litisle-file] [redisson-netty-2-6] o.redisson.connection.ConnectionsHolder  : 1 connections initialized for localhost/127.0.0.1:6380
+23:19:21:125  INFO 17484 --- [litisle-file] [redisson-netty-2-4] o.redisson.connection.ConnectionsHolder  : 32 connections initialized for localhost/127.0.0.1:6380
+23:19:21:416  INFO 17484 --- [litisle-file] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+23:19:21:785  INFO 17484 --- [litisle-file] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@e6d9c25
+23:19:21:787  INFO 17484 --- [litisle-file] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+23:19:22:103  INFO 17484 --- [litisle-file] [main] o.a.s.c.r.n.NettyClientChannelManager    : will connect to 192.168.43.221:8091
+23:19:22:103  INFO 17484 --- [litisle-file] [main] o.a.s.c.rpc.netty.RmNettyRemotingClient  : RM will register :jdbc:mysql://localhost:3307/litisle_file
+23:19:22:103  INFO 17484 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : NettyPool create channel to transactionRole:RMROLE,address:192.168.43.221:8091,msg:< RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3307/litisle_file', version='2.5.0', applicationId='litisle-file', transactionServiceGroup='litisle_tx_group', extraData='null'} >
+23:19:22:147  INFO 17484 --- [litisle-file] [main] o.a.s.c.rpc.netty.RmNettyRemotingClient  : register RM success. client version:2.5.0, server version:2.5.0,channel:[id: 0xafd89519, L:/192.168.43.221:59914 - R:/192.168.43.221:8091]
+23:19:22:147  INFO 17484 --- [litisle-file] [main] o.a.s.c.rpc.netty.NettyPoolableFactory   : register success, cost 42 ms, version:2.5.0,role:RMROLE,channel:[id: 0xafd89519, L:/192.168.43.221:59914 - R:/192.168.43.221:8091]
+23:19:22:152  INFO 17484 --- [litisle-file] [main] .s.s.a.d.SeataAutoDataSourceProxyCreator : Auto proxy data source 'dataSource' by 'AT' mode.
+23:19:24:107  INFO 17484 --- [litisle-file] [main] c.a.c.sentinel.SentinelWebMvcConfigurer  : [Sentinel Starter] register SentinelWebInterceptor with urlPatterns: [/**].
+23:19:24:636  INFO 17484 --- [litisle-file] [main] c.l.c.anonymous.AnonymousAccessHandler   : 匿名白名单刷新完成，共 0 条: []
+23:19:24:638  INFO 17484 --- [litisle-file] [main] c.l.c.crypto.CryptoAutoConfiguration     : BCrypt 密码加密初始化完成，cost = 10
+23:19:25:407  INFO 17484 --- [litisle-file] [main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 2 endpoints beneath base path '/actuator'
+23:19:25:446  INFO 17484 --- [litisle-file] [main] c.a.n.client.config.NacosConfigService   : Nacos client key init properties: 
+	serverAddr=localhost:8848
+	username=nacos
+	password=n***s
+
+23:19:25:451  INFO 17484 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
+23:19:25:452  INFO 17484 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
+23:19:25:452  INFO 17484 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
+23:19:25:454  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : DefaultLabelsCollectorManager get labels.....
+23:19:25:454  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : Process LabelsCollector with [name:defaultNacosLabelsCollector]
+23:19:25:454  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect properties raw labels: null
+23:19:25:454  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect properties labels: {}
+23:19:25:454  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect jvm raw labels: null
+23:19:25:454  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect jvm labels: {}
+23:19:25:454  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect env raw labels: null
+23:19:25:454  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : default nacos collect env labels: {}
+23:19:25:454  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.labels          : DefaultLabelsCollectorManager get labels finished,labels :{}
+23:19:25:454  INFO 17484 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+23:19:25:454  INFO 17484 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+23:19:25:532  INFO 17484 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : config listener notify warn timeout millis use default 60000 millis 
+23:19:25:533  INFO 17484 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : nacos.cache.data.init.snapshot = true 
+23:19:25:567  INFO 17484 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-file-degrade-rules.json+DEFAULT_GROUP+public
+23:19:25:569  INFO 17484 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-file-degrade-rules.json, group=DEFAULT_GROUP, cnt=1
+23:19:25:573  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of 6f55163e-fc9a-47de-bd9d-f664f7770035_config-0
+23:19:25:573  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Register server push request handler:com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$$Lambda/0x0000000010220238
+23:19:25:573  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Register server push request handler:com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$$Lambda/0x0000000010220678
+23:19:25:573  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Register server push request handler:com.alibaba.nacos.client.config.impl.ClientFuzzyWatchNotifyRequestHandler
+23:19:25:573  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Registry connection listener to current client:com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$1
+23:19:25:573  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] RpcClient init, ServerListFactory = com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient$2
+23:19:25:573  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
+23:19:25:573  INFO 17484 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
+23:19:25:628  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Success to connect to server [localhost:8848] on start up, connectionId = 1794151165603_172.21.0.1_53152
+23:19:25:629  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
+23:19:25:629  INFO 17484 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Notify connected event to listeners.
+23:19:25:629  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x0000000010330be0
+23:19:25:629  INFO 17484 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] c.a.n.client.config.impl.ClientWorker    : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Connected,notify listen context...
+23:19:25:630  INFO 17484 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] c.a.n.client.config.impl.ClientWorker    : [6f55163e-fc9a-47de-bd9d-f664f7770035_config-0] Connected,notify fuzzy listen context...
+23:19:25:657 ERROR 17484 --- [litisle-file] [main] c.a.n.c.c.impl.LocalConfigInfoProcessor  : [Config-fixed-public-localhost_8848] save snapshot error, C:\Users\K.1\nacos\config\Config-fixed-public-localhost_8848_nacos\snapshot-tenant\public\DEFAULT_GROUP\litisle-file-degrade-rules.json
+
+java.io.FileNotFoundException: C:\Users\K.1\nacos\config\Config-fixed-public-localhost_8848_nacos\snapshot-tenant\public\DEFAULT_GROUP\litisle-file-degrade-rules.json (拒绝访问。)
+	at java.base/java.io.FileOutputStream.open0(Native Method) ~[na:na]
+	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:255) ~[na:na]
+	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:210) ~[na:na]
+	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:171) ~[na:na]
+	at com.alibaba.nacos.common.utils.IoUtils.writeStringToFile(IoUtils.java:112) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.LocalConfigInfoProcessor.saveSnapshot(LocalConfigInfoProcessor.java:149) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient.queryConfigInner(ClientWorker.java:1241) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient.queryConfig(ClientWorker.java:1228) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker.getServerConfig(ClientWorker.java:524) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.NacosConfigService.getConfigInner(NacosConfigService.java:234) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.NacosConfigService.getConfig(NacosConfigService.java:96) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.readSource(NacosDataSource.java:141) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.readSource(NacosDataSource.java:42) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.AbstractDataSource.loadConfig(AbstractDataSource.java:44) ~[sentinel-datasource-extension-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.loadInitialConfig(NacosDataSource.java:115) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.<init>(NacosDataSource.java:110) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.cloud.sentinel.datasource.factorybean.NacosDataSourceFactoryBean.getObject(NacosDataSourceFactoryBean.java:86) ~[spring-cloud-alibaba-sentinel-datasource-2025.0.0.0.jar!/:2025.0.0.0]
+	at com.alibaba.cloud.sentinel.datasource.factorybean.NacosDataSourceFactoryBean.getObject(NacosDataSourceFactoryBean.java:34) ~[spring-cloud-alibaba-sentinel-datasource-2025.0.0.0.jar!/:2025.0.0.0]
+	at org.springframework.beans.factory.support.FactoryBeanRegistrySupport.doGetObjectFromFactoryBean(FactoryBeanRegistrySupport.java:205) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.FactoryBeanRegistrySupport.getObjectFromFactoryBean(FactoryBeanRegistrySupport.java:137) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getObjectForBeanInstance(AbstractBeanFactory.java:1895) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.getObjectForBeanInstance(AbstractAutowireCapableBeanFactory.java:1314) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:349) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at com.alibaba.cloud.sentinel.custom.SentinelDataSourceHandler.registerBean(SentinelDataSourceHandler.java:209) ~[spring-cloud-starter-alibaba-sentinel-2025.0.0.0.jar!/:2025.0.0.0]
+	at com.alibaba.cloud.sentinel.custom.SentinelDataSourceHandler.lambda$afterSingletonsInstantiated$0(SentinelDataSourceHandler.java:93) ~[spring-cloud-starter-alibaba-sentinel-2025.0.0.0.jar!/:2025.0.0.0]
+	at java.base/java.util.TreeMap.forEach(TreeMap.java:1318) ~[na:na]
+	at com.alibaba.cloud.sentinel.custom.SentinelDataSourceHandler.afterSingletonsInstantiated(SentinelDataSourceHandler.java:80) ~[spring-cloud-starter-alibaba-sentinel-2025.0.0.0.jar!/:2025.0.0.0]
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1156) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:991) ~[spring-context-6.2.19.jar!/:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:628) ~[spring-context-6.2.19.jar!/:6.2.19]
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at com.litisle.litislefile.LitisleFileApplication.main(LitisleFileApplication.java:13) ~[!/:0.0.1-SNAPSHOT]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104) ~[na:na]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565) ~[na:na]
+	at org.springframework.boot.loader.launch.Launcher.launch(Launcher.java:106) ~[litisle-file-0.0.1-SNAPSHOT.jar:0.0.1-SNAPSHOT]
+	at org.springframework.boot.loader.launch.Launcher.launch(Launcher.java:64) ~[litisle-file-0.0.1-SNAPSHOT.jar:0.0.1-SNAPSHOT]
+	at org.springframework.boot.loader.launch.JarLauncher.main(JarLauncher.java:40) ~[litisle-file-0.0.1-SNAPSHOT.jar:0.0.1-SNAPSHOT]
+
+23:19:25:665 ERROR 17484 --- [litisle-file] [main] a.n.c.c.i.LocalEncryptedDataKeyProcessor : [Config-fixed-public-localhost_8848] save snapshot error, C:\Users\K.1\nacos\config\Config-fixed-public-localhost_8848_nacos\encrypted-data-key\snapshot-tenant\public\DEFAULT_GROUP\litisle-file-degrade-rules.json
+
+java.io.FileNotFoundException: C:\Users\K.1\nacos\config\Config-fixed-public-localhost_8848_nacos\encrypted-data-key\snapshot-tenant\public\DEFAULT_GROUP\litisle-file-degrade-rules.json (拒绝访问。)
+	at java.base/java.io.FileOutputStream.open0(Native Method) ~[na:na]
+	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:255) ~[na:na]
+	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:210) ~[na:na]
+	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:171) ~[na:na]
+	at com.alibaba.nacos.common.utils.IoUtils.writeStringToFile(IoUtils.java:112) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.LocalEncryptedDataKeyProcessor.saveEncryptDataKeySnapshot(LocalEncryptedDataKeyProcessor.java:124) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient.queryConfigInner(ClientWorker.java:1251) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient.queryConfig(ClientWorker.java:1228) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker.getServerConfig(ClientWorker.java:524) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.NacosConfigService.getConfigInner(NacosConfigService.java:234) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.NacosConfigService.getConfig(NacosConfigService.java:96) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.readSource(NacosDataSource.java:141) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.readSource(NacosDataSource.java:42) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.AbstractDataSource.loadConfig(AbstractDataSource.java:44) ~[sentinel-datasource-extension-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.loadInitialConfig(NacosDataSource.java:115) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.<init>(NacosDataSource.java:110) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.cloud.sentinel.datasource.factorybean.NacosDataSourceFactoryBean.getObject(NacosDataSourceFactoryBean.java:86) ~[spring-cloud-alibaba-sentinel-datasource-2025.0.0.0.jar!/:2025.0.0.0]
+	at com.alibaba.cloud.sentinel.datasource.factorybean.NacosDataSourceFactoryBean.getObject(NacosDataSourceFactoryBean.java:34) ~[spring-cloud-alibaba-sentinel-datasource-2025.0.0.0.jar!/:2025.0.0.0]
+	at org.springframework.beans.factory.support.FactoryBeanRegistrySupport.doGetObjectFromFactoryBean(FactoryBeanRegistrySupport.java:205) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.FactoryBeanRegistrySupport.getObjectFromFactoryBean(FactoryBeanRegistrySupport.java:137) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getObjectForBeanInstance(AbstractBeanFactory.java:1895) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.getObjectForBeanInstance(AbstractAutowireCapableBeanFactory.java:1314) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:349) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at com.alibaba.cloud.sentinel.custom.SentinelDataSourceHandler.registerBean(SentinelDataSourceHandler.java:209) ~[spring-cloud-starter-alibaba-sentinel-2025.0.0.0.jar!/:2025.0.0.0]
+	at com.alibaba.cloud.sentinel.custom.SentinelDataSourceHandler.lambda$afterSingletonsInstantiated$0(SentinelDataSourceHandler.java:93) ~[spring-cloud-starter-alibaba-sentinel-2025.0.0.0.jar!/:2025.0.0.0]
+	at java.base/java.util.TreeMap.forEach(TreeMap.java:1318) ~[na:na]
+	at com.alibaba.cloud.sentinel.custom.SentinelDataSourceHandler.afterSingletonsInstantiated(SentinelDataSourceHandler.java:80) ~[spring-cloud-starter-alibaba-sentinel-2025.0.0.0.jar!/:2025.0.0.0]
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1156) ~[spring-beans-6.2.19.jar!/:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:991) ~[spring-context-6.2.19.jar!/:6.2.19]
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:628) ~[spring-context-6.2.19.jar!/:6.2.19]
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350) ~[spring-boot-3.5.15.jar!/:3.5.15]
+	at com.litisle.litislefile.LitisleFileApplication.main(LitisleFileApplication.java:13) ~[!/:0.0.1-SNAPSHOT]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104) ~[na:na]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565) ~[na:na]
+	at org.springframework.boot.loader.launch.Launcher.launch(Launcher.java:106) ~[litisle-file-0.0.1-SNAPSHOT.jar:0.0.1-SNAPSHOT]
+	at org.springframework.boot.loader.launch.Launcher.launch(Launcher.java:64) ~[litisle-file-0.0.1-SNAPSHOT.jar:0.0.1-SNAPSHOT]
+	at org.springframework.boot.loader.launch.JarLauncher.main(JarLauncher.java:40) ~[litisle-file-0.0.1-SNAPSHOT.jar:0.0.1-SNAPSHOT]
+
+23:19:25:788  INFO 17484 --- [litisle-file] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8083 (http) with context path '/'
+23:19:25:792  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Nacos client key init properties: 
+	serverAddr=localhost:8848
+	username=nacos
+	password=n***s
+
+23:19:25:792  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from ans.namespace attribute : null
+23:19:25:793  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from ALIBABA_ALIWARE_NAMESPACE attribute :null
+23:19:25:793  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : initializer namespace from namespace attribute :null
+23:19:25:793  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : FailoverDataSource type is class com.alibaba.nacos.client.naming.backups.datasource.DiskFailoverDataSource
+23:19:25:794  INFO 17484 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.EndpointServerListProvider, match result: false
+23:19:25:795  INFO 17484 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Load and match ServerListProvider com.alibaba.nacos.client.address.PropertiesListProvider, match result: true
+23:19:25:795  INFO 17484 --- [litisle-file] [main] c.a.n.c.a.AbstractServerListManager      : Will use com.alibaba.nacos.client.address.PropertiesListProvider as ServerListProvider
+23:19:25:795  INFO 17484 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+23:19:25:795  INFO 17484 --- [litisle-file] [main] c.a.n.p.a.s.c.ClientAuthPluginManager    : [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+23:19:25:862  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [RpcClientFactory] create a new rpc client of 42ff81a2-1cd2-4266-98ed-fe96cc94a08b
+23:19:25:863  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : Create naming rpc client for uuid->42ff81a2-1cd2-4266-98ed-fe96cc94a08b
+23:19:25:863  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [42ff81a2-1cd2-4266-98ed-fe96cc94a08b] RpcClient init, ServerListFactory = com.alibaba.nacos.client.naming.core.NamingServerListManager
+23:19:25:863  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [42ff81a2-1cd2-4266-98ed-fe96cc94a08b] Registry connection listener to current client:com.alibaba.nacos.client.naming.remote.gprc.redo.NamingGrpcRedoService
+23:19:25:864  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [42ff81a2-1cd2-4266-98ed-fe96cc94a08b] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingPushRequestHandler
+23:19:25:864  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [42ff81a2-1cd2-4266-98ed-fe96cc94a08b] Register server push request handler:com.alibaba.nacos.client.naming.remote.gprc.NamingFuzzyWatchNotifyRequestHandler
+23:19:25:864  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [42ff81a2-1cd2-4266-98ed-fe96cc94a08b] Try to connect to server on start up, server: {serverIp = 'localhost', server main port = 8848}
+23:19:25:864  INFO 17484 --- [litisle-file] [main] c.a.n.c.remote.client.grpc.GrpcClient    : grpc client connection server: localhost ip, serverPort: 9848, grpcTslConfig: {"enableTls":false,"mutualAuthEnable":false,"trustAll":true}
+23:19:25:892  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [42ff81a2-1cd2-4266-98ed-fe96cc94a08b] Success to connect to server [localhost:8848] on start up, connectionId = 1794151165873_172.21.0.1_53164
+23:19:25:892  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [42ff81a2-1cd2-4266-98ed-fe96cc94a08b] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$ConnectResetRequestHandler
+23:19:25:892  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.common.remote.client   : [42ff81a2-1cd2-4266-98ed-fe96cc94a08b] Register server push request handler:com.alibaba.nacos.common.remote.client.RpcClient$$Lambda/0x0000000010330be0
+23:19:25:892  INFO 17484 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.common.remote.client   : [42ff81a2-1cd2-4266-98ed-fe96cc94a08b] Notify connected event to listeners.
+23:19:25:892  INFO 17484 --- [litisle-file] [com.alibaba.nacos.client.remote.worker.0] com.alibaba.nacos.client.naming          : Grpc connection connect
+23:19:25:894  INFO 17484 --- [litisle-file] [main] com.alibaba.nacos.client.naming          : [REGISTER-SERVICE] public registering service litisle-file with instance Instance{instanceId='null', ip='172.28.144.1', port=8083, weight=1.0, healthy=true, enabled=true, ephemeral=true, clusterName='', serviceName='null', metadata={IPv6=null, preserved.register.source=SPRING_CLOUD}}
+23:19:25:912  INFO 17484 --- [litisle-file] [main] c.a.c.n.registry.NacosServiceRegistry    : nacos registry, DEFAULT_GROUP litisle-file 172.28.144.1:8083 register finished
+23:19:25:919  INFO 17484 --- [litisle-file] [main] o.s.a.r.c.CachingConnectionFactory       : Attempting to connect to: [localhost:5672]
+23:19:26:015  INFO 17484 --- [litisle-file] [main] o.s.a.r.c.CachingConnectionFactory       : Created new connection: rabbitConnectionFactory#6a702361:0/SimpleConnection@42e0f71e [delegate=amqp://litisle@127.0.0.1:5672//litisle, localPort=63871]
+23:19:26:171  INFO 17484 --- [litisle-file] [main] c.l.c.anonymous.AnonymousPathScanner     : @Anonymous 注解扫描完成，共发现 0 个匿名接口: []
+23:19:26:171  INFO 17484 --- [litisle-file] [main] c.l.c.anonymous.AnonymousAccessHandler   : 匿名白名单刷新完成，共 0 条: []
+23:19:26:172  INFO 17484 --- [litisle-file] [main] c.l.litislefile.LitisleFileApplication   : Started LitisleFileApplication in 13.616 seconds (process running for 15.072)
+23:19:26:201  INFO 17484 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-shared.yaml+DEFAULT_GROUP+public
+23:19:26:201  INFO 17484 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-shared.yaml, group=DEFAULT_GROUP, cnt=1
+23:19:26:201  INFO 17484 --- [litisle-file] [main] c.a.c.n.refresh.NacosContextRefresher    : [Nacos Config] Listening config: dataId=litisle-shared.yaml, group=DEFAULT_GROUP
+23:19:26:208  INFO 17484 --- [litisle-file] [main] c.a.n.client.config.impl.ClientWorker    : [Config-fixed-public-localhost_8848] [subscribe] litisle-file.yaml+DEFAULT_GROUP+public
+23:19:26:210  INFO 17484 --- [litisle-file] [main] c.a.nacos.client.config.impl.CacheData   : [Config-fixed-public-localhost_8848] [add-listener] ok, tenant=public, dataId=litisle-file.yaml, group=DEFAULT_GROUP, cnt=1
+23:19:26:210  INFO 17484 --- [litisle-file] [main] c.a.c.n.refresh.NacosContextRefresher    : [Nacos Config] Listening config: dataId=litisle-file.yaml, group=DEFAULT_GROUP
+23:19:34:369  INFO 17484 --- [litisle-file] [http-nio-8083-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+23:19:34:369  INFO 17484 --- [litisle-file] [http-nio-8083-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+23:19:34:370  INFO 17484 --- [litisle-file] [http-nio-8083-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 1 ms
+23:19:34:440  INFO 17484 --- [litisle-file] [http-nio-8083-exec-3] c.a.c.s.e.SentinelHealthIndicator        : Find sentinel dashboard server list: [Endpoint{protocol=HTTP, host='localhost, port=8090}]
+23:19:34:476 ERROR 17484 --- [litisle-file] [http-nio-8083-exec-3] c.a.n.c.c.impl.LocalConfigInfoProcessor  : [Config-fixed-public-localhost_8848] save snapshot error, C:\Users\K.1\nacos\config\Config-fixed-public-localhost_8848_nacos\snapshot-tenant\public\DEFAULT_GROUP\litisle-file-degrade-rules.json
+
+java.io.FileNotFoundException: C:\Users\K.1\nacos\config\Config-fixed-public-localhost_8848_nacos\snapshot-tenant\public\DEFAULT_GROUP\litisle-file-degrade-rules.json (拒绝访问。)
+	at java.base/java.io.FileOutputStream.open0(Native Method) ~[na:na]
+	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:255) ~[na:na]
+	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:210) ~[na:na]
+	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:171) ~[na:na]
+	at com.alibaba.nacos.common.utils.IoUtils.writeStringToFile(IoUtils.java:112) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.LocalConfigInfoProcessor.saveSnapshot(LocalConfigInfoProcessor.java:149) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient.queryConfigInner(ClientWorker.java:1241) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient.queryConfig(ClientWorker.java:1228) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker.getServerConfig(ClientWorker.java:524) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.NacosConfigService.getConfigInner(NacosConfigService.java:234) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.NacosConfigService.getConfig(NacosConfigService.java:96) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.readSource(NacosDataSource.java:141) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.readSource(NacosDataSource.java:42) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.AbstractDataSource.loadConfig(AbstractDataSource.java:44) ~[sentinel-datasource-extension-1.8.9.jar!/:na]
+	at com.alibaba.cloud.sentinel.endpoint.SentinelHealthIndicator.doHealthCheck(SentinelHealthIndicator.java:146) ~[spring-cloud-starter-alibaba-sentinel-2025.0.0.0.jar!/:2025.0.0.0]
+	at org.springframework.boot.actuate.health.AbstractHealthIndicator.health(AbstractHealthIndicator.java:82) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthIndicator.getHealth(HealthIndicator.java:37) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointWebExtension.getHealth(HealthEndpointWebExtension.java:94) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointWebExtension.getHealth(HealthEndpointWebExtension.java:47) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getLoggedHealth(HealthEndpointSupport.java:172) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getContribution(HealthEndpointSupport.java:145) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getAggregateContribution(HealthEndpointSupport.java:156) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getContribution(HealthEndpointSupport.java:141) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getHealth(HealthEndpointSupport.java:110) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getHealth(HealthEndpointSupport.java:81) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointWebExtension.health(HealthEndpointWebExtension.java:80) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointWebExtension.health(HealthEndpointWebExtension.java:69) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104) ~[na:na]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565) ~[na:na]
+	at org.springframework.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:281) ~[spring-core-6.2.19.jar!/:6.2.19]
+	at org.springframework.boot.actuate.endpoint.invoke.reflect.ReflectiveOperationInvoker.invoke(ReflectiveOperationInvoker.java:74) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.endpoint.annotation.AbstractDiscoveredOperation.invoke(AbstractDiscoveredOperation.java:60) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.endpoint.web.servlet.AbstractWebMvcEndpointHandlerMapping$ServletWebOperationAdapter.handle(AbstractWebMvcEndpointHandlerMapping.java:341) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.endpoint.web.servlet.AbstractWebMvcEndpointHandlerMapping$OperationHandler.handle(AbstractWebMvcEndpointHandlerMapping.java:448) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104) ~[na:na]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565) ~[na:na]
+	at org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:258) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:191) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:991) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:896) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:903) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:564) ~[tomcat-embed-core-10.1.55.jar!/:6.0.0]
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658) ~[tomcat-embed-core-10.1.55.jar!/:6.0.0]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:193) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51) ~[tomcat-embed-websocket-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at com.litisle.commonsecurity.xss.XssFilter.doXssFilter(XssFilter.java:125) ~[common-security-0.0.1-SNAPSHOT.jar!/:0.0.1-SNAPSHOT]
+	at com.litisle.commonsecurity.xss.XssFilter.lambda$xssFilterRegistration$0(XssFilter.java:94) ~[common-security-0.0.1-SNAPSHOT.jar!/:0.0.1-SNAPSHOT]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at cn.dev33.satoken.filter.SaFirewallCheckFilterForJakartaServlet.doFilter(SaFirewallCheckFilterForJakartaServlet.java:69) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at cn.dev33.satoken.filter.SaTokenCorsFilterForJakartaServlet.doFilter(SaTokenCorsFilterForJakartaServlet.java:52) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at cn.dev33.satoken.filter.SaTokenContextFilterForJakartaServlet.doFilter(SaTokenContextFilterForJakartaServlet.java:40) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.springframework.web.filter.ServerHttpObservationFilter.doFilterInternal(ServerHttpObservationFilter.java:110) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at com.litisle.commonsecurity.trace.TraceIdFilter.doFilterInternal(TraceIdFilter.java:54) ~[common-security-0.0.1-SNAPSHOT.jar!/:0.0.1-SNAPSHOT]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:165) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:88) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:492) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:113) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:83) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:72) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:342) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:399) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:1272) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1797) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:973) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:491) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at java.base/java.lang.Thread.run(Thread.java:1474) ~[na:na]
+
+23:19:34:482 ERROR 17484 --- [litisle-file] [http-nio-8083-exec-3] a.n.c.c.i.LocalEncryptedDataKeyProcessor : [Config-fixed-public-localhost_8848] save snapshot error, C:\Users\K.1\nacos\config\Config-fixed-public-localhost_8848_nacos\encrypted-data-key\snapshot-tenant\public\DEFAULT_GROUP\litisle-file-degrade-rules.json
+
+java.io.FileNotFoundException: C:\Users\K.1\nacos\config\Config-fixed-public-localhost_8848_nacos\encrypted-data-key\snapshot-tenant\public\DEFAULT_GROUP\litisle-file-degrade-rules.json (拒绝访问。)
+	at java.base/java.io.FileOutputStream.open0(Native Method) ~[na:na]
+	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:255) ~[na:na]
+	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:210) ~[na:na]
+	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:171) ~[na:na]
+	at com.alibaba.nacos.common.utils.IoUtils.writeStringToFile(IoUtils.java:112) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.LocalEncryptedDataKeyProcessor.saveEncryptDataKeySnapshot(LocalEncryptedDataKeyProcessor.java:124) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient.queryConfigInner(ClientWorker.java:1251) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker$ConfigRpcTransportClient.queryConfig(ClientWorker.java:1228) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.impl.ClientWorker.getServerConfig(ClientWorker.java:524) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.NacosConfigService.getConfigInner(NacosConfigService.java:234) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.nacos.client.config.NacosConfigService.getConfig(NacosConfigService.java:96) ~[nacos-client-3.0.3.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.readSource(NacosDataSource.java:141) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource.readSource(NacosDataSource.java:42) ~[sentinel-datasource-nacos-1.8.9.jar!/:na]
+	at com.alibaba.csp.sentinel.datasource.AbstractDataSource.loadConfig(AbstractDataSource.java:44) ~[sentinel-datasource-extension-1.8.9.jar!/:na]
+	at com.alibaba.cloud.sentinel.endpoint.SentinelHealthIndicator.doHealthCheck(SentinelHealthIndicator.java:146) ~[spring-cloud-starter-alibaba-sentinel-2025.0.0.0.jar!/:2025.0.0.0]
+	at org.springframework.boot.actuate.health.AbstractHealthIndicator.health(AbstractHealthIndicator.java:82) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthIndicator.getHealth(HealthIndicator.java:37) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointWebExtension.getHealth(HealthEndpointWebExtension.java:94) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointWebExtension.getHealth(HealthEndpointWebExtension.java:47) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getLoggedHealth(HealthEndpointSupport.java:172) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getContribution(HealthEndpointSupport.java:145) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getAggregateContribution(HealthEndpointSupport.java:156) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getContribution(HealthEndpointSupport.java:141) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getHealth(HealthEndpointSupport.java:110) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointSupport.getHealth(HealthEndpointSupport.java:81) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointWebExtension.health(HealthEndpointWebExtension.java:80) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.health.HealthEndpointWebExtension.health(HealthEndpointWebExtension.java:69) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104) ~[na:na]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565) ~[na:na]
+	at org.springframework.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:281) ~[spring-core-6.2.19.jar!/:6.2.19]
+	at org.springframework.boot.actuate.endpoint.invoke.reflect.ReflectiveOperationInvoker.invoke(ReflectiveOperationInvoker.java:74) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.endpoint.annotation.AbstractDiscoveredOperation.invoke(AbstractDiscoveredOperation.java:60) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.endpoint.web.servlet.AbstractWebMvcEndpointHandlerMapping$ServletWebOperationAdapter.handle(AbstractWebMvcEndpointHandlerMapping.java:341) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at org.springframework.boot.actuate.endpoint.web.servlet.AbstractWebMvcEndpointHandlerMapping$OperationHandler.handle(AbstractWebMvcEndpointHandlerMapping.java:448) ~[spring-boot-actuator-3.5.15.jar!/:3.5.15]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104) ~[na:na]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565) ~[na:na]
+	at org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:258) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:191) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:991) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:896) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:903) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:564) ~[tomcat-embed-core-10.1.55.jar!/:6.0.0]
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885) ~[spring-webmvc-6.2.19.jar!/:6.2.19]
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658) ~[tomcat-embed-core-10.1.55.jar!/:6.0.0]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:193) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51) ~[tomcat-embed-websocket-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at com.litisle.commonsecurity.xss.XssFilter.doXssFilter(XssFilter.java:125) ~[common-security-0.0.1-SNAPSHOT.jar!/:0.0.1-SNAPSHOT]
+	at com.litisle.commonsecurity.xss.XssFilter.lambda$xssFilterRegistration$0(XssFilter.java:94) ~[common-security-0.0.1-SNAPSHOT.jar!/:0.0.1-SNAPSHOT]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at cn.dev33.satoken.filter.SaFirewallCheckFilterForJakartaServlet.doFilter(SaFirewallCheckFilterForJakartaServlet.java:69) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at cn.dev33.satoken.filter.SaTokenCorsFilterForJakartaServlet.doFilter(SaTokenCorsFilterForJakartaServlet.java:52) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at cn.dev33.satoken.filter.SaTokenContextFilterForJakartaServlet.doFilter(SaTokenContextFilterForJakartaServlet.java:40) ~[sa-token-spring-boot-webmvc-v3v4-common-1.45.0.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.springframework.web.filter.ServerHttpObservationFilter.doFilterInternal(ServerHttpObservationFilter.java:110) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at com.litisle.commonsecurity.trace.TraceIdFilter.doFilterInternal(TraceIdFilter.java:54) ~[common-security-0.0.1-SNAPSHOT.jar!/:0.0.1-SNAPSHOT]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116) ~[spring-web-6.2.19.jar!/:6.2.19]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:138) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:165) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:88) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:492) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:113) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:83) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:72) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:342) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:399) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:1272) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1797) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:973) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:491) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63) ~[tomcat-embed-core-10.1.55.jar!/:na]
+	at java.base/java.lang.Thread.run(Thread.java:1474) ~[na:na]
+
+23:20:59:640  WARN 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.c.satoken.SaTokenExceptionHandler    : 认证异常: type=-2, message=令牌无效，请重新登录
+23:21:00:130  WARN 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.c.satoken.SaTokenExceptionHandler    : 认证异常: type=-2, message=令牌无效，请重新登录
+23:21:01:285  WARN 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.c.satoken.SaTokenExceptionHandler    : 认证异常: type=-2, message=令牌无效，请重新登录
+23:21:02:136  WARN 17484 --- [litisle-file] [http-nio-8083-exec-3] c.l.c.satoken.SaTokenExceptionHandler    : 认证异常: type=-2, message=令牌无效，请重新登录
+23:21:03:292  WARN 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.c.satoken.SaTokenExceptionHandler    : 认证异常: type=-2, message=令牌无效，请重新登录
+23:21:04:141  WARN 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.c.satoken.SaTokenExceptionHandler    : 认证异常: type=-2, message=令牌无效，请重新登录
+23:23:00:447 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:00:463 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:00:479 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:00:499 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:00:499 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:00:501 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:00:507 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.insert       : ==>  Preparing: INSERT INTO file_meta ( file_id, owner_id, biz_type, bucket, path, mime, size, access, status, safe_flag, sha256, del_flag, create_time, update_time ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+23:23:00:508 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.insert       : ==> Parameters: e1c78b7627894b50968816d622f405a0(String), 2002(Long), license(String), license(String), 2026/11/08/e1c78b7627894b50968816d622f405a0.png(String), image/png(String), 235(Long), 0(Integer), 0(Integer), 1(Integer), 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 0(Integer), 2026-11-08T23:23:00.501728200(LocalDateTime), 2026-11-08T23:23:00.501728200(LocalDateTime)
+23:23:00:528 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.insert       : <==    Updates: 1
+23:23:00:915  WARN 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.c.exception.GlobalExceptionHandler   : 业务异常: code=90005, message=文件存储服务不可用，请稍后重试
+23:23:01:000 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:01:001 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:01:004 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:01:007 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:01:008 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:01:009 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:01:010 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.insert       : ==>  Preparing: INSERT INTO file_meta ( file_id, owner_id, biz_type, bucket, path, mime, size, access, status, safe_flag, sha256, del_flag, create_time, update_time ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+23:23:01:011 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.insert       : ==> Parameters: 54f7fcff24974c75a3f60c23a90b0df4(String), 2002(Long), license(String), license(String), 2026/11/08/54f7fcff24974c75a3f60c23a90b0df4.png(String), image/png(String), 235(Long), 0(Integer), 0(Integer), 1(Integer), 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 0(Integer), 2026-11-08T23:23:01.010259300(LocalDateTime), 2026-11-08T23:23:01.010259300(LocalDateTime)
+23:23:01:020 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.insert       : <==    Updates: 1
+23:23:01:042  WARN 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.c.exception.GlobalExceptionHandler   : 业务异常: code=90005, message=文件存储服务不可用，请稍后重试
+23:23:01:714 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:01:715 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:01:719 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:01:722 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:01:723 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:01:725 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:01:726 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.insert       : ==>  Preparing: INSERT INTO file_meta ( file_id, owner_id, biz_type, bucket, path, mime, size, access, status, safe_flag, sha256, del_flag, create_time, update_time ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+23:23:01:726 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.insert       : ==> Parameters: 93c8e8e14f904c84ac7901b1cde2a480(String), 2002(Long), license(String), license(String), 2026/11/08/93c8e8e14f904c84ac7901b1cde2a480.png(String), image/png(String), 235(Long), 0(Integer), 0(Integer), 1(Integer), 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 0(Integer), 2026-11-08T23:23:01.725840500(LocalDateTime), 2026-11-08T23:23:01.725840500(LocalDateTime)
+23:23:01:733 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.insert       : <==    Updates: 1
+23:23:01:748  WARN 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.c.exception.GlobalExceptionHandler   : 业务异常: code=90005, message=文件存储服务不可用，请稍后重试
+23:23:02:325 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:02:325 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:02:327 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:02:330 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:02:331 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:02:332 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:02:333 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.insert       : ==>  Preparing: INSERT INTO file_meta ( file_id, owner_id, biz_type, bucket, path, mime, size, access, status, safe_flag, sha256, del_flag, create_time, update_time ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+23:23:02:334 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.insert       : ==> Parameters: 2701a45fd5804cadb836e307a227d4e7(String), 2002(Long), license(String), license(String), 2026/11/08/2701a45fd5804cadb836e307a227d4e7.png(String), image/png(String), 235(Long), 0(Integer), 0(Integer), 1(Integer), 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 0(Integer), 2026-11-08T23:23:02.333332900(LocalDateTime), 2026-11-08T23:23:02.333332900(LocalDateTime)
+23:23:02:340 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.insert       : <==    Updates: 1
+23:23:02:357  WARN 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.c.exception.GlobalExceptionHandler   : 业务异常: code=90005, message=文件存储服务不可用，请稍后重试
+23:23:03:083 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:03:084 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:03:086 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:03:090 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:03:090 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:03:093 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:03:095 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.insert       : ==>  Preparing: INSERT INTO file_meta ( file_id, owner_id, biz_type, bucket, path, mime, size, access, status, safe_flag, sha256, del_flag, create_time, update_time ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+23:23:03:095 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.insert       : ==> Parameters: d99936bb356b4b41a598c6f56795c999(String), 2002(Long), license(String), license(String), 2026/11/08/d99936bb356b4b41a598c6f56795c999.png(String), image/png(String), 235(Long), 0(Integer), 0(Integer), 1(Integer), 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 0(Integer), 2026-11-08T23:23:03.093835200(LocalDateTime), 2026-11-08T23:23:03.093835200(LocalDateTime)
+23:23:03:103 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.insert       : <==    Updates: 1
+23:23:03:119  WARN 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.c.exception.GlobalExceptionHandler   : 业务异常: code=90005, message=文件存储服务不可用，请稍后重试
+23:23:03:670 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:03:670 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:03:672 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:03:674 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ? AND owner_id = ?)
+23:23:03:674 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), license(String), 0(Integer), 1(Integer), 0(Integer), 2002(Long)
+23:23:03:676 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:23:03:676 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.insert       : ==>  Preparing: INSERT INTO file_meta ( file_id, owner_id, biz_type, bucket, path, mime, size, access, status, safe_flag, sha256, del_flag, create_time, update_time ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+23:23:03:677 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.insert       : ==> Parameters: efcf77bea8df4460a4a8246c3a401b58(String), 2002(Long), license(String), license(String), 2026/11/08/efcf77bea8df4460a4a8246c3a401b58.png(String), image/png(String), 235(Long), 0(Integer), 0(Integer), 1(Integer), 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 0(Integer), 2026-11-08T23:23:03.676830300(LocalDateTime), 2026-11-08T23:23:03.676830300(LocalDateTime)
+23:23:03:683 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.insert       : <==    Updates: 1
+23:23:03:697  WARN 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.c.exception.GlobalExceptionHandler   : 业务异常: code=90005, message=文件存储服务不可用，请稍后重试
+23:24:59:995 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:24:59:996 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:24:59:999 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:25:00:003 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:25:00:003 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:25:00:006 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:25:00:008 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.insert       : ==>  Preparing: INSERT INTO file_meta ( file_id, owner_id, biz_type, bucket, path, mime, size, access, status, safe_flag, sha256, del_flag, create_time, update_time ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+23:25:00:011 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.insert       : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String), 2002(Long), cover(String), cover(String), 2026/11/08/72b89e8c0c454707abda5617c0e7f697.png(String), image/png(String), 235(Long), 1(Integer), 0(Integer), 2(Integer), 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 0(Integer), 2026-11-08T23:25:00.007987700(LocalDateTime), 2026-11-08T23:25:00.007987700(LocalDateTime)
+23:25:00:025 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.insert       : <==    Updates: 1
+23:25:00:268  INFO 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.s.impl.FileUploadServiceImpl       : 文件上传成功（锁外 put 完成），fileId=72b89e8c0c454707abda5617c0e7f697，bucket=cover，path=2026/11/08/72b89e8c0c454707abda5617c0e7f697.png，size=235
+23:25:00:552 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.updateById   : ==>  Preparing: UPDATE file_meta SET width=?, height=?, status=?, update_time=? WHERE id=?
+23:25:00:555 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.updateById   : ==> Parameters: 16(Integer), 16(Integer), 1(Integer), 2026-11-08T23:25:00.268771200(LocalDateTime), 12(Long)
+23:25:00:568 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.updateById   : <==    Updates: 1
+23:25:00:597  INFO 17484 --- [litisle-file] [http-nio-8083-exec-9] com.litisle.commonmq.send.MqSendUtil     : MQ 事件已发布，exchange=litisle.moderation.exchange，routingKey=moderation.image.submit，traceId=57d71f998aef4e00a14598afecd4422d
+23:25:00:597  INFO 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.s.impl.FileUploadServiceImpl       : image.submit 事件已发布，fileId=72b89e8c0c454707abda5617c0e7f697，sha256=2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726
+23:25:00:768  INFO 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:72b89e8c0c454707abda5617c0e7f697
+23:25:00:775 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:25:00:777 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String), 0(Integer)
+23:25:00:787 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:25:00:994 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:25:00:995 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:25:00:997 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:25:00:997  INFO 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.l.s.impl.FileUploadServiceImpl       : 秒传命中，fileId=72b89e8c0c454707abda5617c0e7f697，bizType=COVER，size=235
+23:25:02:114 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:25:02:114 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:25:02:116 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:25:02:116  INFO 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.s.impl.FileUploadServiceImpl       : 秒传命中，fileId=72b89e8c0c454707abda5617c0e7f697，bizType=COVER，size=235
+23:25:03:047 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:25:03:047 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:25:03:050 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:25:03:051  INFO 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.l.s.impl.FileUploadServiceImpl       : 秒传命中，fileId=72b89e8c0c454707abda5617c0e7f697，bizType=COVER，size=235
+23:25:03:840 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:25:03:841 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:25:03:843 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:25:03:843  INFO 17484 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.s.impl.FileUploadServiceImpl       : 秒传命中，fileId=72b89e8c0c454707abda5617c0e7f697，bizType=COVER，size=235
+23:25:04:583 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:25:04:584 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 2098a6dc0b935da0273579c545bf65398783dcf8401e2ab2f5ec7ef406397726(String), 235(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:25:04:586 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:25:04:586  INFO 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.s.impl.FileUploadServiceImpl       : 秒传命中，fileId=72b89e8c0c454707abda5617c0e7f697，bizType=COVER，size=235
+23:25:31:256  INFO 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:72b89e8c0c454707abda5617c0e7f697
+23:25:31:259 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:25:31:259 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String), 0(Integer)
+23:25:31:261 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-6] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:26:22:840 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:26:22:841 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 59197412817270cc92c0ce12ebf7fbe16863416d54635734637e4683e0b4ecab(String), 240(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:26:22:843 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:26:27:852  WARN 17484 --- [litisle-file] [http-nio-8083-exec-1] c.litisle.commonredis.lock.RedissonLock  : 获取锁失败(固定租期): lock:file:sha:59197412817270cc92c0ce12ebf7fbe16863416d54635734637e4683e0b4ecab
+23:26:27:853  WARN 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.l.s.impl.FileUploadServiceImpl       : 秒传判重锁竞争失败，sha256=59197412817270cc92c0ce12ebf7fbe16863416d54635734637e4683e0b4ecab，bizType=COVER
+23:26:27:854  WARN 17484 --- [litisle-file] [http-nio-8083-exec-1] c.l.c.exception.GlobalExceptionHandler   : 业务异常: code=10000, message=系统繁忙，请稍后重试
+23:26:31:280  INFO 17484 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:72b89e8c0c454707abda5617c0e7f697
+23:26:31:284 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:26:31:284 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String), 0(Integer)
+23:26:31:292 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-3] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:26:33:356 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:26:33:356 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 59197412817270cc92c0ce12ebf7fbe16863416d54635734637e4683e0b4ecab(String), 240(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:26:33:357 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:26:33:361 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (sha256 = ? AND size = ? AND biz_type = ? AND del_flag = ? AND status = ? AND safe_flag <> ?)
+23:26:33:361 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 59197412817270cc92c0ce12ebf7fbe16863416d54635734637e4683e0b4ecab(String), 240(Long), cover(String), 0(Integer), 1(Integer), 0(Integer)
+23:26:33:363 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 0
+23:26:33:364 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.insert       : ==>  Preparing: INSERT INTO file_meta ( file_id, owner_id, biz_type, bucket, path, mime, size, access, status, safe_flag, sha256, del_flag, create_time, update_time ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+23:26:33:364 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.insert       : ==> Parameters: b71490f244534862ab650f1aa32817a6(String), 2002(Long), cover(String), cover(String), 2026/11/08/b71490f244534862ab650f1aa32817a6.png(String), image/png(String), 240(Long), 1(Integer), 0(Integer), 2(Integer), 59197412817270cc92c0ce12ebf7fbe16863416d54635734637e4683e0b4ecab(String), 0(Integer), 2026-11-08T23:26:33.363652600(LocalDateTime), 2026-11-08T23:26:33.363652600(LocalDateTime)
+23:26:33:371 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.insert       : <==    Updates: 1
+23:26:33:392  INFO 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.s.impl.FileUploadServiceImpl       : 文件上传成功（锁外 put 完成），fileId=b71490f244534862ab650f1aa32817a6，bucket=cover，path=2026/11/08/b71490f244534862ab650f1aa32817a6.png，size=240
+23:26:33:396 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.updateById   : ==>  Preparing: UPDATE file_meta SET width=?, height=?, status=?, update_time=? WHERE id=?
+23:26:33:396 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.updateById   : ==> Parameters: 16(Integer), 16(Integer), 1(Integer), 2026-11-08T23:26:33.392543700(LocalDateTime), 13(Long)
+23:26:33:405 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.mapper.FileMetaMapper.updateById   : <==    Updates: 1
+23:26:33:406  INFO 17484 --- [litisle-file] [http-nio-8083-exec-4] com.litisle.commonmq.send.MqSendUtil     : MQ 事件已发布，exchange=litisle.moderation.exchange，routingKey=moderation.image.submit，traceId=e22c74ed686345228aad8011bf44ecfd
+23:26:33:406  INFO 17484 --- [litisle-file] [http-nio-8083-exec-4] c.l.l.s.impl.FileUploadServiceImpl       : image.submit 事件已发布，fileId=b71490f244534862ab650f1aa32817a6，sha256=59197412817270cc92c0ce12ebf7fbe16863416d54635734637e4683e0b4ecab
+23:26:33:413  INFO 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:b71490f244534862ab650f1aa32817a6
+23:26:33:415 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:26:33:415 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: b71490f244534862ab650f1aa32817a6(String), 0(Integer)
+23:26:33:418 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:27:03:436  INFO 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:b71490f244534862ab650f1aa32817a6
+23:27:03:438 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:27:03:438 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: b71490f244534862ab650f1aa32817a6(String), 0(Integer)
+23:27:03:440 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-7] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:28:03:459  INFO 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:b71490f244534862ab650f1aa32817a6
+23:28:03:461 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:28:03:462 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: b71490f244534862ab650f1aa32817a6(String), 0(Integer)
+23:28:03:463 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-2] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:28:31:310  INFO 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:72b89e8c0c454707abda5617c0e7f697
+23:28:31:312 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:28:31:312 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String), 0(Integer)
+23:28:31:314 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:30:03:481  INFO 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:b71490f244534862ab650f1aa32817a6
+23:30:03:485 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:30:03:485 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: b71490f244534862ab650f1aa32817a6(String), 0(Integer)
+23:30:03:488 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:32:31:328  INFO 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:72b89e8c0c454707abda5617c0e7f697
+23:32:31:334 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:32:31:335 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String), 0(Integer)
+23:32:31:337 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-9] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:34:03:509  INFO 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.c.f.FileFeignProviderController    : 远程api调用getContent fileId:b71490f244534862ab650f1aa32817a6
+23:34:03:513 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:34:03:513 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: b71490f244534862ab650f1aa32817a6(String), 0(Integer)
+23:34:03:519 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-5] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:34:45:197  INFO 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.l.c.f.FileFeignProviderController    : 远程api调用unquarantine fileId:72b89e8c0c454707abda5617c0e7f697
+23:34:45:209 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ?)
+23:34:45:210 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String)
+23:34:45:213 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:34:45:216  INFO 17484 --- [litisle-file] [http-nio-8083-exec-8] c.l.l.s.impl.FileModerationServiceImpl   : 文件已处于目标状态（quarantined=false），跳过重复操作，fileId=72b89e8c0c454707abda5617c0e7f697
+23:34:45:419  INFO 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.c.f.FileFeignProviderController    : 远程api调用bindRef fileId:72b89e8c0c454707abda5617c0e7f697 bizType:ARTICLE_IMG bizId:5011 ownerId:2001
+23:34:45:422 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileMetaMapper.selectList   : ==>  Preparing: SELECT id,file_id,owner_id,biz_type,bucket,path,mime,size,width,height,align,access,status,safe_flag,sha256,del_flag,create_time,update_time,delete_time FROM file_meta WHERE (file_id = ? AND del_flag = ?)
+23:34:45:423 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileMetaMapper.selectList   : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String), 0(Integer)
+23:34:45:429 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileMetaMapper.selectList   : <==      Total: 1
+23:34:45:438 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileRefMapper.selectCount   : ==>  Preparing: SELECT COUNT( * ) AS total FROM file_ref WHERE (file_id = ? AND biz_type = ? AND biz_id = ? AND owner_id = ?)
+23:34:45:441 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileRefMapper.selectCount   : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String), article(String), 5011(Long), 2001(Long)
+23:34:45:496 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileRefMapper.selectCount   : <==      Total: 1
+23:34:45:504 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileRefMapper.insert        : ==>  Preparing: INSERT INTO file_ref ( file_id, biz_type, biz_id, owner_id, create_time ) VALUES ( ?, ?, ?, ?, ? )
+23:34:45:506 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileRefMapper.insert        : ==> Parameters: 72b89e8c0c454707abda5617c0e7f697(String), article(String), 5011(Long), 2001(Long), 2026-11-08T23:34:45.498247900(LocalDateTime)
+23:34:45:521 DEBUG 17484 --- [litisle-file] [http-nio-8083-exec-10] c.l.l.mapper.FileRefMapper.insert        : <==    Updates: 1
+23:37:33:695  INFO 17484 --- [litisle-file] [org.springframework.amqp.rabbit.RabbitListenerEndpointContainer#1-1] c.l.l.i.ModerationResultListener         : 非图片审核结果，file 侧忽略，bizType=1
