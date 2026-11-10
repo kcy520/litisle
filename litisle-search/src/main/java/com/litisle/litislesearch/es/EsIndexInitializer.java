@@ -6,7 +6,8 @@ import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.mapping.TypeMapping;
 import co.elastic.clients.json.JsonData;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchEmbeddingConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+
 
 /**
  * ES 索引 mapping 初始化器（批次一 1.1，架构文档 §四 索引设计）：
@@ -35,6 +37,13 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class EsIndexInitializer implements ApplicationRunner {
 
+
+// ES 索引初始化器 ：服务启动时（实现`ApplicationRunner` ，启动完成后自动执行） 幂等创建 4 个 ES 索引的 mapping ，并做两件遗留收口工作。
+// 核心设计约定：
+// - 幂等 ：索引已存在就跳过，绝不覆盖线上 mapping
+// - 容错 ：单个索引创建失败只告警、不阻断服务启动（ES 不可用属于设计的降级场景，批次八降级链路会兜底；索引缺失时消费端写入失败会进 DLQ，可人工重投）
+    
+
     /** ES 客户端（ElasticsearchConfig 装配的唯一 ES 入口） */
     private final ElasticsearchClient elasticsearchClient;
 
@@ -44,6 +53,13 @@ public class EsIndexInitializer implements ApplicationRunner {
     /**
      * 启动后执行索引初始化：逐索引幂等创建，单个失败告警不阻断启动
      *
+     *  入口编排
+     * run(args)（L52-67） — 启动后的总入口，按顺序做 4 件事：
+     * 1. 组装「索引名 → mapping」清单，逐个调用`createIndexIfAbsent` 幂等创建
+     * 2. `upgradeBookMappingIfNeeded` ：给已存在的旧版 book_idx 补 authorId 字段
+     * 3. `checkExistingDateFormat` ：校验既有索引的 date 字段格式
+     * 4. article_idx 和 article_chunks 的`_meta` 会写入 Embedding 模型标识与维度（防模型漂移）
+     * 
      * @param args 启动参数（未使用）
      */
     @Override
@@ -90,7 +106,7 @@ public class EsIndexInitializer implements ApplicationRunner {
             // 幂等补字段映射（已存在同名字段时 ES 不报错）
             elasticsearchClient.indices().putMapping(p -> p
                     .index(indexName)
-                    .properties(Map.of(SearchBizConstant.FIELD_AUTHOR_ID, keywordProperty())));
+                    .properties(Map.of(SearchFieldConstant.FIELD_AUTHOR_ID, keywordProperty())));
             log.info("[ES索引初始化] book_idx 已幂等补齐 authorId 字段映射：{}", indexName);
         } catch (Exception e) {
             // 容错：升级失败仅告警（旧 mapping 仍可检索，authorId 待人工重建时回填）
@@ -137,34 +153,34 @@ public class EsIndexInitializer implements ApplicationRunner {
                 // 注：字段数超过 Map.of 10 对上限，用 Map.ofEntries
                 .properties(Map.ofEntries(
                         // 文档主键：articleId（幂等 upsert 依据）
-                        Map.entry(SearchBizConstant.FIELD_ID, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_ID, keywordProperty()),
                         // 标题：ik 分文 + ^4 权重（权重在查询 DSL 侧配置）+ completion 联想子字段
-                        Map.entry(SearchBizConstant.FIELD_TITLE, ikTextWithCompletion()),
+                        Map.entry(SearchFieldConstant.FIELD_TITLE, ikTextWithCompletion()),
                         // 标签：keyword 数组，^3 权重，兼作标签重合度计算
-                        Map.entry(SearchBizConstant.FIELD_TAGS, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_TAGS, keywordProperty()),
                         // 摘要：ik 分词 + ^2 权重
-                        Map.entry(SearchBizConstant.FIELD_SUMMARY, ikTextProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_SUMMARY, ikTextProperty()),
                         // 正文：ik 分词，全文检索 + 高亮
-                        Map.entry(SearchBizConstant.FIELD_CONTENT, ikTextProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_CONTENT, ikTextProperty()),
                         // 可见性：写入侧闸门 + 查询侧 filter 双保险（仅 PUBLIC 入索引）
-                        Map.entry(SearchBizConstant.FIELD_VISIBILITY, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_VISIBILITY, keywordProperty()),
                         // 作者 ID：keyword，作者维度聚合/筛选（批次A A4）
-                        Map.entry(SearchBizConstant.FIELD_AUTHOR_ID, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_AUTHOR_ID, keywordProperty()),
                         // 作者名：ik 分词 + completion 联想子字段（批次A A4）
-                        Map.entry(SearchBizConstant.FIELD_AUTHOR_NAME, ikTextWithCompletion()),
+                        Map.entry(SearchFieldConstant.FIELD_AUTHOR_NAME, ikTextWithCompletion()),
                         // 分区与分类：keyword 筛选字段（批次二 2.1 补，批次四 tag/category/zone 筛选的数据来源）
-                        Map.entry(SearchBizConstant.FIELD_ZONE, keywordProperty()),
-                        Map.entry(SearchBizConstant.FIELD_CATEGORY, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_ZONE, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_CATEGORY, keywordProperty()),
                         // 互动计数三列：heat 计算基数（like/comment 随互动事件增量，view 随 flush 覆盖）
-                        Map.entry(SearchBizConstant.FIELD_LIKE_CNT, longProperty()),
-                        Map.entry(SearchBizConstant.FIELD_COMMENT_CNT, longProperty()),
-                        Map.entry(SearchBizConstant.FIELD_VIEW_CNT, longProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_LIKE_CNT, longProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_COMMENT_CNT, longProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_VIEW_CNT, longProperty()),
                         // 互动热度：double，function_score 加权因子 + HEAT 排序
-                        Map.entry(SearchBizConstant.FIELD_HEAT, doubleProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_HEAT, doubleProperty()),
                         // 文章向量：1024 维 cosine indexed，KNN 相似推荐（查询期零 Embedding 开销）
-                        Map.entry(SearchBizConstant.FIELD_VEC_DENSE, denseVectorProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_VEC_DENSE, denseVectorProperty()),
                         // 更新时间：NEWEST 排序
-                        Map.entry(SearchBizConstant.FIELD_UPDATE_TIME, dateProperty()))));
+                        Map.entry(SearchFieldConstant.FIELD_UPDATE_TIME, dateProperty()))));
     }
 
     /**
@@ -177,19 +193,19 @@ public class EsIndexInitializer implements ApplicationRunner {
         return TypeMapping.of(m -> m
                 .properties(Map.of(
                         // 文档主键：bookId
-                        SearchBizConstant.FIELD_ID, keywordProperty(),
+                        SearchFieldConstant.FIELD_ID, keywordProperty(),
                         // 书名：ik 分词
-                        SearchBizConstant.FIELD_TITLE, ikTextProperty(),
+                        SearchFieldConstant.FIELD_TITLE, ikTextProperty(),
                         // 作者 ID：keyword，作者维度筛选 + BookDocVO.authorId 回填（批次五 B4 新增）
-                        SearchBizConstant.FIELD_AUTHOR_ID, keywordProperty(),
+                        SearchFieldConstant.FIELD_AUTHOR_ID, keywordProperty(),
                         // 作者名：ik 分词
-                        SearchBizConstant.FIELD_AUTHOR_NAME, ikTextProperty(),
+                        SearchFieldConstant.FIELD_AUTHOR_NAME, ikTextProperty(),
                         // 简介：ik 分词
-                        SearchBizConstant.FIELD_SUMMARY, ikTextProperty(),
+                        SearchFieldConstant.FIELD_SUMMARY, ikTextProperty(),
                         // 分类：keyword 筛选维度
-                        SearchBizConstant.FIELD_CATEGORY, keywordProperty(),
+                        SearchFieldConstant.FIELD_CATEGORY, keywordProperty(),
                         // 更新时间：NEWEST 排序
-                        SearchBizConstant.FIELD_UPDATE_TIME, dateProperty())));
+                        SearchFieldConstant.FIELD_UPDATE_TIME, dateProperty())));
     }
 
     /**
@@ -202,13 +218,13 @@ public class EsIndexInitializer implements ApplicationRunner {
         return TypeMapping.of(m -> m
                 .properties(Map.of(
                         // 文档主键：userId
-                        SearchBizConstant.FIELD_ID, keywordProperty(),
+                        SearchFieldConstant.FIELD_ID, keywordProperty(),
                         // 笔名：ik 分词，模糊匹配检索
-                        SearchBizConstant.FIELD_PEN_NAME, ikTextProperty(),
+                        SearchFieldConstant.FIELD_PEN_NAME, ikTextProperty(),
                         // 简介：ik 分词
-                        SearchBizConstant.FIELD_BIO, ikTextProperty(),
+                        SearchFieldConstant.FIELD_BIO, ikTextProperty(),
                         // 更新时间：NEWEST 排序
-                        SearchBizConstant.FIELD_UPDATE_TIME, dateProperty())));
+                        SearchFieldConstant.FIELD_UPDATE_TIME, dateProperty())));
     }
 
     /**
@@ -225,26 +241,26 @@ public class EsIndexInitializer implements ApplicationRunner {
                 // 注：字段数超过 Map.of 10 对上限，用 Map.ofEntries
                 .properties(Map.ofEntries(
                         // 切片主键：articleId_seq（按 articleId 幂等覆盖删旧写新）
-                        Map.entry(SearchBizConstant.FIELD_CHUNK_ID, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_CHUNK_ID, keywordProperty()),
                         // 所属文章 ID：按 articleId 幂等删除旧块的查询键
-                        Map.entry(SearchBizConstant.FIELD_ARTICLE_ID, longProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_ARTICLE_ID, longProperty()),
                         // 作者 ID：RAG 检索可选过滤
-                        Map.entry(SearchBizConstant.FIELD_AUTHOR_ID, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_AUTHOR_ID, keywordProperty()),
                         // 文章标题：冗余存储，引用卡片展示
-                        Map.entry(SearchBizConstant.FIELD_TITLE, ikTextProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_TITLE, ikTextProperty()),
                         // 作者名：冗余存储，引用卡片展示
-                        Map.entry(SearchBizConstant.FIELD_AUTHOR_NAME, ikTextProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_AUTHOR_NAME, ikTextProperty()),
                         // 切片正文：ik 分词，小月 RAG 召回文本
-                        Map.entry(SearchBizConstant.FIELD_CHUNK_TEXT, ikTextProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_CHUNK_TEXT, ikTextProperty()),
                         // 切片向量：与 vec_dense 同一 Embedding 单模型（批次C C1）
-                        Map.entry(SearchBizConstant.FIELD_CHUNK_VECTOR, denseVectorProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_CHUNK_VECTOR, denseVectorProperty()),
                         // 分区：RAG 检索可选过滤维度
-                        Map.entry(SearchBizConstant.FIELD_ZONE, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_ZONE, keywordProperty()),
                         // 可见性：仅 PUBLIC 文章切片入库（隐私红线，批次C C2）
-                        Map.entry(SearchBizConstant.FIELD_VISIBILITY, keywordProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_VISIBILITY, keywordProperty()),
                         // 发布时间/摄入时间：date
-                        Map.entry(SearchBizConstant.FIELD_PUBLISH_TIME, dateProperty()),
-                        Map.entry(SearchBizConstant.FIELD_INGEST_TIME, dateProperty()))));
+                        Map.entry(SearchFieldConstant.FIELD_PUBLISH_TIME, dateProperty()),
+                        Map.entry(SearchFieldConstant.FIELD_INGEST_TIME, dateProperty()))));
     }
 
     /**
@@ -259,8 +275,8 @@ public class EsIndexInitializer implements ApplicationRunner {
         String embeddingModel = properties.getEmbedding().getModel() == null
                 ? "" : properties.getEmbedding().getModel();
         return Map.of(
-                SearchBizConstant.META_EMBEDDING_MODEL, JsonData.of(embeddingModel),
-                SearchBizConstant.META_EMBEDDING_DIMS, JsonData.of(SearchBizConstant.EMBEDDING_DIMS));
+                SearchFieldConstant.META_EMBEDDING_MODEL, JsonData.of(embeddingModel),
+                SearchFieldConstant.META_EMBEDDING_DIMS, JsonData.of(SearchEmbeddingConstant.EMBEDDING_DIMS));
     }
 
     /**
@@ -270,8 +286,8 @@ public class EsIndexInitializer implements ApplicationRunner {
      */
     private Property ikTextProperty() {
         return Property.of(p -> p.text(t -> t
-                .analyzer(SearchBizConstant.ANALYZER_IK_MAX_WORD)
-                .searchAnalyzer(SearchBizConstant.ANALYZER_IK_SMART)));
+                .analyzer(SearchFieldConstant.ANALYZER_IK_MAX_WORD)
+                .searchAnalyzer(SearchFieldConstant.ANALYZER_IK_SMART)));
     }
 
     /**
@@ -282,10 +298,10 @@ public class EsIndexInitializer implements ApplicationRunner {
      */
     private Property ikTextWithCompletion() {
         return Property.of(p -> p.text(t -> t
-                .analyzer(SearchBizConstant.ANALYZER_IK_MAX_WORD)
-                .searchAnalyzer(SearchBizConstant.ANALYZER_IK_SMART)
+                .analyzer(SearchFieldConstant.ANALYZER_IK_MAX_WORD)
+                .searchAnalyzer(SearchFieldConstant.ANALYZER_IK_SMART)
                 // multi-field 子字段：completion 类型，搜索联想 suggester 数据源
-                .fields(SearchBizConstant.FIELD_COMPLETION_SUB,
+                .fields(SearchFieldConstant.FIELD_COMPLETION_SUB,
                         Property.of(cp -> cp.completion(c -> c)))));
     }
 
@@ -323,7 +339,7 @@ public class EsIndexInitializer implements ApplicationRunner {
      */
     private Property denseVectorProperty() {
         return Property.of(p -> p.denseVector(d -> d
-                .dims(SearchBizConstant.EMBEDDING_DIMS)
+                .dims(SearchEmbeddingConstant.EMBEDDING_DIMS)
                 .index(true)
                 // 相似度：cosine（余弦相似，KNN 检索与相似推荐统一口径）
                 .similarity(DenseVectorSimilarity.Cosine)));
@@ -337,11 +353,15 @@ public class EsIndexInitializer implements ApplicationRunner {
      * @return date 字段属性
      */
     private Property dateProperty() {
-        return Property.of(p -> p.date(d -> d.format(SearchBizConstant.ES_DATE_FORMAT)));
+        return Property.of(p -> p.date(d -> d.format(SearchFieldConstant.ES_DATE_FORMAT)));
     }
+
 
     /**
      * 校验既有索引的 date 字段是否显式声明 format（批次九 9.9-A）。
+     *
+     * “显式声明” = 在创建索引的 mapping 里，手动写明 format 的值（比如 strict_date_optional_time||epoch_millis），而不是什么都不写、让 ES 自己用默认规则。
+     *显式声明 = 把“这个字段能接受什么时间格式”写死在 mapping 里，而不是让 ES 替你猜。
      *
      * 【为什么只校验不修改】ES 不允许对已存在字段原地修改 format（会返回 mapper 冲突）；
      * 新建索引已通过 dateProperty() 带 ES_DATE_FORMAT，既有索引使用集群默认格式
@@ -349,6 +369,21 @@ public class EsIndexInitializer implements ApplicationRunner {
      * 因此无需重建索引；这里仅在缺失 format 时打印提示，便于排查历史索引差异。
      */
     private void checkExistingDateFormat() {
+
+//        有人调用 dateProperty()
+//        ↓
+//        Property.of()  → 打开"造规则"的工厂
+//        ↓
+//        p.date()       → 选 date 类型
+//        ↓
+//        d.format()     → 写死只认两种格式
+//        ↓
+//        return         → 把规则交回去
+//        ↓
+//        塞进 mapping   → ES 索引创建时生效
+
+        //即：“所有 date 字段，我只认 ISO-8601 和毫秒时间戳，别的格式一律不收。”
+
         // 变量：待校验索引名（三业务索引 + 切片索引，统一 date 口径）
         List<String> indexNames = List.of(
                 properties.getIndex().getArticle(),
@@ -373,8 +408,9 @@ public class EsIndexInitializer implements ApplicationRunner {
                 // 变量：当前索引的字段属性表（单索引查询，取唯一一条记录）
                 Map<String, Property> fieldProperties = mappings.values().iterator().next().mappings().properties();
                 // 变量：需校验的 date 字段清单（updateTime 三索引共用；publishTime/ingestTime 仅切片索引）
-                List<String> dateFields = List.of(SearchBizConstant.FIELD_UPDATE_TIME,
-                        SearchBizConstant.FIELD_PUBLISH_TIME, SearchBizConstant.FIELD_INGEST_TIME);
+                List<String> dateFields = List.of(SearchFieldConstant.FIELD_UPDATE_TIME,
+                        SearchFieldConstant.FIELD_PUBLISH_TIME, SearchFieldConstant.FIELD_INGEST_TIME);
+
                 for (String field : dateFields) {
                     Property property = fieldProperties.get(field);
                     // 分支：字段不存在或不是 date 类型则跳过

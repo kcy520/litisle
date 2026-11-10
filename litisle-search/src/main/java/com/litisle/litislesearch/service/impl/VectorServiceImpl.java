@@ -1,7 +1,7 @@
 package com.litisle.litislesearch.service.impl;
 
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchEmbeddingConstant;
 import com.litisle.litislesearch.embedding.EmbeddingProvider;
 import com.litisle.litislesearch.service.VectorService;
 import lombok.RequiredArgsConstructor;
@@ -108,7 +108,7 @@ public class VectorServiceImpl implements VectorService {
         String configured = properties.getEmbedding().getProvider();
         // 未配置或显式 none：视为未接入（不要求提供方实现存在）
         if (!StringUtils.hasText(configured)
-                || SearchBizConstant.EMBEDDING_PROVIDER_NONE.equalsIgnoreCase(configured.trim())) {
+                || SearchEmbeddingConstant.EMBEDDING_PROVIDER_NONE.equalsIgnoreCase(configured.trim())) {
             return Optional.empty();
         }
         // 按 providerName 精确匹配多条提供方实现，并过滤本地配置未就绪的实现

@@ -1,7 +1,7 @@
 package com.litisle.litislesearch.config;
 
 import com.litisle.litisleapi.constant.MqConstant;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchMqConstant;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.CustomExchange;
@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.HashMap;
 import java.util.Map;
+
 
 /**
  * search 模块 MQ 拓扑声明（索引同步消费端）。
@@ -67,13 +68,13 @@ public class SearchMqConfig {
     /** 独立死信交换机（Direct，durable）：索引同步死信链路专用，与业务交换机隔离 */
     @Bean
     public DirectExchange searchDlx() {
-        return new DirectExchange(SearchBizConstant.EXCHANGE_SEARCH_DLX, true, false);
+        return new DirectExchange(SearchMqConstant.EXCHANGE_SEARCH_DLX, true, false);
     }
 
     /** 索引同步死信队列（durable）：各同步队列的死信按队列名统一汇入 */
     @Bean
     public Queue searchIndexDlq() {
-        return QueueBuilder.durable(SearchBizConstant.QUEUE_SEARCH_INDEX_DLQ).build();
+        return QueueBuilder.durable(SearchMqConstant.QUEUE_SEARCH_INDEX_DLQ).build();
     }
 
     // ==================== 延迟重投交换机（批次二 2.4 指数退避重试） ====================
@@ -89,9 +90,9 @@ public class SearchMqConfig {
     public CustomExchange searchDelayExchange() {
         // 插件要求显式声明底层交换机类型（x-delayed-type），这里用 direct 与队列名一一绑定
         Map<String, Object> args = new HashMap<>();
-        args.put(SearchBizConstant.DELAYED_EXCHANGE_ARG_TYPE, SearchBizConstant.DELAYED_EXCHANGE_TYPE_DIRECT);
-        return new CustomExchange(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
-                SearchBizConstant.EXCHANGE_TYPE_DELAYED, true, false, args);
+        args.put(SearchMqConstant.DELAYED_EXCHANGE_ARG_TYPE, SearchMqConstant.DELAYED_EXCHANGE_TYPE_DIRECT);
+        return new CustomExchange(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
+                SearchMqConstant.EXCHANGE_TYPE_DELAYED, true, false, args);
     }
 
     // ==================== 索引同步队列（均配 DLX 兜底；批次十一 11.14 新增 social.unliked） ====================
@@ -175,7 +176,7 @@ public class SearchMqConfig {
      */
     private Queue indexSyncQueue(String queueName) {
         return QueueBuilder.durable(queueName)
-                .deadLetterExchange(SearchBizConstant.EXCHANGE_SEARCH_DLX)
+                .deadLetterExchange(SearchMqConstant.EXCHANGE_SEARCH_DLX)
                 // 死信路由键 = 队列名（DLQ 侧按同名键绑定收全，见 searchIndexDlqBinding*）
                 .deadLetterRoutingKey(queueName)
                 .build();

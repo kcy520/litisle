@@ -2,7 +2,7 @@ package com.litisle.litislesearch.domain.entity;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -21,18 +21,18 @@ import java.time.LocalDateTime;
 public class UserIndexDoc {
 
     /** 文档主键：userId 字符串（mapping keyword） */
-    @JsonProperty(SearchBizConstant.FIELD_ID)
+    @JsonProperty(SearchFieldConstant.FIELD_ID)
     private String id;
 
     /** 笔名（multi_match 检索字段） */
-    @JsonProperty(SearchBizConstant.FIELD_PEN_NAME)
+    @JsonProperty(SearchFieldConstant.FIELD_PEN_NAME)
     private String penName;
 
     /** 个人简介（multi_match 检索字段） */
-    @JsonProperty(SearchBizConstant.FIELD_BIO)
+    @JsonProperty(SearchFieldConstant.FIELD_BIO)
     private String bio;
 
     /** 更新时间（NEWEST 排序） */
-    @JsonProperty(SearchBizConstant.FIELD_UPDATE_TIME)
+    @JsonProperty(SearchFieldConstant.FIELD_UPDATE_TIME)
     private LocalDateTime updateTime;
 }

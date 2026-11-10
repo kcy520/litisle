@@ -7,7 +7,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.content.ArticleIndexDocDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchGateConstant;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.domain.entity.ArticleMetaDoc;
 import com.litisle.litislesearch.enums.SearchTypeEnum;
@@ -209,8 +209,8 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
      * @return true=允许入索引
      */
     private boolean isPublicPublished(ArticleIndexDocDTO dto) {
-        return SearchBizConstant.ARTICLE_STATUS_PUBLISHED.equals(dto.getStatus())
-                && SearchBizConstant.ARTICLE_VISIBILITY_PUBLIC.equals(dto.getVisibility());
+        return SearchGateConstant.ARTICLE_STATUS_PUBLISHED.equals(dto.getStatus())
+                && SearchGateConstant.ARTICLE_VISIBILITY_PUBLIC.equals(dto.getVisibility());
     }
 
     /**
@@ -229,7 +229,7 @@ public class ArticleIndexServiceImpl implements ArticleIndexService {
         String plainText = SearchTextUtils.toPlainText(dto.getContentHtml());
         doc.setContent(plainText);
         // 写入侧可见性闸门：只有 PUBLIC 才写入，值固定为 PUBLIC（查询侧另有 filter 双保险）
-        doc.setVisibility(SearchBizConstant.VISIBILITY_PUBLIC);
+        doc.setVisibility(SearchGateConstant.VISIBILITY_PUBLIC);
         doc.setAuthorId(dto.getAuthorId() == null ? null : String.valueOf(dto.getAuthorId()));
         doc.setAuthorName(dto.getAuthorName());
         doc.setZone(dto.getZone() == null ? null : String.valueOf(dto.getZone()));

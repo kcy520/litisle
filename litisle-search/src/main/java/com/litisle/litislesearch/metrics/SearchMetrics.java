@@ -231,6 +231,7 @@ public class SearchMetrics {
         registry.counter(METRIC_INDEX_VERSION_SKIP, TAG_TYPE, type).increment();
     }
 
+
     /**
      * 记录一次索引同步队列的当前积压消息数（批次九 9.9-F）。
      * <p>gauge 语义为「当前值」而非累计值：同名 meter 只注册一次，每轮采集只更新数值载体。</p>

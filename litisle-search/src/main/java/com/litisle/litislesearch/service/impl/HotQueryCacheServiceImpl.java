@@ -4,7 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.litisle.litisleapi.dto.search.SearchRequestDTO;
 import com.litisle.litisleapi.vo.search.SearchResultVO;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchQueryConstant;
+import com.litisle.litislesearch.constant.SearchRedisConstant;
 import com.litisle.litislesearch.metrics.SearchMetrics;
 import com.litisle.litislesearch.service.HotQueryCacheService;
 import lombok.RequiredArgsConstructor;
@@ -87,7 +88,7 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
             return;
         }
         // 兜底/降级结果不是真实命中，禁止写入缓存（批次A A1/A3 定案）
-        if (!SearchBizConstant.SEARCH_SOURCE_ES.equals(result.getSource())) {
+        if (!SearchQueryConstant.SEARCH_SOURCE_ES.equals(result.getSource())) {
             return;
         }
         try {
@@ -114,7 +115,7 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
     public String buildKey(SearchRequestDTO request, String typeCode, String sortCode,
                            int pageNum, int pageSize, String keyword) {
         // 查询指纹：关键词与全部筛选条件按固定顺序拼接，再摘要（相同查询 → 相同键）
-        String identity = String.join(SearchBizConstant.CACHE_IDENTITY_SEPARATOR,
+        String identity = String.join(SearchRedisConstant.CACHE_IDENTITY_SEPARATOR,
                 keyword,
                 nullToEmpty(request.getTag()),
                 nullToEmpty(request.getCategory()),
@@ -123,11 +124,11 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
                 nullToEmpty(request.getPublishEnd()));
         // MD5 仅用于生成稳定短键（非安全用途），避免用户输入原样进入 Redis 键
         String digest = DigestUtils.md5DigestAsHex(identity.getBytes(StandardCharsets.UTF_8));
-        return SearchBizConstant.HOT_QUERY_KEY_PREFIX
-                + typeCode + SearchBizConstant.CACHE_KEY_SEPARATOR
-                + sortCode + SearchBizConstant.CACHE_KEY_SEPARATOR
-                + pageNum + SearchBizConstant.CACHE_KEY_SEPARATOR
-                + pageSize + SearchBizConstant.CACHE_KEY_SEPARATOR
+        return SearchRedisConstant.HOT_QUERY_KEY_PREFIX
+                + typeCode + SearchRedisConstant.CACHE_KEY_SEPARATOR
+                + sortCode + SearchRedisConstant.CACHE_KEY_SEPARATOR
+                + pageNum + SearchRedisConstant.CACHE_KEY_SEPARATOR
+                + pageSize + SearchRedisConstant.CACHE_KEY_SEPARATOR
                 + digest;
     }
 
@@ -144,12 +145,12 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
             return;
         }
         // 匹配模式：固定前缀 + 通配符（前缀为服务端常量，无用户可控原串）
-        String pattern = SearchBizConstant.HOT_QUERY_KEY_PREFIX + "*";
+        String pattern = SearchRedisConstant.HOT_QUERY_KEY_PREFIX + "*";
         List<String> keys = new ArrayList<>();
         try (Cursor<String> cursor = stringRedisTemplate.scan(
                 ScanOptions.scanOptions()
                         .match(pattern)
-                        .count(SearchBizConstant.HOT_QUERY_EVICT_SCAN_COUNT)
+                        .count(SearchRedisConstant.HOT_QUERY_EVICT_SCAN_COUNT)
                         .build())) {
             cursor.forEachRemaining(keys::add);
         } catch (Exception e) {
@@ -160,8 +161,8 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
         }
         try {
             // 分批删除：单次 DEL 参数过多会增大请求体积，按 SCAN 建议条数分批
-            for (int from = 0; from < keys.size(); from += SearchBizConstant.HOT_QUERY_EVICT_SCAN_COUNT) {
-                int to = Math.min(from + SearchBizConstant.HOT_QUERY_EVICT_SCAN_COUNT, keys.size());
+            for (int from = 0; from < keys.size(); from += SearchRedisConstant.HOT_QUERY_EVICT_SCAN_COUNT) {
+                int to = Math.min(from + SearchRedisConstant.HOT_QUERY_EVICT_SCAN_COUNT, keys.size());
                 stringRedisTemplate.delete(keys.subList(from, to));
             }
             log.info("[热点查询缓存] 失效完成：删除键数={}", keys.size());
@@ -184,13 +185,13 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
         }
         try {
             // 脏标记 TTL 由常量统一收口：短 TTL 防合并任务长期不可用时标记永久残留
-            stringRedisTemplate.opsForValue().set(SearchBizConstant.HOT_QUERY_DIRTY_KEY,
-                    "1", Duration.ofSeconds(SearchBizConstant.HOT_QUERY_DIRTY_TTL_SECONDS));
+            stringRedisTemplate.opsForValue().set(SearchRedisConstant.HOT_QUERY_DIRTY_KEY,
+                    "1", Duration.ofSeconds(SearchRedisConstant.HOT_QUERY_DIRTY_TTL_SECONDS));
             searchMetrics.recordCacheDirtyMark(true);
         } catch (Exception e) {
             // 指标 + error 日志留痕后抛出，由 MqAckHelper 走延迟重投（不静默吞）
             searchMetrics.recordCacheDirtyMark(false);
-            log.error("[热点查询缓存] 脏标记写入失败（可重试）：key={}", SearchBizConstant.HOT_QUERY_DIRTY_KEY, e);
+            log.error("[热点查询缓存] 脏标记写入失败（可重试）：key={}", SearchRedisConstant.HOT_QUERY_DIRTY_KEY, e);
             throw new IllegalStateException("写入热点查询缓存脏标记失败（可重试）", e);
         }
     }
@@ -209,7 +210,7 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
         }
         try {
             // delete 返回 true 表示标记存在且本次删除成功（即本轮需要清理）
-            Boolean removed = stringRedisTemplate.delete(SearchBizConstant.HOT_QUERY_DIRTY_KEY);
+            Boolean removed = stringRedisTemplate.delete(SearchRedisConstant.HOT_QUERY_DIRTY_KEY);
             if (!Boolean.TRUE.equals(removed)) {
                 return false;
             }
@@ -222,8 +223,8 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
         } catch (RuntimeException e) {
             // 清理失败：尽力重新打标，保证下一轮继续清理（标记已删但未清成功不能就此丢失）
             try {
-                stringRedisTemplate.opsForValue().set(SearchBizConstant.HOT_QUERY_DIRTY_KEY,
-                        "1", Duration.ofSeconds(SearchBizConstant.HOT_QUERY_DIRTY_TTL_SECONDS));
+                stringRedisTemplate.opsForValue().set(SearchRedisConstant.HOT_QUERY_DIRTY_KEY,
+                        "1", Duration.ofSeconds(SearchRedisConstant.HOT_QUERY_DIRTY_TTL_SECONDS));
             } catch (Exception remarkError) {
                 log.error("[热点查询缓存] 清理失败后重新打标也失败，失效可能延迟到 TTL 后由新事件触发",
                         remarkError);

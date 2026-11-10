@@ -2,7 +2,7 @@ package com.litisle.litislesearch.domain.entity;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -24,30 +24,30 @@ import java.time.LocalDateTime;
 public class BookIndexDoc {
 
     /** 文档主键：bookId 字符串（mapping keyword） */
-    @JsonProperty(SearchBizConstant.FIELD_ID)
+    @JsonProperty(SearchFieldConstant.FIELD_ID)
     private String id;
 
     /** 书名（multi_match 检索字段） */
-    @JsonProperty(SearchBizConstant.FIELD_TITLE)
+    @JsonProperty(SearchFieldConstant.FIELD_TITLE)
     private String title;
 
     /** 作者 ID（keyword，批次五补映射；供 BookDocVO.authorId 回填与作者维度筛选） */
-    @JsonProperty(SearchBizConstant.FIELD_AUTHOR_ID)
+    @JsonProperty(SearchFieldConstant.FIELD_AUTHOR_ID)
     private String authorId;
 
     /** 作者名（multi_match 检索字段） */
-    @JsonProperty(SearchBizConstant.FIELD_AUTHOR_NAME)
+    @JsonProperty(SearchFieldConstant.FIELD_AUTHOR_NAME)
     private String authorName;
 
     /** 书籍简介（multi_match 检索字段） */
-    @JsonProperty(SearchBizConstant.FIELD_SUMMARY)
+    @JsonProperty(SearchFieldConstant.FIELD_SUMMARY)
     private String summary;
 
     /** 分类（keyword 筛选维度） */
-    @JsonProperty(SearchBizConstant.FIELD_CATEGORY)
+    @JsonProperty(SearchFieldConstant.FIELD_CATEGORY)
     private String category;
 
     /** 更新时间（NEWEST 排序） */
-    @JsonProperty(SearchBizConstant.FIELD_UPDATE_TIME)
+    @JsonProperty(SearchFieldConstant.FIELD_UPDATE_TIME)
     private LocalDateTime updateTime;
 }

@@ -6,7 +6,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.content.BookIndexDocDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchGateConstant;
 import com.litisle.litislesearch.domain.entity.BookIndexDoc;
 import com.litisle.litislesearch.enums.SearchTypeEnum;
 import com.litisle.litislesearch.service.BookIndexService;
@@ -106,8 +106,8 @@ public class BookIndexServiceImpl implements BookIndexService {
      * @return true=允许入索引
      */
     private boolean isIndexable(BookIndexDocDTO dto) {
-        return SearchBizConstant.DEL_FLAG_NOT_DELETED.equals(dto.getDelFlag())
-                && !SearchBizConstant.BOOK_STATUS_TAKEN_DOWN.equals(dto.getStatus());
+        return SearchGateConstant.DEL_FLAG_NOT_DELETED.equals(dto.getDelFlag())
+                && !SearchGateConstant.BOOK_STATUS_TAKEN_DOWN.equals(dto.getStatus());
     }
 
     /**

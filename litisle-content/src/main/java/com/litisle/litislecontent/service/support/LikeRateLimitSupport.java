@@ -2,6 +2,7 @@ package com.litisle.litislecontent.service.support;
 
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
+import com.litisle.commonredis.ratelimit.RateLimiter;
 import com.litisle.commonredis.ratelimit.RedisRateLimiter;
 import com.litisle.litislecontent.config.ContentProperties;
 import com.litisle.litislecontent.constant.ContentBizConstant;
@@ -32,7 +33,21 @@ public class LikeRateLimitSupport {
     /** content 模块配置（读取点赞频控窗口与阈值） */
     private final ContentProperties contentProperties;
 
-    /**
+
+// key = rate_limit:like:user:{userId}      ← 每个用户一个独立计数器
+// 窗口 = rate-limit-window-seconds（如 60 秒）
+// 上限 = rate-limit-max-count（如 30 次）
+
+// 用户每次点赞/取消 → INCR key（原子 +1，首次附带窗口过期时间）
+//                   → 计数 > 上限 → 抛 TOO_MANY_REQUESTS
+// 窗口到期 key 自动过期 → 计数器归零，重新开始计数
+
+// 为什么不用`@RateLimiter` 注解？
+// LikeRateLimitSupport.java#L14-19 类注释直接说明了：注解的`count` 属性只能是 编译期常量 ，写死在代码里。而这里要求阈值可通过 yml / Nacos 运行时热调 ——比如发现刷子攻击，运维不改代码、不重启，直接在配置中心把 30 调成 5。
+  
+
+
+/**
      * 执行一次点赞频控校验，超限抛业务异常。
      *
      * @param userId 点赞用户ID（Controller @SaCheckLogin 保证非空）

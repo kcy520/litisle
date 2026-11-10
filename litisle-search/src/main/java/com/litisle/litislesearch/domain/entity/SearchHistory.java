@@ -3,7 +3,7 @@ package com.litisle.litislesearch.domain.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchHistoryConstant;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
  */
 @Data
 @Accessors(chain = true)
-@TableName(SearchBizConstant.TABLE_SEARCH_HISTORY)
+@TableName(SearchHistoryConstant.TABLE_SEARCH_HISTORY)
 public class SearchHistory {
 
     /** 主键 ID（数据库自增） */

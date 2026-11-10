@@ -2,7 +2,7 @@ package com.litisle.litislesearch.service.support;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.GetResponse;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
 import com.litisle.litislesearch.metrics.SearchMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,7 +64,7 @@ public class IndexVersionGuard {
             response = elasticsearchClient.get(g -> g
                     .index(index)
                     .id(id)
-                    .sourceIncludes(SearchBizConstant.FIELD_UPDATE_TIME), docType);
+                    .sourceIncludes(SearchFieldConstant.FIELD_UPDATE_TIME), docType);
         } catch (Exception e) {
             // 读取失败属于可恢复故障：抛出让 MQ 重试，避免在版本未知时用旧快照覆盖
             throw new IllegalStateException(

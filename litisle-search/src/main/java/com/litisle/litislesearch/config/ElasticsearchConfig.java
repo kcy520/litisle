@@ -52,6 +52,7 @@ public class ElasticsearchConfig {
      */
     private static final DateTimeFormatter ES_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
 
+
     /**
      * 构建 ElasticsearchClient Bean（search 模块唯一 ES 入口，业务侧直接注入使用）
      *

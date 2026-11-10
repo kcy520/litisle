@@ -1,6 +1,6 @@
 package com.litisle.litislesearch.utils;
 
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchEmbeddingConstant;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,7 +75,7 @@ public final class SearchTextUtils {
      * 拼接文章向量化输入：标题 + 摘要 + 正文截断片段。
      *
      * <p>统一索引写入（发布事件）与全量重建的口径，避免两处拼接规则漂移导致向量语义不一致；
-     * 正文按 {@link SearchBizConstant#EMBEDDING_INPUT_MAX_CHARS} 截断，防超模型输入长度上限。</p>
+     * 正文按 {@link SearchEmbeddingConstant#EMBEDDING_INPUT_MAX_CHARS} 截断，防超模型输入长度上限。</p>
      *
      * @param title     标题（权重最高）
      * @param summary   摘要（可空）
@@ -85,14 +85,15 @@ public final class SearchTextUtils {
     public static String buildEmbeddingInput(String title, String summary, String plainText) {
         // 正文按上限截断：只影响向量语义覆盖范围，不影响全文检索字段 content
         String contentPart = plainText == null ? "" : plainText;
-        if (contentPart.length() > SearchBizConstant.EMBEDDING_INPUT_MAX_CHARS) {
-            contentPart = contentPart.substring(0, SearchBizConstant.EMBEDDING_INPUT_MAX_CHARS);
+        if (contentPart.length() > SearchEmbeddingConstant.EMBEDDING_INPUT_MAX_CHARS) {
+            contentPart = contentPart.substring(0, SearchEmbeddingConstant.EMBEDDING_INPUT_MAX_CHARS);
         }
         // 三段以换行分隔，保持标题/摘要/正文的语义边界
         return (title == null ? "" : title) + "\n"
                 + (summary == null ? "" : summary) + "\n"
                 + contentPart;
     }
+
 
     /**
      * 把纯文本按固定字数切分为重叠片段（RAG 知识库切片）。

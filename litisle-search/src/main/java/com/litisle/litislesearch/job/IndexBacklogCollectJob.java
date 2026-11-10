@@ -17,6 +17,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * 索引同步队列积压采集任务（批次九 9.9-F）。
  *
+ * IndexBacklogCollectJob 是一个 可观测性采集任务 ：每 15 秒去 MQ 问一次「search 的 9 个业务队列各还剩多少条消息没消费」，把数字写进监控指标，供告警和扩容决策用。 它不消费、不处理任何消息，纯粹是“看一眼、记一笔”。
+ * 原有指标（`litisle_search_consume_total` ）只能表达「消费了多少」，表达不了「还欠着多少」。没有积压指标时，如果消费者挂了或消费变慢，你只能事后从日志发现——而不是在监控面板上看到积压曲线持续上涨。本任务补的就是这个缺口：
+ *   - 指标：`litisle_search_index_backlog{queue}` （gauge 类型，记录每个队列的 ready 消息数）
+ *   - 用途：支撑「 积压持续 >5 分钟 」的告警；也是判断「要不要调大消费并发度 / 扩容」的依据
+ * 
  * 【目的】现有指标只能表达消费吞吐（litisle_search_consume_total{queue,result}），
  * 无法表达「还有多少消息没消费」；本任务定时读取队列消息数并写入 gauge
  * litisle_search_index_backlog{queue}，支撑「积压持续 >5 分钟」告警，
@@ -38,6 +43,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 @Component
 public class IndexBacklogCollectJob {
+
+//     ## 工作流程
+// 每 15s（fixedDelay，启动后延迟 15s 避开建队阶段）
+//   └─ collectBacklog()：CAS 抢占标记 → 提交到独立线程 → 立即返回
+//        └─ collectOnce()：遍历 9 个队列
+//             └─ amqpAdmin.getQueueInfo(队列名) → 取 messageCount → 写入 gauge
 
     /**
      * 需要采集积压的队列清单：search 模块实际监听的全部 9 个业务队列

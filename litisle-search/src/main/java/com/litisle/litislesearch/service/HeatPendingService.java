@@ -8,7 +8,7 @@ import java.util.Map;
  *
  * 【职责】把点赞 / 评论 / 浏览量三类互动信号累加到 Redis 热度待刷新键（Hash 结构），
  * 不直接写 ES —— 带 1024 维向量的整文档重写写放大约 4KB，按窗口聚合后再由定时任务刷写；
- * 键与字段命名收口在 {@code SearchBizConstant.HEAT_PENDING_KEY_PREFIX / HEAT_PENDING_FIELD_*}。
+ * 键与字段命名收口在 {@code SearchRedisConstant.HEAT_PENDING_KEY_PREFIX / HEAT_PENDING_FIELD_*}。
  *
  * 【幂等口径】
  * - 点赞 / 评论：Hash 自增不可重入，幂等由消费端按 eventId 去重保证（见 HeatEventConsumer）

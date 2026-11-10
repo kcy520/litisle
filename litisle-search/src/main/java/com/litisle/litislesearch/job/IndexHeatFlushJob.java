@@ -8,7 +8,7 @@ import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.elasticsearch.core.get.GetResult;
 import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchRedisConstant;
 import com.litisle.litislesearch.domain.entity.ArticleHeatDoc;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.metrics.SearchMetrics;
@@ -233,7 +233,7 @@ public class IndexHeatFlushJob {
      */
     private PendingHeat parsePending(String key, Map<String, String> hash) {
         // 文章 ID 取键前缀之后的部分（服务端生成，无用户可控原串）
-        String articleIdText = key.substring(SearchBizConstant.HEAT_PENDING_KEY_PREFIX.length());
+        String articleIdText = key.substring(SearchRedisConstant.HEAT_PENDING_KEY_PREFIX.length());
         if (articleIdText.isBlank()) {
             log.warn("[热度刷写] 待刷新键缺少文章 ID，跳过：key={}", key);
             return null;
@@ -245,9 +245,9 @@ public class IndexHeatFlushJob {
             return null;
         }
         // 解析三类增量：非法数字按 0 处理并告警（不因单字段脏数据中断整条刷写）
-        long likeDelta = parseLong(hash.get(SearchBizConstant.HEAT_PENDING_FIELD_LIKE), articleIdText, "like_delta");
-        long commentDelta = parseLong(hash.get(SearchBizConstant.HEAT_PENDING_FIELD_COMMENT), articleIdText, "comment_delta");
-        Long viewCount = parseNullableLong(hash.get(SearchBizConstant.HEAT_PENDING_FIELD_VIEW), articleIdText, "view_cnt");
+        long likeDelta = parseLong(hash.get(SearchRedisConstant.HEAT_PENDING_FIELD_LIKE), articleIdText, "like_delta");
+        long commentDelta = parseLong(hash.get(SearchRedisConstant.HEAT_PENDING_FIELD_COMMENT), articleIdText, "comment_delta");
+        Long viewCount = parseNullableLong(hash.get(SearchRedisConstant.HEAT_PENDING_FIELD_VIEW), articleIdText, "view_cnt");
         // 三项均无有效值：无需重算 heat，直接丢弃（避免空写放大）
         if (likeDelta == 0 && commentDelta == 0 && viewCount == null) {
             log.debug("[热度刷写] 待刷新键无有效增量，跳过：articleId={}", articleIdText);

@@ -2,7 +2,7 @@ package com.litisle.litislesearch.domain.entity;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -23,46 +23,46 @@ import java.util.List;
 public class ArticleChunkDoc {
 
     /** 切片主键：articleId + 分隔符 + 序号 */
-    @JsonProperty(SearchBizConstant.FIELD_CHUNK_ID)
+    @JsonProperty(SearchFieldConstant.FIELD_CHUNK_ID)
     private String chunkId;
 
     /** 所属文章 ID（按 articleId 幂等覆盖删旧写新） */
-    @JsonProperty(SearchBizConstant.FIELD_ARTICLE_ID)
+    @JsonProperty(SearchFieldConstant.FIELD_ARTICLE_ID)
     private Long articleId;
 
     /** 作者 ID（RAG 检索可选过滤） */
-    @JsonProperty(SearchBizConstant.FIELD_AUTHOR_ID)
+    @JsonProperty(SearchFieldConstant.FIELD_AUTHOR_ID)
     private String authorId;
 
     /** 文章标题（冗余，引用卡片展示） */
-    @JsonProperty(SearchBizConstant.FIELD_TITLE)
+    @JsonProperty(SearchFieldConstant.FIELD_TITLE)
     private String title;
 
     /** 作者昵称（冗余，引用卡片展示） */
-    @JsonProperty(SearchBizConstant.FIELD_AUTHOR_NAME)
+    @JsonProperty(SearchFieldConstant.FIELD_AUTHOR_NAME)
     private String authorName;
 
     /** 切片正文 */
-    @JsonProperty(SearchBizConstant.FIELD_CHUNK_TEXT)
+    @JsonProperty(SearchFieldConstant.FIELD_CHUNK_TEXT)
     private String chunkText;
 
     /** 切片向量（与 article_idx 的 vec_dense 同一 Embedding 单模型） */
-    @JsonProperty(SearchBizConstant.FIELD_CHUNK_VECTOR)
+    @JsonProperty(SearchFieldConstant.FIELD_CHUNK_VECTOR)
     private List<Float> chunkVector;
 
     /** 分区 code 字符串（RAG 检索可选过滤） */
-    @JsonProperty(SearchBizConstant.FIELD_ZONE)
+    @JsonProperty(SearchFieldConstant.FIELD_ZONE)
     private String zone;
 
     /** 可见性闸门值（固定 "PUBLIC"） */
-    @JsonProperty(SearchBizConstant.FIELD_VISIBILITY)
+    @JsonProperty(SearchFieldConstant.FIELD_VISIBILITY)
     private String visibility;
 
     /** 文章发布时间 */
-    @JsonProperty(SearchBizConstant.FIELD_PUBLISH_TIME)
+    @JsonProperty(SearchFieldConstant.FIELD_PUBLISH_TIME)
     private LocalDateTime publishTime;
 
     /** 切片入库时间（重建排查用） */
-    @JsonProperty(SearchBizConstant.FIELD_INGEST_TIME)
+    @JsonProperty(SearchFieldConstant.FIELD_INGEST_TIME)
     private LocalDateTime ingestTime;
 }

@@ -1,7 +1,7 @@
 package com.litisle.litislesearch.service.impl;
 
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchRedisConstant;
 import com.litisle.litislesearch.service.HeatPendingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -65,7 +65,7 @@ public class HeatPendingServiceImpl implements HeatPendingService {
      */
     @Override
     public void incrementLike(Long articleId) {
-        increment(articleId, SearchBizConstant.HEAT_PENDING_FIELD_LIKE, COUNTER_STEP);
+        increment(articleId, SearchRedisConstant.HEAT_PENDING_FIELD_LIKE, COUNTER_STEP);
     }
 
     /**
@@ -79,7 +79,7 @@ public class HeatPendingServiceImpl implements HeatPendingService {
         if (delta == 0) {
             return;
         }
-        increment(articleId, SearchBizConstant.HEAT_PENDING_FIELD_LIKE, delta);
+        increment(articleId, SearchRedisConstant.HEAT_PENDING_FIELD_LIKE, delta);
     }
 
     /**
@@ -89,7 +89,7 @@ public class HeatPendingServiceImpl implements HeatPendingService {
      */
     @Override
     public void incrementComment(Long articleId) {
-        increment(articleId, SearchBizConstant.HEAT_PENDING_FIELD_COMMENT, COUNTER_STEP);
+        increment(articleId, SearchRedisConstant.HEAT_PENDING_FIELD_COMMENT, COUNTER_STEP);
     }
 
     /**
@@ -103,7 +103,7 @@ public class HeatPendingServiceImpl implements HeatPendingService {
         String key = buildKey(articleId);
         try {
             // HSET 覆盖语义：写入 content 侧落库后的最新绝对值，事件重放结果一致
-            stringRedisTemplate.opsForHash().put(key, SearchBizConstant.HEAT_PENDING_FIELD_VIEW, String.valueOf(viewCount));
+            stringRedisTemplate.opsForHash().put(key, SearchRedisConstant.HEAT_PENDING_FIELD_VIEW, String.valueOf(viewCount));
             refreshTtl(key);
         } catch (Exception e) {
             // 包装为非业务异常，交由消费端延迟重试（Redis 抖动属可恢复故障）
@@ -119,7 +119,7 @@ public class HeatPendingServiceImpl implements HeatPendingService {
     @Override
     public List<String> scanPendingKeys() {
         // 扫描匹配模式：固定前缀 + 通配符（前缀为服务端常量，无用户可控原串）
-        String pattern = SearchBizConstant.HEAT_PENDING_KEY_PREFIX + "*";
+        String pattern = SearchRedisConstant.HEAT_PENDING_KEY_PREFIX + "*";
         // 每次 SCAN 建议返回的元素个数，取刷写批量数，避免过多小批次往返
         int scanCount = Math.max(1, properties.getHeat().getFlush().getBatchSize());
         List<String> keys = new ArrayList<>();
@@ -173,14 +173,14 @@ public class HeatPendingServiceImpl implements HeatPendingService {
         try {
             // 点赞/评论：失败窗口内可能已有新事件写入，按增量追加而非覆盖，避免丢掉新到达的互动
             if (likeDelta != 0) {
-                stringRedisTemplate.opsForHash().increment(key, SearchBizConstant.HEAT_PENDING_FIELD_LIKE, likeDelta);
+                stringRedisTemplate.opsForHash().increment(key, SearchRedisConstant.HEAT_PENDING_FIELD_LIKE, likeDelta);
             }
             if (commentDelta != 0) {
-                stringRedisTemplate.opsForHash().increment(key, SearchBizConstant.HEAT_PENDING_FIELD_COMMENT, commentDelta);
+                stringRedisTemplate.opsForHash().increment(key, SearchRedisConstant.HEAT_PENDING_FIELD_COMMENT, commentDelta);
             }
             // 浏览量：仅当字段不存在时写入（失败值通常旧于新事件值，不能用旧值覆盖新值）
             if (viewCount != null) {
-                stringRedisTemplate.opsForHash().putIfAbsent(key, SearchBizConstant.HEAT_PENDING_FIELD_VIEW,
+                stringRedisTemplate.opsForHash().putIfAbsent(key, SearchRedisConstant.HEAT_PENDING_FIELD_VIEW,
                         String.valueOf(viewCount));
             }
             refreshTtl(key);
@@ -217,7 +217,7 @@ public class HeatPendingServiceImpl implements HeatPendingService {
      * @return Redis 键
      */
     private String buildKey(Long articleId) {
-        return SearchBizConstant.HEAT_PENDING_KEY_PREFIX + articleId;
+        return SearchRedisConstant.HEAT_PENDING_KEY_PREFIX + articleId;
     }
 
     /**

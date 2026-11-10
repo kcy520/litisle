@@ -2,7 +2,7 @@ package com.litisle.litislesearch.domain.entity;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
 import lombok.Data;
 
 /**
@@ -19,18 +19,18 @@ import lombok.Data;
 public class ArticleHeatDoc {
 
     /** 刷写后的点赞总数绝对值（原值 + 窗口内增量） */
-    @JsonProperty(SearchBizConstant.FIELD_LIKE_CNT)
+    @JsonProperty(SearchFieldConstant.FIELD_LIKE_CNT)
     private Long likeCnt;
 
     /** 刷写后的评论总数绝对值（原值 + 窗口内增量） */
-    @JsonProperty(SearchBizConstant.FIELD_COMMENT_CNT)
+    @JsonProperty(SearchFieldConstant.FIELD_COMMENT_CNT)
     private Long commentCnt;
 
     /** 刷写后的浏览量绝对值（content 侧落库值优先，未收到则沿用原值） */
-    @JsonProperty(SearchBizConstant.FIELD_VIEW_CNT)
+    @JsonProperty(SearchFieldConstant.FIELD_VIEW_CNT)
     private Long viewCnt;
 
     /** 重算后的互动热度（HEAT 排序与 function_score 加权因子使用） */
-    @JsonProperty(SearchBizConstant.FIELD_HEAT)
+    @JsonProperty(SearchFieldConstant.FIELD_HEAT)
     private Double heat;
 }

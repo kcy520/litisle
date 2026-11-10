@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.litisle.commoncore.constant.CommonConstant;
 import com.litisle.commoncore.enums.DelFlag;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
@@ -260,7 +261,7 @@ public class ArticlePublishServiceImpl implements ArticlePublishService {
                 log.info("定时发布送审完成，articleId={}，authorId={}", articleId, article.getAuthorId());
             } else {
                 // 失败不静默：warn 留痕（常见原因：内容指纹缺失/状态机拒绝），文章停留草稿态待作者处理
-                String errorCode = results.isEmpty() ? "unknown" : results.get(0).getErrorCode();
+                String errorCode = results.isEmpty() ? CommonConstant.UNKNOWN : results.get(0).getErrorCode();
                 log.warn("定时发布送审失败（已清定时字段，防反复重扫），articleId={}，authorId={}，errorCode={}",
                         articleId, article.getAuthorId(), errorCode);
             }

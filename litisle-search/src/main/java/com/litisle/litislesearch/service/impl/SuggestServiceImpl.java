@@ -9,7 +9,8 @@ import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import com.litisle.litisleapi.vo.search.SuggestVO;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchQueryConstant;
+import com.litisle.litislesearch.constant.SearchSuggestConstant;
 import com.litisle.litislesearch.service.SuggestService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,8 +65,8 @@ public class SuggestServiceImpl implements SuggestService {
         String normalized = keyword == null ? "" : keyword.trim();
         if (normalized.isEmpty()
                 // 最小长度门槛：单字输入命中率低且放大 completion/标签池查询，企业优化清单 1.1
-                || normalized.length() < SearchBizConstant.SUGGEST_MIN_KEYWORD_LENGTH
-                || normalized.length() > SearchBizConstant.SEARCH_KEYWORD_MAX_LENGTH) {
+                || normalized.length() < SearchSuggestConstant.SUGGEST_MIN_KEYWORD_LENGTH
+                || normalized.length() > SearchQueryConstant.SEARCH_KEYWORD_MAX_LENGTH) {
             return List.of();
         }
         // 步骤3：解析返回条数（未传/非法取配置默认值，超出默认值按默认值封顶）
@@ -95,27 +96,27 @@ public class SuggestServiceImpl implements SuggestService {
                             .index(properties.getIndex().getArticle())
                             .size(0)
                             .suggest(sg -> sg
-                                    .suggesters(SearchBizConstant.SUGGESTER_NAME_TITLE, fs -> fs
+                                    .suggesters(SearchSuggestConstant.SUGGESTER_NAME_TITLE, fs -> fs
                                             .prefix(keyword)
                                             .completion(c -> c
-                                                    .field(SearchBizConstant.SUGGEST_FIELD_TITLE_COMPLETION)
+                                                    .field(SearchSuggestConstant.SUGGEST_FIELD_TITLE_COMPLETION)
                                                     .size(limit)
                                                     .skipDuplicates(true)))
-                                    .suggesters(SearchBizConstant.SUGGESTER_NAME_AUTHOR, fs -> fs
+                                    .suggesters(SearchSuggestConstant.SUGGESTER_NAME_AUTHOR, fs -> fs
                                             .prefix(keyword)
                                             .completion(c -> c
-                                                    .field(SearchBizConstant.SUGGEST_FIELD_AUTHOR_NAME_COMPLETION)
+                                                    .field(SearchSuggestConstant.SUGGEST_FIELD_AUTHOR_NAME_COMPLETION)
                                                     .size(limit)
                                                     .skipDuplicates(true)))),
                     Void.class);
             // 响应按 suggester 名称分组解析
             Map<String, List<Suggestion<Void>>> suggestMap = response.suggest();
             // 书名联想（KEYWORD）
-            appendCompletion(suggestMap.get(SearchBizConstant.SUGGESTER_NAME_TITLE),
-                    SearchBizConstant.SUGGEST_TYPE_KEYWORD, limit, result, seenTexts);
+            appendCompletion(suggestMap.get(SearchSuggestConstant.SUGGESTER_NAME_TITLE),
+                    SearchSuggestConstant.SUGGEST_TYPE_KEYWORD, limit, result, seenTexts);
             // 作者联想（AUTHOR），仅补足剩余条数
-            appendCompletion(suggestMap.get(SearchBizConstant.SUGGESTER_NAME_AUTHOR),
-                    SearchBizConstant.SUGGEST_TYPE_AUTHOR, limit, result, seenTexts);
+            appendCompletion(suggestMap.get(SearchSuggestConstant.SUGGESTER_NAME_AUTHOR),
+                    SearchSuggestConstant.SUGGEST_TYPE_AUTHOR, limit, result, seenTexts);
         } catch (Exception e) {
             // ES 故障只丢书名/作者联想，不影响标签联想返回
             log.warn("[搜索联想] ES completion 查询失败，降级跳过书名/作者联想", e);
@@ -169,7 +170,7 @@ public class SuggestServiceImpl implements SuggestService {
                 if (result.size() >= limit) {
                     return;
                 }
-                addIfAbsent(tag.getName(), SearchBizConstant.SUGGEST_TYPE_TAG, seenTexts, result);
+                addIfAbsent(tag.getName(), SearchSuggestConstant.SUGGEST_TYPE_TAG, seenTexts, result);
             }
         } catch (Exception e) {
             // 标签源故障只丢标签联想（降级由降级工厂/此处双保险）

@@ -2,7 +2,7 @@ package com.litisle.litislesearch.domain.entity;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -23,26 +23,26 @@ import java.util.List;
 public class ArticleMetaDoc {
 
     /** 标题（有变更才写） */
-    @JsonProperty(SearchBizConstant.FIELD_TITLE)
+    @JsonProperty(SearchFieldConstant.FIELD_TITLE)
     private String title;
 
     /** 标签名列表（有变更才写） */
-    @JsonProperty(SearchBizConstant.FIELD_TAGS)
+    @JsonProperty(SearchFieldConstant.FIELD_TAGS)
     private List<String> tags;
 
     /** 摘要（有变更才写） */
-    @JsonProperty(SearchBizConstant.FIELD_SUMMARY)
+    @JsonProperty(SearchFieldConstant.FIELD_SUMMARY)
     private String summary;
 
     /** 分区 code 字符串（有变更才写） */
-    @JsonProperty(SearchBizConstant.FIELD_ZONE)
+    @JsonProperty(SearchFieldConstant.FIELD_ZONE)
     private String zone;
 
     /** 分类名（有变更才写） */
-    @JsonProperty(SearchBizConstant.FIELD_CATEGORY)
+    @JsonProperty(SearchFieldConstant.FIELD_CATEGORY)
     private String category;
 
     /** 更新时间（同步推进，保证 NEWEST 排序准确） */
-    @JsonProperty(SearchBizConstant.FIELD_UPDATE_TIME)
+    @JsonProperty(SearchFieldConstant.FIELD_UPDATE_TIME)
     private LocalDateTime updateTime;
 }

@@ -14,7 +14,8 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litisleapi.vo.search.SimilarArticleVO;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
+import com.litisle.litislesearch.constant.SearchGateConstant;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.service.SimilarService;
 import lombok.RequiredArgsConstructor;
@@ -70,7 +71,7 @@ public class SimilarServiceImpl implements SimilarService {
         // 步骤2：回查源文章（不存在/已下架返回 SEARCH_SOURCE_NOT_FOUND，由调用方决策）
         ArticleIndexDoc source = fetchSource(articleId);
         // 防御：写入侧只入 PUBLIC，查询侧再兜底，防脏数据把私密文章当推荐源
-        if (!SearchBizConstant.VISIBILITY_PUBLIC.equals(source.getVisibility())) {
+        if (!SearchGateConstant.VISIBILITY_PUBLIC.equals(source.getVisibility())) {
             throw new BizException(ErrorCode.SEARCH_SOURCE_NOT_FOUND, "源文章不可公开推荐：" + articleId);
         }
         // 源文章暂无向量（Embedding 未接入或尚未生成）：返回空列表，让调用方按「无相似内容」展示
@@ -147,11 +148,11 @@ public class SimilarServiceImpl implements SimilarService {
         int candidates = Math.max(knnConfig.getNumCandidates(), k);
         // 强制 visibility=PUBLIC（C3）+ must_not 排除自身
         Query filter = new BoolQuery.Builder()
-                .filter(termFilter(SearchBizConstant.FIELD_VISIBILITY, SearchBizConstant.VISIBILITY_PUBLIC))
-                .mustNot(termFilter(SearchBizConstant.FIELD_ID, source.getId()))
+                .filter(termFilter(SearchFieldConstant.FIELD_VISIBILITY, SearchGateConstant.VISIBILITY_PUBLIC))
+                .mustNot(termFilter(SearchFieldConstant.FIELD_ID, source.getId()))
                 .build()._toQuery();
         KnnSearch knn = KnnSearch.of(builder -> builder
-                .field(SearchBizConstant.FIELD_VEC_DENSE)
+                .field(SearchFieldConstant.FIELD_VEC_DENSE)
                 .queryVector(source.getVecDense())
                 .k(k)
                 .numCandidates(candidates)

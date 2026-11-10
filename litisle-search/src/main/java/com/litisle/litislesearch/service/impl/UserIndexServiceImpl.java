@@ -6,7 +6,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.user.UserIndexDocDTO;
 import com.litisle.litisleapi.feign.UserClient;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchGateConstant;
 import com.litisle.litislesearch.domain.entity.UserIndexDoc;
 import com.litisle.litislesearch.enums.SearchTypeEnum;
 import com.litisle.litislesearch.service.UserIndexService;
@@ -108,8 +108,8 @@ public class UserIndexServiceImpl implements UserIndexService {
      */
     private boolean isIndexable(UserIndexDocDTO dto) {
         // 状态与删除标志门控（禁用/注销/已删除一律不入索引）
-        boolean stateOk = SearchBizConstant.USER_STATUS_NORMAL.equals(dto.getStatus())
-                && SearchBizConstant.DEL_FLAG_NOT_DELETED.equals(dto.getDelFlag());
+        boolean stateOk = SearchGateConstant.USER_STATUS_NORMAL.equals(dto.getStatus())
+                && SearchGateConstant.DEL_FLAG_NOT_DELETED.equals(dto.getDelFlag());
         if (!stateOk) {
             return false;
         }

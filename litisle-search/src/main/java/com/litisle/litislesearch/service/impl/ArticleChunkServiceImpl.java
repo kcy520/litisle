@@ -5,7 +5,8 @@ import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
+import com.litisle.litislesearch.constant.SearchGateConstant;
 import com.litisle.litislesearch.domain.entity.ArticleChunkDoc;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.service.ArticleChunkService;
@@ -97,7 +98,7 @@ public class ArticleChunkServiceImpl implements ArticleChunkService {
             elasticsearchClient.deleteByQuery(d -> d
                     .index(chunkIndex)
                     .query(q -> q.term(t -> t
-                            .field(SearchBizConstant.FIELD_ARTICLE_ID)
+                            .field(SearchFieldConstant.FIELD_ARTICLE_ID)
                             .value(articleId))));
             log.info("[切片摄入] 删除旧切片：articleId={}", articleId);
         } catch (Exception e) {
@@ -119,14 +120,14 @@ public class ArticleChunkServiceImpl implements ArticleChunkService {
     private ArticleChunkDoc buildChunkDoc(ArticleIndexDoc doc, String chunkText, int index, LocalDateTime now) {
         ArticleChunkDoc chunkDoc = new ArticleChunkDoc();
         // 切片主键：articleId_序号，保证同文章内唯一
-        chunkDoc.setChunkId(doc.getId() + SearchBizConstant.CHUNK_ID_SEPARATOR + index);
+        chunkDoc.setChunkId(doc.getId() + SearchFieldConstant.CHUNK_ID_SEPARATOR + index);
         chunkDoc.setArticleId(Long.valueOf(doc.getId()));
         chunkDoc.setAuthorId(doc.getAuthorId());
         chunkDoc.setTitle(doc.getTitle());
         chunkDoc.setAuthorName(doc.getAuthorName());
         chunkDoc.setChunkText(chunkText);
         chunkDoc.setZone(doc.getZone());
-        chunkDoc.setVisibility(SearchBizConstant.VISIBILITY_PUBLIC);
+        chunkDoc.setVisibility(SearchGateConstant.VISIBILITY_PUBLIC);
         // 发布时间取文章更新时间（content 无独立发布时间列）
         chunkDoc.setPublishTime(doc.getUpdateTime());
         chunkDoc.setIngestTime(now);

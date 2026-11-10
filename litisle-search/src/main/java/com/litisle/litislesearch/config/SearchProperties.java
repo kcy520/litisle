@@ -1,6 +1,8 @@
 package com.litisle.litislesearch.config;
 
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchEmbeddingConstant;
+import com.litisle.litislesearch.constant.SearchMqConstant;
+import com.litisle.litislesearch.constant.SearchRedisConstant;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -216,7 +218,7 @@ public class SearchProperties {
          * 拓扑声明（SearchMqConfig）读取 MqConstant 常量，不读取此值
          */
         private String syncQueue = "search.index.sync.queue";
-        /** 索引同步死信交换机名（与 SearchBizConstant.EXCHANGE_SEARCH_DLX 保持一致） */
+        /** 索引同步死信交换机名（与 SearchMqConstant.EXCHANGE_SEARCH_DLX 保持一致） */
         private String dlx = "litisle.search.dlx";
     }
 
@@ -232,7 +234,7 @@ public class SearchProperties {
     /**
      * 互动热度刷写配置（对应 yml: litisle.search.heat，批次A A7 定案）：
      * liked/commented/view-count-flushed 三事件消费仅累加 Redis 热度待刷新键
-     * （pending 键，Hash 结构，见 SearchBizConstant.HEAT_PENDING_KEY_PREFIX），
+     * （pending 键，Hash 结构，见 SearchRedisConstant.HEAT_PENDING_KEY_PREFIX），
      * IndexHeatFlushJob 按刷写周期聚合 `_bulk` 批量 partial update heat（每篇每窗口至多 1 次 ES 写）
      */
     @Data
@@ -302,7 +304,7 @@ public class SearchProperties {
          * 与 {@link com.litisle.litislesearch.embedding.EmbeddingProvider#providerName()} 精确匹配，
          * 例如 openai-compatible（OpenAI 兼容 /v1/embeddings）、ollama、dashscope、tei
          */
-        private String provider = SearchBizConstant.EMBEDDING_PROVIDER_NONE;
+        private String provider = SearchEmbeddingConstant.EMBEDDING_PROVIDER_NONE;
 
         /**
          * 模型标识（如 bge-m3 / text-embedding-v3）：
@@ -311,7 +313,7 @@ public class SearchProperties {
         private String model;
 
         /** 向量维度（必须与模型实际输出一致，默认 1024 与 mappings dims 对齐；不一致时 VectorService 拒绝写入） */
-        private int dimension = SearchBizConstant.EMBEDDING_DIMS;
+        private int dimension = SearchEmbeddingConstant.EMBEDDING_DIMS;
 
         /** 服务地址（HTTP 提供方 base-url；内网地址走 Nacos/环境变量覆盖，禁止硬编码） */
         private String baseUrl;

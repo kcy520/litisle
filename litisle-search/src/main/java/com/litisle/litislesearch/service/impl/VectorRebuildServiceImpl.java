@@ -15,7 +15,8 @@ import co.elastic.clients.elasticsearch.core.bulk.UpdateAction;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.json.JsonData;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
+import com.litisle.litislesearch.constant.SearchGateConstant;
 import com.litisle.litislesearch.domain.entity.ArticleChunkDoc;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.service.VectorRebuildService;
@@ -92,7 +93,7 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
                     log.warn("[向量重建] 单条文章向量化失败，跳过：articleId={}", doc.getId());
                     continue;
                 }
-                operations.add(updateVectorOperation(index, doc.getId(), SearchBizConstant.FIELD_VEC_DENSE, vector));
+                operations.add(updateVectorOperation(index, doc.getId(), SearchFieldConstant.FIELD_VEC_DENSE, vector));
             }
             // 批量更新只写向量字段，其余字段（heat/content/tags 等）保持原值
             updated += bulkUpdate(operations, "article_idx");
@@ -150,7 +151,7 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
                     continue;
                 }
                 operations.add(updateVectorOperation(index, doc.getChunkId(),
-                        SearchBizConstant.FIELD_CHUNK_VECTOR, vector));
+                        SearchFieldConstant.FIELD_CHUNK_VECTOR, vector));
             }
             updated += bulkUpdate(operations, "article_chunks");
             if (hits.size() < batch) {
@@ -186,8 +187,8 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
             try {
                 // 只更新 _meta 元信息：模型名 + 维度（JsonData 包装，保持索引元信息类型一致）
                 Map<String, JsonData> meta = Map.of(
-                        SearchBizConstant.META_EMBEDDING_MODEL, JsonData.of(model),
-                        SearchBizConstant.META_EMBEDDING_DIMS, JsonData.of(dimension));
+                        SearchFieldConstant.META_EMBEDDING_MODEL, JsonData.of(model),
+                        SearchFieldConstant.META_EMBEDDING_DIMS, JsonData.of(dimension));
                 // putMapping + meta：ES 对已存在索引幂等，可重复执行
                 elasticsearchClient.indices().putMapping(p -> p.index(index).meta(meta));
                 log.info("[向量重建] 索引 _meta 已更新：index={}, model={}, dims={}", index, model, dimension);
@@ -212,13 +213,13 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
         try {
             // 按主键升序排序，作为 search_after 游标（keyword 字段可直接排序）
             SortOptions idAsc = SortOptions.of(s -> s.field(f -> f
-                    .field(SearchBizConstant.FIELD_ID)
+                    .field(SearchFieldConstant.FIELD_ID)
                     .order(SortOrder.Asc)));
             SearchRequest.Builder builder = new SearchRequest.Builder()
                     .index(index)
                     .size(batch)
                     // 仅公开文档参与重建（与写入侧 PUBLIC 闸门一致）
-                    .query(termFilter(SearchBizConstant.FIELD_VISIBILITY, SearchBizConstant.VISIBILITY_PUBLIC))
+                    .query(termFilter(SearchFieldConstant.FIELD_VISIBILITY, SearchGateConstant.VISIBILITY_PUBLIC))
                     .sort(List.of(idAsc));
             if (cursor != null && !cursor.isEmpty()) {
                 builder.searchAfter(cursor);

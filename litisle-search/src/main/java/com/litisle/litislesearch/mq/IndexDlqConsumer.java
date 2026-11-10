@@ -1,8 +1,9 @@
 package com.litisle.litislesearch.mq;
 
+import com.litisle.commoncore.constant.CommonConstant;
 import com.litisle.commonmq.consume.MqAckHelper;
 import com.litisle.commonmq.consume.MqTraceSupport;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchMqConstant;
 import com.litisle.litislesearch.metrics.SearchMetrics;
 import com.rabbitmq.client.Channel;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,8 @@ import java.util.Map;
 /**
  * 索引同步死信消费者（批次二 2.4 兜底）。
  *
+ * 死信消费者
+ * 
  * 【职责】监听 litisle.search.index.dlq.queue，把重试耗尽的死信记录成 error 日志（含原队列、
  * 重试次数、消息体摘要），供人工排查后按需重投；本类不做自动修复，也绝不静默丢弃而不留痕。
  *
@@ -33,9 +36,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class IndexDlqConsumer {
 
-    /** x-death 消息头键（RabbitMQ 死信审计信息：原队列、原因、次数） */
-    private static final String HEADER_X_DEATH = "x-death";
-
     /** 日志中消息体最大打印字符数（防超长正文刷屏，只留排查定位片段） */
     private static final int BODY_LOG_MAX_CHARS = 500;
 
@@ -49,13 +49,21 @@ public class IndexDlqConsumer {
      * @param channel 消费通道
      * @throws IOException ack 失败向上抛出
      */
-    @RabbitListener(queues = SearchBizConstant.QUEUE_SEARCH_INDEX_DLQ)
+    @RabbitListener(queues = SearchMqConstant.QUEUE_SEARCH_INDEX_DLQ)
     public void onIndexDlq(Message message, Channel channel) throws IOException {
+        /*
+         * 业务逻辑步骤：
+         * 1. 从死信头恢复原链路 traceId（日志可回溯到当初的消费尝试）；
+         * 2. 打印死信详情留痕：从 x-death 头取来源队列、截断消息体、记指标 + error 日志，
+         *    供人工排查后按需重投（本类不做自动修复）；
+         * 3. 经 MqAckHelper ack 确认出队（DLQ 无 DLX，业务异常也 ack 丢弃，防死信再死信）；
+         * 4. finally 清理 MDC，防线程复用串扰。
+         */
         // 步骤1：死信头保留原链路 traceId，恢复后日志可回溯到当初的消费尝试
         MqTraceSupport.restore(message);
         try {
             // 步骤2：统一 ACK 模板，业务异常也 ack 丢弃（DLQ 无 DLX，nack 即物理丢弃）
-            MqAckHelper.executeWithAck(SearchBizConstant.QUEUE_SEARCH_INDEX_DLQ, message, channel,
+            MqAckHelper.executeWithAck(SearchMqConstant.QUEUE_SEARCH_INDEX_DLQ, message, channel,
                     () -> logDeadLetter(message));
         } finally {
             // 步骤3：清理 MDC，防消费线程复用串扰
@@ -85,16 +93,16 @@ public class IndexDlqConsumer {
      */
     @SuppressWarnings("unchecked")
     private String extractOriginQueue(Message message) {
-        Object deathHeader = message.getMessageProperties().getHeader(HEADER_X_DEATH);
+        Object deathHeader = message.getMessageProperties().getHeader(CommonConstant.HEADER_X_DEATH);
         if (!(deathHeader instanceof List<?> deaths) || deaths.isEmpty()) {
-            return "unknown";
+            return CommonConstant.UNKNOWN;
         }
         Object first = deaths.get(0);
         if (!(first instanceof Map<?, ?> death)) {
-            return "unknown";
+            return CommonConstant.UNKNOWN;
         }
-        Object queue = death.get("queue");
-        return queue == null ? "unknown" : queue.toString();
+        Object queue = death.get(CommonConstant.X_DEATH_KEY_QUEUE);
+        return queue == null ? CommonConstant.UNKNOWN : queue.toString();
     }
 
     /**

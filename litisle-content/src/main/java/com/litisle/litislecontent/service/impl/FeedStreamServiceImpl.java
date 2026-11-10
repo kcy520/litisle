@@ -444,8 +444,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
 // - 切片阶段二次过滤 ：建池时过滤过曝光，但从建池到切片的间隙里内容可能已被曝光（比如并发请求），所以切片时再查一次曝光集合和“不感兴趣”名单， 已曝光/被屏蔽的条目直接跳过，游标照常前进 ，避免同一条内容卡住分页；
 // - 展示前门控回查 ：切片结果回数据库再查一遍，下架/转私密/软删的内容直接丢弃—— 绝不让失效内容出现在用户眼前 ，哪怕快照是几分钟前建的；
 // - 标记曝光 ：返回的这页全部计入当日曝光，同时写一条曝光日聚合记录（失败只告警不阻断翻页）；
-// - 游标语义 ：cursor = “已消费条数”（含被跳过的），返回给前端；翻到池末尾但池是满的，说明可以生成下一代快照继续刷（无限刷的关键）。                                                        
-        
+// - 游标语义 ：cursor = “已消费条数”（含被跳过的），返回给前端；翻到池末尾但池是满的，说明可以生成下一代快照继续刷（无限刷的关键）。
+
 // 降级链路
 // 正常路径：读快照切片（翻页稳定 + 曝光去重）
 //    ↓ Redis 不可用 / 建池失败 / 快照为空
@@ -1257,8 +1257,11 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      * 打散`applyDiversity` ：
      * 防止“连着 5 篇都是同一个作者/同一个分类”。
      * 贪心算法：每次从剩余候选里挑第一条不违反约束的最高分条目（同作者连续不超 N 条、同分类连续不超 N 条、两个分区尽量交替）；候选太少全违反时放宽约束，避免死循环。
-     * 
-     * <p>贪心选择：每次从剩余候选中找第一条不违反连续约束的最高分条目；
+     *
+     * 在尽量保留推荐分数的前提下，通过贪心算法逐条选择内容，强制限制同作者、同分类的连续出现次数，并尽量让两个分区交替出现；当候选不足时自动放宽约束，确保推荐流既多样又不会卡死。
+     *将推荐流快照中的内容，“有约束的重新排序”，防止同作者、同分类、同分区的内容扎堆出现
+     *
+     * <p>贪心选择：每次从剩余候选中找第一条不违反连续约束的最高分条目；  (“候选内容太少，怎么选都会违反规则，那就别死磕规则了，直接选当前分数最高的那条。”）
      * 若全部违反（候选太少）则放宽约束取最高分，避免死循环。</p>
      *
      * @param ordered     待打散的有序列表
@@ -1269,11 +1272,16 @@ public class FeedStreamServiceImpl implements FeedStreamService {
      */
     private List<FeedSnapshotItem> applyDiversity(List<FeedSnapshotItem> ordered, Map<Long, Article> articles,
                                                   int maxAuthor, int maxCategory) {
+        //1️⃣ 边界判断
         if (ordered.size() <= 1) {
             return ordered;
         }
+
+        //2️⃣ 初始化候选集合与结果集合
         List<FeedSnapshotItem> remaining = new ArrayList<>(ordered);
         List<FeedSnapshotItem> result = new ArrayList<>(ordered.size());
+
+        //3️⃣ 初始化“上一条”的状态信息
         // 上一条的作者/分类/分区与连续次数
         Long lastAuthorId = null;
         ArticleCategoryEnum lastCategory = null;
@@ -1281,7 +1289,10 @@ public class FeedStreamServiceImpl implements FeedStreamService {
         int authorRun = 0;
         int categoryRun = 0;
 
+        //4️⃣ 主循环：不断从候选集中挑选内容
         while (!remaining.isEmpty()) {
+
+            //5️⃣ 统计当前剩余内容中“分区数量”
             // 当前剩余候选里两个分区的数量（用于判断能否交替分区）
             long normalCount = remaining.stream()
                     .filter(item -> articles.get(item.getId()) != null
@@ -1289,30 +1300,37 @@ public class FeedStreamServiceImpl implements FeedStreamService {
                     .count();
             long writerCount = remaining.size() - normalCount;
 
+            //6️⃣ 遍历候选，寻找第一条“不违反约束”的内容
             FeedSnapshotItem chosen = null;
             for (FeedSnapshotItem candidate : remaining) {
                 Article article = articles.get(candidate.getId());
                 Long authorId = article == null ? null : article.getAuthorId();
                 ArticleCategoryEnum category = article == null ? null : article.getCategory();
                 ZoneEnum zone = article == null ? null : article.getZone();
-                // 同作者连续超限
+                // 同作者连续超限  ✅ 约束 1：同作者连续不超过 maxAuthor
                 boolean authorViolation = authorId != null && authorId.equals(lastAuthorId) && authorRun >= maxAuthor;
-                // 同分类连续超限
+                // 同分类连续超限  ✅ 约束 2：同分类连续不超过 maxCategory
                 boolean categoryViolation = category != null && category.equals(lastCategory) && categoryRun >= maxCategory;
-                // 分区连续：另一分区仍有候选时优先交替（zone 1:1 的软约束）
+                // 分区连续：另一分区仍有候选时优先交替（zone 1:1 的软约束）    ✅ 约束 3：分区尽量交替（软约束）
                 boolean zoneViolation = zone != null && zone == lastZone
                         && ((zone == ZoneEnum.NORMAL && writerCount > 0) || (zone == ZoneEnum.WRITER && normalCount > 0));
+
+            //7️⃣ 选择策略
+                //✅ 情况一：找到不违反约束的候选
                 if (!authorViolation && !categoryViolation && !zoneViolation) {
                     chosen = candidate;
                     break;
                 }
             }
+
+                //✅ 情况二：所有候选都违反约束（兜底策略）
             // 全部违反约束：放宽取当前最高分（remaining 首条即最高分）
             if (chosen == null) {
                 chosen = remaining.get(0);
             }
             remaining.remove(chosen);
 
+            //8️⃣ 更新连续状态
             // 更新连续计数：与上一条相同则累加，不同则重置为 1
             Article chosenArticle = articles.get(chosen.getId());
             Long chosenAuthor = chosenArticle == null ? null : chosenArticle.getAuthorId();
@@ -1323,6 +1341,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
             lastAuthorId = chosenAuthor;
             lastCategory = chosenCategory;
             lastZone = chosenZone;
+
+            //9️⃣ 输出最终结果
             result.add(chosen);
         }
         return result;
@@ -1439,6 +1459,8 @@ public class FeedStreamServiceImpl implements FeedStreamService {
 
     /**
      * 解析游标（cursor 即快照内已消费条数，from 恒从快照头部计）
+     *
+     * 它是推荐流“游标分页”的入口解析器，负责把前端传来的 cursor 字符串，解析成“从快照第几条开始取”的偏移量，并处理各种非法情况。
      *
      * <p>不做页大小对齐校验：cursor 记录的是绝对消费条数，页大小中途变化也连续；
      * 非法/负数游标按首页处理并标记 reset。</p>

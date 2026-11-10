@@ -5,7 +5,7 @@ import com.litisle.commonredis.ratelimit.RateLimiter;
 import com.litisle.litisleapi.dto.search.SearchRequestDTO;
 import com.litisle.litisleapi.vo.search.SearchResultVO;
 import com.litisle.litisleapi.vo.search.SuggestVO;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchSuggestConstant;
 import com.litisle.litislesearch.service.SearchService;
 import com.litisle.litislesearch.service.SuggestService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -54,7 +54,8 @@ public class SearchController {
     @Operation(summary = "站内检索", description = "q 必填；type=article/book/user；sort=related/newest/heat；分页受服务端上限约束")
     @GetMapping
     public Result<SearchResultVO> search(SearchRequestDTO request) {
-        return Result.success(searchService.search(request));
+        SearchResultVO search = searchService.search(request);
+        return Result.success(search);
     }
 
     /**
@@ -68,14 +69,15 @@ public class SearchController {
      * @return 联想列表（type=KEYWORD/AUTHOR/TAG）
      */
     @Operation(summary = "输入联想", description = "q 为输入前缀（至少 2 字）；size 可选；按 IP 限频 20/60s")
-    @RateLimiter(time = SearchBizConstant.SUGGEST_RATE_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
-            count = SearchBizConstant.SUGGEST_IP_MAX_COUNT, keyType = RateLimiter.KeyType.IP)
+    @RateLimiter(time = SearchSuggestConstant.SUGGEST_RATE_WINDOW_SECONDS, timeUnit = TimeUnit.SECONDS,
+            count = SearchSuggestConstant.SUGGEST_IP_MAX_COUNT, keyType = RateLimiter.KeyType.IP)
     @GetMapping("/suggest")
     public Result<List<SuggestVO>> suggest(
             @Parameter(description = "输入前缀", required = true)
             @RequestParam("q") String q,
             @Parameter(description = "返回条数（可选）")
             @RequestParam(value = "size", required = false) Integer size) {
-        return Result.success(suggestService.suggest(q, size));
+        List<SuggestVO> suggest = suggestService.suggest(q, size);
+        return Result.success(suggest);
     }
 }

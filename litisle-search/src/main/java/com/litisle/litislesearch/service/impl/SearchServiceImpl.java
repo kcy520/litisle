@@ -33,7 +33,10 @@ import com.litisle.litisleapi.vo.search.BookDocVO;
 import com.litisle.litisleapi.vo.search.SearchResultVO;
 import com.litisle.litisleapi.vo.search.UserDocVO;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchEmbeddingConstant;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
+import com.litisle.litislesearch.constant.SearchGateConstant;
+import com.litisle.litislesearch.constant.SearchQueryConstant;
 import com.litisle.litislesearch.service.SearchHistoryService;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.domain.entity.BookIndexDoc;
@@ -96,11 +99,11 @@ public class SearchServiceImpl implements SearchService {
 
     /** 日期筛选输入格式：纯日期（yyyy-MM-dd，长度 10，格式串由常量收口） */
     private static final DateTimeFormatter INPUT_DATE_FORMATTER =
-            DateTimeFormatter.ofPattern(SearchBizConstant.PUBLISH_TIME_DATE_PATTERN);
+            DateTimeFormatter.ofPattern(SearchQueryConstant.PUBLISH_TIME_DATE_PATTERN);
 
     /** 日期筛选输入格式：空格分隔日期时间（yyyy-MM-dd HH:mm:ss，长度 19） */
     private static final DateTimeFormatter INPUT_DATE_TIME_FORMATTER =
-            DateTimeFormatter.ofPattern(SearchBizConstant.PUBLISH_TIME_DATETIME_PATTERN);
+            DateTimeFormatter.ofPattern(SearchQueryConstant.PUBLISH_TIME_DATETIME_PATTERN);
 
     /** ES 客户端（全文检索 / KNN / 热门列表查询） */
     private final ElasticsearchClient elasticsearchClient;
@@ -242,9 +245,9 @@ public class SearchServiceImpl implements SearchService {
         SearchSortEnum sort = resolveSort(request.getSort());
         // 分页：缺省值兜底 + 单页上限 + 深分页窗口上限
         int pageNum = request.getPageNum() == null
-                ? SearchBizConstant.SEARCH_DEFAULT_PAGE_NUM : request.getPageNum();
+                ? SearchQueryConstant.SEARCH_DEFAULT_PAGE_NUM : request.getPageNum();
         int pageSize = request.getPageSize() == null
-                ? SearchBizConstant.SEARCH_DEFAULT_PAGE_SIZE : request.getPageSize();
+                ? SearchQueryConstant.SEARCH_DEFAULT_PAGE_SIZE : request.getPageSize();
         validatePage(pageNum, pageSize);
         // 时间范围：支持 yyyy-MM-dd / yyyy-MM-dd HH:mm:ss / ISO-8601
         LocalDateTime publishBegin = parsePublishTime(request.getPublishBegin(), true);
@@ -271,9 +274,9 @@ public class SearchServiceImpl implements SearchService {
         }
         String keyword = raw.trim();
         // 长度上限：与 search_history.keyword varchar(64) 同源
-        if (keyword.length() > SearchBizConstant.SEARCH_KEYWORD_MAX_LENGTH) {
+        if (keyword.length() > SearchQueryConstant.SEARCH_KEYWORD_MAX_LENGTH) {
             throw new BizException(ErrorCode.SEARCH_PARAM_INVALID,
-                    "搜索关键词长度不能超过 " + SearchBizConstant.SEARCH_KEYWORD_MAX_LENGTH + " 个字符");
+                    "搜索关键词长度不能超过 " + SearchQueryConstant.SEARCH_KEYWORD_MAX_LENGTH + " 个字符");
         }
         // 控制字符拦截：不可见字符可能破坏日志与查询语义
         for (int i = 0; i < keyword.length(); i++) {
@@ -359,12 +362,12 @@ public class SearchServiceImpl implements SearchService {
         String value = text.trim();
         try {
             // 格式1：纯日期 yyyy-MM-dd（长度固定 10，由常量收口）
-            if (value.length() == SearchBizConstant.PUBLISH_TIME_DATE_LENGTH) {
+            if (value.length() == SearchQueryConstant.PUBLISH_TIME_DATE_LENGTH) {
                 LocalDate date = LocalDate.parse(value, INPUT_DATE_FORMATTER);
                 return begin ? date.atStartOfDay() : date.atTime(LocalTime.MAX);
             }
             // 格式2：yyyy-MM-dd HH:mm:ss
-            if (value.length() == SearchBizConstant.PUBLISH_TIME_DATETIME_PATTERN.length()) {
+            if (value.length() == SearchQueryConstant.PUBLISH_TIME_DATETIME_PATTERN.length()) {
                 return LocalDateTime.parse(value, INPUT_DATE_TIME_FORMATTER);
             }
             // 格式3：ISO-8601（如 2026-11-04T10:00:00）
@@ -434,7 +437,7 @@ public class SearchServiceImpl implements SearchService {
         SearchResponse<ArticleIndexDoc> response =
                 elasticsearchClient.search(request, ArticleIndexDoc.class);
         SearchResultVO result = toArticleResult(response, query);
-        result.setSource(SearchBizConstant.SEARCH_SOURCE_ES);
+        result.setSource(SearchQueryConstant.SEARCH_SOURCE_ES);
         return result;
     }
 
@@ -451,7 +454,7 @@ public class SearchServiceImpl implements SearchService {
         SearchResponse<BookIndexDoc> response =
                 elasticsearchClient.search(request, BookIndexDoc.class);
         SearchResultVO result = toBookResult(response, query);
-        result.setSource(SearchBizConstant.SEARCH_SOURCE_ES);
+        result.setSource(SearchQueryConstant.SEARCH_SOURCE_ES);
         return result;
     }
 
@@ -468,7 +471,7 @@ public class SearchServiceImpl implements SearchService {
         SearchResponse<UserIndexDoc> response =
                 elasticsearchClient.search(request, UserIndexDoc.class);
         SearchResultVO result = toUserResult(response, query);
-        result.setSource(SearchBizConstant.SEARCH_SOURCE_ES);
+        result.setSource(SearchQueryConstant.SEARCH_SOURCE_ES);
         return result;
     }
 
@@ -508,12 +511,12 @@ public class SearchServiceImpl implements SearchService {
     private Query buildArticleQuery(SearchQuery query) {
         // 筛选：可见性双保险（写入侧已仅 PUBLIC，查询侧再兜底，防脏数据越权召回）
         List<Query> filters = new ArrayList<>();
-        filters.add(termFilter(SearchBizConstant.FIELD_VISIBILITY, SearchBizConstant.VISIBILITY_PUBLIC));
+        filters.add(termFilter(SearchFieldConstant.FIELD_VISIBILITY, SearchGateConstant.VISIBILITY_PUBLIC));
         // 标签筛选（tags keyword 数组精确匹配）
-        addTermFilter(filters, SearchBizConstant.FIELD_TAGS, query.getTag());
+        addTermFilter(filters, SearchFieldConstant.FIELD_TAGS, query.getTag());
         // 分类/分区筛选（keyword）
-        addTermFilter(filters, SearchBizConstant.FIELD_CATEGORY, query.getCategory());
-        addTermFilter(filters, SearchBizConstant.FIELD_ZONE, query.getZone());
+        addTermFilter(filters, SearchFieldConstant.FIELD_CATEGORY, query.getCategory());
+        addTermFilter(filters, SearchFieldConstant.FIELD_ZONE, query.getZone());
         // 时间范围筛选（updateTime 兼作发布时间语义，批次二口径）
         addTimeRangeFilter(filters, query);
 
@@ -521,10 +524,10 @@ public class SearchServiceImpl implements SearchService {
         Query multiMatch = MultiMatchQuery.of(mm -> mm
                 .query(query.getEscapedKeyword())
                 // 权重顺序：标题 ^4 → 标签 ^3 → 摘要 ^2 → 正文无权重
-                .fields(weightedField(SearchBizConstant.FIELD_TITLE, weight.getTitle()),
-                        weightedField(SearchBizConstant.FIELD_TAGS, weight.getTags()),
-                        weightedField(SearchBizConstant.FIELD_SUMMARY, weight.getSummary()),
-                        SearchBizConstant.FIELD_CONTENT)
+                .fields(weightedField(SearchFieldConstant.FIELD_TITLE, weight.getTitle()),
+                        weightedField(SearchFieldConstant.FIELD_TAGS, weight.getTags()),
+                        weightedField(SearchFieldConstant.FIELD_SUMMARY, weight.getSummary()),
+                        SearchFieldConstant.FIELD_CONTENT)
                 .type(TextQueryType.BestFields))._toQuery();
 
         Query bool = new BoolQuery.Builder()
@@ -543,13 +546,13 @@ public class SearchServiceImpl implements SearchService {
      */
     private Query buildBookQuery(SearchQuery query) {
         List<Query> filters = new ArrayList<>();
-        addTermFilter(filters, SearchBizConstant.FIELD_CATEGORY, query.getCategory());
+        addTermFilter(filters, SearchFieldConstant.FIELD_CATEGORY, query.getCategory());
         addTimeRangeFilter(filters, query);
 
         Query multiMatch = MultiMatchQuery.of(mm -> mm
                 .query(query.getEscapedKeyword())
-                .fields(SearchBizConstant.FIELD_TITLE, SearchBizConstant.FIELD_AUTHOR_NAME,
-                        SearchBizConstant.FIELD_SUMMARY)
+                .fields(SearchFieldConstant.FIELD_TITLE, SearchFieldConstant.FIELD_AUTHOR_NAME,
+                        SearchFieldConstant.FIELD_SUMMARY)
                 .type(TextQueryType.BestFields))._toQuery();
         return new BoolQuery.Builder().must(List.of(multiMatch)).filter(filters).build()._toQuery();
     }
@@ -566,7 +569,7 @@ public class SearchServiceImpl implements SearchService {
 
         Query multiMatch = MultiMatchQuery.of(mm -> mm
                 .query(query.getEscapedKeyword())
-                .fields(SearchBizConstant.FIELD_PEN_NAME, SearchBizConstant.FIELD_BIO)
+                .fields(SearchFieldConstant.FIELD_PEN_NAME, SearchFieldConstant.FIELD_BIO)
                 .type(TextQueryType.BestFields))._toQuery();
         return new BoolQuery.Builder().must(List.of(multiMatch)).filter(filters).build()._toQuery();
     }
@@ -579,7 +582,7 @@ public class SearchServiceImpl implements SearchService {
      */
     private Query applyHeatBoost(Query base) {
         FunctionScore function = FunctionScore.of(f -> f.fieldValueFactor(v -> v
-                .field(SearchBizConstant.FIELD_HEAT)
+                .field(SearchFieldConstant.FIELD_HEAT)
                 .factor(1.0)
                 // log1p：热度越大增益越平缓，防旧爆款霸榜（衰减已在批次三刷写时计入 heat）
                 .modifier(FieldValueFactorModifier.Log1p)
@@ -601,12 +604,12 @@ public class SearchServiceImpl implements SearchService {
      */
     private List<SortOptions> buildSorts(SearchQuery query, boolean articleType) {
         if (query.getSort() == SearchSortEnum.NEWEST) {
-            return List.of(fieldSort(SearchBizConstant.FIELD_UPDATE_TIME));
+            return List.of(fieldSort(SearchFieldConstant.FIELD_UPDATE_TIME));
         }
         if (query.getSort() == SearchSortEnum.HEAT) {
             // book/user 索引未映射 heat：回退更新时间降序，避免 ES 对未映射字段排序报错
             return List.of(fieldSort(articleType
-                    ? SearchBizConstant.FIELD_HEAT : SearchBizConstant.FIELD_UPDATE_TIME));
+                    ? SearchFieldConstant.FIELD_HEAT : SearchFieldConstant.FIELD_UPDATE_TIME));
         }
         return Collections.emptyList();
     }
@@ -657,7 +660,7 @@ public class SearchServiceImpl implements SearchService {
         }
         // 日期范围走 DateRangeQuery 联合类型（值用 ISO-8601 字符串，匹配 mapping date 默认格式）
         RangeQuery range = RangeQuery.of(r -> r.date(d -> {
-            d.field(SearchBizConstant.FIELD_UPDATE_TIME);
+            d.field(SearchFieldConstant.FIELD_UPDATE_TIME);
             if (query.getPublishBegin() != null) {
                 d.gte(query.getPublishBegin().format(ES_DATE_TIME_FORMATTER));
             }
@@ -687,9 +690,9 @@ public class SearchServiceImpl implements SearchService {
      */
     private Highlight buildArticleHighlight() {
         Highlight.Builder builder = new Highlight.Builder();
-        builder.fields(SearchBizConstant.FIELD_CONTENT, highlightField());
-        builder.fields(SearchBizConstant.FIELD_SUMMARY, highlightField());
-        builder.fields(SearchBizConstant.FIELD_TITLE, highlightField());
+        builder.fields(SearchFieldConstant.FIELD_CONTENT, highlightField());
+        builder.fields(SearchFieldConstant.FIELD_SUMMARY, highlightField());
+        builder.fields(SearchFieldConstant.FIELD_TITLE, highlightField());
         return builder.build();
     }
 
@@ -700,9 +703,9 @@ public class SearchServiceImpl implements SearchService {
      */
     private Highlight buildBookHighlight() {
         Highlight.Builder builder = new Highlight.Builder();
-        builder.fields(SearchBizConstant.FIELD_SUMMARY, highlightField());
-        builder.fields(SearchBizConstant.FIELD_TITLE, highlightField());
-        builder.fields(SearchBizConstant.FIELD_AUTHOR_NAME, highlightField());
+        builder.fields(SearchFieldConstant.FIELD_SUMMARY, highlightField());
+        builder.fields(SearchFieldConstant.FIELD_TITLE, highlightField());
+        builder.fields(SearchFieldConstant.FIELD_AUTHOR_NAME, highlightField());
         return builder.build();
     }
 
@@ -713,8 +716,8 @@ public class SearchServiceImpl implements SearchService {
      */
     private Highlight buildUserHighlight() {
         Highlight.Builder builder = new Highlight.Builder();
-        builder.fields(SearchBizConstant.FIELD_BIO, highlightField());
-        builder.fields(SearchBizConstant.FIELD_PEN_NAME, highlightField());
+        builder.fields(SearchFieldConstant.FIELD_BIO, highlightField());
+        builder.fields(SearchFieldConstant.FIELD_PEN_NAME, highlightField());
         return builder.build();
     }
 
@@ -725,8 +728,8 @@ public class SearchServiceImpl implements SearchService {
      */
     private HighlightField highlightField() {
         return HighlightField.of(f -> f
-                .fragmentSize(SearchBizConstant.HIGHLIGHT_FRAGMENT_SIZE)
-                .numberOfFragments(SearchBizConstant.HIGHLIGHT_FRAGMENT_COUNT));
+                .fragmentSize(SearchQueryConstant.HIGHLIGHT_FRAGMENT_SIZE)
+                .numberOfFragments(SearchQueryConstant.HIGHLIGHT_FRAGMENT_COUNT));
     }
 
     // ==================== 空结果兜底（批次四 4.2） ====================
@@ -746,7 +749,7 @@ public class SearchServiceImpl implements SearchService {
         }
         // 一级兜底：查询词实时 Embedding（超时/失败返回 null）
         List<Float> vector = embedWithTimeout(query.getKeyword());
-        if (vector != null && vector.size() == SearchBizConstant.EMBEDDING_DIMS) {
+        if (vector != null && vector.size() == SearchEmbeddingConstant.EMBEDDING_DIMS) {
             try {
                 SearchResultVO knnResult = knnFallback(query, vector);
                 if (knnResult.getTotal() != null && knnResult.getTotal() > 0) {
@@ -795,7 +798,7 @@ public class SearchServiceImpl implements SearchService {
         if (query.getType() != SearchTypeEnum.ARTICLE) {
             log.warn("[检索降级] book/user 无热门降级数据源，返回空页：type={}, q={}",
                     query.getType().getCode(), query.getKeyword());
-            return buildResult(1, query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_DEGRADED,
+            return buildResult(1, query.getPageSize(), SearchQueryConstant.SEARCH_SOURCE_DEGRADED,
                     0L, null, null, null);
         }
         List<HotArticleDTO> hotList;
@@ -821,7 +824,7 @@ public class SearchServiceImpl implements SearchService {
         // 热门条目转检索契约 VO（与空结果兜底共用同一转换，保证两种链路字段口径一致）
         List<ArticleDocVO> articles = toArticleDocs(hotList);
         log.warn("[检索降级] ES 不可用，返回 content 热门列表：q={}, size={}", query.getKeyword(), articles.size());
-        return buildResult(1, query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_DEGRADED,
+        return buildResult(1, query.getPageSize(), SearchQueryConstant.SEARCH_SOURCE_DEGRADED,
                 (long) articles.size(), articles, null, null);
     }
 
@@ -895,12 +898,12 @@ public class SearchServiceImpl implements SearchService {
         int k = query.getPageSize();
         int candidates = Math.max(knnConfig.getNumCandidates(), k);
         KnnSearch knn = KnnSearch.of(builder -> builder
-                .field(SearchBizConstant.FIELD_VEC_DENSE)
+                .field(SearchFieldConstant.FIELD_VEC_DENSE)
                 .queryVector(vector)
                 .k(k)
                 .numCandidates(candidates)
                 // 可见性双保险：KNN 结果同样只允许 PUBLIC
-                .filter(termFilter(SearchBizConstant.FIELD_VISIBILITY, SearchBizConstant.VISIBILITY_PUBLIC)));
+                .filter(termFilter(SearchFieldConstant.FIELD_VISIBILITY, SearchGateConstant.VISIBILITY_PUBLIC)));
         SearchRequest request = new SearchRequest.Builder()
                 .index(properties.getIndex().getArticle())
                 .size(k)
@@ -913,7 +916,7 @@ public class SearchServiceImpl implements SearchService {
         SearchResultVO result = toArticleResult(response, query);
         // 兜底结果固定第一页（KNN 无 from 翻页语义）
         result.setPageNum(1);
-        result.setSource(SearchBizConstant.SEARCH_SOURCE_FALLBACK);
+        result.setSource(SearchQueryConstant.SEARCH_SOURCE_FALLBACK);
         return result;
     }
 
@@ -941,7 +944,7 @@ public class SearchServiceImpl implements SearchService {
         }
         // 热门条目转检索契约 VO（与降级共用转换，字段口径一致）
         List<ArticleDocVO> articles = toArticleDocs(response.getData());
-        return buildResult(1, query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_FALLBACK,
+        return buildResult(1, query.getPageSize(), SearchQueryConstant.SEARCH_SOURCE_FALLBACK,
                 (long) articles.size(), articles, null, null);
     }
 
@@ -953,7 +956,7 @@ public class SearchServiceImpl implements SearchService {
      * @return 空结果（source=fallback，三个命中列表均为空集合）
      */
     private SearchResultVO emptyResult(int pageNum, int pageSize) {
-        return buildResult(pageNum, pageSize, SearchBizConstant.SEARCH_SOURCE_FALLBACK, 0L, null, null, null);
+        return buildResult(pageNum, pageSize, SearchQueryConstant.SEARCH_SOURCE_FALLBACK, 0L, null, null, null);
     }
 
     // ==================== 结果转换 ====================
@@ -973,7 +976,7 @@ public class SearchServiceImpl implements SearchService {
                 continue;
             }
             // 主键异常文档跳过（索引脏数据不应让整页失败）
-            Long articleId = parseId(doc.getId(), SearchBizConstant.FIELD_ID);
+            Long articleId = parseId(doc.getId(), SearchFieldConstant.FIELD_ID);
             if (articleId == null) {
                 continue;
             }
@@ -982,17 +985,17 @@ public class SearchServiceImpl implements SearchService {
             vo.setTitle(doc.getTitle());
             vo.setSummary(doc.getSummary());
             vo.setTags(doc.getTags());
-            vo.setAuthorId(parseId(doc.getAuthorId(), SearchBizConstant.FIELD_AUTHOR_ID));
+            vo.setAuthorId(parseId(doc.getAuthorId(), SearchFieldConstant.FIELD_AUTHOR_ID));
             vo.setAuthorName(doc.getAuthorName());
             vo.setHeat(doc.getHeat() == null ? null : BigDecimal.valueOf(doc.getHeat()));
             vo.setUpdateTime(doc.getUpdateTime());
             // 高亮优先正文，其次摘要/标题
             vo.setHighlight(firstHighlight(hit.highlight(), List.of(
-                    SearchBizConstant.FIELD_CONTENT, SearchBizConstant.FIELD_SUMMARY,
-                    SearchBizConstant.FIELD_TITLE)));
+                    SearchFieldConstant.FIELD_CONTENT, SearchFieldConstant.FIELD_SUMMARY,
+                    SearchFieldConstant.FIELD_TITLE)));
             articles.add(vo);
         }
-        return buildResult(query.getPageNum(), query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_ES,
+        return buildResult(query.getPageNum(), query.getPageSize(), SearchQueryConstant.SEARCH_SOURCE_ES,
                 totalOf(response, articles.size()), articles, null, null);
     }
 
@@ -1010,7 +1013,7 @@ public class SearchServiceImpl implements SearchService {
             if (doc == null) {
                 continue;
             }
-            Long bookId = parseId(doc.getId(), SearchBizConstant.FIELD_ID);
+            Long bookId = parseId(doc.getId(), SearchFieldConstant.FIELD_ID);
             if (bookId == null) {
                 continue;
             }
@@ -1021,14 +1024,14 @@ public class SearchServiceImpl implements SearchService {
             vo.setCategory(doc.getCategory());
             vo.setAuthorName(doc.getAuthorName());
             // 批次五 B4 已补 book_idx.authorId 映射：解析回填作者 ID（存量未回填文档为 null）
-            vo.setAuthorId(parseId(doc.getAuthorId(), SearchBizConstant.FIELD_AUTHOR_ID));
+            vo.setAuthorId(parseId(doc.getAuthorId(), SearchFieldConstant.FIELD_AUTHOR_ID));
             vo.setUpdateTime(doc.getUpdateTime());
             vo.setHighlight(firstHighlight(hit.highlight(), List.of(
-                    SearchBizConstant.FIELD_SUMMARY, SearchBizConstant.FIELD_TITLE,
-                    SearchBizConstant.FIELD_AUTHOR_NAME)));
+                    SearchFieldConstant.FIELD_SUMMARY, SearchFieldConstant.FIELD_TITLE,
+                    SearchFieldConstant.FIELD_AUTHOR_NAME)));
             books.add(vo);
         }
-        return buildResult(query.getPageNum(), query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_ES,
+        return buildResult(query.getPageNum(), query.getPageSize(), SearchQueryConstant.SEARCH_SOURCE_ES,
                 totalOf(response, books.size()), null, books, null);
     }
 
@@ -1046,7 +1049,7 @@ public class SearchServiceImpl implements SearchService {
             if (doc == null) {
                 continue;
             }
-            Long userId = parseId(doc.getId(), SearchBizConstant.FIELD_ID);
+            Long userId = parseId(doc.getId(), SearchFieldConstant.FIELD_ID);
             if (userId == null) {
                 continue;
             }
@@ -1055,10 +1058,10 @@ public class SearchServiceImpl implements SearchService {
             vo.setPenName(doc.getPenName());
             vo.setBio(doc.getBio());
             vo.setHighlight(firstHighlight(hit.highlight(), List.of(
-                    SearchBizConstant.FIELD_BIO, SearchBizConstant.FIELD_PEN_NAME)));
+                    SearchFieldConstant.FIELD_BIO, SearchFieldConstant.FIELD_PEN_NAME)));
             users.add(vo);
         }
-        return buildResult(query.getPageNum(), query.getPageSize(), SearchBizConstant.SEARCH_SOURCE_ES,
+        return buildResult(query.getPageNum(), query.getPageSize(), SearchQueryConstant.SEARCH_SOURCE_ES,
                 totalOf(response, users.size()), null, null, users);
     }
 

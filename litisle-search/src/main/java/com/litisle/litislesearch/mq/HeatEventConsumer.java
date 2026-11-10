@@ -11,7 +11,7 @@ import com.litisle.litisleapi.event.social.SocialCommentedEvent;
 import com.litisle.litisleapi.event.social.SocialLikedEvent;
 import com.litisle.litisleapi.event.social.SocialUnlikedEvent;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchMqConstant;
 import com.litisle.litislesearch.service.HeatPendingService;
 import com.rabbitmq.client.Channel;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +25,8 @@ import java.io.IOException;
 /**
  * 互动热度事件消费者（批次三 3.1，批次A A5/A7 定案）。
  *
+ * 互动热度消费者
+ * 
  * 【职责】监听点赞 / 取消点赞 / 评论 / 浏览量落库四类队列，把互动信号累加到 Redis 热度待刷新键
  * （Hash 结构，见 {@link HeatPendingService}），本类只做消费编排（traceId 恢复 + 幂等 + ACK/重试），
  * 不直写 ES —— 热度刷写由批次三 3.2 定时任务聚合 `_bulk` 完成。
@@ -67,6 +69,15 @@ public class HeatEventConsumer {
      */
     @RabbitListener(queues = MqConstant.QUEUE_SOCIAL_LIKED)
     public void onLiked(SocialLikedEvent event, Message message, Channel channel) throws IOException {
+        /*
+         * 业务逻辑步骤：
+         * 1. 从消息头恢复 traceId，串起 social → MQ → search 链路；
+         * 2. 交由 MqAckHelper 重试感知模板执行：成功 ack / 非预期失败延迟重投 / 耗尽入 DLQ；
+         * 3. 校验 bizType 并取出文章 ID，非文章互动直接 ack 丢弃；
+         * 4. eventId 幂等占位（点赞自增不可重入，重复投递不重复计数）；
+         * 5. 按事件 delta 累加 Redis 待刷新键（like_delta），成功后才由模板 ack（先落 Redis 再 ACK）；
+         * 6. finally 清理 MDC。
+         */
         // 步骤1：恢复 traceId，串起 social → MQ → search 链路
         MqTraceSupport.restore(message);
         try {
@@ -75,7 +86,7 @@ public class HeatEventConsumer {
                     properties.getRetry().getMaxCount(),
                     properties.getRetry().getBaseDelayMs(),
                     // 延迟重投动作：事件体无 retryCount 字段，重试次数只走消息头
-                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
                             MqConstant.QUEUE_SOCIAL_LIKED, event, delayMs, newRetryCount),
                     () -> {
                         // 步骤3：只处理文章点赞（评论点赞等一律跳过）
@@ -115,6 +126,16 @@ public class HeatEventConsumer {
      */
     @RabbitListener(queues = MqConstant.QUEUE_SOCIAL_UNLIKED)
     public void onUnliked(SocialUnlikedEvent event, Message message, Channel channel) throws IOException {
+        /*
+         * 业务逻辑步骤：
+         * 1. 从消息头恢复 traceId；
+         * 2. 交由 MqAckHelper 重试感知模板执行（异常分流规则见类注释）；
+         * 3. 校验 bizType 并取出文章 ID，非文章互动直接 ack 丢弃；
+         * 4. eventId 幂等占位（重复投递不重复递减）；
+         * 5. 按事件 delta 累加 Redis 待刷新键（like_delta，取消点赞为负数；减成负数的下限保护由刷写任务统一做）；
+         * 6. finally 清理 MDC。
+         */
+
         // 步骤1：恢复 traceId，串起 content → MQ → search 链路
         MqTraceSupport.restore(message);
         try {
@@ -122,7 +143,7 @@ public class HeatEventConsumer {
             MqAckHelper.executeWithRetry(MqConstant.QUEUE_SOCIAL_UNLIKED, message, channel,
                     properties.getRetry().getMaxCount(),
                     properties.getRetry().getBaseDelayMs(),
-                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
                             MqConstant.QUEUE_SOCIAL_UNLIKED, event, delayMs, newRetryCount),
                     () -> {
                         // 步骤3：只处理文章取消点赞（非文章消息 ack 丢弃）
@@ -157,21 +178,33 @@ public class HeatEventConsumer {
      */
     @RabbitListener(queues = MqConstant.QUEUE_SOCIAL_COMMENTED)
     public void onCommented(SocialCommentedEvent event, Message message, Channel channel) throws IOException {
+        /*
+         * 业务逻辑步骤：
+         * 1. 从消息头恢复 traceId；
+         * 2. 交由 MqAckHelper 重试感知模板执行（异常分流规则见类注释）；
+         * 3. 校验 bizType 并取出文章 ID，非文章互动直接 ack 丢弃；
+         * 4. eventId 幂等占位（评论自增不可重入，重复投递不重复计数）；
+         * 5. Redis 累加 comment_delta，成功后才由模板 ack；finally 清理 MDC。
+         */
         MqTraceSupport.restore(message);
         try {
             MqAckHelper.executeWithRetry(MqConstant.QUEUE_SOCIAL_COMMENTED, message, channel,
                     properties.getRetry().getMaxCount(),
                     properties.getRetry().getBaseDelayMs(),
-                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                    // 延迟重投动作：重试次数只通过消息头双写传递
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
                             MqConstant.QUEUE_SOCIAL_COMMENTED, event, delayMs, newRetryCount),
                     () -> {
+                        // 校验并取出文章 ID（非文章互动 ack 丢弃）
                         Long articleId = resolveArticleId(event.getBizType(), event.getBizId(), event.getEventId());
                         if (articleId == null) {
                             return;
                         }
+                        // eventId 幂等（SETNX + eventId，评论自增不可重入，重复投递不重复计数）
                         if (!mqIdempotentHelper.tryAcquire(MqConstant.QUEUE_SOCIAL_COMMENTED, event.getEventId())) {
                             return;
                         }
+                        // Redis 累加成功后才返回 → 由模板 ack（先落 Redis 再 ACK，防热度漂移）
                         heatPendingService.incrementComment(articleId);
                     });
         } finally {
@@ -189,12 +222,21 @@ public class HeatEventConsumer {
      */
     @RabbitListener(queues = MqConstant.QUEUE_CONTENT_VIEW_COUNT_FLUSHED)
     public void onViewCountFlushed(ContentViewCountFlushedEvent event, Message message, Channel channel) throws IOException {
+
+        /*
+         * 业务逻辑步骤：
+         * 1. 从消息头恢复 traceId；
+         * 2. 交由 MqAckHelper 重试感知模板执行（异常分流规则见类注释）；
+         * 3. 校验文章 ID 与 viewCount 定位键，缺失属发送侧契约违约 → warn 后 ack 丢弃（重试无意义）；
+         * 4. HSET 覆盖写浏览量绝对值（天然可重放幂等，不做 eventId 去重），成功后才由模板 ack；
+         * 5. finally 清理 MDC。
+         */
         MqTraceSupport.restore(message);
         try {
             MqAckHelper.executeWithRetry(MqConstant.QUEUE_CONTENT_VIEW_COUNT_FLUSHED, message, channel,
                     properties.getRetry().getMaxCount(),
                     properties.getRetry().getBaseDelayMs(),
-                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
                             MqConstant.QUEUE_CONTENT_VIEW_COUNT_FLUSHED, event, delayMs, newRetryCount),
                     () -> {
                         Long articleId = resolveArticleId(event.getBizType(), event.getBizId(), event.getEventId());

@@ -1,7 +1,7 @@
 package com.litisle.litislesearch.service.impl;
 
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchRedisConstant;
 import com.litisle.litislesearch.service.ArticleTombstoneService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Service;
 /**
  * 文章下架墓碑实现（批次九 P0-D）。
  *
- * <p>键格式：{@link SearchBizConstant#ARTICLE_TOMBSTONE_KEY_PREFIX} + articleId；
+ * <p>键格式：{@link SearchRedisConstant#ARTICLE_TOMBSTONE_KEY_PREFIX} + articleId；
  * TTL 取 `litisle.search.index.tombstone-ttl`（默认 10 分钟），
  * 覆盖「5 次 × 30 秒」的最大延迟重投时长并留处理余量。</p>
  *
@@ -75,6 +75,6 @@ public class ArticleTombstoneServiceImpl implements ArticleTombstoneService {
      * @return Redis 键
      */
     private String buildKey(Long articleId) {
-        return SearchBizConstant.ARTICLE_TOMBSTONE_KEY_PREFIX + articleId;
+        return SearchRedisConstant.ARTICLE_TOMBSTONE_KEY_PREFIX + articleId;
     }
 }

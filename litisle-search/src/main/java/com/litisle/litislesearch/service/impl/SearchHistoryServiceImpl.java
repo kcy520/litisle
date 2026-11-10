@@ -8,7 +8,7 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.PageResult;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchQueryConstant;
 import com.litisle.litislesearch.domain.entity.SearchHistory;
 import com.litisle.litislesearch.domain.vo.SearchHistoryVO;
 import com.litisle.litislesearch.mapper.SearchHistoryMapper;
@@ -62,7 +62,7 @@ public class SearchHistoryServiceImpl implements SearchHistoryService {
         }
         // 步骤2：关键词归一化并过滤（空/超长不落库，长度上限与检索词一致）
         String normalized = keyword == null ? "" : keyword.trim();
-        if (normalized.isEmpty() || normalized.length() > SearchBizConstant.SEARCH_KEYWORD_MAX_LENGTH) {
+        if (normalized.isEmpty() || normalized.length() > SearchQueryConstant.SEARCH_KEYWORD_MAX_LENGTH) {
             return;
         }
         try {

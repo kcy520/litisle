@@ -14,7 +14,7 @@ import com.litisle.litisleapi.event.content.ContentUnpublishedEvent;
 import com.litisle.litisleapi.event.user.UserProfileUpdatedEvent;
 import com.litisle.litisleapi.event.user.UserRegisteredEvent;
 import com.litisle.litislesearch.config.SearchProperties;
-import com.litisle.litislesearch.constant.SearchBizConstant;
+import com.litisle.litislesearch.constant.SearchMqConstant;
 import com.litisle.litislesearch.service.ArticleIndexService;
 import com.litisle.litislesearch.service.BookIndexService;
 import com.litisle.litislesearch.service.HotQueryCacheService;
@@ -30,7 +30,9 @@ import java.io.IOException;
 
 /**
  * 索引同步消费者（批次二文章 / 批次五书籍 B4 + 用户 B5）。
- *
+ *索引同步消费者
+ * 索引同步 = 当数据库里的数据变了，自动把变化同步到 ES 搜索索引里，让用户搜得到最新内容。（同步MySQL与es）
+ * 
  * 【职责】监听 content 侧三个文章事件队列，把消息转成 article_idx / article_chunks 的写入动作，
  * 业务逻辑全部委托 {@link ArticleIndexService}，本类只做「消费编排」：
  * traceId 恢复 + 业务类型校验 + ACK/重试模板。
@@ -57,6 +59,14 @@ import java.io.IOException;
 @Component
 @RequiredArgsConstructor
 public class IndexSyncConsumer {
+
+// 监听的队列	对应事件	做什么
+// content.published	文章发布	写 ES 索引 + 建 RAG 切片
+// content.unpublished	文章下架/删除/转私密	删​ ES 索引 + 删切片
+// content.article.updated	文章元数据编辑	局部更新标题/标签/摘要
+// content.book.changed	书籍变更	写/删 book_idx
+// user.registered	用户注册	写 user_idx
+// user.profile.updated	用户资料更新	更新 user_idx
 
     /** 文章索引同步编排服务（回查、门控、写入/删除/局部更新的业务载体） */
     private final ArticleIndexService articleIndexService;
@@ -89,6 +99,14 @@ public class IndexSyncConsumer {
      */
     @RabbitListener(queues = MqConstant.QUEUE_CONTENT_PUBLISHED)
     public void onPublished(ContentPublishedEvent event, Message message, Channel channel) throws IOException {
+        /*
+         * 业务逻辑步骤：
+         * 1. 从消息头恢复 traceId，串起 content → MQ → search 全链路日志；
+         * 2. 交由 MqAckHelper 重试感知模板执行：成功 ack / 业务性失败丢弃 / 非预期失败延迟重投；
+         * 3. 校验 bizType 并取出文章 ID，非文章消息或定位键缺失直接 ack 丢弃；
+         * 4. 委托 ArticleIndexService 回查权威数据并写入索引与切片，随后打热点缓存脏标记；
+         * 5. finally 清理 MDC，防线程复用串扰。
+         */
         // 步骤1：从消息头恢复 traceId，让消费线程日志能串起 content → MQ → search 全链路
         MqTraceSupport.restore(message);
         try {
@@ -97,7 +115,7 @@ public class IndexSyncConsumer {
                     properties.getRetry().getMaxCount(),
                     properties.getRetry().getBaseDelayMs(),
                     // 延迟重投动作：事件体不携带 retryCount，重试次数只通过消息头双写传递
-                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
                             MqConstant.QUEUE_CONTENT_PUBLISHED, event, delayMs, newRetryCount),
                     () -> {
                         // 步骤3：校验业务类型并取文章 ID（非文章消息直接丢弃）
@@ -129,14 +147,25 @@ public class IndexSyncConsumer {
      */
     @RabbitListener(queues = MqConstant.QUEUE_CONTENT_UNPUBLISHED)
     public void onUnpublished(ContentUnpublishedEvent event, Message message, Channel channel) throws IOException {
+        /*
+         * 业务逻辑步骤：
+         * 1. 从消息头恢复 traceId；
+         * 2. 交由 MqAckHelper 重试感知模板执行（异常分流规则见类注释）；
+         * 3. 校验 bizType 并取出文章 ID，非文章消息或定位键缺失直接 ack 丢弃；
+         * 4. 委托 ArticleIndexService 删除索引文档与全部切片（隐私红线：不区分 reason 一律删除），
+         *    并「立即」全量失效热点缓存（不得进入合并窗口）；
+         * 5. finally 清理 MDC。
+         */
         MqTraceSupport.restore(message);
         try {
             MqAckHelper.executeWithRetry(MqConstant.QUEUE_CONTENT_UNPUBLISHED, message, channel,
                     properties.getRetry().getMaxCount(),
                     properties.getRetry().getBaseDelayMs(),
-                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                    // 延迟重投动作：重试次数只通过消息头双写传递
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
                             MqConstant.QUEUE_CONTENT_UNPUBLISHED, event, delayMs, newRetryCount),
                     () -> {
+                        // 校验并取出文章 ID（非文章消息直接丢弃）
                         Long articleId = resolveArticleId(event.getBizType(), event.getBizId(), event.getEventId());
                         if (articleId == null) {
                             return;
@@ -165,14 +194,25 @@ public class IndexSyncConsumer {
      */
     @RabbitListener(queues = MqConstant.QUEUE_CONTENT_ARTICLE_UPDATED)
     public void onArticleUpdated(ContentArticleUpdatedEvent event, Message message, Channel channel) throws IOException {
+        /*
+         * 业务逻辑步骤：
+         * 1. 从消息头恢复 traceId；
+         * 2. 交由 MqAckHelper 重试感知模板执行（异常分流规则见类注释）；
+         * 3. 校验 bizType 并取出文章 ID，非文章消息或定位键缺失直接 ack 丢弃；
+         * 4. 委托 ArticleIndexService 只局部更新标题/标签/摘要等元数据（不动正文、向量与切片；
+         *    业务服务内部会二次回查门控，文章已下架/转私密则转为清理处理），随后打缓存脏标记；
+         * 5. finally 清理 MDC。
+         */
         MqTraceSupport.restore(message);
         try {
             MqAckHelper.executeWithRetry(MqConstant.QUEUE_CONTENT_ARTICLE_UPDATED, message, channel,
                     properties.getRetry().getMaxCount(),
                     properties.getRetry().getBaseDelayMs(),
-                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                    // 延迟重投动作：重试次数只通过消息头双写传递
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
                             MqConstant.QUEUE_CONTENT_ARTICLE_UPDATED, event, delayMs, newRetryCount),
                     () -> {
+                        // 校验并取出文章 ID（非文章消息直接丢弃）
                         Long articleId = resolveArticleId(event.getBizType(), event.getBizId(), event.getEventId());
                         if (articleId == null) {
                             return;
@@ -203,6 +243,15 @@ public class IndexSyncConsumer {
      */
     @RabbitListener(queues = MqConstant.QUEUE_CONTENT_BOOK_CHANGED)
     public void onBookChanged(ContentBookChangedEvent event, Message message, Channel channel) throws IOException {
+        /*
+         * 业务逻辑步骤：
+         * 1. 从消息头恢复 traceId；
+         * 2. 交由 MqAckHelper 重试感知模板执行（异常分流规则见类注释）；
+         * 3. 校验定位键 bookId，缺失属发送侧契约违约 → warn 后 ack 丢弃（重试无意义）；
+         * 4. 委托 BookIndexService 回查权威数据，消费端门控（未删除且非下架）决定 upsert 还是删除，
+         *    随后打热点缓存脏标记；
+         * 5. finally 清理 MDC。
+         */
         // 恢复 traceId，串联 content → MQ → search 全链路日志
         MqTraceSupport.restore(message);
         try {
@@ -210,7 +259,7 @@ public class IndexSyncConsumer {
                     properties.getRetry().getMaxCount(),
                     properties.getRetry().getBaseDelayMs(),
                     // 延迟重投动作：重试次数只通过消息头双写传递
-                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
                             MqConstant.QUEUE_CONTENT_BOOK_CHANGED, event, delayMs, newRetryCount),
                     () -> {
                         // 定位键缺失属于发送侧契约违约，重试无意义 → warn 后正常返回（ack 丢弃）
@@ -272,13 +321,22 @@ public class IndexSyncConsumer {
      */
     private void consumeUserIndex(String queueName, Long userId, Object event, Message message, Channel channel)
             throws IOException {
+        /*
+         * 业务逻辑步骤：
+         * 1. 从消息头恢复 traceId；
+         * 2. 交由 MqAckHelper 重试感知模板执行（异常分流规则见类注释）；
+         * 3. 校验定位键 userId，缺失属发送侧契约违约 → warn 后 ack 丢弃（重试无意义）；
+         * 4. 委托 UserIndexService 回查公开资料，门控通过才 upsert，否则删除（幂等空操作），
+         *    随后打热点缓存脏标记；
+         * 5. finally 清理 MDC。
+         */
         MqTraceSupport.restore(message);
         try {
             MqAckHelper.executeWithRetry(queueName, message, channel,
                     properties.getRetry().getMaxCount(),
                     properties.getRetry().getBaseDelayMs(),
                     // 延迟重投动作：重试次数只通过消息头双写传递
-                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchBizConstant.EXCHANGE_SEARCH_DELAY,
+                    (newRetryCount, delayMs) -> mqSendUtil.sendDelayed(SearchMqConstant.EXCHANGE_SEARCH_DELAY,
                             queueName, event, delayMs, newRetryCount),
                     () -> {
                         // 定位键缺失属于发送侧契约违约，重试无意义 → warn 后正常返回（ack 丢弃）
