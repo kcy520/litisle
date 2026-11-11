@@ -54,7 +54,7 @@ public class SearchHistoryServiceImpl implements SearchHistoryService {
      * @param keyword 原始搜索关键词
      */
     @Override
-    @Async
+    @Async //被它标记的方法，会在调用时交给 Spring 的线程池去“后台执行”，调用方不用等它跑完，直接继续往下走。
     public void recordAsync(Long userId, String keyword) {
         // 步骤1：未登录不记录（历史仅对本人可见）
         if (userId == null) {

@@ -5,6 +5,8 @@ import com.litisle.litislesearch.constant.SearchRedisConstant;
 import com.litisle.litislesearch.service.HeatPendingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.boot.autoconfigure.cache.CacheProperties.Redis;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -36,6 +38,23 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class HeatPendingServiceImpl implements HeatPendingService {
+
+
+// ## 这个“刷新键”是干什么的？
+// 一句话： 它是互动事件（点赞/评论/浏览）到 ES 索引更新之间的「缓冲区」 ——先在 Redis 里把短时间内的增量攒起来，攒一个刷写周期后由定时任务一次性聚合写 ES。
+
+// ### 为什么需要它？
+// 如果没有它，每来一个点赞就要写一次 ES：一篇热门文章一分钟几百个赞就是几百次 ES 写请求，还都是对同一篇文档的写——既浪费 ES 资源，又容易产生写冲突。pending 键把「N 次零散写」合并成「1 次批量写」，这是典型的**写合并（write coalescing）**模式。
+
+
+//## 用一个时间线串起来
+// T+0min   用户点赞文章 1001     → Redis: search:heat:pending:1001 {like_delta: 1}
+// T+2min   又 3 个赞、1 条评论   → {like_delta: 4, comment_delta: 1}
+// T+15min  刷写任务启动          → SCAN 扫到 1001，Lua 取走并删键
+//                                → mget 回查：文档当前 likeCnt=99
+//                                → 重算：likeCnt=103, heat=加权×衰减
+//                                → _bulk 写 ES 成功
+// T+30min  无新互动              → SCAN 为空，本轮零成本结束
 
     /** 每次点赞/评论事件的计数步长（一条事件代表一次互动，固定为 1） */
     private static final long COUNTER_STEP = 1L;
@@ -118,6 +137,18 @@ public class HeatPendingServiceImpl implements HeatPendingService {
      */
     @Override
     public List<String> scanPendingKeys() {
+
+// 要点：
+// 1. 用 SCAN 而不是 KEYS ：`KEYS search:heat:pending:*` 会一次性遍历整个键空间并阻塞 Redis 主线程，生产环境是大忌。`SCAN` 是基于游标的渐进式遍历，每次只返回一小批，不阻塞线上命令。
+// 2. count 参数是“建议值” ：取刷写批量数（默认 1000），让 Redis 每次往返多返回一些键，减少网络往返次数。注意它不是精确的每批数量，Redis 只把它当参考。
+// 3. Spring 的`Cursor` 封装了游标循环 ：`forEachRemaining` 内部会自动拿着游标继续请求直到游标回到 0，业务代码看起来像普通迭代。
+// 4. SCAN 的“弱保证” ：它不保证快照一致性——遍历期间被删除的键可能不返回、新建的键可能漏掉。但这对本场景无害：漏掉的键下一轮 SCAN 会扫到（键有 TTL 兜底），多返回的键由后续`takePending` 的原子取走兜底（空则跳过）。
+
+// 如何判断哪些键“待刷新” —— 键的存在本身就是标记
+// - 入侧（3.1 消费端） ：点赞/评论/浏览量事件到达时，才会在 Redis 建键`search:heat:pending:{articleId}` （ HeatPendingServiceImpl.java#L195-L205 的`buildKey` ），并用 HINCRBY/HSET 累加增量。 没有互动事件的文章根本不会有这个键 。
+// - 取走侧（3.2 本任务） ：Lua 脚本`HGETALL + DEL` 原子地把键整个拿走并删除（ HeatPendingServiceImpl.java#L44-L47 ）。取走后键就不存在了。
+// - 所以 ：每一轮 SCAN 能扫到的键， 必然是上一轮取走之后新累积的增量 。键存在 = 待刷新，键不存在 = 无事发生。
+
         // 扫描匹配模式：固定前缀 + 通配符（前缀为服务端常量，无用户可控原串）
         String pattern = SearchRedisConstant.HEAT_PENDING_KEY_PREFIX + "*";
         // 每次 SCAN 建议返回的元素个数，取刷写批量数，避免过多小批次往返
@@ -148,6 +179,7 @@ public class HeatPendingServiceImpl implements HeatPendingService {
                 // 键已不存在（可能被上一轮取走或 TTL 过期）：按空处理，调用方跳过
                 return Collections.emptyMap();
             }
+
             Map<String, String> result = new HashMap<>();
             for (int i = 0; i + 1 < flat.size(); i += 2) {
                 result.put(String.valueOf(flat.get(i)), String.valueOf(flat.get(i + 1)));
@@ -161,6 +193,8 @@ public class HeatPendingServiceImpl implements HeatPendingService {
 
     /**
      * 刷写失败回灌（点赞/评论按增量追加，浏览量存在则保留）。
+     *
+     * "回灌" = 把刷写失败的数据重新倒回去
      *
      * @param articleId    文章 ID
      * @param likeDelta    点赞增量

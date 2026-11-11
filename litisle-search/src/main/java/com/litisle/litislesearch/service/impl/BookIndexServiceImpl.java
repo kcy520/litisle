@@ -102,6 +102,8 @@ public class BookIndexServiceImpl implements BookIndexService {
     /**
      * 判断书籍是否允许入索引：未删除且非下架。
      *
+     * 只有“未删除”且“不是下架状态”的书籍，才允许被写入索引；否则直接丢弃，不进搜索。
+     *
      * @param dto 书籍回查数据
      * @return true=允许入索引
      */

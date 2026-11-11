@@ -32,6 +32,7 @@ public class ArticleTombstoneServiceImpl implements ArticleTombstoneService {
     /** search 配置（读取 index.tombstone-ttl，避免硬编码 TTL） */
     private final SearchProperties properties;
 
+
     /**
      * 写文章下架墓碑（SET key value EX ttl）。
      *
@@ -68,6 +69,7 @@ public class ArticleTombstoneServiceImpl implements ArticleTombstoneService {
         }
     }
 
+
     /**
      * 拼接墓碑键（前缀常量 + articleId）。
      *
@@ -75,6 +77,7 @@ public class ArticleTombstoneServiceImpl implements ArticleTombstoneService {
      * @return Redis 键
      */
     private String buildKey(Long articleId) {
+
         return SearchRedisConstant.ARTICLE_TOMBSTONE_KEY_PREFIX + articleId;
     }
 }

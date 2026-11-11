@@ -60,7 +60,17 @@ public class VectorServiceImpl implements VectorService {
      */
     @Override
     public List<Float> embed(String text) {
-        // 文本为空无需向量化
+
+        /*
+         * 业务逻辑步骤：
+         * 1. 空文本/开关关闭 → 直接返回 null（无需向量化，开关关闭属正常配置不告警）；
+         * 2. 按配置解析提供方 → 未接入仅首次告警后返回 null（避免逐篇索引日志刷屏）；
+         * 3. 调用提供方向量化 → 调用失败（抖动/超时）告警后返回 null，索引链路跳过向量字段；
+         * 4. 维度校验 → 输出维度与配置不符时拒绝写入（error 留痕），防错误维度写坏 dense_vector；
+         * 5. 校验通过返回向量；任何失败路径都是「返回 null」，绝不向调用方抛异常。
+         */
+
+        // 步骤1：文本为空无需向量化
         if (text == null || text.isBlank()) {
             return null;
         }
@@ -68,9 +78,10 @@ public class VectorServiceImpl implements VectorService {
         if (!properties.getEmbedding().isEnabled()) {
             return null;
         }
-        // 按配置挑选提供方；未接入时仅首次告警，避免逐篇索引日志刷屏
+        // 步骤2：调用 resolveProvider 按配置精确挑选提供方；未接入时仅首次告警，避免逐篇索引日志刷屏
         Optional<EmbeddingProvider> provider = resolveProvider();
         if (provider.isEmpty()) {
+            // compareAndSet 保证多线程并发时告警只打一次（首个到达的线程打，后续直接跳过）
             if (unavailableWarned.compareAndSet(false, true)) {
                 log.warn("[向量化] embedding.enabled=true 但未找到可用提供方（provider={}），本次起跳过向量写入；"
                                 + "选型后再实现 EmbeddingProvider 适配器",
@@ -79,17 +90,21 @@ public class VectorServiceImpl implements VectorService {
             return null;
         }
         try {
-            // 提供方调用失败返回 null 属约定语义，这里再做维度校验，防止错误维度写入 ES
+            // 步骤3：调用提供方把文本转向量（返回 null 属提供方约定语义，与调用失败同样按跳过处理）
+            // 变量：模型输出的原始向量（尚未经过维度校验）
             List<Float> vector = provider.get().embed(text);
             if (vector == null) {
                 return null;
             }
+            // 变量：配置声明的期望维度（与索引 mapping 的 dense_vector dims 对齐）
             int expected = properties.getEmbedding().getDimension();
+            // 步骤4：维度校验必须通过——错误维度写入 dense_vector 会让整篇文档写入失败
             if (vector.size() != expected) {
                 log.error("[向量化] 提供方输出维度与配置不一致，拒绝写入：model={}, expected={}, actual={}",
                         provider.get().modelName(), expected, vector.size());
                 return null;
             }
+            // 步骤5：校验通过，返回可用于 ES 写入的向量
             return vector;
         } catch (Exception e) {
             // 模型服务抖动/超时：返回 null 由索引链路跳过向量字段，不影响文章其余字段写入

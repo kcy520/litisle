@@ -7,9 +7,12 @@ import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchQueryConstant;
 import com.litisle.litislesearch.constant.SearchRedisConstant;
 import com.litisle.litislesearch.metrics.SearchMetrics;
+import com.litisle.litislesearch.mq.IndexSyncConsumer;
 import com.litisle.litislesearch.service.HotQueryCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.boot.autoconfigure.cache.CacheProperties.Redis;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -38,6 +41,70 @@ import java.util.List;
 @RequiredArgsConstructor
 public class HotQueryCacheServiceImpl implements HotQueryCacheService {
 
+// 这个类里管理的是 两类完全不同用途的 Redis 键 ，它们的 SET 和 DELETE 各自成一条链路。分开讲：
+
+// ## 第一类：业务缓存键 search:hotquery:{type}:{sort}:{pageNum}:{pageSize}:{md5}
+
+// ## 第二类：脏标记键 search:hotquery-dirty
+// 这是 失效的“合并开关” ，解决失效风暴问题。这是批次九优化一的核心设计。
+
+// ### SET 的链路（事件端，极轻）
+// 索引每收到一条变更事件（发布/元数据更新/书籍/用户）， IndexSyncConsumer.java 在完成索引同步后只调`markDirty()`
+// 这里最精妙的是“先删标记、后清理”的顺序 （注释里写得很清楚）：
+
+
+// ### DELETE 的链路（合并任务，每秒一次）
+// DEL search:hotquery-dirty     ← 返回 true 才说明标记存在且"我抢到了清理权"
+//    ├─ false：无标记 → 直接返回（空闲期每秒只有 1 次 O(1) DEL）
+//    └─ true：抢到 → evictAll() 执行一次 SCAN + 分批 DEL
+//          └─ 失败 → 重新 SET 脏标记再抛出（标记已删但没清成功，不能让变更丢失）
+// - 先删标记：清理期间新事件打的标记会被 保留 （新 SET 重建了键），下一轮任务再清一次—— 多清无害，漏清致命
+// - 若反过来先清后删：清理期间的新变更会被最后一步 DELETE 抹掉， 永久漏失效
+// 失败时的补救也对称：清理抛异常前尽力重新打标；连打标都失败就留 error 日志，靠“下一个事件的 markDirty”或缓存 TTL 兜底。
+
+
+
+// ## 标记的本质
+// 这个标记就是一个 全局的“1 bit 开关” ，粒度粗到极简：
+// `search:hotquery-dirty` 只是一个普通的 String 键，值永远是`"1"` ，没有任何内容信息。它不记录“谁变了”、“哪篇文章变了”、“哪个查询结果过期了”——它只回答一个是非题：
+// 上次清理之后，索引发生过至少一次变更吗？
+// ## 为什么“1 个标记就删所有”是可接受的？
+// 粗粒度意味着 大量误伤 ：1 条书籍变更会把 10 分钟内刚缓存的所有查询结果（文章、用户……全部类型）一起清掉。这看似浪费，但仔细算账就会发现它是最优权衡：
+// 正确性方向不对称。 缓存失效策略只有两种犯错方式：
+// - 多删（误伤新鲜缓存） ：后果只是下次检索多查一次 ES，缓存重新回填。代价 = 一次 ES 查询。
+// - 少删（漏掉过期缓存） ：用户会看到已经变更/下架的内容。代价 = 数据不一致，甚至隐私泄露（下架场景）。
+// 为什么不建精确映射？ 精确失效需要一个“文章 1001 变了 → 哪些缓存键受影响”的反查结构。而热点查询缓存的键里只有查询条件的 MD5，你根本无法从“文章 1001 更新”反推出“哪些搜索关键词的缓存里包含这篇文章”——搜索结果是多对多的倒排关系，建映射的成本远超收益。全删是唯一既简单又保证正确的选择。
+// 【SET 端】事件端，重复幂等
+//   发布/更新/书籍/用户事件 ──→ SET search:hotquery-dirty = "1"，TTL 300s
+//                               （N 条事件 = N 次重复 SET 同一个键，O(1)，无累积）
+//                               （每次 SET 顺带刷新 TTL：持续变更期间标记不会中途过期）
+
+// 【DEL 端】合并任务，竞争式获取
+//   每秒一次：DEL search:hotquery-dirty
+//     ├─ 返回 false（键不存在）→ 没有变更，本轮结束
+//     └─ 返回 true → 抢到清理权 → SCAN + 全删缓存键
+//           └─ 全删失败 → 重新 SET 标记（把"未完成的变更"补记回来）→ 抛异常
+
+// 【TTL 兜底】300s
+//   合并任务长期宕机 → 标记自清，不留残留
+//   之后新事件到达会重新 SET → 恢复正常清理闭环
+
+// 两个细节值得注意：
+// 1. “先 DEL 标记后清理”是一种抢占语义。 DEL 返回 true 的那一刻，这个任务就独占了本轮清理权——即使多个实例都在跑，同一秒内也只有一个能抢到标记（Redis DEL 是原子的，不会两个都返回 true）。清理期间新事件打的标记是 新的一次 SET ，会保留到下一轮。
+// 2. 重新打标（失败补偿）逻辑上等价于把“已消费但未完成的标记”恢复。 标记删了但清理失败，如果没有补偿，这一轮的变更就“被消费了却没生效”——重新 SET 就是把它记回来。极端情况下连补偿 SET 也失败（Redis 持续故障），还有最后一层兜底：下一个事件总会到达并重新打标，或缓存键自己走 TTL 过期。
+
+// 1 秒一次的 EvictJob 删的是右边这种 ——查询结果缓存。它的触发源是 发布/元数据/书籍/用户 的索引变更（发布新文章、改标题、下架书籍等），不是互动事件。
+// 1 秒删的是“所有人的”缓存——因为这个缓存根本没有“用户”维度。
+// - 搜索主链路查的是 ES，不是 MySQL 。全文搜索、热度排序、时间衰减、语义向量检索（`embedding` 包）这些能力 MySQL 根本做不了（或做不好），这正是引入 ES 的原因。
+
+// 用户 A（搜 "Java"，第 1 页）
+//   ├─ 请求 1（T+0s）：缓存 miss → 查 1 次 ES → 结果写入缓存
+//   ├─ 请求 2（T+2min）：命中缓存，0 次 ES
+//   ├─ 期间有人发布了新文章 → 1s 内缓存全删（对所有人生效）
+//   ├─ 请求 3（T+5min）：miss（被删了）→ 再查 1 次 ES → 重新回填
+//   └─ 他正在看的页面：自始至终没有变化，直到他主动发起新请求
+
+
     /** Redis 字符串模板（缓存读写 + SCAN 失效） */
     private final StringRedisTemplate stringRedisTemplate;
 
@@ -58,6 +125,15 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
      */
     @Override
     public SearchResultVO read(String cacheKey) {
+
+        // search:hotquery:article:heat:1:20:3f5a8c...d2e1
+        //          │       │  │ │   └─ MD5 摘要（32位）
+        //          │       │  │ └─ pageSize
+        //          │       │  └─ pageNum
+        //          │       └─ 排序方式
+        //          └─ 检索类型
+        // 也就是说， 用户真正输入的东西（关键词、筛选条件）全被打包进了一个 MD5 摘要里 。比如：
+
         // 缓存关闭：不读取（避免旧键在开关关闭期间仍生效）
         if (!properties.getCache().isHotQueryEnabled()) {
             return null;
@@ -103,6 +179,8 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
     /**
      * 构造缓存键：类型/排序/分页明文 + 关键词与筛选条件的 MD5 指纹。
      *
+     * 明文拼“分页 + 排序 + 类型”，对“关键词 + 筛选条件”做 MD5，最终拼成一个 Redis 缓存键。
+     *
      * @param request  原始检索请求
      * @param typeCode 检索类型 code
      * @param sortCode 排序 code
@@ -123,6 +201,8 @@ public class HotQueryCacheServiceImpl implements HotQueryCacheService {
                 nullToEmpty(request.getPublishBegin()),
                 nullToEmpty(request.getPublishEnd()));
         // MD5 仅用于生成稳定短键（非安全用途），避免用户输入原样进入 Redis 键
+            //本质是：把“任意长度的查询条件”映射成“固定长度的字符串”
+            //同时排除用户输入的特殊字符等不安全内容
         String digest = DigestUtils.md5DigestAsHex(identity.getBytes(StandardCharsets.UTF_8));
         return SearchRedisConstant.HOT_QUERY_KEY_PREFIX
                 + typeCode + SearchRedisConstant.CACHE_KEY_SEPARATOR

@@ -25,6 +25,8 @@ import java.util.Set;
 /**
  * 搜索联想服务实现（批次六 6.1）。
  *
+ *用户在搜索框打字时，每敲几个字符，前端就把当前输入发给后端，后端返回一列候选词（书名、作者名、标签），前端渲染成下拉框。这就是联想（autocomplete），特点是： 触发极频繁（几乎每键一次）、每次返回极少数据、用户对延迟极敏感 （超过 100ms 就感觉“卡”）。整条链路的所有设计都是围绕“又快又稳”这四个字。
+ *
  * 实现要点：
  * 1. completion suggester 基于批次一 mapping 已建的 title.completion / authorName.completion，
  *    不新增索引字段、不改 mapping；
@@ -38,6 +40,34 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class SuggestServiceImpl implements SuggestService {
+
+//    主流方案的核心洞察是： 联想的本质是“别人都在搜什么”，不是“库里有什么文档” 。所以 Google 联想 "jav" 时给你的不是标题含 jav 的文档，而是`java` 、`javascript` 这些 高频查询词 ——它们来自查询日志的离线挖掘（频次统计、纠错归并、同义合并）。
+//    你的项目联想的是“存在的文档标题/作者/标签”，这叫 document suggest ；主流的“搜过什么联想什么”叫 query suggest 。前者实现简单、永远有结果；后者覆盖率更高（用户搜出 0 结果的词也能被下一个用户联想引导）。
+//    这是微服务下的典型权衡： 大厂趋向“合并查询、缓存兜底”（因为规模大、跳数敏感），中小规模服务趋向“数据不搬家、就近缓存” 。你的选择和项目规模匹配。
+
+//    你的方案 = document suggest（completion suggester）+ 标签池前缀查询（Redis 缓存） ，是中小规模站点的标准起步形态，不算偏门。与主流的差距不在“对错”而在“没到那个规模”：
+//    当前：文档字段联想 + 标签（前缀）
+//            ↓ 词表升级
+//    加 query suggest：聚合 search_history 高频词 → suggest 词表（一次离线任务）
+//            ↓ 匹配升级
+//    edge n-gram 或词表容错（中缀/拼音/错别字）
+//            ↓ 规模升级
+//    独立 suggest 服务 + 本地 trie + 网关缓存
+
+//完整链路
+//    用户敲入 "ja"（前端通常有 200-300ms 防抖，停顿才发请求）
+//            → 闸门检查                    0ms（纯内存判断）
+//            → ES 前缀树查询（书名+作者）    2~5ms（内存遍历，不碰磁盘）
+//            → Feign → content            调用content去MySQL查询标签
+//      → Redis 缓存命中           +1~2ms   ← 99% 的请求止步于此
+//      → （未命中）MySQL 查询      +1~5ms   ← 仅 8 分钟窗口内首次出现的输入
+//  → 合并去重                     0ms
+//    合计：命中缓存 ~5-10ms；未命中 ~10-15ms；感知阈值 ~100ms，余量 6 倍以上
+
+    //容错线
+//    ES 挂   → 丢书名/作者，标签照常    → 下拉框仍有内容
+//    content 挂 → 丢标签，书名/作者照常  → 下拉框仍有内容
+//    两个都挂 → 联想返回空列表          → 但搜索主链路完全不受影响（联想是独立接口）
 
     /** ES 客户端（article_idx completion suggester） */
     private final ElasticsearchClient elasticsearchClient;
@@ -152,6 +182,7 @@ public class SuggestServiceImpl implements SuggestService {
         }
     }
 
+
     /**
      * 收集 content 标签池联想（best-effort，异常降级为空）。
      *
@@ -161,6 +192,26 @@ public class SuggestServiceImpl implements SuggestService {
      * @param seenTexts 文本去重集合
      */
     private void collectTags(String keyword, int limit, List<SuggestVO> result, Set<String> seenTexts) {
+
+        //查完 content 侧实现，结论是： 这条链路早就做过性能优化，担心的“每次都查 MySQL”实际不会发生 。逐层看：
+//        ## 实际链路：MySQL 是最后一级，且前面有三道闸
+//        前端每键触发 suggest
+//      ↓ ① search 侧闸门
+//            SuggestServiceImpl：总开关关闭/空串/单字(<2字符)/超长 → 直接返回空，一个请求都不发
+//      ↓ ② ES completion suggester（书名+作者）
+//            基于 title.completion / authorName.completion 内存 FST 结构，毫秒级，不碰磁盘
+//      ↓ ③ content 侧 Redis 缓存（TagServiceImpl.searchByPrefix）
+//            缓存命中 → 直接返回，【不碰 MySQL】
+//      ↓ ④ 缓存未命中才查 MySQL
+//            LIKE '前缀%' + 转义 + 只取前 N 条 + use_count 倒序
+
+//        content 侧 TagServiceImpl.java#L80-L120 已经做了“企业优化清单 1.2”的缓存方案：
+//        - 有结果 ：缓存 8 分钟 ± 10% 抖动（防雪崩）
+//        - 空结果 ：缓存 60 秒短 TTL（防穿透——用户输入乱串时不会每键都打到 MySQL）
+//        - LIKE 转义 ：`%` /`_` 被转义，用户输入不会把全表拖出来
+//        所以真实的 MySQL 命中率取决于“联想词的重复度”——热门前缀（"ja"、"py"、"spring"）几乎永远命中缓存，只有长尾输入在 8 分钟窗口内第一次出现时才查一次库。而`tag` 表本身是个小表（一个站点几百到几千个标签），前缀 LIKE 走索引范围扫描也就亚毫秒级
+
+
         try {
             Result<List<TagSuggestDTO>> tagResult = contentClient.getTagSuggestions(keyword);
             if (tagResult == null || !tagResult.isSuccess() || tagResult.getData() == null) {

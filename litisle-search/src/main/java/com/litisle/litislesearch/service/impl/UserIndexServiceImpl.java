@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 /**
  * 用户索引同步服务实现（批次五 B5）。
  *
+ * 把 用户的公开资料 （笔名、简介）同步进 ES 的`user_idx` 索引，让用户也能被搜到
+ * 
  * 核心铁律：
  * 1. 事件体只带 userId，笔名/简介/状态一律 UserClient 回查权威值（禁信事件体）；
  * 2. 写入门控：状态正常（1）、未删除（0），且至少一个可检索公开字段（笔名/简介）非空才入索引——
@@ -33,6 +35,9 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class UserIndexServiceImpl implements UserIndexService {
 
+//- 统一搜索入口需要用户类型 。站内检索有三种 type（article/book/user）路由到不同索引——用户搜“鲁迅”，期望作者也是命中项之一。没有 user_idx，搜索结果永远只有文章和书。
+//            - 检索字段是公开资料，不是账号数据 。只写笔名（penName）和简介（bio）两个可检索字段（ buildIndexDoc L129-L136 ）——密码、邮箱、手机号等隐私字段根本不进 ES。MySQL 里的用户表服务“登录与账号管理”，ES 里的 user_idx 服务“被别人搜到”，两份数据职责不同。
+
     /** ES 客户端（user_idx 读写入口） */
     private final ElasticsearchClient elasticsearchClient;
 
@@ -44,6 +49,7 @@ public class UserIndexServiceImpl implements UserIndexService {
 
     /** 索引版本守卫（企业优化清单 2.1：旧快照迟到时跳过写入，防覆盖新快照） */
     private final IndexVersionGuard indexVersionGuard;
+
 
     /**
      * 处理用户索引同步：回查 → 门控 → upsert 或删除。

@@ -120,9 +120,21 @@ public class IndexHeatFlushJob {
     @Scheduled(fixedDelayString = "${litisle.search.heat.flush.interval-ms:900000}",
             initialDelayString = "${litisle.search.heat.flush.initial-delay-ms:60000}")
     public void flushHeat() {
+
+        /*
+         * 业务逻辑步骤：
+         * 1. 扫描本窗口全部待刷新键（空则提前返回，空闲周期零成本，只有一个 SCAN）；
+         * 2. 记录本轮键数指标，作为刷写活跃度观测；
+         * 3. 按批量上限把键切成若干分片，提交到固定并发池并行刷写（单批过大易被 ES 拒绝）；
+         * 4. 阻塞等待全部分片完成（分片内异常已在 flushChunk 消化并回灌，不向上扩散）；
+         * 5. 刷写完成后立即失效热点查询缓存，保证下一次检索读到已更新的 heat（失败有缓存 TTL 兜底）。
+         */
+
         // 步骤1：扫描本窗口全部待刷新键；为空直接跳过（绝大多数空闲周期走这条路径）
+        // 变量：本窗口全部待刷新键（SCAN search:heat-pending:* 的结果，键内是各文章的热度增量）
         List<String> keys;
         try {
+            // 调用 Redis SCAN 扫描全部 pending 键（失败时 pending 键有 TTL 兜底，不丢数据）
             keys = heatPendingService.scanPendingKeys();
         } catch (Exception e) {
             log.error("[热度刷写] 扫描待刷新键失败，本轮跳过（pending 键有 TTL 兜底不会丢）", e);
@@ -132,22 +144,29 @@ public class IndexHeatFlushJob {
             log.debug("[热度刷写] 本窗口无待刷新热度，跳过");
             return;
         }
+
         // 指标：本轮扫描到的待刷新键数（空闲周期已在上面提前返回，不产生无意义增量）
         searchMetrics.recordHeatFlushRound(keys.size());
 
         // 步骤2：按批量上限切片，提交到固定并发池并行执行（单批过大易被 ES 拒绝）
+        // 变量：单分片最大键数（取配置 flush.batch-size，非法时兜底 1 保证循环可推进）
         int batchSize = Math.max(1, properties.getHeat().getFlush().getBatchSize());
+        // 变量：各分片异步任务的 Future 句柄（步骤4 逐个阻塞等待，确保本轮全部完成）
         List<Future<?>> futures = new ArrayList<>();
         for (int from = 0; from < keys.size(); from += batchSize) {
+            // 变量：当前分片的结束下标（不含），最后一片不足 batchSize 时取列表末尾防越界
             int to = Math.min(from + batchSize, keys.size());
             // subList 视图只读使用，任务内不再修改原 keys
+            // 变量：当前分片的键切片（原列表视图，长度不超过 batchSize）
             List<String> chunk = keys.subList(from, to);
+            // 调用线程池 submit 提交分片任务（异步执行 flushChunk，立即拿到句柄）
             futures.add(flushExecutor.submit(() -> flushChunk(chunk)));
         }
 
         // 步骤4：等待全部分片完成（单个分片异常已在 flushChunk 内消化并回灌，不向上扩散）
         for (Future<?> future : futures) {
             try {
+                // 调用 get 阻塞等待该分片完成（异常说明分片内兜底逻辑也失效，仅留痕不扩散）
                 future.get();
             } catch (Exception e) {
                 log.error("[热度刷写] 分片任务执行异常（增量已在分片内回灌）", e);
@@ -171,16 +190,27 @@ public class IndexHeatFlushJob {
      * @param keys 本分片的待刷新键
      */
     private void flushChunk(List<String> keys) {
+        /*
+         * 业务逻辑步骤：
+         * 1. 逐键原子取走 pending 增量（空键=已被取走或过期，直接跳过；单键失败不影响同批其他键）；
+         * 2. 批量回查 article_idx 现有文档（回查失败 → 整批增量回灌 Redis，等下一轮重试，不丢数据）；
+         * 3. 按 A5 公式重算 like/comment/view 三计数与 heat（文档已不存在则跳过，视为已下架）；
+         * 4. 执行 _bulk 批量局部更新（整体异常 → 整批回灌，ES 抖动只损失一个刷写周期）。
+         */
+
         // 步骤1：逐键原子取走；单键异常只跳过该键，不影响同批其他键
+        // 变量：本分片成功取走并解析出的增量清单（后续按它回查/重算/更新）
         List<PendingHeat> taken = new ArrayList<>();
         for (String key : keys) {
             try {
+                // 变量：该键的增量明细 Hash（like_delta/comment_delta/view_delta 等字段值）
                 Map<String, String> hash = heatPendingService.takePending(key);
                 if (hash.isEmpty()) {
                     // 空键：上一轮已取走或 TTL 过期，直接跳过
                     log.debug("[热度刷写] 待刷新键为空，跳过：key={}", key);
                     continue;
                 }
+                // 调用解析方法把 Hash 字段转成结构化增量（字段缺失/非法返回 null，跳过该键）
                 PendingHeat pending = parsePending(key, hash);
                 if (pending != null) {
                     taken.add(pending);
@@ -194,16 +224,20 @@ public class IndexHeatFlushJob {
         }
 
         // 步骤2：回查现有文档（失败则整批回灌，等下一轮）
+        // 变量：现有文章文档表（articleId → 文档），提供重算时的当前计数基数
         Map<String, ArticleIndexDoc> currentDocs;
         try {
+            // 调用批量回查（multiGet）取 article_idx 现有文档；查不到的 articleId 视为已下架
             currentDocs = loadCurrentDocs(taken);
         } catch (Exception e) {
             log.error("[热度刷写] 回查文章文档失败，回灌本批增量等下一轮：size={}", taken.size(), e);
+            // 调用回灌方法把整批增量写回 Redis pending 键（等下一轮重试，不丢数据）
             restoreAll(taken);
             return;
         }
 
         // 步骤3：按 A5 公式计算新计数与 heat（文档已不存在的跳过，视为已下架）
+        // 变量：局部更新清单（文档不存在/无变化的条目已剔除，只保留真正要写 ES 的）
         List<HeatUpdate> updates = buildUpdates(taken, currentDocs, LocalDateTime.now());
         if (updates.isEmpty()) {
             return;
@@ -211,6 +245,7 @@ public class IndexHeatFlushJob {
 
         // 步骤4：执行 _bulk 局部更新；整体异常则整批回灌（ES 抖动仅跳过本轮）
         try {
+            // 调用 _bulk 批量更新 ES（只更新 likeCnt/commentCnt/viewCnt/heat 四字段，不重写全文档）
             bulkUpdate(updates);
             // 指标：本分片条目刷写成功（部分失败由 bulkUpdate 内部回灌并 error 留痕）
             searchMetrics.recordHeatFlushBatch(updates.size(), true);
@@ -218,6 +253,7 @@ public class IndexHeatFlushJob {
             // 指标：本分片整体失败（条目已回灌，下一轮重试）
             searchMetrics.recordHeatFlushBatch(updates.size(), false);
             log.error("[热度刷写] _bulk 执行异常，回灌本批增量等下一轮：size={}", updates.size(), e);
+            // 逐条回灌：把增量写回 Redis pending 键，下一轮重新刷写
             for (HeatUpdate update : updates) {
                 restore(update);
             }
@@ -394,6 +430,8 @@ public class IndexHeatFlushJob {
 
     /**
      * 计算时间衰减因子（半衰期折半）。
+     *
+     * decayFactor 用"半衰期"模型计算时间衰减因子：文档越旧，得分越低，最低趋近 0，最新文档得满分 1.0。
      *
      * @param updateTime 文档更新时间（当前实现中兼具发布时间语义；为空时不做衰减）
      * @param halfLife   半衰期

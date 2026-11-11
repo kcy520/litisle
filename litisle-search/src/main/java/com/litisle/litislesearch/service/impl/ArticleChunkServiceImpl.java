@@ -55,21 +55,24 @@ public class ArticleChunkServiceImpl implements ArticleChunkService {
      */
     @Override
     public void rebuild(ArticleIndexDoc doc, String plainText) {
-        // 步骤1：先删旧块（正文变短/标签变更时保证不残留过期切片）
-        deleteByArticleId(Long.valueOf(doc.getId()));
-        // 步骤2：正文长度门槛校验（过短文章不入 RAG 知识库）
+
+        // 步骤1：正文长度门槛校验（过短文章不入 RAG 知识库）
         int minLength = properties.getIngest().getMinContentLength();
         if (plainText == null || plainText.length() < minLength) {
             log.debug("[切片摄入] 正文过短不入库：articleId={}, length={}, min={}",
                     doc.getId(), plainText == null ? 0 : plainText.length(), minLength);
             return;
         }
-        // 步骤3：切片（重叠切片防断章取义）
+        // 步骤2：切片（重叠切片防断章取义）
         List<String> chunks = SearchTextUtils.splitIntoChunks(plainText,
                 properties.getIngest().getChunkSize(), properties.getIngest().getChunkOverlap());
         if (chunks.isEmpty()) {
             return;
         }
+
+        // 步骤3：先删旧块（正文变短/标签变更时保证不残留过期切片）
+        deleteByArticleId(Long.valueOf(doc.getId()));
+
         // 步骤4：逐片组装文档（切片时间统一取当前，便于排查重建批次）
         LocalDateTime now = LocalDateTime.now();
         List<ArticleChunkDoc> chunkDocs = java.util.stream.IntStream.range(0, chunks.size())
@@ -100,6 +103,7 @@ public class ArticleChunkServiceImpl implements ArticleChunkService {
                     .query(q -> q.term(t -> t
                             .field(SearchFieldConstant.FIELD_ARTICLE_ID)
                             .value(articleId))));
+            //term = 精确匹配，不做任何分词，拿你给的值原封不动去跟 ES 里的字段值比对，"一模一样"才算命中。
             log.info("[切片摄入] 删除旧切片：articleId={}", articleId);
         } catch (Exception e) {
             // 删除失败必须上抛：下架内容残留切片会被 RAG 继续引用（隐私红线）；
@@ -136,6 +140,7 @@ public class ArticleChunkServiceImpl implements ArticleChunkService {
         return chunkDoc;
     }
 
+
     /**
      * 批量写入切片文档，任一条失败即抛异常（保证重试后数据完整）。
      *
@@ -144,7 +149,7 @@ public class ArticleChunkServiceImpl implements ArticleChunkService {
     private void bulkIndex(List<ArticleChunkDoc> chunkDocs) {
         String chunkIndex = properties.getIndex().getChunk();
         try {
-            // 构建 _bulk 请求：逐条 index（id 为 chunkId，重复写入即覆盖）
+            // 组装批量请求体。构建 _bulk 请求：逐条 index（id 为 chunkId，重复写入即覆盖）
             BulkRequest.Builder builder = new BulkRequest.Builder();
             for (ArticleChunkDoc chunkDoc : chunkDocs) {
                 builder.operations(op -> op.index(idx -> idx
@@ -152,6 +157,7 @@ public class ArticleChunkServiceImpl implements ArticleChunkService {
                         .id(chunkDoc.getChunkId())
                         .document(chunkDoc)));
             }
+            //批量写入
             BulkResponse response = elasticsearchClient.bulk(builder.build());
             // 校验逐条结果：失败详情记日志并抛异常，交由消费端延迟重试
             if (response.errors()) {

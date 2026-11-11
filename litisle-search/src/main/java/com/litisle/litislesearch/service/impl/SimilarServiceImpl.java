@@ -135,38 +135,71 @@ public class SimilarServiceImpl implements SimilarService {
     /**
      * 以源文章向量执行 KNN 检索。
      *
+     * 用源文章的向量，在 ES 里做 KNN 近邻搜索，过滤掉自己和非公开文章，返回最相似的 N 篇。
+     *
      * @param source 源文章索引文档（必须已有向量）
      * @param topK   需要返回的条数
      * @return KNN 命中（含原始相似度分）
      * @throws BizException ES 不可用（SEARCH_ES_UNAVAILABLE）
      */
     private List<Hit<ArticleIndexDoc>> knnSearch(ArticleIndexDoc source, int topK) {
+
+//        源文章向量
+//   ↓
+//        +1 防止自身占用 topK
+//   ↓
+//        visibility=PUBLIC
+//   ↓
+//        mustNot 自身 ID
+//   ↓
+//        ES KNN 检索
+//   ↓
+//        返回 topK+1 条
+//   ↓
+//        外层融合分排序
+//   ↓
+//        最终截断为 topK
+
+        //① 读取 KNN 配置
         SearchProperties.Knn knnConfig = properties.getKnn();
+
+        //② 计算实际查询的 k 值（多取 1 条）
         // 多取 1 条：即使自身未被 filter 排除也能凑满 topK，最终仍按融合分截断
         int k = topK + 1;
+
+        //③ 计算 numCandidates（候选集大小）
         // numCandidates 必须 >= k
         int candidates = Math.max(knnConfig.getNumCandidates(), k);
+
+        //④ 构造过滤条件（filter + mustNot）
         // 强制 visibility=PUBLIC（C3）+ must_not 排除自身
         Query filter = new BoolQuery.Builder()
                 .filter(termFilter(SearchFieldConstant.FIELD_VISIBILITY, SearchGateConstant.VISIBILITY_PUBLIC))
                 .mustNot(termFilter(SearchFieldConstant.FIELD_ID, source.getId()))
                 .build()._toQuery();
-        KnnSearch knn = KnnSearch.of(builder -> builder
-                .field(SearchFieldConstant.FIELD_VEC_DENSE)
-                .queryVector(source.getVecDense())
-                .k(k)
-                .numCandidates(candidates)
-                .filter(filter));
+
+        //⑤ 构造 KNN 查询
+        KnnSearch knn = KnnSearch.of(builder -> builder                // 使用 Java Client 构建器创建 KNN 查询对象
+                .field(SearchFieldConstant.FIELD_VEC_DENSE)                   // 指定 ES 中存储稠密向量的字段名（如 vec_dense）
+                .queryVector(source.getVecDense())                            // 传入源文章的向量，作为相似度检索的"参照物"
+                .k(k)                                                         // 设置返回最相似的 k 条结果（topK+1，多取一条防止自身占用名额）
+                .numCandidates(candidates)                                    // 设置 HNSW 图中探查的候选集大小（≥k），控制召回质量与性能平衡
+                .filter(filter));                                             // 设置前置过滤条件：只搜公开文章 + 排除自身，减少无效向量计算
+
+        //⑥ 构造 SearchRequest
         SearchRequest request = new SearchRequest.Builder()
                 .index(properties.getIndex().getArticle())
                 .size(k)
                 .knn(knn)
                 .build();
+
         try {
+            //⑦ 执行 ES 检索
             SearchResponse<ArticleIndexDoc> response =
                     elasticsearchClient.search(request, ArticleIndexDoc.class);
             return response.hits().hits();
         } catch (Exception e) {
+            //⑧ 异常处理（ES 不可用时）
             log.error("[相似推荐] KNN 检索失败：articleId={}", source.getId(), e);
             throw new BizException(ErrorCode.SEARCH_ES_UNAVAILABLE, "搜索服务暂不可用，请稍后重试", e);
         }
@@ -175,37 +208,66 @@ public class SimilarServiceImpl implements SimilarService {
     /**
      * 融合评分并过滤、排序、截断。
      *
+     * 把 KNN 召回的候选文章，用“向量相似度 + 标签重合度 + 热度”三路加权融合打分，过滤低质量结果，最终按融合分取 topK。
+     *
      * @param hits   KNN 命中
      * @param source 源文章（标签重合度基准）
      * @param topK   最终返回条数
      * @return 相似文章列表（按融合分降序）
      */
     private List<SimilarArticleVO> fuseAndLimit(List<Hit<ArticleIndexDoc>> hits, ArticleIndexDoc source, int topK) {
+
+//        KNN 原始命中
+//   ↓
+//        逐条校验（空值 / 自身 / 阈值）
+//   ↓
+//        三路融合打分
+//   ↓
+//        封装 VO
+//   ↓
+//        按融合分降序排序
+//   ↓
+//        截断到 topK
+
+        //① 读取配置 & 权重归一化
         SearchProperties.Knn knnConfig = properties.getKnn();
         // 原始相似度阈值（cosine 分，批次七默认 0.4；配置为 0.0 时表示不过滤）
         double threshold = knnConfig.getSimilarityThreshold();
         // 权重按总和归一化，配置允许任意比例（全 0 时退化为纯向量分）
         double[] weights = normalizeWeights(knnConfig);
+
+        //② 遍历 KNN 命中结果
         List<SimilarArticleVO> candidates = new ArrayList<>();
         for (Hit<ArticleIndexDoc> hit : hits) {
+
+            //③ 基础校验（逐条过滤）
+            //3.1 文档为空跳过
             ArticleIndexDoc doc = hit.source();
             if (doc == null) {
                 continue;
             }
             Long candidateId = parseId(doc.getId());
+            //3.2 ID 解析 & 自身排除（双保险）
             // 主键异常跳过；仍是自身（filter 已排除，双保险）也跳过
             if (candidateId == null || (source.getId() != null && source.getId().equals(doc.getId()))) {
                 continue;
             }
+
+            //④ 向量相似度阈值过滤
             // 原始向量相似度（KNN 分；缺失按 0 处理）
             double similarity = hit.score() == null ? 0.0 : hit.score();
             if (similarity < threshold) {
                 continue;
             }
+
+            ///⑤ 三路融合打分（核心逻辑）
+            // 融合公式：融合分 = 向量相似度 × w₀ + 标签重合度 × w₁ + 热度归一值 × w₂
             // 融合分 = 向量相似×权重 + 标签重合度×权重 + 热度归一值×权重
             double fused = similarity * weights[0]
                     + tagSimilarity(source.getTags(), doc.getTags()) * weights[1]
                     + normalizeHeat(doc.getHeat()) * weights[2];
+
+            //⑥ 封装 VO
             SimilarArticleVO vo = new SimilarArticleVO();
             vo.setArticleId(candidateId);
             vo.setTitle(doc.getTitle());
@@ -214,6 +276,8 @@ public class SimilarServiceImpl implements SimilarService {
             vo.setScore(fused);
             candidates.add(vo);
         }
+
+        //⑦ 排序 & 截断
         // 按融合分降序，截断到 topK（KNN 多取 1 条仅用于兜底自身，不改变上限语义）
         candidates.sort(Comparator.comparing(SimilarArticleVO::getScore).reversed());
         if (candidates.size() > topK) {

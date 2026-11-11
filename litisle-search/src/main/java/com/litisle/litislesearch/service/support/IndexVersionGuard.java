@@ -43,6 +43,8 @@ public class IndexVersionGuard {
     /**
      * 判断新快照是否已过期（过期则调用方跳过写入）。
      *
+     * 只要 ES 里已有文档的版本时间 ≥ 新快照的版本时间，就认为“新快照已过期/重复”，直接跳过写入；否则才允许写入。
+     *
      * @param index             索引名
      * @param id                文档主键
      * @param newUpdateTime     新快照的版本时间（上游 updateTime/publishTime，可能为 null）
