@@ -38,6 +38,15 @@ public class RateLimitFallbackProperties {
      */
     private long cooldownSeconds = 5L;
 
-    /** 集群实例数：本地配额分摊 = 集群阈值 ÷ 实例数；扩缩容后需同步 */
+    /**
+     * 集群实例数：本地配额分摊 = 集群阈值 ÷ 实例数；扩缩容后需同步
+     *
+     * 【手工配置边界】此值是 yml 手工配置而非自动探测，两个约束：
+     * - 必须与实际实例数一致：实际 N 台只配了 M（M&lt;N）时，每台等效阈值 = 集群阈值/M，
+     *   全集群放水量 = N/M 倍阈值（如 3 台配 2 = 1.5 倍），「更严或等严」保证被破坏；
+     *   配大了方向相反（降级期过严、误杀增多），两害相权宁大勿小。
+     * - RedisRateLimiter#localIncrement 的 Math.max(1,...) 只防配 0 导致恒放行，
+     *   防不了配小——扩缩容后人工核对是唯一保障（后续可接 Nacos 服务发现动态计算）。
+     */
     private int instanceCount = 1;
 }

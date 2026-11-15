@@ -3,6 +3,7 @@ package com.litisle.commonmq.consume;
 
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commonmq.send.MqSendUtil;
+import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
@@ -45,6 +46,23 @@ import java.io.IOException;
  */
 @Slf4j
 public final class MqAckHelper {
+
+
+// ACK = acknowledgement（确认回执） ——消费者告诉 RabbitMQ“这条消息我处理完了（或没处理完）”，broker 据此决定 删不删这条消息 。它是 MQ 可靠性机制的基石。
+// RabbitMQ 推消息给消费者后，消息并不能立刻删——万一消费者处理到一半进程崩了，消息就丢了。所以 broker 会把已投递的消息标记为“ Unacked（待确认） ”，一直等消费者的回执：
+// Broker ──投递──► 消费者            消息状态：Unacked（挂在队列里不删）
+//         ◄──ACK────                消息状态：删除，任务完成
+//         ◄──NACK/reject──          消息状态：按参数决定重投或进死信
+
+// 模式	            行为	                                    风险
+// 自动 ACK（auto）	消息一投递到消费者就立刻标记删除，不等业务处理	业务处理中途崩了 → 消息已删 → 丢失
+// 手动 ACK（manual）	消费者业务代码执行成功后，显式调用 ack 才删除	必须记得 ack——忘记 ack 消息会一直堆积在 Unacked 状态
+
+// ACK 是消费者给 broker 的“处理完成回执”；手动 ACK = 把“什么时候算处理完成”的决定权交给业务代码 ——成功才删、暂时失败退避重试、永久失败死信留痕。它和“自动 ACK 一投递就删”相比，牺牲了一点代码复杂度（必须处理每个分支），换来的是 消息不丢 这一可靠性底线。面试答 MQ 可靠性时，通常就是从“生产端确认 + broker 持久化 + 消费端手动 ACK”三板斧展开，手动 ACK 是其中消费端那一板。
+// 回执”不是返回值，也不是 HTTP 响应，而是 一条通过 TCP 连接发回 broker 的 AMQP 协议帧 。
+
+// ACK 就是签收回执 ：broker 每送一条消息都带一个单号，你处理完后拿单号喊一嗓子“签收了”，broker 才销单；喊“拒签”就去死信队列。broker 没等到你喊话之前，消息永远不删——这就是“消息不丢”的全部秘密。
+// 回执 = 复用启动时已建立的 TCP 长连接 ，往 broker 发一条只含“单号 + 签收/拒签”的极简通知。它不建新连接、不带失败详情；broker 收到签收就删消息，收到拒签就转死信，收不到就等连接断了重投。
 
     private MqAckHelper() {
     }

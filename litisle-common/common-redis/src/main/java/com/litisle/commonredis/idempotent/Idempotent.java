@@ -93,6 +93,11 @@ import java.util.concurrent.TimeUnit;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Idempotent {
 
+
+// 幂等 ： IdempotentAspect.java#L118-L125 —`setIfAbsent` 返回`false` 即视为重复提交直接拒绝；且 L130-L139 业务失败时按`releaseOnError` 删 key 允许重试——它关心的是“这一次操作有没有执行过”，不关心次数。
+
+// 限流 ： RedisRateLimiter.java#L84-L90 — Lua 脚本`incr` 自增计数，`count == 1` 时才设过期； RateLimiterAspect.java#L114 —`currentCount > count` 才拒绝，窗口内前 N 次都正常放行。
+
     /**
      * 幂等过期时间（默认 5 秒）
      * 【说明】TTL 应略大于业务执行时间，但不要太长（影响用户体验）

@@ -88,25 +88,7 @@
 
 > 纪律：迁移时条目内容原样搬运（含口径修正、注意事项），不压缩关键细节；归档文档与本文档/Temporarily 清单之间用相对路径互链，保证可回溯。
 
-### 已完成项归档指引（2026-11-07 建立，2026-11-08 折叠为总指针）
-
-> 已完成并归档的条目见 [docs/archive/](../archive/) 下各模块索引页，本清单不再逐条登记。
-> **编号一律不重排**：本文件按编号被引用（「按 11.1 口径」「见 10.3」等），归档后留下的编号空缺不要按新序号去理解旧引用。
-
-### 执行排期（2026-11-08 用户拍板）
-
-> 状态口径：「已拍板待执行」保持 `- [ ]` / `- [~]`，**不改成** **`- [x]`**；`- [x]` 仅表示实际已完成。下表只反映执行顺序，不代表已经实施。
-> 需环境实测的条目（9.8-P2、15.2-A、10.7、10.8、9.4、9.5、9.6-A、14.1、17.5 及各 V{n}）正文已迁至 [next\_verify.md](next_verify.md)，本表只保留执行顺序口径。
-
-| 批次            | 条目                               | 一句话说明                                     |
-| ------------- | -------------------------------- | ----------------------------------------- |
-| 第一批（零风险，先做）   | 15.1、15.2-B、9.6-B                | 仅文档同步、常量引用替换、测试依赖作用域清理，不改变运行时行为           |
-| 第二批（必修，需回归）   | 9.8-P1、11.11-A（含 11.11-B）、15.2-A | 改行为；回归文章详情、章节阅读、匿名刷流三种身份                  |
-| 第三批（需 DDL）    | 9.8-P2                           | 四张表升 `datetime(3)`，攒到下次动库时一起执行            |
-| 第四批（大工程，单独排期） | 9.6-A、14.1                       | Testcontainers 集成测试；验证码/文件上传纳入 breaker 评估 |
-| 延后            | ~~11.11-C1~~（2026-11-09 已归档）；10.7、10.8 | 影子统计等真实互动量；两个端到端验证并入下次环境验证                |
-| 暂不实现（预留项）     | feed 快照熔断（2026-11-09 登记）        | Redis 黑洞型故障熔断，复用 common-redis 已有 Resilience4j 熔断器；触发条件见 [temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md)，未触发不排期 |
-| 保持不做          | 9.8-P3                           | 单调版本号，不进入实施                               |
+<br />
 
 ***
 
@@ -121,92 +103,143 @@
 
 ***
 
-#### search模块
+<br />
 
-> 板块划分依据：[Search-Architecture.md](../Architecture/Search-Architecture.md) §九 + [Search-Business\_Guide.md](../Study/Search-Business_Guide.md) §四缺口清单（G1\~G8）+ temp.md search模块 批次A\~D + 2026-11-03 设计审查（发现 6 项重大缺陷 A1\~A6）；推进顺序：批次一 → 二 → 三 → 四 → 五 → 六 → 七 → 八。
-> **搜索归属核查结论（2026-11-03，精准扫描 content 控制器）**：
+<br />
+
+***
+
+#### litisle-ai（AI）模块
+
+> 板块划分依据：AI-Architecture.md（现状 + 设计态，D1–D25 决策映射见其 §十二）/ Design-Document.md §2.3.6；推进顺序：板块零（骨架）→ 一（基建）→ 二（Agent 底座 + 摘要/标签）→ 三（会话 + 润色/结构）→ 四（RAG 问答）；板块零/一内任务可并行
 >
-> - 不迁移（保留 content）：`GET /article/my`、`GET /book/my` 的 keyword 过滤（作者管理侧列表，author\_id 硬收口，DB 直查合理）；`GET /tags?keyword=` 前缀搜索（tag 池为 content 域元数据，SearchTypeEnum 无 TAG，标签搜索≠全文检索）；`GET /article/list`、`/article/hot`（结构化筛选列表，无关键词）。
-> - 归属 search（既定设计，`BookController` `/book/list` 注释已声明「一期不做 keyword 搜索（search 模块书籍索引为外部依赖）」）：公开文章/书籍/用户的全文与多维度检索 + 相似推荐。
-> - **~~发现的遗漏~~**~~：book\_idx / user\_idx 无索引同步事件来源（书籍创建/变更/完结/下架无事件、UserRegisteredEvent 为空类未发布）~~：**2026-11-04 已随批次五收口**（书籍事件 B4 + 用户事件 B5 + book\_idx/user\_idx 消费）。
->   **优先级口径（2026-11-03 定）**：优先 content 文章与书籍相关链路（批次一\~五），联想/相似/降级随后；user\_idx 同步链路已于 2026-11-04 随批次五 5.3 落地（见批次五）。
->   *批次A（缺陷修正定版 A1\~A7）/ 批次B 契约 B1/B2/B3/B7（SearchClient、social 事件、SEARCH\_* 错误码、article-updated/view-count-flushed 事件）/ 批次C 决策（C1\~C4）已于 2026-11-03 完成\*；批次B 余项 B6（回查字段核对）已于 2026-11-04 随批次二 2.1 收口，B4（书籍事件）/B5（用户事件）随批次五 收口。
->   批次八（8.1\~8.2）已完成归档（[search-09-degrade-observability.md](../archive/search/search-09-degrade-observability.md)）；V1\~V3 与 9.1 同名验证项已迁入 [next\_verify.md](next_verify.md)。
+> 技术底座说明：Agent 化采用 LangChain4j AiServices（ChatAgent + ChatMemory + Tools / Function Calling），不引入新框架；摘要/标签等能力拆为 tools 由模型自主编排，区别于固定管道式 LLM 调用
+>
+> 口径说明：`AI-Business-Guide.md` 曾被清空，已于 2026-11-15 从 git 提交 0106d4a（871 行完整原版）恢复，并新增「§4.6 生成式流程（小悦 Agent）」「§5.3 计量幂等键修订」「§十七 Agent 化定档（P1–P10）」；D 决策口径恢复以业务指南为唯一来源
+>
+> 范围说明：本清单聚焦面向用户文章的小悦（Xiaoyue）生成式 Agent（简历导向优先）；图片判定端点、小审判定辅助、反馈采集、评测集不在本清单范围；需起服务/真实模型/中间件实测的任务按文档规则移入 next_verify.md，不在本文件挂载
 
-##### 批次九：收尾、验证与遗漏补齐（依赖批次一\~八；2026-11-05 复核）
+##### 板块零：模块基础骨架接入（当前仅空壳，一切任务的前置）
 
-> **复核口径**：按 批次1-2 / 3-4 / 5-6 / 7-8 四组逐条对照代码核查；已勾选条目未发现「勾选但代码缺失」，以下汇总未勾选验证项、只做一半的实现、过期标注与部署/体验缺口。
-> 复核结论计数：批次1-2 发现 2 项、批次3-4 发现 2 项、批次5-6 发现 1 项、批次7-8 发现 6 项、content 跨模块 2 项，去重合并后见各分类清单。
-> 类型说明：【必须】= 上线/联调前必须完成；【可选】= 优化项或已挂起项，按触发条件择机推进。
-> **批次九其余条目**：9.1\~9.5、9.6-A、9.7、9.9 不构成本文件待办——9.1/9.4/9.5/9.6-A 已迁入 [next\_verify.md](next_verify.md)；9.2/9.3/9.7/9.9 已归档（[search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md)）或迁入挂起项（[temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md)）。
+###### 0.1 依赖与基础设施接入
 
-###### 9.6 测试补齐（批次九）
+- [x] litisle-ai 补齐基础依赖与配置：web / openfeign / mybatis-plus / mysql / redis / rabbitmq / nacos 注册与配置中心；确定服务端口；application.properties 迁移 yml 并接入 Nacos（数据源、Redis、MQ 连接均未配置）
+  - 现状基线（AI-Architecture §2.1）：pom 仅 spring-boot-starter + test，controller/service/mapper/config 均不存在；本任务只立骨架不写业务
+  - ✅ 2026-11-15：pom 补齐 web / openfeign(+loadbalancer) / mybatis-plus / mysql / data-redis(+pool2) / amqp / nacos discovery+config / lombok；端口定 8087（顺延 gateway 8080~search 8086）；application.properties 删除（经确认），迁移为 application.yml + application-local.yaml（profile local，Nacos 接入与 review 同构：config.import litisle-ai.yaml + litisle-shared.yaml，db=litisle_ai）；只立骨架未写业务——@EnableFeignClients 与 litisle-api 依赖随板块一 1.2 接入时补，MQ 消费侧配置随板块四落地；编译验证已通过（2026-11-15，mvn -pl litisle-ai clean compile）
 
-> —9.6-A（Testcontainers 集成测试）已迁入 [next\_verify.md](next_verify.md)（2026-11-09，测试执行需 Docker/ES 容器就绪，属环境实测类）。
-> —9.6-B 已完成并归档，见 [search-10-batch09-closing.md](../archive/search/search-10-batch09-closing.md) 的 9.6-B 节（2026-11-08）。
+##### 板块一：模型通道与计量配额基建（后续板块的共同前置）
 
-***
+###### 1.1 OpenAI 兼容模型接入通道（provider 层）
 
-##### 批次十一：推荐互动数据与统计口径治理（2026-11-06 立项）
+- [ ] 新建 provider/text 包实现统一文本模型通道：base-url / api-key / model / 超时 / 重试参数全部外置到配置（yml/Nacos），代码内不硬编码模型端点；prompt 模板与 prompt_version 常量集中管理（文本场景 prompt_version 由 model_version 承载）；provider 是唯一接触模型 SDK/HTTP 的层，controller/service 不直连模型
+  - 业务逻辑：单一 chat 入口收 system+user 双段 prompt → 出站前按最小必要原则过滤（禁止附带用户身份信息）→ 调用失败 fail-fast 上抛，不静默吞错、不默认放行；日志只留标识/指纹/必要片段，不打印正文全文
 
-> 已完成 16 项（11.1\~11.10、11.12\~11.17）并归档；11.11 的三个部分（负反馈原文、A/B 已完成项、C1\~C3 延后项）已于 2026-11-09 全部归档至 [content-11-interaction-stats.md](../archive/content/content-11-interaction-stats.md)（**唯一副本**，C1\~C3 归档块含主流方案评审结论：重启信号量化、C2 的 R2 处置降档，用户已拍板采纳）。**批次十一全部条目均已归档，编号不重排**，本文件不再保留批次十一正文。
+###### 1.2 用途打标契约扩展（实施落 litisle-api）
 
-- \[\~] 【P1｜前端配合：是】11.11 反作弊与负反馈登记——**已于 2026-11-09 全部迁出主清单**：负反馈完成部分、11.11-A/B（作者自浏览/自点击排除，已实测通过）归档见 [content-11-interaction-stats.md](../archive/content/content-11-interaction-stats.md)「六」末尾；11.11-C1\~C3（异常频次三维度，延后）已登记挂起项 [temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md) content 节（**触发条件**：连续 7 天单内容日互动 ≥100 或单用户日互动 ≥20），三阶段设计与前端配合职责见 [Content-Architeche.md](../Architecture/Content-Architeche.md) §五；此处不再复述。
+- [ ] litisle-api `dto/ai` 包新增 AiPurposeEnum（MODERATION_TEXT / MODERATION_IMAGE / SUMMARY / TAGGING / QA / OTHER 六值）；AiChatRequestDTO 增 purpose（必传，缺省端点侧拒绝并告警，防「忘传」被默认归机审）、requestId（业务侧生成的幂等键，重试复用同一键）、scene（可空）
+  - 计费与预算只认前五类；OTHER 仅兜底落明细、不计入预算与报表，出现即按「未归类调用」告警；用途由调用方显式传入，不靠 URL/模型名/表名推断
 
-##### 批次十二：11.11 屏蔽下代生效 + 11.16 对账 0 值可观测（2026-11-06 立项）
+###### 1.3 Token 计量与预算分账基建
 
-> 12.1\~12.3 共 3 项已完成并归档，见 [content-12-batch12-closing.md](../archive/content/content-12-batch12-closing.md)；批次来源/背景、现象、根因、选型、修复与实测证据原文均在该文件（**唯一副本**）。**编号不重排**，本文件的「已知风险」节仅留迁出指针——R1、R2、R3 均已迁至 [docs/constraints/](../constraints/constraints-index.md)。
+- [ ] 落地 ai_token_usage / ai_usage_daily / ai_pricing 三表实体与 Mapper（表结构已建：`docker/init/mysql/schema/ai-schema.sql`，2026-11-09）；实现 AiUsageRecordService 写明细、AiBudgetService 预算桶判定、AiUsageDailyAggregateTask 定时聚合
+  - 明细口径：幂等键 = requestId + 调用序号（callSeq）联合唯一——一次业务请求可触发多次模型调用（Agent 多轮、机审切片），每轮/每片各落一条明细；重试复用同一 callSeq 键不重复计费（修正架构文档 §8.3④「request_id 唯一」的口径：该设计只覆盖了切片场景，Agent 多轮会撞键漏计；落地时须回写架构文档）；失败调用也落一条 status=FAIL（避免「失败即无成本」）；归属日期按调用完成时间，跨天重试只计一次成功成本；成本 = token 数 × ai_pricing 单价（两位小数），单价配置变更只影响未来日期
+  - 用户级配额（D5/V8）：按 用户×用途×日 校验次数/Token 上限，普通低配、按等级放开、VIP 高额度非不限量；超额拒绝并提示「今日额度已用完」；数值待定档（Q39），未定档前仅计量不拦截
+  - 预算口径（D15 分账）：机审桶 = 文本+图片合并；SUMMARY/TAGGING/QA 各自独立桶；判定读 ai_usage_daily 当日合计、本地缓存 60 秒，不在每次调用读写预算键；返回 ALLOWED / WARN(≥80%) / EXCEEDED(100%)；预算值来自 AiBudgetProperties，≤0 表示未设预算只计量不限额；100% 只停该用途新请求（机审桶到 100% 不停调用、转全量人工+告警），生成被停返回明确错误码，不静默返回空结果
+  - 聚合口径：每小时 + 启动延迟一次，对当日与前一日幂等覆盖写（保证预算判定当日数据可用）；明细与汇总差异 >1% 记日志告警
 
-###### 已知风险（批次十二登记，按「现象 / 触发条件 / 影响 / 处置方式」四要素记录）
+###### 1.4 内部 Feign 端点（解锁 review 文本机审闭环）
 
-> 与上面的 12.1\~12.3 任务条目区分：本节是**风险登记**，不是待办任务；R2 原挂在主清单待办区，2026-11-09 执行修复并复核通过后已整体迁入 [constraints R2](../constraints/content-constraints.md)。**已知约束与风险统一登记在** **[constraints-index.md](../constraints/constraints-index.md)**。
+- [ ] 实现 POST /api/feign/ai/chat 提供方端点（契约 AiClient.chat 与 AiClientFallbackFactory fail-fast 已在 litisle-api 实现，AI 侧当前无 controller）；AI 只回结构化判定结论，防注入包裹与白名单三分态映射由 review 侧组织；接线后 review 文本机审从「提供方缺失→全量转人工」恢复为 LLM 判定
+  - 跨模块牵连（归属 review 模块，需在 review 侧另行登记）：SPI ContentModerationService.moderateText 改收 TextModerationRequest；requestId = taskId:chunkIndex（分片确定性切分，延迟重试复用同一 requestId 满足「重试不重复计费」）；purpose 固定 MODERATION_TEXT；scene 取 review_task.scene
 
-> **指针**：R1（存量统计回填能力已移出初始化脚本）、R3（`00-init-databases.sql` 对 `MYSQL_USER` 的隐含依赖）已迁入 [docs/constraints/](../constraints/constraints-index.md)，原文、触发条件与处置方式完整保留；此处不再重复。
+###### 1.5 AI 侧指标与日志字段统一
 
-> **R2 已于 2026-11-09 收口迁出**：用户拍板执行路径 a（单次数据修复），脚本 [article-book-category-mojibake-fix.sql](../../tools/db-repair/article-book-category-mojibake-fix.sql) 修正口径（cp1252 双重编码实测 + HEX 白名单）后在运行库执行完毕并复核通过（article 31 行 / book 5 行，备份表可回滚，update_time 未污染），原文、执行记录与处置方式已整体迁入 [constraints R2](../constraints/content-constraints.md)；此处不再保留正文。
+- [ ] 建立指标打点：ai_call_total{purpose,provider,result} / ai_call_latency{purpose}（Timer，P50/P95/P99）/ ai_tokens_total{purpose} / ai_quota_exceeded_total{purpose} / ai_generation_total{scene,result} / ai_guard_state{provider}；命名沿用 review 的 moderation_* 风格（代码侧点号、Prometheus 下划线）
+  - 按用户用量不加指标标签（防高基数），统一由 ai_usage_daily 承担；日志字段统一 traceId / purpose / modelVersion / costMs / tokenIn / tokenOut / result，禁止打印正文全文、私信内容与用户身份信息
 
-***
+------------
 
-> 推荐流 Redis 黑洞型故障熔断（2026-11-09 登记，暂不实现）：降级链路残余风险（黑洞型故障无熔断、降级接口延迟被 command timeout 拉长）与候选方案已登记于 [temporarily-04-deferred.md](temporarily/temporarily-04-deferred.md) content 节，推荐方案为「复用 common-redis 已有 Resilience4j 熔断器，feed 快照探测点（`FeedSnapshotSupport#isRedisAvailable`）接入同一 CircuitBreaker」。**触发条件**：黑洞型故障真实发生（或演练复现）且降级接口 P99 被拉长到 command timeout 量级、监控可观测时迁回本清单立项实施；未发生前仅登记不排期。此处只留指针，不复述正文。
+##### 板块二：小悦 Agent 底座——AiServices 装配 + 工具注册 + 意图路由（Agent 化核心）
 
-***
+###### 2.1 LangChain4j Agent 底座装配
 
-> 批次十三：13.1\~13.11 已全部归档（[common-redis-13-resilience4j.md](../archive/common-redis/common-redis-13-resilience4j.md)，唯一副本）；本文件不再保留正文。
+- [ ] 引入 LangChain4j，用 AiServices 装配小悦 ChatAgent：system prompt（角色定位 + 能力边界 + 建议态约束）+ ChatMemory 接口（实现见 3.2）+ Tools 注册；模型调用复用 1.1 provider 层；Agent 不直接写业务库，产出一律为建议态，落库决策在 service
+  - 业务逻辑：用户消息 → Agent 推理（自主决定调哪个工具、调几次）→ 工具结果回喂 → 终答；Agent 循环设上限（初值 5 轮）防死循环与成本放大；工具失败作为观察结果回喂模型自行调整，不直接中断会话
 
-***
+###### 2.2 能力工具注册（Function Calling）
 
-#### 基础设施与安全加固（批次十四：批次十三配套遗留）
+- [ ] 将小悦的能力拆成 tools 注册给 Agent：①取当前稿件标题+正文（经 ContentClient 回查）②查标签池候选（经 ContentClient）③敏感词预检（复用既有 DFA 闸门能力；若无内部端点则先占位，闸门兜底仍由调用方执行）④知识库检索（板块四落地前注册占位实现，未就绪返回「工具暂不可用」，模型改走无检索回答）
+  - 铁律：工具只读、不写业务表；工具出入参日志不带正文全文；purpose 按意图打标（SUMMARY/TAGGING/QA），计入 1.3 计量预算
+  - 出站红线（Q63 已定档，2026-11-15）：选「边界修订」路线——未公开稿件经**脱敏过滤器**（手机号/邮箱/身份证/外部链接）后，外发给签约合规的国内模型供应商（API 协议含数据处理条款），并在用户协议中告知同意；脱敏在 AI 供给层（provider 出站前）统一执行；不搞私有化部署；稿件外发保留配置开关，可一键关闭
 
-> 编号说明：批次十三已归档收口，本项作为新批次十四第 1 项登记，避免回写已归档批次；与 11.x 反作弊、13.x 限流降级均不混排。
+###### 2.3 意图路由与降级直连
 
-> —14.1 已迁入 [next\_verify.md](next_verify.md)（2026-11-09，评估结论与验收需 Redis 故障演练，属环境实测类）；编号不重排，本文件不再保留正文。
+- [ ] 单一入口 POST /ai/xiaoyue/chat：Agent 首轮判断意图（摘要/标签/润色/结构分析/站内问答/闲聊）自主路由；原设计锚点端点（/ai/xiaoyue/summary、/tag 等）保留为固定管道直连通道，Agent 循环异常时降级走直连
+  - 降级铁律：Agent 循环超限/模型不可用 → 降级为固定管道或「暂时无法生成」提示（可手动填写，不落库）；purpose 打标与预算判定在路由后即执行，降级链路同样计量
 
-***
+###### 2.4 结构化输出与自校验循环
 
-> 批次十五：15.1、15.2-B 已归档（[content-15-structure-governance.md](../archive/content/content-15-structure-governance.md)），15.2-A 已迁入 [next\_verify.md](next_verify.md)；本文件不再保留批次十五正文。
+- [ ] 标签候选、摘要等结构化产出要求模型输出 JSON：解析失败或校验不过（标签越池、摘要超 500 字）时，把具体错误信息回喂模型重试 1 次（最小反思闭环）；仍失败降级为失败提示，不落库
+  - 重试预算固定 1 次，防止反思循环成本放大；校验规则（池内白名单、长度上限）在 service 侧执行，不依赖模型自觉
 
-***
+###### 2.5 摘要与标签建议（Agent 编排实现）
 
-#### 服务间调用与 MQ 基础设施治理（批次十六）
+- [ ] 在 Agent 底座上实现摘要（≤500 字）与标签建议：由模型经 2.2 工具自主取稿、查池、预检后产出建议
+  - 建议态铁律（D4）：不自动写入，作者编辑/确认后由 content 落库；未确认则丢弃不落库
+  - 展示铁律（D3/D13）：响应带「AI 生成/AI 建议」标识；展示前须过 DFA 闸门（闸门由调用方 content/review 执行，机制已有）；摘要不进正文指纹、不触发正文重审
+  - 失败语义：失败重试 1 次 → 终态 → 退还预扣配额，同一 requestId 只扣一次
+  - 标签铁律：AI 不新造标签，prompt + 越池校验双重约束；新标签只能作者走正常创建流程
 
-> 16.1 / 16.1-V1 已完成并归档（2026-11-08），见 [common-security-16-feign-interceptor.md](../archive/common-security/common-security-16-feign-interceptor.md)。
-> —16.1-V1 的两条旁路问题已于 2026-11-09 复核收口（用户拍板执行）：①文本 result 路由——`ModerationResultPublisher` 已按 bizType 解析路由键（1,2,4→`moderation.text.result`，Q87），content 队列已双向绑定主交换机与延迟交换机同名键；②`persistAndPublish` 事务同步注册已移入事务模板 lambda 内（Q88），两处修复均随 commit `053c808`（review 模块重构）落地；图片链路（image service 直发 `moderation.result` ↔ file 绑定同名键）自洽，发布器无 bizType=6 调用方；review/content 编译验证通过（2026-11-09）。编号不重排，本文件不再保留批次十六正文。
+------------
 
-***
+##### 板块三：小悦有状态 Agent——会话记忆与润色/结构分析
 
-#### 分布式锁工具与消息中间件凭证收尾（批次十七：2026-11-08 立项）
+###### 3.1 会话与消息实体 + 会话治理
 
-> 编号说明：批次十三已完成 RedisGuard→Resilience4j 改造，本批次承接其配套的分布式锁收尾（lock 工具语义、调用方租期、自造 SETNX 锁迁移评估）与 auth 消息凭证对齐，编号 17.1\~17.7，不重排已有 16.x / 15.x。已归档：17.1/17.3/17.6/17.7 见 [common-redis-17-distributed-lock.md](../archive/common-redis/common-redis-17-distributed-lock.md)，17.2 见 [file-02-upload-dedup-lock.md](../archive/file/file-02-upload-dedup-lock.md)，17.4 见 [auth-17-rabbitmq-credential.md](../archive/auth/auth-17-rabbitmq-credential.md)；17.5 已迁入 [next\_verify.md](next_verify.md)（2026-11-09，动库窗口类，待用户确认后执行）。
+- [ ] ai_session / ai_message 实体与 Mapper（DDL 以 Sql-Document §五为准）；GET /ai/sessions 会话列表
+  - 治理铁律（D25）：留存 90 天；90 天内 200 会话上限、单会话 500 条上限，超限按最久未活跃（last_active_time）LRU 淘汰（is_lru 标记）
+  - 删除铁律：支持用户删除——删除请求由 AI 侧受理（会话数据持有方），异步任务 + 完成回执 + 审计记录；懒删之外补定时兜底清扫，防用户停用后超期留存（R9 缺口）
 
-##### 17.5 测试数据清理（批次十七）
+###### 3.2 Redis 会话记忆（ChatMemoryStore 实现）
 
-> —17.5 已迁入 [next\_verify.md](next_verify.md)（2026-11-09，验证残留数据清理需动库窗口与用户确认，属环境实测类）。
+- [ ] 实现 LangChain4j ChatMemoryStore 的 Redis 版（衔接 2.1 底座）：会话上下文暂存（Design-Document §2.3.6 口径：LRU 暂存 10/30 + 已保存 100/200）；Memory 不可用降级为无记忆单轮回答并明确标注，不静默丢上下文
 
-***
+###### 3.3 润色与结构分析端点
 
-#### AI 会话与生成内容清理（批次十八：2026-11-08 立项）
+- [ ] POST /ai/xiaoyue/polish、POST /ai/xiaoyue/analyze-structure：润色建议与结构分析建议，带 session_id 走 3.2 Memory 支持多轮；同时作为 2.3 意图路由的分流目标之一；仅作者可见（建议态），同 2.5 的闸门/标识/计量/幂等口径
 
-> 批次十八：18.1 经复核（2026-11-09）确认前置未满足——`litisle-ai` 模块无表、无实体、无 Mapper，无可执行的 AI 模块任务，用户拍板删除该批次；条目正文按挂起项转移规则原样迁入 [temporarily-01-code.md](temporarily/temporarily-01-code.md) 的「litisle-ai 模块」节（含触发条件：AI 表与实体/Mapper 落地时迁回）。编号不重排，本文件不再保留批次十八正文。
+------------
+
+##### 板块四：RAG 知识库与站内问答（引用可溯源）
+
+###### 4.1 知识库摄入链路
+
+- [ ] mq/RagIngestConsumer 监听 content.published / content.unpublished（AI 侧当前不生产不消费 MQ，新增事件须在 AI-Architecture §7.3 与 Api-Architecture 同步登记）→ 质量门控 → 仅摄入 visibility=PUBLIC 公开文章（未公开内容不外发，与 D2/V3 出站红线同口径）→ ContentChunker 正文清洗 + 切片（500 字/段、重叠 50 字）→ EmbeddingClient → 写 ES 索引 article_chunks（dense_vector 向量 + 元数据）
+  - 摄入异步解耦不阻塞发布；下架/删文同步移除 chunks；文章改稿只更新元数据不重建切片（search 批次A A2 定案），改稿一致性由检索侧版本比对兜底（见 4.2）
+
+###### 4.2 检索转正与问答分流链路
+
+- [ ] 知识库检索工具（2.2 工具④）由占位转正：Embedding → TopK 检索 + 相似度阈值过滤 → 引用可见性回查 → 组 prompt → LLM → 回答 + 引用卡片；问答作为 2.3 意图路由的分流目标之一，复用单一入口 /ai/xiaoyue/chat，**不另设独立端点**（消除与本清单 2.3 的路径双重定义）
+  - 引用铁律：引用必须可溯源；引用返回带文章 updateTime/版本号，与切片构建时版本比对，不一致则移除引用或标注「内容已更新」（Q75 口径）；引用内容下架即失效
+  - 降级铁律（Q54）：RAG 不可用降级为无引用回答并显著标注「未引用站内内容」；涉及事实性结论只答「暂无相关资料」，不得混入模型自身知识冒充站内回答
+  - 匿名问答配额：Redis 日计数键 `ai:quota:anon:{ip哈希}`（定档见 P5，2026-11-15）；purpose=QA 走计量预算链路；模型原始输出不直接展示，只出结构化回答
+
+##### 待决策与外部前置（2026-11-15 全部定档；模型 api-key 为唯一剩余外部条件）
+
+| 编号 | 事项 | 定档口径（2026-11-15） | 影响范围 |
+| --- | --- | --- | --- |
+| P1 | 出站红线（Q63） | 选「边界修订」：未公开稿件经脱敏（手机号/邮箱/身份证/外部链接）后外发合规国内供应商（API 协议含数据处理条款）+ 用户协议告知；脱敏在 provider 出站前统一执行；不私有化；外发保留配置开关 | 板块二/三 |
+| P2 | 模型选型 | DeepSeek API（OpenAI 兼容、国内直连）+ LangChain4j 官方 BOM + spring-boot-starter 自动装配；换供应商只改 yml（1.1 配置外置保证） | 0.1、1.1、板块二 |
+| P3 | Embedding | 本地 Ollama + bge-m3（1024 维，零外发零成本），云 API（智谱 embedding-3）兜底；DeepSeek 无 embedding，必须独立选型 | 4.1 |
+| P4 | 会话上限口径 | 分层定档：D25（90 天/200 会话/单会话 500 条）为**持久化上限**；Design-Document 的 10/30 为**进 prompt 的 ChatMemory 滑窗**（windowSize 取最近 N 条）——DB 全量存 + Memory 滑窗，两者不同层不冲突 | 3.1/3.2 |
+| P5 | 匿名问答配额 | Redis 日计数键 `ai:quota:anon:{ip哈希}`；计量明细 user_id 空 + scene 记 IP 哈希（脱敏）；数值先写常量、后外置配置 | 4.2、1.3 |
+| P6 | 路由打标口径 | 不做独立路由 LLM 调用：purpose 由功能入口（调用方）预传入，Agent 循环继承该值；路由靠入口信息而非模型分类；OTHER 兜底 | 2.3、1.3 |
+| P7 | 建议态存活期 | Redis 缓存建议结果，key=requestId，TTL 30 分钟；刷新/多端可回查，过期即「未确认丢弃」 | 2.5/3.3 |
+| P8 | content.published 事件核实 | ✅ 已闭环（2026-11-15 代码核实）：事件已存在——MqConstant 定义 `content.published`/`content.unpublished` 路由键、ContentPublishedEvent 已在 litisle-api、content 发布且 search 已有消费先例；AI 直接消费，正文经 ContentClient 回查，无需新增契约 | 4.1 |
+| P9 | ES 实例与索引归属 | 共用 ES 实例，AI 自建自管 `article_chunks` 索引（索引名隔离）；与 D9 不冲突——RAG 知识库不是站内检索，与 search 的 article_idx 互不干涉 | 4.1 |
+| P10 | 一次性生成与会话额度 | 直连端点（/summary、/tag 等）**不建会话**：不写 ai_session/ai_message，Memory 仅服务 /chat 多轮入口；生成留痕由计量明细承担 | 2.5/3.1 |
+
+> 剩余外部条件：DeepSeek / Ollama 服务可用与 api-key 配置（联调前置，不阻塞编码）
 
 ***
 
@@ -217,4 +250,3 @@
 #### search模块
 
 - ~~user\_idx 索引同步链路（原批次B B5 + 批次D D2 用户部分）~~：**已于 2026-11-04 随批次五 5.3 落地**（用户注册/资料更新事件契约 + user 侧发布点 + search 消费同步 user\_idx），此项从「暂不实现汇总」移出，原触发条件已满足
-

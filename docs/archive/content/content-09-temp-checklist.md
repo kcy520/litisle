@@ -1741,3 +1741,75 @@ Redis 聚合（✅ 做对了）
 
 ReadingHistoryServiceImpl：补充方法体上的注释，缺少方法作用描述、参数说明
 > ✅ 2026-11-04：已为 report / getLastChapter / getLastRead / pageMyHistory / recordFromArticle / recordBookRead 六个 public 方法补充方法级 Javadoc（作用概括 + 参数 + 返回值），原有方法体内流程注释保留未删。
+
+##### E.5 附：阅读对象类型 bizType 枚举化——方案与配套检查表（迁自 temp.md content模块参考件，2026-11-15 归档）
+
+> **归档说明**：原样搬运自 temp.md content模块「阅读对象类型 bizType 枚举化：方案与配套检查表（2026-11-04）」——该件为方案与回归检查参考件，不作任务条目；E.5 上方为其实施结论记录。
+
+**一、方案要点**
+
+- 枚举命名 `ReadingTargetTypeEnum`（`BOOK(1, "书籍")` / `ARTICLE(2, "独立文章")`），禁止命名为 `BizTypeEnum`：content 模块内存在三套语义不同的 bizType —— 审核 `ModerationConstant.BIZ_TYPE_*`（1-文章 / 2-评论）、收藏 `FavoriteTargetTypeEnum`（1-文章 / 2-书籍）、阅读历史（1-书籍 / 2-独立文章），名字必须带 `Reading` 前缀防止误用。
+- DB 不迁移：`reading_history.biz_type` 保持 tinyint，编码值与枚举 `code` 完全一致，无 DDL、无存量数据变更。
+- 实体用枚举、对外 DTO/VO 保持 Integer：实体字段 `ReadingHistory.bizType` 用枚举（`@EnumValue` 映射 tinyint）；HTTP 请求 DTO / 响应 VO 继续用 Integer，原因是枚举上的 `@JsonValue(desc)` 会把 JSON 输出变成中文描述、请求侧枚举反序列化非法值会直接报错，破坏现有契约；请求侧统一由 Service 调 `resolve(Integer)` 做白名单校验。
+- Mapper 注解 SQL 中的 1/2 一律拼接 `ContentBizConstant.READING_BIZ_TYPE_BOOK/ARTICLE` 编译期常量（注解值必须是常量表达式，不能写 `Enum#getCode()`）。
+- 枚举提供 `static resolve(Integer)`：null 返回 null（表示"全部"），不在白名单返回 null，由 Service 抛 `PARAM_ERROR`。
+
+**二、必须配套（代码，已随本改造落地）**
+
+1. 新增编译期常量 `READING_BIZ_TYPE_BOOK=1`、`READING_BIZ_TYPE_ARTICLE=2` —— `litisle-content/src/main/java/com/litisle/litislecontent/constant/ContentBizConstant.java`（原因：注解 SQL 需要常量表达式；业务层禁止直接引用）。
+2. 新增枚举 `ReadingTargetTypeEnum`（`@EnumValue int code` + `@JsonValue String desc` + `implements IntDictEnum` + `resolve`）—— `litisle-content/src/main/java/com/litisle/litislecontent/enums/ReadingTargetTypeEnum.java`（原因：实体映射与类型安全）。
+3. 实体字段改枚举 `ReadingHistory.bizType` —— `litisle-content/src/main/java/com/litisle/litislecontent/domain/entity/ReadingHistory.java`（原因：MybatisEnumTypeHandler 按 `@EnumValue` 映射，依赖 `application.yml` 的 `default-enum-type-handler`，该配置不得删除）。
+4. 服务层全链路改枚举 —— `litisle-content/src/main/java/com/litisle/litislecontent/service/impl/ReadingHistoryServiceImpl.java`：删除私有 `BIZ_TYPE_*` 常量；`selectHistory` / `upsertHistory` / `trimOverflowHistory` 入参改枚举；`pageMyHistory` 用 `resolve` 校验并把 `getCode()` 传给 Mapper；行过滤与分支判断改「枚举常量在左」（`ReadingTargetTypeEnum.BOOK == r.getBizType()`，防脏数据解析为 null 时误判）；VO 赋值取 `getCode()`；Lambda 查询与裁剪删除传 `getCode()`。
+5. Mapper 注解 SQL 去硬编码 —— `litisle-content/src/main/java/com/litisle/litislecontent/mapper/ReadingHistoryMapper.java`：`selectMyHistoryPage` 共 4 处裸数字（book JOIN 1 处、article JOIN 1 处、可见性过滤 2 处）全部改常量拼接；`deleteOverflowOldest` 原本就是 `#{bizType}` 参数，无硬编码，无需改。
+6. DTO/VO 类型保持不变、仅补注释指向枚举 —— `ReadingHistoryQueryDTO`、`ReadingHistoryItemVO`（原因：保持前端 JSON 契约；注释说明编码与 `ReadingTargetTypeEnum` 同源）。
+
+**三、建议配套（文档/脚本/测试，按需单独执行）**
+
+1. `docs/index/content-index.md` 第 119 行：`biz_type（1-书籍 2-文章）` 建议改为「2-独立文章」，与 `Sql-Document.md` / `Content-Architeche.md` 口径统一（纯文档措辞，不影响代码）。
+2. `docs/Sql-Document.md` 第 519-521 行 与 `docker/init/mysql/schema/content-schema.sql`（`reading_history` 列注释段，2026-11-06 目录整理后行号以当前文件为准）：列注释当前已是「1-书籍 2-独立文章」，取值与枚举一致，**无需改**；可选补充「业务代码见 `ReadingTargetTypeEnum`」的说明（无 DDL 变更）。
+3. `docs/Architecture/Content-Architeche.md` 第 216 行、`docs/temp/Content_Function_Develop.md` 第 54/183 行：口径已正确，可选在表说明后附「枚举见 `ReadingTargetTypeEnum`」，便于后续检索。
+4. 脏数据校验（必须在上线前执行，仅校验、不自动修数据）：
+   ```sql
+   -- ① 枚举取值越界：存在则枚举解析失败/被当异常值处理
+   SELECT biz_type, COUNT(*) AS cnt FROM reading_history WHERE biz_type NOT IN (1, 2) GROUP BY biz_type;
+   -- ② 多态指向失效：biz_type=1 应能查到 book，biz_type=2 应能查到 article（含软删行也算存在）
+   SELECT rh.id, rh.user_id, rh.biz_type, rh.biz_id
+   FROM reading_history rh
+   LEFT JOIN book b ON rh.biz_type = 1 AND b.id = rh.biz_id
+   LEFT JOIN article a ON rh.biz_type = 2 AND a.id = rh.biz_id
+   WHERE (rh.biz_type = 1 AND b.id IS NULL) OR (rh.biz_type = 2 AND a.id IS NULL);
+   ```
+5. 可选 CHECK 约束（MySQL 8.0.16+，**需单独变更窗口**，且必须先清理第 4 条校验出的脏数据）：
+   ```sql
+   ALTER TABLE reading_history ADD CONSTRAINT ck_reading_history_biz_type CHECK (biz_type IN (1, 2));
+   ```
+6. 测试：当前 `src/test` 下无 `ReadingHistory` 相关用例（已确认），改造后不强制补测；后续补测试体系时优先覆盖「全部/书籍/文章三种列表、非法 bizType=3 返回 PARAM_ERROR、超量裁剪保留最新 500 条、软删对象行过滤」。
+
+**四、无需改动（已确认）**
+
+1. 数据库迁移/初始化数据：无。编码值不变；`docker/init/mysql` 的 seed 脚本无 `reading_history` 数据。
+2. Redis 缓存：无。阅读历史链路未使用任何 Redis 缓存键，无缓存值兼容问题。
+3. MQ / Feign / 跨服务契约：无。阅读历史无事件、无跨服务 DTO（`litisle-api` 未承载该类型）。
+4. 前端 / 其它服务：无。仓库内无前端代码；DTO/VO 仍为 Integer，HTTP JSON 不变，无需配合发版。
+5. 其它模块：无。search/user/gateway 均未引用阅读历史 `bizType`。
+6. 既有注释里的 `biz_type=1/2`（`ReadingHistoryService` 接口、Mapper/Entity/VO 注释、`BookReadSupport` 注释）：与枚举取值一致，保留不改（不删既有注释）。
+7. 归档文档 `docs/archive/**`：历史记录，不回改。
+
+<br />
+
+**六、回归功能点（批二上线前必跑）**
+
+1. 阅读历史列表：`bizType=null` 全部混合时间线、`=1` 书籍、`=2` 独立文章三种筛选，倒序与分页 total 正确。
+2. `bizType=3` 等非法值返回 `PARAM_ERROR`。
+3. 书籍阅读页 `PUT /reading-history` 上报：仅前进不回退、跨书章节拒绝、限频生效。
+4. 书籍详情续读 `GET /reading-history/{bookId}`：无历史/章节已删返回 null。
+5. 文章详情命中自动落历史：0 挂载=文章历史、1 挂载=书籍历史、多挂载跳过。
+6. 章节阅读页自动落历史：最后一次阅读语义、可回退旧章。
+7. 超量裁剪：单用户单类型保留最新 500 条、单批封顶 100。
+8. 对象软删：历史行静默跳过、total 不虚高；书籍行章节已删时书名与时间仍返回。
+9. 前端跳转：按 `bizType` 1/2 区分书籍/文章详情路由不受影响。
+
+**七、风险与不做事项**
+
+- 风险：① 存量 `biz_type` 非 1/2 的脏数据会导致枚举解析异常或被当文章行静默跳过，上线前必须先跑校验 SQL；② 依赖 `mybatis-plus.configuration.default-enum-type-handler`，误删会退化为按枚举 name 入库；③ JSON 契约虽保持 Integer，但实体若被直接序列化会出现中文 desc（当前无此路径）；④ 注解 SQL 只能用编译期常量拼接，不能调用枚举方法。
+- 不做：DB 迁移/改列类型；改 HTTP DTO/VO 类型；统一审核/收藏的 bizType；新增 Redis 缓存、MQ 事件、Feign 端点；批次三；加 CHECK 约束（单独窗口）；回收/修改归档文档。

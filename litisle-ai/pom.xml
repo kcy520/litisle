@@ -32,6 +32,68 @@
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
+        <!-- Web MVC：AI REST 接入层（小悦端点 / 内部 Feign 提供方端点）+ Jackson 序列化（板块零骨架，业务随板块一/二落地） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Feign：消费方客户端（板块二经 ContentClient 回查稿件/标签池；契约 AiClient 在 litisle-api，由调用方 review 使用） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <!-- Feign 负载均衡（Nacos 服务名 lb:// 路由的前提） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+
+        <!-- MyBatis-Plus：ai_token_usage / ai_session / ai_message 等 Mapper extends BaseMapper（表已建：docker/init/mysql/schema/ai-schema.sql） -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        </dependency>
+        <!-- MySQL 驱动（litisle_ai 库） -->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+        </dependency>
+
+        <!-- Redis：配额日计数 / 预算本地缓存键 / 建议 TTL 缓存 / ChatMemoryStore（板块一/三落地） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- Redis 连接池（yml lettuce pool 配置的前提） -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
+
+        <!-- RabbitMQ：消费 content.published / content.unpublished 做 RAG 知识库摄入（板块四落地；骨架仅接连接配置） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
+        <!-- Nacos 服务注册发现（网关 / 其他服务经 lb://litisle-ai 调用的前提） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!-- Nacos 配置中心（拉取 litisle-ai.yaml 与 litisle-shared.yaml 共享配置） -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
+        <!--lombok-->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

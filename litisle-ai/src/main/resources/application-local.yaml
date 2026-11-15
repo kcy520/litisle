@@ -1,0 +1,43 @@
+# =============================================================
+# litisle-ai 本地环境配置（IDEA 本地运行：连宿主机映射端口，端口口径与 review 本地配置一致）
+# =============================================================
+litisle:
+  # ================================
+  # Nacos 配置（本地环境：宿主机映射端口 8848）
+  # ================================
+  nacos:
+    server-addr: localhost:8848
+    username: nacos
+    password: nacos
+    namespace: ''
+    group: DEFAULT_GROUP
+
+  # ================================
+  # MySQL 配置（litisle_ai 库；docker-compose.yml 中业务数据库宿主机端口是 3307）
+  # ================================
+  db:
+    host: localhost
+    port: 3307
+    database: litisle_ai
+    username: test_k.1
+    # 本地环境字面值（与 compose .env 中 COMPOSE_MYSQL_PASSWORD 保持一致，改 .env 时需同步此处）
+    password: 123
+
+  # ================================
+  # Redis 配置（docker-compose.yml 中 Redis 宿主机端口是 6380）
+  # ================================
+  redis:
+    host: localhost
+    port: 6380
+    # 本地环境字面值（与 compose .env 中 COMPOSE_REDIS_PASSWORD 保持一致，改 .env 时需同步此处）
+    password: 123
+
+  # ================================
+  # RabbitMQ 配置（账号/vhost 由 docker/init/rabbitmq/definitions.json 硬编码，vhost=/litisle）
+  # ================================
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: litisle
+    password: litisle_pass
+    vhost: /litisle

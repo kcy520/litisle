@@ -84,6 +84,11 @@ review 模块的机审框架已落地，AI 模块只提供模型通道与生成�
 | RAG 摄入/检索（`KnowledgeBaseIngestService` 等） | Design-Document §2.6 | 设计存在；F7 前置依赖 search 知识库 | 🟡 设计态（另见 §十三） |
 | `AiClient` 提供方端点 | Api-Architecture §4.5 | `POST /api/feign/ai/chat` 契约已定，AI 侧未实现 | 🟡 设计态 |
 | 配额计量与用途打标 | 业务指南 D15 / Checklist 3.1 | 现有仅全站 QPS，无 Token/成本计量 | 🟡 设计态 |
+| 小悦 Agent 底座 | Design-Document §2.3.6 + next_update 板块二（2026-11-15 定档） | LangChain4j AiServices 装配：ChatAgent + ChatMemory + Tools（Function Calling）；模型通道 DeepSeek API（OpenAI 兼容）；Agent 循环上限 5 轮，工具失败回喂不中断 | 🟡 设计态 |
+| 意图路由与降级直连 | next_update 板块二 2.3 | 单一入口 `/ai/xiaoyue/chat` 由 Agent 判定意图分流；固定端点保留为降级直连通道；purpose 由功能入口预传入，Agent 循环继承 | 🟡 设计态 |
+| 结构化自校验 | next_update 板块二 2.4 | JSON 解析失败/越池/超长时错误回喂重试 1 次（最小反思闭环）；校验在 service 侧执行 | 🟡 设计态 |
+| ChatMemoryStore（Redis） | Design-Document §2.3.6 | LangChain4j ChatMemoryStore Redis 实现；DB 全量存 + Memory 滑窗（windowSize 最近 N 条），两层口径不冲突 | 🟡 设计态 |
+| Embedding 通道 | next_update P3 定档（2026-11-15） | 本地 Ollama + bge-m3（1024 维）优先，云 API（智谱 embedding-3）兜底 | 🟡 设计态 |
 
 ### 2.4 未开始清单
 
@@ -123,10 +128,12 @@ litisle-ai
 │   ├── impl/                      🟡 接口实现
 │   ├── support/                   🟡 闸门、裁剪、建议态组装等支撑
 │   └── quota/                     🟡 配额校验/扣减/退还（对应 TokenQuotaService）
+├── agent/                         🟡 待建：小悦 Agent 装配（LangChain4j AiServices：ChatAgent + ChatMemory + 意图路由 + 循环上限控制）
+├── tool/                          🟡 待建：Function Calling 工具（取稿件/查标签池/敏感词预检/知识库检索；只读不写业务库）
 ├── provider/                      🟡 待建：模型接入单点
 │   ├── text/                      🟡 文本模型通道（OpenAI 兼容）
 │   ├── image/                     🟡 图片模型通道（本地优先）
-│   └── embedding/                 🟡 向量通道（若 RAG 落地）
+│   └── embedding/                 🟡 向量通道（本地 Ollama bge-m3 优先，云 API 兜底；P3 定档 2026-11-15）
 ├── mapper/                        🟡 待建：仅操作 litisle_ai 自有表
 ├── domain/
 │   ├── entity/                    🟡 会话/消息/用量/反馈
@@ -164,7 +171,10 @@ litisle-ai
 | 文本判定 | 对标题+正文/评论/私信/用户名给出三分态、类目、理由 | `AiClient` 通道或直连模型；调用方分片与回查 | 结构化判定（供 review 落库与回写） | 🟡 设计态（review 侧适配器 ✅，AI 供给端点未实现） |
 | 图片判定 | 对配图/封面/头像给出三分态与类目，仅本地/私有化模型 | file 侧按 `fileId` 取字节（禁用户 URL）；本地 ONNX | 单图判定；整篇聚合在 review | 🟡 设计态（review 适配器 ✅，模型 ⬜ 未就绪） |
 | 判定辅助（小审） | 结合机审证据给审核员风险等级、理由、免审建议 | review 任务详情数据；不使用用户私密上下文 | 建议态证据，不自动裁决 | 🟡 设计态 |
-| 摘要生成 | 依据标题+正文给一段建议摘要，不自动写入 | content 稿件内容；DFA 闸门由调用方执行 | 建议文本（≤500 字），作者确认后由 content 落库 | 🟡 设计态 |
+| 小悦 Agent 底座 | Agent 化编排核心：LangChain4j AiServices 装配（system prompt 角色与边界 + Tools 注册 + ChatMemory）；Agent 自主决定调用哪个工具、调几次，循环上限 5 轮 | 1.1 模型通道；tool/ 工具；会话记忆 | 结构化建议产出；Agent 不直接写业务库，落库决策在 service | 🟡 设计态 |
+| 能力工具（Function Calling） | 取稿件标题+正文（ContentClient）、查标签池候选（ContentClient）、敏感词预检（复用 DFA 闸门）、知识库检索（板块四前占位） | 调用方契约；闸门机制 | 工具观察结果回喂 Agent；工具只读 | 🟡 设计态 |
+| 出站脱敏过滤器 | 未公开稿件外发前脱敏（手机号/邮箱/身份证/外部链接）；Q63 边界修订路线（2026-11-15 定档） | provider 出站口 | 脱敏后内容；外发保留配置开关 | 🟡 设计态 |
+| 摘要生成 | Agent 经工具自主取稿后生成建议摘要（≤500 字），不自动写入 | content 稿件内容；DFA 闸门由调用方执行 | 建议文本，作者确认后由 content 落库 | 🟡 设计态 |
 | 标签建议 | 从现有标签池推荐候选及理由，不新造标签 | content 标签池；闸门由调用方执行 | 候选标签列表（建议态） | 🟡 设计态 |
 | 写作辅助 | 润色、结构建议 | 选中段落/全文 | 建议文本，仅作者可见 | 🟡 设计态 |
 | 站内问答 | 检索 search 提供的公开过审片段，组织回答并附引用 | search 知识库/检索；引用可见性回查 | 回答 + 引用卡片；下架即失效 | 🟡 设计态 |
@@ -256,18 +266,23 @@ content 发布/免审直落 → 即使文本免审也必须配图复审（免文
 - AI 不参与改判、不解封、不撤销处罚；申诉时只提供原判定证据（原因码/命中规则/置信度，D14）。
 - 文件解隔离失败无补偿属已知缺口，由 F21 补偿，AI 不越权处理（见清单索引 Q7）。
 
-### 5.5 生成摘要与标签
+### 5.5 小悦 Agent 生成链路（摘要/标签/润色/问答统一编排）
 
 ```
-作者点击"生成摘要/标签" → content 取当前稿内容                       ✅（入口侧）
-→ AI 生成（建议态，不自动写入，D4）                                   🟡 设计态
+作者/读者发起请求（功能入口预传 purpose，缺省拒绝）                  🟡 设计态
+→ 单一入口 /ai/xiaoyue/chat：Agent 判定意图并路由                    🟡 设计态
+→ Agent 循环（上限 5 轮）：自主调工具（取稿/查标签池/预检/检索）      🟡 设计态
+→ 结构化产出 + 自校验（解析失败/越池/超长回喂重试 1 次）              🟡 设计态
+→ 建议态返回（Redis 缓存 30 分钟，按 requestId 可回查）               🟡 设计态
 → 生成文本过同步 DFA 闸门（由调用方 content/review 执行）             ✅ 机制已有
-→ 返回建议态 → 作者编辑/确认                                        🟡 设计态
-→ content 写入（摘要 ≤500 字；标签只从现有池选择）                    ✅（落库能力）
+→ 作者编辑/确认 → content 写入（摘要 ≤500 字；标签只从现有池选择）    ✅（落库能力）
 → 展示"AI 生成/AI 建议"标识（D3/D13）                                🟡 设计态
 → 未确认则丢弃，不落库
 ```
 
+- Agent 循环异常/模型不可用 → 降级走固定管道直连端点（/summary、/tag 等保留）；降级链路同样计量。
+- 直连端点为一次性动作：不建会话、不写 ai_session/ai_message；Memory 仅服务多轮 /chat 入口（2026-11-15 定档）。
+- 出站脱敏：未公开稿件正文经脱敏过滤器后外发（Q63 边界修订路线，2026-11-15 定档），provider 出站前统一执行。
 - 摘要/标签不进正文指纹，不触发正文重审；但摘要展示前须过闸门。
 - 作者自浏览不计入内容浏览统计（content 11.11-A），AI 采纳率埋点必须独立，不复用浏览量口径。
 - 标签不得由 AI 自动创建；新标签只能由作者走正常创建流程并过闸门。
@@ -329,15 +344,13 @@ user        1 ── n ai_session / 1 ── n ai_usage_daily(按用户 × 用�
 
 ### 7.1 REST 分组（全部 🟡 设计态）
 
-下表路径取自 Design-Document §2.3.6 的 API 行，仅作为设计锚点；网关前缀按业务指南为 `/api/ai/**`，落地前须在 Api-Architecture 定稿，**不得据此认为端点已存在**。
+下表路径部分取自 Design-Document §2.3.6 的 API 行，仅作为设计锚点；2026-11-15 起新增统一入口与降级直连口径（见 docs/next/next_update.md litisle-ai 板块）；网关前缀按业务指南为 `/api/ai/**`，落地前须在 Api-Architecture 定稿，**不得据此认为端点已存在**。
 
 | 分组 | 端点（设计） | 说明 | 状态 |
 | --- | --- | --- | --- |
-| 作者端 | `POST /ai/xiaoyue/summary` | 生成摘要建议，不自动写入 | 🟡 设计态 |
-| 作者端 | `POST /ai/xiaoyue/polish` | 润色建议 | 🟡 设计态 |
-| 作者端 | `POST /ai/xiaoyue/analyze-structure` | 结构分析建议 | 🟡 设计态 |
+| 统一入口 | `POST /ai/xiaoyue/chat` | 小悦 Agent 单一入口：意图路由（摘要/标签/润色/结构分析/问答/闲聊），purpose 由入口预传入；问答分流带 RAG 引用 | 🟡 设计态 |
+| 降级直连 | `POST /ai/xiaoyue/summary` / `tag` / `polish` / `analyze-structure` | 固定管道直连通道（Agent 循环异常时降级）；一次性动作，不建会话 | 🟡 设计态 |
 | 作者端 | `GET /ai/sessions` | 会话列表 | 🟡 设计态 |
-| 读者端 | `POST /ai/xiaoyue/chat` | 带 RAG 引用问答（D8 匿名口径待按决策执行） | 🟡 设计态 |
 | 审核员端 | `POST /ai/xiaoshen/judge` | 判定辅助（不自动裁决） | 🟡 设计态 |
 | 内部 | `POST /api/feign/ai/chat` | 见 §7.2 | 🟡 设计态 |
 | 管理端 | 待确认 | 场景开关、预算、用量报表无既定路径 | ⬜ 未开始 |
@@ -375,7 +388,7 @@ user        1 ── n ai_session / 1 ── n ai_usage_daily(按用户 × 用�
 | 送审幂等键 | `bizType + bizId + scene`，同 `contentHash` 在审则复用任务；变化则 supersede 重置 | ✅ 已实现（review） |
 | 结论复用 | 仅终局（PASS/REJECT）；文本按词库+提示词+场景+指纹，图片按 provider+模型版本+sha256 | ✅ 已实现（review 缓存） |
 | 重试 | 最多 5 次，指数退避，约 15.5 分钟；耗尽入 DLQ 转人审 | ✅ 已实现（review） |
-| AI 端点幂等 | 建议以 `traceId`/`requestId` 做调用去重，具体键待确认（AI 无实现） | 🟡 设计态 |
+| AI 端点幂等 | 生成按 `requestId + callSeq` 联合键去重（2026-11-15 定档，见 §8.3④）；机审沿用送审幂等键 | 🟡 设计态 |
 | 生成式重试 | 失败重试 1 次 → 终态 → 失败退还已预扣配额，同一 `requestId` 只扣一次（业务指南 §5.3 配额规则；Q8 已闭合） | 🟡 设计态 |
 
 ------
@@ -413,7 +426,7 @@ user        1 ── n ai_session / 1 ── n ai_usage_daily(按用户 × 用�
 
 - 单一入口接收 `purpose` 枚举：`MODERATION_TEXT` / `MODERATION_IMAGE` / `SUMMARY` / `TAGGING` / `QA` / `OTHER`。**计费与预算只认前五类**（与业务指南 §5.3「五类为计量打标的唯一定义」一致）；`OTHER` 仅作兜底落明细，**不计入预算与报表**，出现即告警并按「未归类调用」单独观察。
 - 用途由调用方显式传入，**不靠 URL、模型名或表名推断**；缺省时拒绝调用并记告警，避免「忘传」被默认归到机审。
-- 同一次业务请求可能触发多次模型调用（切片、重试），用业务侧生成的 `request_id` 串联，重试复用同一 `request_id`。
+- 同一次业务请求可能触发多次模型调用（机审切片、Agent 多轮、重试），用业务侧生成的 `request_id` 串联；每次模型调用带调用序号 `callSeq`（切片为 chunkIndex、Agent 为轮次序号），重试复用同一 `request_id + callSeq`（2026-11-15 修订）。
 
 **② 明细按日汇入汇总表，不做实时扣减**
 
@@ -430,7 +443,7 @@ user        1 ── n ai_session / 1 ── n ai_usage_daily(按用户 × 用�
 
 **④ 幂等与重复计量防护**
 
-- 计费以 `request_id` 为唯一键（数据库唯一索引兜底），重复写入按 upsert 跳过；重试不重复计费。
+- 计费以 `request_id + callSeq` 联合唯一键（数据库唯一索引兜底），重复写入按 upsert 跳过；重试不重复计费。（2026-11-15 修正：原 `request_id` 单键口径只覆盖机审切片场景，Agent 多轮调用会在同一 request_id 下产生多条明细，单键会撞键漏计）
 - 归属日期按「调用完成时间」，不按发起时间；跨天重试只计一次成功成本。
 
 **⑤ 实施落点与组件归属（2026-11-09 定案，设计态待实施）**

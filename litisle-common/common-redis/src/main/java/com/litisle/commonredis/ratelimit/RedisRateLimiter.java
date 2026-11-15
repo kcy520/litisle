@@ -3,6 +3,8 @@ package com.litisle.commonredis.ratelimit;
 import com.litisle.commonredis.config.RateLimitFallbackProperties;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.boot.autoconfigure.cache.CacheProperties.Redis;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
@@ -77,6 +79,19 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 public class RedisRateLimiter {
+
+
+// ① RateLimiterAspect（AOP 切面，业务入口）
+//       │ @RateLimiter 注解拦截，构建 key，调用计数
+//       ▼
+// ② RedisRateLimiter.increment()（编排者，三态分流）
+//       │ 决定这次计数"问谁"
+//       ▼
+// ③ tryRedis() 或 localIncrement()
+//       │                          │
+//       ▼                          ▼
+// ④ Redis Lua 计数           ④' LocalRateLimiter.increment()（最内层执行件）
+//    （正常路径）                 （兜底路径，你问的这个类）
 
     /**
      * 固定窗口计数脚本（单一事实来源：@RateLimiter 切面与系统级限流拦截器共用）
@@ -203,15 +218,40 @@ public class RedisRateLimiter {
     // 熔断器的状态切换与指标打点由 CircuitBreaker 事件承担（见 guard/RedisGuardMetrics）
 
     /**
-     * 本地兑底计数：原始计数 × 实例数 = 集群等效计数
+     * 本地兜底计数：原始计数 × 实例数 = 集群等效计数
      * 等效于「本地阈值 = 集群阈值 ÷ 实例数」（向下取整只会更严不会更松），
      * 调用方仍拿返回值与集群阈值比较，increment 签名不变，调用方零改动。
+     *
+     * 【为什么选"计数 ×N"而不是"阈值 ÷N"】两种数学等价，选前者的理由：
+     * 计数 ×N 只在编排者本方法一处感知降级细节；若改为返回原始计数、调用方
+     * 自行把阈值除以 N，则每个切面/拦截器都要判断"当前是否处于降级态"，
+     * 降级细节泄漏到所有业务代码，increment 的返回语义也被破坏。
+     * 
+     * 【近似性边界】×N 假设流量在各实例间均匀分摊；负载不均（如 A 机吃 60%）
+     * 时，本机计数 ×N 会提前"超限"——结果偏向更严（误杀部分请求）。
+     * 这对降级场景是刻意为之：Redis 故障期宁可错杀，也不能把降级期变成攻击窗口。
      */
     private long localIncrement(String key, long windowSeconds) {
+
+// Redis 挂掉后，共享断了，且不可能恢复：
+// 实例A ──► 本机 slots 表：key=3   ← A 只知道 A 自己数到 3
+// 实例B ──► 本机 slots 表：key=4   ← B 不知道 A 数了 3
+// 实例C ──► 本机 slots 表：key=0   ← C 不知道 A、B 的任何数字
+// 三张表互相 完全不可见 ——没有任何机制把 3+4+0 加起来（Redis 都挂了，还能去哪共享？）。所以“加起来”在这个方案里 从来就没有发生过 。
+// ## ×N 到底在干什么：抽样推算，不是聚合
+// 它用的是统计学的思路——“ 样本量 × 放大系数 ≈ 总体量 ”：
+// 每台机器 独立 做这个推算，拿推算值和集群阈值比。误差来源显而易见——B 推出 12、A 推出 9，谁也不准。但方向可控：
+
+// - 推算偏大 → 提前拒 → 误杀 （用户多输一次验证码）；
+// - 推算偏小 → 阈值被放大 → 故障期变成攻击窗口 （安全事故）。
+// 两害相权，方案刻意让误差落在“偏严”一侧——这就是“ 更严或等严 ”的真实含义：不是精确保证，是 误差方向的单边保证 。
+
         // 步骤1：本地单机计数（原始值）
         // 步骤2：× 实例数 = 集群等效计数（Math.max(1,...) 防 instanceCount 误配为 0 导致恒放行）
             //本地只知道自己这一台机器收了多少请求，但调用方拿的是「集群总阈值」做比较。
             // 所以把本地计数 × N，假装成集群总计数返回，调用方用原来的阈值比较就能得到正确结果。
+            // 注意：×N 的准确性依赖流量均匀分摊 + instance-count 配准（见 RateLimitFallbackProperties#instanceCount）；
+            // 配小会让全集群放水量超过阈值（N 台配 M 台 = N/M 倍阈值），扩缩容后必须人工同步。
         return localRateLimiter.increment(key, windowSeconds)
                 * Math.max(1, fallbackProperties.getInstanceCount());
     }

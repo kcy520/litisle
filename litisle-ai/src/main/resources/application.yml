@@ -1,0 +1,79 @@
+# =============================================================
+# litisle-ai 基础配置（板块零骨架：只立骨架不写业务，端口顺延 8080~8086 取 8087）
+# 业务配置（模型通道 / 配额预算 / RAG）随板块一~四在 litisle-ai.yaml（Nacos）与本文件增量补充
+# =============================================================
+server:
+  port: 8087
+
+spring:
+  application:
+    name: litisle-ai
+
+  profiles:
+    active: local
+
+  # Nacos 配置中心 + 服务注册发现（与 review/content 同构；optional：Nacos 未就绪不阻断本地启动）
+  config:
+    import:
+      - optional:nacos:${spring.application.name}.yaml
+      - optional:nacos:litisle-shared.yaml
+  cloud:
+    nacos:
+      server-addr: ${litisle.nacos.server-addr:localhost:8848}
+      username: ${litisle.nacos.username:nacos}
+      password: ${litisle.nacos.password:nacos}
+      discovery:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+      config:
+        namespace: ${litisle.nacos.namespace:}
+        group: ${litisle.nacos.group:DEFAULT_GROUP}
+        file-extension: yaml
+
+  # MySQL（litisle_ai 库：ai_token_usage / ai_usage_daily / ai_pricing / ai_session / ai_message，表已建 ai-schema.sql）
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: "jdbc:mysql://${litisle.db.host:localhost}:${litisle.db.port:3306}/${litisle.db.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+    username: ${litisle.db.username:root}
+    password: ${litisle.db.password:123}
+
+  # Redis（配额日计数 / 预算缓存 / 建议 TTL 缓存 / ChatMemoryStore；实际消费随板块一/三落地）
+  data:
+    redis:
+      host: ${litisle.redis.host:localhost}
+      port: ${litisle.redis.port:6380}
+      password: ${litisle.redis.password:123}
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-wait: -1ms
+          max-idle: 10
+          min-idle: 0
+
+  # RabbitMQ（骨架仅接连接；消费者 RagIngestConsumer 监听 content.published/unpublished 随板块四落地，
+  # 届时再补 listener 手动应答/预取等消费侧配置）
+  rabbitmq:
+    host: ${litisle.rabbitmq.host:localhost}
+    port: ${litisle.rabbitmq.port:5672}
+    username: ${litisle.rabbitmq.username:litisle}
+    password: ${litisle.rabbitmq.password:litisle_pass}
+    virtual-host: ${litisle.rabbitmq.vhost:/litisle}
+
+mybatis-plus:
+  configuration:
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    db-config:
+      update-strategy: not_null
+      id-type: auto
+
+logging:
+  level:
+    com.litisle.litisleai: debug
+  pattern:
+    dateformat: HH:mm:ss:SSS
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"
+  file:
+    path: "logs/${spring.application.name}"
