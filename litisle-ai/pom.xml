@@ -77,6 +77,51 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- Actuator 监控端点：暴露 /actuator/prometheus（ai_call_total / ai_call_latency 等指标，板块一 1.5） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Prometheus 指标注册表：提供 /actuator/prometheus 端点（actuator 本体不含） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- LangChain4j OpenAI 官方模块：OpenAI 兼容通道 SDK（P2 定档：DeepSeek API 国内直连；
+             base-url/api-key/model/超时/重试全部外置 yml/Nacos，provider 层是唯一接触模型 SDK 的地方） -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+        </dependency>
+
+        <!-- LangChain4j 主模块：AiServices 装配小悦 ChatAgent + @Tool Function Calling（板块二 2.1，版本由父 POM langchain4j-bom 管理） -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
+
+        <!-- common-mq：MQ 机制层统一收口（Jackson2JsonMessageConverter / MqSendUtil / MqAckHelper / MqTraceSupport，
+             板块四 4.1 RagIngestConsumer 消费模板与延迟重投复用） -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-mq</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- LangChain4j Ollama 模块：本地 Ollama embedding 客户端（P3 定档：bge-m3 1024 维，零外发零成本） -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-ollama</artifactId>
+        </dependency>
+
+        <!-- Elasticsearch Java 客户端：article_chunks 向量索引读写（板块四 4.1/P9：AI 自建自管，索引名隔离；
+             版本由父 POM dependencyManagement 管理，与 search 同坐标） -->
+        <dependency>
+            <groupId>co.elastic.clients</groupId>
+            <artifactId>elasticsearch-java</artifactId>
+        </dependency>
+
         <!-- Nacos 服务注册发现（网关 / 其他服务经 lb://litisle-ai 调用的前提） -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
@@ -86,6 +131,15 @@
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
+        <!-- api 模块：AiClient 契约与 dto/ai 公共 DTO（AiPurposeEnum / AiChatRequestDTO，板块一 1.2）；
+             @EnableFeignClients 随板块二 ContentClient 接线时再开（AI 自身不消费 Feign 客户端，避免自注册 AiClient） -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>litisle-api</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <scope>compile</scope>
         </dependency>
 
         <!--lombok-->

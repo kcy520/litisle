@@ -84,6 +84,29 @@ public class MqConstant {
     /** 内容下架路由键（板块四 4-4.1，发布至 EXCHANGE_CONTENT，事件体 ContentUnpublishedEvent） */
     public static final String ROUTING_CONTENT_UNPUBLISHED = "content.unpublished";
 
+    // ==================== AI 模块（板块四 4.1：RAG 摄入消费）====================
+
+    /**
+     * AI RAG 文章发布摄入队列（板块四 4.1）：AI 侧独立消费队列（与 search 的 published 队列同路由键
+     * 各自独立绑定，防同队列多消费者变成抢占消费），消费后经门控回查摄入 article_chunks 向量索引
+     */
+    public static final String QUEUE_AI_RAG_PUBLISHED = "litisle.ai.rag.published.queue";
+
+    /** AI RAG 文章发布摄入死信队列（消费重试耗尽兜底） */
+    public static final String QUEUE_AI_RAG_PUBLISHED_DLQ = "litisle.ai.rag.published.dlq.queue";
+
+    /** AI RAG 内容下架摄入队列（板块四 4.1）：下架/删文/转私密同步移除 article_chunks（隐私红线） */
+    public static final String QUEUE_AI_RAG_UNPUBLISHED = "litisle.ai.rag.unpublished.queue";
+
+    /** AI RAG 内容下架死信队列（消费重试耗尽兜底） */
+    public static final String QUEUE_AI_RAG_UNPUBLISHED_DLQ = "litisle.ai.rag.unpublished.dlq.queue";
+
+    /** AI RAG 摄入死信路由键（主队列 deadLetterRoutingKey 统一指向，Direct DLX 精确投递） */
+    public static final String ROUTING_AI_RAG_DLQ = "ai.rag.dlq";
+
+    /** AI RAG 摄入延迟重试路由键前缀约定（延迟重投路由键=源队列名，配 x-delayed 交换机） */
+    public static final String EXCHANGE_AI_RAG_DELAY = "litisle.ai.rag.delay.exchange";
+
     /**
      * 文章元数据更新路由键（temp search批次B B7，批次A A2 定案，发布至 EXCHANGE_CONTENT，
      * 事件体 ContentArticleUpdatedEvent）：content 已发布文章元数据编辑（title/tags/summary/cover）

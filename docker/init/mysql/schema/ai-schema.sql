@@ -1,10 +1,10 @@
 # ============================================================
 # 模块：litisle-ai
 # 数据库：litisle_ai
-# 说明：AI 计量与用途打标（明细 / 日汇总 / 单价配置）
-# 设计来源：AI-Architecture「按用途计量与预算分账（R2 实施设计）§8.3」
-# 支撑：D15 预算分账 / F14 预算 / V8 生成配额 / V5 熔断计数（同一套埋点）
-# 会话与消息表（ai_session / ai_message）属生成式功能，尚未开工，暂不建表
+# 说明：AI 计量与用途打标（明细 / 日汇总 / 单价配置）+ 会话与消息（板块三 3.1）
+# 设计来源：AI-Architecture「按用途计量与预算分账（R2 实施设计）§8.3」+ Sql-Document §五
+# 支撑：D15 预算分账 / F14 预算 / V8 生成配额 / V5 熔断计数（同一套埋点）/ D25 会话治理
+# 会话与消息表（ai_session / ai_message）随板块三 3.1 建表（2026-11-15）；已有库重跑本脚本即可补建
 # ============================================================
 
 create database if not exists litisle_ai
@@ -14,10 +14,15 @@ collate utf8mb4_unicode_ci;
 use litisle_ai;
 
     # 1. Token 用量明细表（只追加，不更新；按用途打标的唯一事实来源）
+    # 2026-11-15 修订：幂等键 = request_id + call_seq 联合唯一（原 request_id 单键只覆盖机审切片，
+    # Agent 多轮会在同一 request_id 下产生多条明细，单键会撞键漏计）；已有库需手动 ALTER：
+    #   ALTER TABLE ai_token_usage ADD COLUMN call_seq int NOT NULL DEFAULT 1 COMMENT '调用序号' AFTER request_id;
+    #   ALTER TABLE ai_token_usage DROP INDEX uk_request_id, ADD UNIQUE KEY uk_request_call (request_id, call_seq);
 create table if not exists `ai_token_usage`
 (
 `id`             bigint unsigned not null auto_increment primary key comment '主键ID',
-`request_id`     varchar(64)     not null comment '请求幂等键（业务侧生成，如 taskId:chunkIndex；同一次业务请求的切片×重试复用同一 request_id，重复写入按 upsert 跳过防重复计费）',
+`request_id`     varchar(64)     not null comment '请求幂等键（业务侧生成，如 taskId:chunkIndex；重试复用同一 request_id，重复写入按 upsert 跳过防重复计费）',
+`call_seq`       int             not null default 1 comment '调用序号（同一业务请求的第 N 次模型调用：机审切片通道固定 1、Agent 多轮按轮次递增；重试复用同一序号，与 request_id 联合唯一）',
 `user_id`        bigint unsigned null comment '发起用户ID（机审无发起用户时为空；生成式为调用用户）',
 `purpose`        varchar(32)     not null comment '用途打标（调用方显式传入，缺省拒绝）：MODERATION_TEXT/MODERATION_IMAGE/SUMMARY/TAGGING/QA/OTHER；计费与预算只认前五类，OTHER 仅兜底落明细不计费不计预算，出现即告警按未归类调用观察',
 `scene`          varchar(32)     null comment '业务场景快照（如 ARTICLE_FEATURED/COMMENT/USERNAME，与 review_task.scene 同名；生成式可空）',
@@ -30,11 +35,43 @@ create table if not exists `ai_token_usage`
 `degraded`       tinyint         not null default 0 comment '降级标记：0-正常 1-降级期产生（degraded=true 不计入效果评估样本与重判对比基线，见业务指南 §4.5）',
 `occurred_at`    datetime        not null comment '调用完成时间（归属日期权威源，不按发起时间；跨天重试只计一次成功成本）',
 `create_time`    datetime        not null default current_timestamp comment '写入时间',
-unique key `uk_request_id` (`request_id`),
+unique key `uk_request_call` (`request_id`, `call_seq`),
 index `idx_purpose_date` (`purpose`, `occurred_at`),
 index `idx_occurred` (`occurred_at`)
 ) engine = InnoDB
 default charset = utf8mb4 comment = 'AI Token 用量明细表（只追加）';
+
+    # 1a. AI 会话表（板块三 3.1，DDL 以 Sql-Document §五为准；is_lru=1 暂存区按 D25 治理 200 会话上限 LRU 淘汰）
+create table if not exists `ai_session`
+(
+`id`         bigint unsigned not null auto_increment primary key comment '会话ID',
+`user_id`    bigint unsigned not null comment '用户ID',
+`agent_type` varchar(16)     not null comment 'Agent 类型：XIAOYUE / XIAOSHEN',
+`title`      varchar(100)    null comment '会话标题（首条消息摘要）',
+`mode`       varchar(20)     null comment '小悦模式：POLISH/STRUCTURE/SUMMARY/DEEP',
+`is_lru`     tinyint         not null default 1 comment '是否暂存区：1-是 0-已保存区',
+`last_active_time` datetime  not null default current_timestamp comment '最后活跃时间（LRU 依据）',
+`del_flag`   tinyint         not null default 0 comment '删除标志（软删=懒删；物理清理由定时兜底任务执行）',
+`create_time` datetime       not null default current_timestamp comment '创建时间',
+`update_time` datetime       not null default current_timestamp on update current_timestamp comment '更新时间',
+index `idx_user_lru` (`user_id`, `is_lru`, `last_active_time`)
+) engine = InnoDB
+default charset = utf8mb4 comment = 'AI 会话表';
+
+    # 1b. AI 消息表（跟随会话级联清理，不加 del_flag；prompt/completion token 逐条记录与 ai_token_usage 对账）
+create table if not exists `ai_message`
+(
+`id`         bigint unsigned not null auto_increment primary key comment '消息ID',
+`session_id` bigint unsigned not null comment '会话ID',
+`role`       varchar(16)     not null comment '角色：USER / ASSISTANT / SYSTEM',
+`content`    text            not null comment '消息内容',
+`token_cnt`  int             not null default 0 comment '本条消息 token 数（当前未接估算器，默认 0 预留）',
+`prompt_tokens`     int      null comment '本条消息输入 token 消耗（记于该轮终答行，与 ai_token_usage 日汇总对账，防统计口径漂移）',
+`completion_tokens` int      null comment '本条消息输出 token 消耗（同上）',
+`create_time` datetime       not null default current_timestamp comment '创建时间',
+index `idx_session_id` (`session_id`)
+) engine = InnoDB
+default charset = utf8mb4 comment = 'AI 消息表';
 
     # 2. 用量日汇总表（定时任务按 stat_date+user_id+purpose 聚合，幂等覆盖写；预算判定与 F9 个人用量读此表）
 create table if not exists `ai_usage_daily`

@@ -137,6 +137,17 @@
 
 -------------------------
 
+#### ai 模块（板块四：RAG 知识库与站内问答）
+
+> 板块划分依据：[AI-Business-Guide.md](../Business/AI-Business-Guide.md) §十七 板块划分（板块二/三随批次完成，运行态验证项随联调合并登记）。待办与决策项见 next_update.md。
+
+##### AI-V1 RAG 摄入与引用问答端到端联调（板块四 4.1/4.2，运行态）
+
+- [ ] 【必须】AI-V1：RAG 知识库摄入与引用问答端到端验证（来源：板块四 4.1/4.2；前置：Ollama（bge-m3）与 ES 就绪、DeepSeek api-key 注入、application.yml `litisle.ai.rag.enabled=true`、RabbitMQ 可用；验收：①发布一篇公开文章 → article_chunks_ai 索引生成切片与 1024 维向量、控制台无摄入报错；②未公开稿件（私密/未过审）发布不产生切片（出站红线门控）；③下架/删文后切片同步移除；④POST /ai/xiaoyue/chat purpose=QA 命中知识库时回答带【引用N】且响应 citations 回传、contentHash 改稿后引用标注「内容已更新」；⑤RAG 不可用（停 Ollama）降级为无引用回答并标注「未引用站内检索结果」；⑥匿名 QA 日限 anon-qa-daily-limit=10 触发 80003；⑦Agent 循环超限 80007 降级直连链路可用）
+- [ ] 【必须】AI-V2：AI 会话与计量运行态验证（来源：板块二/三；前置：litisle_ai 库 ai_session/ai_message 表已建、Redis 可用；验收：会话创建/列表/删除/500 条上限/200 会话 LRU 生效，90 天清扫任务日志可见，ai_token_usage 按 requestId+callSeq 落轮次明细，匿名与登录计量归属正确）
+
+-------------------------
+
 #### auth/file 模块（批次十四：基础设施与安全加固）
 
 > 板块划分依据：批次十四（批次十三 Resilience4j 熔断的配套遗留；14.1 于 2026-11-09 自 next_update.md 迁入，横跨 litisle-auth 与 litisle-file 两个服务，单独立项）。本节收纳评估与实施需环境实测（Redis 故障演练）的任务；评估结论落定前保持 `- [ ]`。

@@ -150,6 +150,8 @@ MessageRecallGate.recall / StrangerQuotaGate.tryAcquire 契约已备；发送链
 
 契约层已就绪（AiClient + AiChatRequestDTO/AiChatResponseDTO + AiClientFallbackFactory fail-fast + 自动装配注册，2026-10-06）；本端点暂不实现（用户决策：LLM 审核留注释占位，AiClient Javadoc 已标 TODO）。base-url/api-key/model 走 Nacos 外置，禁提交密钥；超时对齐 feign.client.config.litisle-ai.read-timeout。触发条件：板块三 3-1 联调前，或 AI 侧 RAG 建设启动时一并落地。
 
+> ✅ **已回收（2026-11-15）**：端点已随 next_update.md 板块一 1.4 落地（AiChatController /api/feign/ai/chat + AiChatService 编排，purpose/requestId 校验 + 预算判定 + 计量明细；模型通道未启用时抛 80005）；实现记录见 [ai-01-model-channel-metrology.md](../../archive/ai/ai-01-model-channel-metrology.md)。
+
 #### 18.1 AI 会话与生成内容超期清理（每日定时、分批、幂等、可开关）
 
 自 next_update.md 批次十八迁入（2026-11-09，用户拍板删除该批次；本项前置未满足，按挂起项转移规则落此，原样保留登记内容）。
@@ -179,3 +181,33 @@ MessageRecallGate.recall / StrangerQuotaGate.tryAcquire 契约已备；发送链
 **涉及文件**：`litisle-ai`（待建表后实现）、`docker/init/mysql/schema`（待新增 AI 表脚本）、`docs/next/next_update.md`。
 
 **触发条件**：litisle-ai 模块正式立项、AI 表（ai_session / ai_message / ai_token_usage 或生成内容表）初始化脚本与实体/Mapper 落地时，迁回 next_update.md 实施。
+
+> ⏳ **状态批注（2026-11-15）**：前置已部分满足并部分落地——ai_session/ai_message 表与实体/Mapper 已随板块三 3.1 落地，且其超期清理已由 AiSessionCleanupTask 实现（每日 03:30 + 启动 60s 补跑：留存 90 天物理删除 + 软删超 7 天懒删兜底，分批 200 防大事务），**ai_session/ai_message 清理部分回收**（实现记录见 [ai-03-session-polish-structure.md](../../archive/ai/ai-03-session-polish-structure.md)）；**ai_token_usage / ai_usage_daily 计量明细超期清理仍挂起**（留存窗口未定档，计量明细含审计对账用途不宜草率清理），触发条件：计量数据留存窗口定档（Q 系列决策）后迁回实施，届时对齐「每日定时/分批/幂等/可开关」实施要点。
+
+#### 板块零~四归档转移的挂起项与跨板块遗留（2026-11-15 归档时登记，迁自 next_update.md litisle-ai 模块节）
+
+> 来源：板块零~四已全部完成并归档（[ai-implemention-records.md](../../archive/ai/ai-implemention-records.md)），以下事项因宿主模块/文档未定稿而挂起，各条附触发条件。
+
+#### 网关 /api/ai/** 前缀与端点登记（Api-Architecture 定稿）
+
+AI 端点 /ai/xiaoyue/chat|summary|tag|polish|analyze-structure 与 /ai/sessions（POST/GET/DELETE）已按 AI-Architecture §7.1 路径落地；网关 /api/ai/** 前缀转发与端点白名单须在 Api-Architecture 定稿时同步登记（涉及端点：机审 Feign /api/feign/ai/chat 为内部端点不经网关）。触发条件：网关模块开发或 Api-Architecture 定稿时迁回实施。
+
+#### AI-Architecture §7.3 消费队列登记 + §7.1 端点核对
+
+AI 侧已新增消费 content.published / content.unpublished 两队列（RagIngestConsumer，板块四 4.1，MQ 拓扑 AiRagMqConfig 条件装配），须在 AI-Architecture §7.3 事件/队列清单补登记；§7.1 端点清单与实际实现（含 /polish、/analyze-structure、/ai/sessions）核对同步。触发条件：AI-Architecture 文档同步窗口（下一次架构文档修订时）。
+
+#### D15 桶口径文档修订（POLISH/STRUCTURE 扩桶）
+
+AiPurposeEnum 已扩 POLISH/STRUCTURE 两值且预算/配额各自独立桶（板块三 3.3，扩展口径=D15「生成类各自独立桶」精神延伸）；D15 决策原文仅列前五类，须在 AI-Business-Guide（D 决策唯一来源）补 POLISH/STRUCTURE 桶口径修订。触发条件：AI-Business-Guide 文档修订时。
+
+#### 小审判 XIAOSHEN 会话复用 ai_session/ai_message
+
+ai_session/ai_message 已按小悦会话落地，agent_type 字段已预留；小审判（Xiaoshen）定辅助会话复用本表本服务层（AiSessionService 按 agent_type 分域）。触发条件：小审判模块立项开发时迁回实施。
+
+#### 会话「已保存区」（is_lru=0）保存动作端点
+
+Design-Document §2.3.6「已保存 100/200」口径：ai_session.is_lru=0 已保存区字段与治理参数已预留，保存动作端点（暂存区会话转已保存）未在板块三 3.1 清单要求，暂不实现。触发条件：会话保存功能产品化立项时迁回实施。
+
+#### review 侧 LlmTextModerationAdapter 传参改造（归属 review 模块）
+
+AI 侧 /api/feign/ai/chat 已就绪并强制 purpose/requestId（缺省 80001 拒绝）；review 现有调用未传 purpose 会被拒绝转 SUSPICIOUS 人工（与「提供方缺失」现状等价无回归）。改造内容：SPI ContentModerationService.moderateText 改收 TextModerationRequest；requestId = taskId:chunkIndex；purpose 固定 MODERATION_TEXT；scene 取 review_task.scene。触发条件：review 模块文本机审 LLM 判定启用时（归属 review 模块任务，在 review 侧登记实施）。

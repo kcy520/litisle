@@ -23,4 +23,19 @@ public class AiChatRequestDTO {
 
     /** 采样温度（审核类调用固定 0，保证输出确定性） */
     private Double temperature;
+
+    /**
+     * 用途打标（必传，缺省提供方侧拒绝并告警，防「忘传」被默认归机审）；
+     * 计费与预算只认前五类，OTHER 仅兜底落明细（口径见 {@link AiPurposeEnum}）
+     */
+    private AiPurposeEnum purpose;
+
+    /**
+     * 请求幂等键（业务侧生成，重试复用同一键；如机审切片 taskId:chunkIndex）。
+     * 计量幂等键 = requestId + 调用序号（callSeq 由提供方侧分配），防重复计费
+     */
+    private String requestId;
+
+    /** 业务场景快照（可空，如 ARTICLE_FEATURED/COMMENT/USERNAME，与 review_task.scene 同名） */
+    private String scene;
 }

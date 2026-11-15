@@ -52,14 +52,19 @@ spring:
           max-idle: 10
           min-idle: 0
 
-  # RabbitMQ（骨架仅接连接；消费者 RagIngestConsumer 监听 content.published/unpublished 随板块四落地，
-  # 届时再补 listener 手动应答/预取等消费侧配置）
+  # RabbitMQ（连接 + 消费侧：RagIngestConsumer 手动应答随板块四 4.1 接线，
+  # rag.enabled=false 时拓扑不声明、消费者不装配，配置不生效但保留）
   rabbitmq:
     host: ${litisle.rabbitmq.host:localhost}
     port: ${litisle.rabbitmq.port:5672}
     username: ${litisle.rabbitmq.username:litisle}
     password: ${litisle.rabbitmq.password:litisle_pass}
     virtual-host: ${litisle.rabbitmq.vhost:/litisle}
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 1
+        default-requeue-rejected: false
 
 mybatis-plus:
   configuration:
@@ -68,6 +73,126 @@ mybatis-plus:
     db-config:
       update-strategy: not_null
       id-type: auto
+
+# =============================================================
+# Actuator 监控端点（AI 侧指标暴露给 Prometheus，板块一 1.5）
+# =============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# =============================================================
+# litisle-ai 业务配置（板块一：模型通道外置 + 预算/配额；生产经 Nacos 覆盖）
+# =============================================================
+litisle:
+  ai:
+    provider:
+      text:
+        # 通道显式开关：api-key 落位（经 Nacos/环境变量注入）前置 true 才装配模型 Bean；
+        # false 时端点 fail-fast 返回明确错误码（不静默），本地无 key 也可启动服务
+        enabled: false
+        # 通道提供方标识（指标 provider 标签）
+        provider-name: deepseek
+        # OpenAI 兼容端点（DeepSeek 国内直连；换供应商只改此处）
+        base-url: https://api.deepseek.com/v1
+        # 密钥经环境变量注入，禁止提交明文
+        api-key: ${DEEPSEEK_API_KEY:}
+        # 模型标识（同时作为计量 model_version / prompt_version，文本场景两者同值）
+        model: deepseek-chat
+        timeout-ms: 30000
+        max-retries: 2
+        temperature: 0.0
+    budget:
+      # 各预算桶日预算（元）：≤0=未设预算只计量不限额；机审桶=文本+图片合并
+      moderation: 0
+      summary: 0
+      tagging: 0
+      qa: 0
+      # 润色/结构分析独立桶（板块三 3.3，D15 生成类各自独立桶精神）
+      polish: 0
+      structure: 0
+      # 预警线比例（≥80% WARN 只提醒不停用）
+      warn-ratio: 0.8
+    quota:
+      # 用户级配额（D5/V8，数值待定档 Q39）：≤0=未定档仅计量不拦截
+      moderation:
+        daily-calls: 0
+        daily-tokens: 0
+      summary:
+        daily-calls: 0
+        daily-tokens: 0
+      tagging:
+        daily-calls: 0
+        daily-tokens: 0
+      qa:
+        daily-calls: 0
+        daily-tokens: 0
+      polish:
+        daily-calls: 0
+        daily-tokens: 0
+      structure:
+        daily-calls: 0
+        daily-tokens: 0
+    # =============================================================
+    # 小悦 Agent 配置（板块二 2.1~2.5：循环上限 / 结构化校验 / 建议缓存 / 出站脱敏开关）
+    # =============================================================
+    agent:
+      # Agent 推理循环上限（2.1 定档初值 5 轮，防死循环与成本放大；超限降级固定管道直连）
+      max-loop-rounds: 5
+      # 摘要字数上限（2.4/2.5 定档 ≤500 字，service 侧校验）
+      summary-max-chars: 500
+      # 结构化输出自校验重试预算（2.4 定档固定 1 次）
+      structured-retry-budget: 1
+      # 标签建议数量上限（AI 不新造标签，越池校验兜底）
+      max-tag-count: 5
+      # 建议态 Redis 缓存（P7 定档：key=requestId TTL 30 分钟，幂等回查不重复计量）
+      suggestion-cache-enabled: true
+      suggestion-cache-ttl-minutes: 30
+      # 出站脱敏开关（P1 定档：未公开稿件经脱敏后外发，保留配置开关可一键关闭）
+      desensitize-enabled: true
+      # ==================== 会话治理（板块三 3.1/3.2，D25 口径） ====================
+      # 暂存区会话上限（D25：200 会话上限，超限按最后活跃时间 LRU 淘汰最久未活跃）
+      session-stash-limit: 200
+      # 单会话消息条数上限（D25：500 条上限，超限拒绝追加并提示开新会话）
+      session-message-limit: 500
+      # 会话留存天数（D25/D6：生成内容留存 90 天，到期由定时兜底任务物理清理）
+      session-retention-days: 90
+      # 软删会话物理清理延迟天数（懒删之外定时兜底，防删除请求后数据残留）
+      session-purge-delay-days: 7
+      # Redis ChatMemory 窗口大小（LRU 暂存最近 N 条进模型上下文）
+      memory-window-size: 10
+      # Redis ChatMemory 键 TTL 分钟（暂存上下文过期即弃，D4 建议态不落库同源口径）
+      memory-ttl-minutes: 30
+    # =============================================================
+    # RAG 知识库配置（板块四 4.1/4.2：P3 Ollama bge-m3 本地向量 + P9 AI 自管切片索引）
+    # 本地默认 false：无 Ollama/ES 也可启动，消费者与检索工具整体缺席
+    # =============================================================
+    rag:
+      # RAG 链路总开关：true 才装配 MQ 消费者/ES 客户端/向量通道/检索工具
+      enabled: false
+      # Ollama 本地向量通道（P3 定档 bge-m3 1024 维，零外发零成本）
+      ollama-base-url: http://localhost:11434
+      ollama-model: bge-m3
+      vector-dimension: 1024
+      # ES 集群（与 search 共用实例；AI 自建自管切片索引，索引名隔离 P9）
+      es-hosts: localhost:9200
+      es-username: ${ES_USERNAME:}
+      es-password: ${ES_PASSWORD:}
+      es-index: article_chunks_ai
+      # 切片口径（4.1 定档：500 字/段、重叠 50 字）
+      chunk-size: 500
+      chunk-overlap: 50
+      max-chunks-per-article: 100
+      # 检索口径（4.2：topK + 相似度阈值过滤）
+      top-k: 5
+      min-score: 0.6
+      # 匿名问答日配额（P5：IP 哈希×日 Redis 计数，≤0 未定档不拦截）
+      anon-qa-daily-limit: 10
 
 logging:
   level:
