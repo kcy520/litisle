@@ -60,6 +60,22 @@ public class SuggestionValidator {
     }
 
     /**
+     * 推荐理由条目载体（板块五 5.2：index 对应候选序号 1 起，reason 为一句话理由）
+     */
+    @Data
+    public static class ReasonItem {
+        /** 候选序号（1 起，对应推荐卡片列表位置） */
+        private int index;
+        /** 一句话推荐理由 */
+        private String reason;
+
+        public ReasonItem(int index, String reason) {
+            this.index = index;
+            this.reason = reason;
+        }
+    }
+
+    /**
      * 解析并校验模型原始输出（2.4 自校验闭环的校验侧）
      *
      * @param purpose  用途（决定校验规则与字段）
@@ -135,6 +151,45 @@ public class SuggestionValidator {
         ValidatedSuggestion result = new ValidatedSuggestion();
         result.setTags(tags);
         return result;
+    }
+
+    /**
+     * 推荐理由校验（板块五 5.2）：解析 JSON 取 reasons 数组，逐条校验序号范围与一句话字数上限
+     *
+     * <p>允许模型只给部分候选理由（缺条目不判失败，调用方对缺失候选置空理由）。</p>
+     *
+     * @param rawText        模型原始输出
+     * @param candidateCount 候选篇数（index 合法范围 1..candidateCount）
+     * @param maxChars       一句话理由字数上限
+     * @return 校验通过的理由条目列表
+     * @throws IllegalArgumentException 解析失败或校验不过（异常消息即回喂给模型的具体错误）
+     */
+    public List<ReasonItem> validateReasons(String rawText, int candidateCount, int maxChars) {
+        JsonNode node = parseJson(rawText);
+        JsonNode reasonsNode = node.path("reasons");
+        if (!reasonsNode.isArray() || reasonsNode.isEmpty()) {
+            throw new IllegalArgumentException("缺少 reasons 数组字段或数组为空");
+        }
+        List<ReasonItem> items = new ArrayList<>();
+        for (JsonNode itemNode : reasonsNode) {
+            // 序号合法性：必须在候选范围内（防模型幻觉出界序号错配卡片）
+            int index = itemNode.path("index").asInt(-1);
+            if (index < 1 || index > candidateCount) {
+                throw new IllegalArgumentException("reasons 中 index=" + index
+                        + " 超出候选范围（1-" + candidateCount + "），请修正后重新输出");
+            }
+            // 理由合法性：非空且不超一句话字数上限
+            String reason = itemNode.path("reason").asText(null);
+            if (reason == null || reason.isBlank()) {
+                throw new IllegalArgumentException("reasons 第 " + index + " 条缺少 reason 字段或内容为空");
+            }
+            if (reason.length() > maxChars) {
+                throw new IllegalArgumentException("第 " + index + " 条理由超出 " + maxChars
+                        + " 字上限（当前 " + reason.length() + " 字），请压缩后重新输出");
+            }
+            items.add(new ReasonItem(index, reason));
+        }
+        return items;
     }
 
     /**

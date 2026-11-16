@@ -2,6 +2,8 @@ package com.litisle.litisleai.controller;
 
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleai.service.AiChatService;
+import com.litisle.litisleapi.dto.ai.AiChatRequestDTO;
+import com.litisle.litisleapi.dto.ai.AiChatResponseDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,8 +34,7 @@ public class AiChatController {
      * @return 模型原始文本输出（结构校验由调用方负责）
      */
     @PostMapping("/api/feign/ai/chat")
-    public Result<com.litisle.litisleapi.dto.ai.AiChatResponseDTO> chat(
-            @RequestBody com.litisle.litisleapi.dto.ai.AiChatRequestDTO dto) {
+    public Result<AiChatResponseDTO> chat(@RequestBody AiChatRequestDTO dto) {
         return Result.success(aiChatService.chat(dto));
     }
 }

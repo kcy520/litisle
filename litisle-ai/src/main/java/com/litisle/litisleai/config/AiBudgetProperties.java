@@ -5,6 +5,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.math.BigDecimal;
 
+/*
+ * 通俗说明：
+ * 控制"每个功能每天最多花多少钱"，单位是元。
+ * 文字机审和图片机审合在一起算一份预算，摘要、标签、问答、润色、结构分析、相似推荐各自独立。
+ * 花到预算的 80% 只提醒、不停服务；到 100% 就停止这个功能的新请求
+ * （机审例外：不停，改为全部转人工并告警）。
+ * 数值填 0 或负数表示暂不限额，只记账。
+ */
 /**
  * 预算分账配置（D15：机审桶 = 文本+图片合并，SUMMARY/TAGGING/QA 各自独立桶）
  *
@@ -34,6 +42,9 @@ public class AiBudgetProperties {
 
     /** 结构分析桶日预算（STRUCTURE，板块三 3.3；≤0=未设预算） */
     private BigDecimal structure = BigDecimal.ZERO;
+
+    /** 相似推荐桶日预算（SIMILAR，板块五 5.1；纯检索 token=0 成本恒 0，桶仅保持分账完整性；≤0=未设预算） */
+    private BigDecimal similar = BigDecimal.ZERO;
 
     /** 预警线比例（当日合计 ≥ 预算×该值返回 WARN，只提醒不停用） */
     private double warnRatio = 0.8;

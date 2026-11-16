@@ -109,6 +109,14 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- common-security：Sa-Token 登录态（用户身份只从会话取，禁止客户端传 userId；
+             UserIdResolver 未登录返回 null，供匿名问答/匿名相似推荐使用） -->
+        <dependency>
+            <groupId>com.litisle</groupId>
+            <artifactId>common-security</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- LangChain4j Ollama 模块：本地 Ollama embedding 客户端（P3 定档：bge-m3 1024 维，零外发零成本） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>

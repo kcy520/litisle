@@ -37,6 +37,7 @@ import com.litisle.litislereview.moderation.config.ModerationProperties;
 import com.litisle.litislereview.moderation.config.TextModerationAdapterProvider;
 import com.litisle.litislereview.moderation.spi.ContentModerationService;
 import com.litisle.litislereview.moderation.spi.ModerationResult;
+import com.litisle.litislereview.moderation.spi.dto.TextModerationRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -158,7 +159,8 @@ public class ModerationTextService {
         String sceneCode = task.getScene().getCode();
         long wordlibVer = wordLibraryLoader.loadVersion(requireWordScene(task.getScene()));
         String fewShotVer = moderationProperties.getLlm().getFewShotVersion();
-        ModerationProviderEnum provider = ModerationProviderEnum.LLM;
+        // provider 按配置派生（板块十 10.3：text-provider 切换时缓存 key/短锁 key/留痕 provider 分列自动跟随，禁硬编码）
+        ModerationProviderEnum provider = resolveTextProvider();
 
         // 步骤6：缓存查重（Redis→moderation_record 兜底，四条件版本化过滤）
         Optional<ModerationResultCache.CachedVerdict> cached =
@@ -179,8 +181,8 @@ public class ModerationTextService {
             // 步骤8：抢 SETNX 在途短锁（TTL=dedup.lock-seconds）；抢不到→抛异常不 ack
             //        （原请求在途，经 DLQ 延迟重试，防并发穿透烧 N 倍模型费）
             tryLockInFlight(provider, event.getContentHash());
-            // 步骤9：SPI 送审（分片+聚合，禁静默截断）
-            result = moderateWithChunking(fetched.text());
+            // 步骤9：SPI 送审（分片+聚合，禁静默截断）；taskId/scene 穿透供 LLM 适配器组装计量幂等键
+            result = moderateWithChunking(fetched.text(), task.getId(), sceneCode);
             // 7-1：moderation_cost Timer 记录 SPI 真实送审耗时（缓存命中/重投补发不进入此分支）
             moderationMetrics.recordCost(result.costMs());
         }
@@ -279,19 +281,27 @@ public class ModerationTextService {
     /**
      * 分片送审 + 三分态聚合（禁静默截断）
      *
-     * @param text 待审全文
+     * @param text  待审全文
+     * @param taskId 审核任务 ID（LLM 通道计量幂等键 requestId=taskId:chunkIndex 前段）
+     * @param scene 业务场景 code（与 review_task.scene 同名，透传 AI 侧计量明细）
      * @return 聚合后的整文判定
      */
-    private ModerationResult moderateWithChunking(String text) {
+    private ModerationResult moderateWithChunking(String text, Long taskId, String scene) {
         // 步骤1/2：超限先按空行段落聚合分片，单片仍超限再字符窗口硬切（步长/重叠外置）
         List<String> chunks = splitChunks(text);
         // 步骤3：逐片送审（单片口径，LLM 适配器负责防注入与解析失败宁疑不放）
         List<ModerationResult> results = new ArrayList<>(chunks.size());
-        for (String chunk : chunks) {
+        for (int chunkIndex = 0; chunkIndex < chunks.size(); chunkIndex++) {
             // 每片都是一次真实模型调用：送审前申请模型直调全站 QPS 配额
             //（3-8.3：超限抛非预期异常走延迟重试，绝不放行）
             moderationModelQpsGuard.tryAcquire();
-            results.add(textModerationAdapterProvider.resolve().moderateText(chunk));
+            // 组装单片送审请求：taskId/chunkIndex 是 LLM 适配器组 requestId=taskId:chunkIndex 的确定性幂等键段（重试复用不重复计费）
+            TextModerationRequest chunkRequest = new TextModerationRequest();
+            chunkRequest.setContent(chunks.get(chunkIndex));
+            chunkRequest.setTaskId(taskId);
+            chunkRequest.setChunkIndex(chunkIndex);
+            chunkRequest.setScene(scene);
+            results.add(textModerationAdapterProvider.resolve().moderateText(chunkRequest));
         }
         if (results.size() == 1) {
             return results.get(0);
@@ -313,15 +323,33 @@ public class ModerationTextService {
     }
 
     /**
-     * 超长文本分片：优先按空行段落聚合（不拆散语义段落），单段落自身超限再字符窗口硬切
+     * 文本机审 provider 按配置派生（板块十 10.3）：text-provider 切换时，缓存 key/在途短锁 key/
+     * moderation_record 留痕 provider 自动跟随（dfa/llm/aliyun 分列统计口径），禁再硬编码 LLM
+     *
+     * @return 当前配置对应的 provider 枚举（未识别配置回退 LLM 保持旧口径）
+     */
+    private ModerationProviderEnum resolveTextProvider() {
+        return "aliyun".equals(moderationProperties.getTextProvider())
+                ? ModerationProviderEnum.ALIYUN : ModerationProviderEnum.LLM;
+    }
+
+    /**
+     * 超长文本分片（板块十 10.2：分片参数随 textProvider 跟随）：段落边界聚合 + 超限字符窗口硬切，
+     * 全文 ≤ 单片上限整文一片；只切不截——全文长度与分片总长度守恒
      *
      * @param text 待审全文
-     * @return 分片列表（每片长度均 ≤ llm.max-text-chars，禁静默截断）
+     * @return 分片列表（每片长度均 ≤ 单片上限，禁静默截断）
      */
     private List<String> splitChunks(String text) {
-        int maxChars = moderationProperties.getLlm().getMaxTextChars();
-        int stepChars = moderationProperties.getLlm().getChunkStepChars();
-        int overlapChars = moderationProperties.getLlm().getChunkOverlapChars();
+        // 分片参数随 textProvider 跟随（板块十 10.2）：云 API 单条限长细/按条计费，LLM 上下文宽裕——
+        // 配置切换时分片口径自动对齐，llm 段三参数保留（LLM 回切时恢复 6000/5500/500 口径）
+        boolean aliyunActive = "aliyun".equals(moderationProperties.getTextProvider());
+        int maxChars = aliyunActive ? moderationProperties.getAliyun().getMaxTextChars()
+                : moderationProperties.getLlm().getMaxTextChars();
+        int stepChars = aliyunActive ? moderationProperties.getAliyun().getChunkStepChars()
+                : moderationProperties.getLlm().getChunkStepChars();
+        int overlapChars = aliyunActive ? moderationProperties.getAliyun().getChunkOverlapChars()
+                : moderationProperties.getLlm().getChunkOverlapChars();
         List<String> chunks = new ArrayList<>();
         if (text.length() <= maxChars) {
             chunks.add(text);
@@ -418,7 +446,7 @@ public class ModerationTextService {
                     .setReviewTaskId(task.getId())
                     .setScene(task.getScene())
                     .setContentHash(event.getContentHash())
-                    .setProvider(ModerationProviderEnum.LLM)
+                    .setProvider(resolveTextProvider())
                     .setWordlibVer(wordlibVer)
                     .setModelVersion(fewShotVer)
                     .setVerdict(result.verdict())

@@ -5,6 +5,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
 
+/*
+ * 通俗说明：
+ * 这是"知识库问答"功能的所有可调参数。做什么：把文章切成小段，用本地 Ollama 模型
+ * 把这些小段转成向量存进 Elasticsearch；用户提问时按相似度找回最相关的几段交给大模型作答。
+ * 这里管的是：Ollama 地址和模型、ES 地址和索引名、每段切多长/重叠多少、
+ * 一次取回几段、相似度门槛多高、匿名用户每天能问几次、相似文章推荐取几篇。
+ * enabled=false 时整套知识库功能不启用，没装 Ollama/ES 的本地环境照样能启动服务。
+ */
 /**
  * RAG 知识库配置（板块四 4.1/4.2：摄入链路与检索问答，参数全部外置 yml/Nacos）
  *
@@ -85,4 +93,31 @@ public class AiRagProperties {
      * 匿名问答日配额（次/日/IP哈希；P5 定档：数值先外置配置，Redis 日计数键 ai:quota:anon:{ip哈希}）
      */
     private int anonQaDailyLimit = 10;
+
+    // ==================== 相似文章推荐（板块五 5.1/5.2：F8 纯检索形态） ====================
+
+    /** 相似推荐配置组（topK/minScore/理由生成开关，随 rag.enabled 总开关生效） */
+    private Similar similar = new Similar();
+
+    /**
+     * 相似文章推荐配置（F8：只做相似检索不评价作者，纯检索形态零生成成本）
+     */
+    @Data
+    public static class Similar {
+
+        /** 推荐篇数上限（切片召回后按篇去重，返回的文章数上限） */
+        private int topK = 5;
+
+        /** 相似度下限（低于该分数的召回切片丢弃，防低质推荐） */
+        private double minScore = 0.6;
+
+        /** 推荐理由生成开关（5.2 可选增强，默认关闭——避免每次推荐都产生生成成本） */
+        private boolean reasonEnabled = false;
+
+        /** 生成推荐理由的候选篇数上限（TopN，超过 topK 时取两者较小值） */
+        private int reasonTopN = 3;
+
+        /** 一句话推荐理由字数上限（service 侧校验，超出判失败回喂重试） */
+        private int reasonMaxChars = 60;
+    }
 }

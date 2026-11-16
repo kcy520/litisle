@@ -211,3 +211,5 @@ Design-Document §2.3.6「已保存 100/200」口径：ai_session.is_lru=0 已�
 #### review 侧 LlmTextModerationAdapter 传参改造（归属 review 模块）
 
 AI 侧 /api/feign/ai/chat 已就绪并强制 purpose/requestId（缺省 80001 拒绝）；review 现有调用未传 purpose 会被拒绝转 SUSPICIOUS 人工（与「提供方缺失」现状等价无回归）。改造内容：SPI ContentModerationService.moderateText 改收 TextModerationRequest；requestId = taskId:chunkIndex；purpose 固定 MODERATION_TEXT；scene 取 review_task.scene。触发条件：review 模块文本机审 LLM 判定启用时（归属 review 模块任务，在 review 侧登记实施）。
+
+> ✅ **已回收（2026-11-15）**：改造已实施——SPI ContentModerationService.moderateText 签名改收 TextModerationRequest（扩 taskId/chunkIndex/scene 字段）；LlmTextModerationAdapter 补 purpose=MODERATION_TEXT + requestId=taskId:chunkIndex（确定性幂等键，缺失 fail-fast 抛 IllegalArgumentException）+ scene 透传；OnnxImageModerationAdapter 错配兜底实现同步签名；ModerationTextService.moderateWithChunking 穿透 task.getId()/sceneCode 到逐片调用点；编译验证已通过（2026-11-15，mvn -pl litisle-review,litisle-ai -am compile）。LLM 文本机审闭环打通（联调前置：litisle.moderation.text-provider=llm + AI 侧 provider.text.enabled=true + api-key 注入）。

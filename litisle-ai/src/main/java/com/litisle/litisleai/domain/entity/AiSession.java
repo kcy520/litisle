@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.litisle.litisleai.enums.AiAgentType;
+import com.litisle.litisleai.enums.XiaoyueMode;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -32,17 +34,17 @@ public class AiSession implements Serializable {
     @TableField("user_id")
     private Long userId;
 
-    /** Agent 类型：XIAOYUE / XIAOSHEN */
+    /** Agent 类型（AiAgentType：XIAOYUE / XIAOSHEN，@EnumValue 入库映射） */
     @TableField("agent_type")
-    private String agentType;
+    private AiAgentType agentType;
 
     /** 会话标题（首条消息摘要） */
     @TableField("title")
     private String title;
 
-    /** 小悦模式：POLISH/STRUCTURE/SUMMARY/DEEP */
+    /** 小悦模式（XiaoyueMode：POLISH/STRUCTURE/SUMMARY/DEEP，可空；@EnumValue 入库映射） */
     @TableField("mode")
-    private String mode;
+    private XiaoyueMode mode;
 
     /** 是否暂存区：1-是 0-已保存区 */
     @TableField("is_lru")

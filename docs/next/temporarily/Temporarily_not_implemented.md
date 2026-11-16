@@ -12,4 +12,4 @@
 | 代码部分 | review 审核模块（人审/举报/申诉/处罚/词库/ReportController/3-5 回写矩阵消费端/3-7 限流与短锁/4-1~4-6 入口嵌入/5-4.4 恢复）· litisle-ai 模块（chat 端点 ✅ 已回收；18.1 超期清理余计量明细部分；板块零~四归档转移挂起项：网关登记/架构文档登记/D15 修订/XIAOSHEN 复用/已保存区/review 传参改造）；含通用纪律六条 | [temporarily-01-code.md](temporarily-01-code.md) |
 | 验证部分 | 网关/认证限流故障降级本地兜底验证 · Sentinel Dashboard 降级熔断与 Nacos 规则热生效验证 | [temporarily-02-verify.md](temporarily-02-verify.md) |
 | 部署部分（生产上线前必做） | 通用：监控端口网络隔离、Sentinel 规则操作纪律 · file：replication≥010、Filer 元数据切 MySQL、instance-count 动态化 | [temporarily-03-deploy.md](temporarily-03-deploy.md) |
-| 暂不实现（预留项，附触发条件） | review（云 API 适配器/多模态/公示/音视频）· content（temp.md 历批迁入项：Book 分类/悬空兜底/计数契约/热度榜调参/阅读历史扩展/点赞与收藏迁入 social/书籍配套缺口等 · 11.11-C1\~C3 异常频次反作弊三阶段，重启信号量化）· file（CDN/冷热分层/存储 TTL）· 公共库 | [temporarily-04-deferred.md](temporarily-04-deferred.md) |
+| 暂不实现（预留项，附触发条件） | review（云 SUSPICIOUS→LLM 二次精判混合方案/多模态/公示/音视频；原「云 API 生产适配器」已于 2026-11-15 随板块十落地移出）· content（temp.md 历批迁入项：Book 分类/悬空兜底/计数契约/热度榜调参/阅读历史扩展/点赞与收藏迁入 social/书籍配套缺口等 · 11.11-C1\~C3 异常频次反作弊三阶段，重启信号量化）· file（CDN/冷热分层/存储 TTL）· 公共库 | [temporarily-04-deferred.md](temporarily-04-deferred.md) |

@@ -17,6 +17,7 @@ import com.litisle.litisleai.provider.text.TextChatResult;
 import com.litisle.litisleai.provider.text.TextModelProvider;
 import com.litisle.litisleai.service.support.AiUsageDetail;
 import com.litisle.litisleai.service.support.SuggestionValidator;
+import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.dto.ai.AiPurposeEnum;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.feign.ContentClient;
@@ -48,25 +49,11 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class XiaoyueSuggestionService {
 
-    /** 指标结果标签 */
-    private static final String RESULT_SUCCESS = "success";
-    private static final String RESULT_FAIL = "fail";
-
-    /** 生成动作结果标签（ai_generation_total） */
-    private static final String GENERATION_SUCCESS = "success";
-    private static final String GENERATION_FAIL = "fail";
-
     /** 降级提示文案（D3/D13：可手动填写，不落库） */
     private static final String DEGRADED_MESSAGE = "AI 暂时无法生成该内容，请稍后重试或手动填写";
 
     /** 默认 AI 生成提示文案（D3/D13 展示标识） */
     private static final String AI_NOTICE_MESSAGE = "AI 生成内容，仅供参考，请确认后再保存";
-
-    /** 场景标签兜底值（scene 为空时指标打点用，防 null 标签） */
-    private static final String SCENE_DEFAULT = "default";
-
-    /** 内容 bizType：1-文章 */
-    private static final int BIZ_TYPE_ARTICLE = 1;
 
     /** 文本模型通道（固定管道单次调用） */
     private final TextModelProvider textModelProvider;
@@ -101,50 +88,54 @@ public class XiaoyueSuggestionService {
     /**
      * 直连入口：摘要建议（POST /ai/xiaoyue/summary 固定管道）
      *
-     * @param request 直连请求（userId/requestId/articleId 必传）
+     * @param request 直连请求（requestId/articleId 必传）
+     * @param userId  当前登录用户 ID（controller 从 Sa-Token 会话取得；用户级配额与计量归属）
      * @return 摘要建议（degraded=true 时为失败提示）
      * @throws BizException 参数缺失（10001/80002）、预算超限（80004）
      */
-    public XiaoyueSuggestionResponse summaryDirect(XiaoyueSuggestRequest request) {
-        return directEntry(request.getRequestId(), request.getUserId(), request.getScene(), AiPurposeEnum.SUMMARY,
+    public XiaoyueSuggestionResponse summaryDirect(XiaoyueSuggestRequest request, Long userId) {
+        return directEntry(request.getRequestId(), userId, request.getScene(), AiPurposeEnum.SUMMARY,
                 ctx -> runSummaryPipeline(ctx, request.getArticleId(), 0));
     }
 
     /**
      * 直连入口：标签建议（POST /ai/xiaoyue/tag 固定管道）
      *
-     * @param request 直连请求（userId/requestId/articleId 必传）
+     * @param request 直连请求（requestId/articleId 必传）
+     * @param userId  当前登录用户 ID（controller 从 Sa-Token 会话取得；用户级配额与计量归属）
      * @return 标签建议（degraded=true 时为失败提示）
      * @throws BizException 参数缺失（10001/80002）、预算超限（80004）
      */
-    public XiaoyueSuggestionResponse tagDirect(XiaoyueSuggestRequest request) {
-        return directEntry(request.getRequestId(), request.getUserId(), request.getScene(), AiPurposeEnum.TAGGING,
+    public XiaoyueSuggestionResponse tagDirect(XiaoyueSuggestRequest request, Long userId) {
+        return directEntry(request.getRequestId(), userId, request.getScene(), AiPurposeEnum.TAGGING,
                 ctx -> runTagPipeline(ctx, request.getArticleId(), 0));
     }
 
     /**
      * 直连入口：润色建议（板块三 3.3：POST /ai/xiaoyue/polish 固定管道；一次性动作不建会话）
      *
-     * @param request 对话请求（userId/requestId 必传；articleId/message 至少一项）
+     * @param request 对话请求（requestId 必传；articleId/message 至少一项）
+     * @param userId  当前登录用户 ID（controller 从 Sa-Token 会话取得；用户级配额与计量归属）
      * @return 润色建议（degraded=true 时为失败提示）
      * @throws BizException 参数缺失（10001/80002）、预算超限（80004）
      */
-    public XiaoyueSuggestionResponse polishDirect(XiaoyueChatRequest request) {
+    public XiaoyueSuggestionResponse polishDirect(XiaoyueChatRequest request, Long userId) {
         validateChatRequestForDirect(request, true);
-        return directEntry(request.getRequestId(), request.getUserId(), request.getScene(), AiPurposeEnum.POLISH,
+        return directEntry(request.getRequestId(), userId, request.getScene(), AiPurposeEnum.POLISH,
                 ctx -> runPolishPipeline(ctx, request, 0));
     }
 
     /**
      * 直连入口：结构分析建议（板块三 3.3：POST /ai/xiaoyue/analyze-structure 固定管道）
      *
-     * @param request 对话请求（userId/requestId 必传；articleId 必传——结构分析基于全文）
+     * @param request 对话请求（requestId/articleId 必传——结构分析基于全文）
+     * @param userId  当前登录用户 ID（controller 从 Sa-Token 会话取得；用户级配额与计量归属）
      * @return 结构分析建议（degraded=true 时为失败提示）
      * @throws BizException 参数缺失（10001/80002）、预算超限（80004）
      */
-    public XiaoyueSuggestionResponse structureDirect(XiaoyueChatRequest request) {
+    public XiaoyueSuggestionResponse structureDirect(XiaoyueChatRequest request, Long userId) {
         validateChatRequestForDirect(request, false);
-        return directEntry(request.getRequestId(), request.getUserId(), request.getScene(), AiPurposeEnum.STRUCTURE,
+        return directEntry(request.getRequestId(), userId, request.getScene(), AiPurposeEnum.STRUCTURE,
                 ctx -> runStructurePipeline(ctx, request, 0));
     }
 
@@ -247,11 +238,11 @@ public class XiaoyueSuggestionService {
     }
 
     /**
-     * 直连请求基本校验（userId/requestId/articleId 必传）
+     * 直连请求基本校验（requestId/articleId 必传）
      */
     private void validateSuggestRequest(XiaoyueSuggestRequest request) {
-        if (request == null || request.getUserId() == null) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "userId 必传");
+        if (request == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "请求体不能为空");
         }
         if (request.getRequestId() == null || request.getRequestId().isBlank()) {
             throw new BizException(ErrorCode.AI_REQUEST_ID_REQUIRED);
@@ -262,12 +253,12 @@ public class XiaoyueSuggestionService {
     }
 
     /**
-     * 润色/结构分析直连请求校验（板块三 3.3）：userId/requestId 必传；
+     * 润色/结构分析直连请求校验（板块三 3.3）：requestId 必传；
      * 润色 articleId/message 至少一项（无稿件可润色选中文本）；结构分析 articleId 必传（基于全文）
      */
     private void validateChatRequestForDirect(XiaoyueChatRequest request, boolean polishMode) {
-        if (request == null || request.getUserId() == null) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "userId 必传");
+        if (request == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "请求体不能为空");
         }
         if (request.getRequestId() == null || request.getRequestId().isBlank()) {
             throw new BizException(ErrorCode.AI_REQUEST_ID_REQUIRED);
@@ -385,19 +376,19 @@ public class XiaoyueSuggestionService {
             recordCallSuccess(context, callSeq, result, degraded);
             // 校验：非空即可（结构化回答口径随板块四收紧）
             SuggestionValidator.ValidatedSuggestion suggestion = validator.validate(AiPurposeEnum.QA, result.getContent());
-            metrics.recordGeneration(normalizeScene(context.getScene()), GENERATION_SUCCESS);
+            metrics.recordGeneration(normalizeScene(context.getScene()), AiMetrics.RESULT_SUCCESS);
             XiaoyueSuggestionResponse resp = baseResponse(context, AiPurposeEnum.QA, degraded);
             resp.setAnswer(suggestion.getAnswer());
             return resp;
         } catch (BizException e) {
             // 模型通道失败：失败也留明细，降级为失败提示（降级链路不抛异常）
             recordCallFail(context, callSeq, degraded);
-            metrics.recordGeneration(normalizeScene(context.getScene()), GENERATION_FAIL);
+            metrics.recordGeneration(normalizeScene(context.getScene()), AiMetrics.RESULT_FAIL);
             return degradedResponse(context, AiPurposeEnum.QA, DEGRADED_MESSAGE);
         } catch (IllegalArgumentException e) {
             // 罕见（自由文本非空校验几乎不失败）：按终态失败处理，不再重试
             log.warn("问答降级输出校验未通过 requestId={} error={}", context.getRequestId(), e.getMessage());
-            metrics.recordGeneration(normalizeScene(context.getScene()), GENERATION_FAIL);
+            metrics.recordGeneration(normalizeScene(context.getScene()), AiMetrics.RESULT_FAIL);
             return degradedResponse(context, AiPurposeEnum.QA, DEGRADED_MESSAGE);
         } finally {
             metrics.recordLatency(AiPurposeEnum.QA.getCode(), System.currentTimeMillis() - start);
@@ -438,20 +429,20 @@ public class XiaoyueSuggestionService {
                         .temperature(0.0D)
                         .build());
                 recordCallSuccess(context, callSeq, result, degraded);
-                metrics.recordGeneration(normalizeScene(context.getScene()), GENERATION_SUCCESS);
+                metrics.recordGeneration(normalizeScene(context.getScene()), AiMetrics.RESULT_SUCCESS);
                 // service 侧校验（不依赖模型自觉）：不过则记错误回喂下一轮
                 SuggestionValidator.ValidatedSuggestion suggestion = validator.validate(purpose, result.getContent());
                 return builder.apply(suggestion);
             } catch (BizException e) {
                 // 模型通道失败：失败也留明细；重试预算内再试，预算耗尽降级失败提示
                 recordCallFail(context, callSeq, degraded);
-                metrics.recordGeneration(normalizeScene(context.getScene()), GENERATION_FAIL);
+                metrics.recordGeneration(normalizeScene(context.getScene()), AiMetrics.RESULT_FAIL);
                 lastError = "模型调用失败：" + e.getMessage();
             } catch (IllegalArgumentException e) {
                 // 校验不过：模型调用本身成功（已计量），记录具体错误回喂重试
                 log.info("结构化输出校验未通过 requestId={} purpose={} attempt={} error={}",
                         context.getRequestId(), purpose.getCode(), attempt, e.getMessage());
-                metrics.recordGeneration(normalizeScene(context.getScene()), GENERATION_FAIL);
+                metrics.recordGeneration(normalizeScene(context.getScene()), AiMetrics.RESULT_FAIL);
                 lastError = e.getMessage();
             } finally {
                 metrics.recordLatency(purpose.getCode(), System.currentTimeMillis() - start);
@@ -470,7 +461,7 @@ public class XiaoyueSuggestionService {
      */
     private ContentDTO fetchDraft(Long articleId) {
         try {
-            Result<ContentDTO> resp = contentClient.getContent(BIZ_TYPE_ARTICLE, articleId);
+            Result<ContentDTO> resp = contentClient.getContent(ModerationConstant.BIZ_TYPE_ARTICLE, articleId);
             if (resp == null || !resp.isSuccess() || resp.getData() == null) {
                 log.warn("直连管道取稿失败 articleId={}", articleId);
                 return null;
@@ -501,7 +492,7 @@ public class XiaoyueSuggestionService {
                 .degraded(degraded)
                 .occurredAt(LocalDateTime.now())
                 .build());
-        metrics.recordCall(context.getPurpose().getCode(), providerProperties.getProviderName(), RESULT_SUCCESS);
+        metrics.recordCall(context.getPurpose().getCode(), providerProperties.getProviderName(), AiMetrics.RESULT_SUCCESS);
     }
 
     /**
@@ -520,7 +511,7 @@ public class XiaoyueSuggestionService {
                 .degraded(degraded)
                 .occurredAt(LocalDateTime.now())
                 .build());
-        metrics.recordCall(context.getPurpose().getCode(), providerProperties.getProviderName(), RESULT_FAIL);
+        metrics.recordCall(context.getPurpose().getCode(), providerProperties.getProviderName(), AiMetrics.RESULT_FAIL);
     }
 
     /**
@@ -555,7 +546,7 @@ public class XiaoyueSuggestionService {
      * 场景标签归一化（null 兜底 default，防指标空标签）
      */
     private String normalizeScene(String scene) {
-        return scene == null || scene.isBlank() ? SCENE_DEFAULT : scene;
+        return scene == null || scene.isBlank() ? AiMetrics.SCENE_DEFAULT : scene;
     }
 
     /**

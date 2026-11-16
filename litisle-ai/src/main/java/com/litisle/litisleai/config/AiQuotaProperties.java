@@ -3,6 +3,13 @@ package com.litisle.litisleai.config;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+/*
+ * 通俗说明：
+ * 控制"每个用户、每个功能、每天最多能用多少"。
+ * 摘要、标签、问答、润色、结构分析、相似推荐各有一组上限，每组都看两件事：
+ * 每天最多调用几次、每天最多消耗多少 Token，任意一个超了就拒绝这次请求。
+ * 数值填 0 或负数表示"还没定数"，这时只记录用量、不做拦截。
+ */
 /**
  * 用户级配额配置（D5/V8：按 用户×用途×日 校验次数/Token 上限）
  *
@@ -32,6 +39,9 @@ public class AiQuotaProperties {
 
     /** 结构分析配额（STRUCTURE，板块三 3.3） */
     private Limit structure = new Limit();
+
+    /** 相似推荐配额（SIMILAR，板块五 5.1；纯检索形态无生成成本，预留桶保持用途映射完整） */
+    private Limit similar = new Limit();
 
     /**
      * 单用途日配额上限（次数与 Token 双维度，任一超限即拒绝）

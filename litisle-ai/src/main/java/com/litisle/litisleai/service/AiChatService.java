@@ -9,6 +9,9 @@ import com.litisle.litisleai.provider.text.TextChatRequest;
 import com.litisle.litisleai.provider.text.TextChatResult;
 import com.litisle.litisleai.provider.text.TextModelProvider;
 import com.litisle.litisleai.service.support.AiUsageDetail;
+import com.litisle.litisleapi.dto.ai.AiChatRequestDTO;
+import com.litisle.litisleapi.dto.ai.AiChatResponseDTO;
+import com.litisle.litisleapi.dto.ai.AiPurposeEnum;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,10 +40,6 @@ public class AiChatService {
     /** 计量明细 callSeq 固定值（无状态单次调用通道） */
     private static final int CHANNEL_CALL_SEQ = 1;
 
-    /** 指标结果标签 */
-    private static final String RESULT_SUCCESS = "success";
-    private static final String RESULT_FAIL = "fail";
-
     /** 文本模型通道端口 */
     private final TextModelProvider textModelProvider;
 
@@ -56,9 +55,9 @@ public class AiChatService {
     /** 指标打点 */
     private final AiMetrics metrics;
 
-    /** 机审桶用途（EXCEEDED 不停调用，转全量人工 + 告警） */
-    private static final List<String> MODERATION_PURPOSES =
-            List.of("MODERATION_TEXT", "MODERATION_IMAGE");
+    /** 机审桶用途（EXCEEDED 不停调用，转全量人工 + 告警）：编码取枚举，禁止手写字符串 */
+    private static final List<String> MODERATION_PURPOSES = List.of(
+            AiPurposeEnum.MODERATION_TEXT.getCode(), AiPurposeEnum.MODERATION_IMAGE.getCode());
 
     /**
      * 处理一次内部对话请求：契约校验 → 预算判定 → 模型调用 → 计量留痕 → 组装响应
@@ -68,7 +67,7 @@ public class AiChatService {
      * @throws BizException purpose/requestId 缺失（80001/80002）、生成类预算超限（80004）、
      *                      模型通道未启用或调用失败（80005）
      */
-    public com.litisle.litisleapi.dto.ai.AiChatResponseDTO chat(com.litisle.litisleapi.dto.ai.AiChatRequestDTO dto) {
+    public AiChatResponseDTO chat(AiChatRequestDTO dto) {
         // ① purpose 必传校验：缺省/未知值拒绝并告警，防「忘传」被默认归机审
         if (dto == null || dto.getPurpose() == null) {
             log.warn("AI 调用缺省 purpose，端点侧拒绝 requestId={}", dto == null ? null : dto.getRequestId());
@@ -113,10 +112,11 @@ public class AiChatService {
                     .tokenOut(result.getTokenOut())
                     .occurredAt(LocalDateTime.now())
                     .build());
-            metrics.recordCall(dto.getPurpose().getCode(), providerProperties.getProviderName(), RESULT_SUCCESS);
+            metrics.recordCall(dto.getPurpose().getCode(), providerProperties.getProviderName(),
+                    AiMetrics.RESULT_SUCCESS);
             metrics.recordLatency(dto.getPurpose().getCode(), costMs);
             // ⑥ 组装响应（模型原始文本，结构校验由调用方负责）
-            com.litisle.litisleapi.dto.ai.AiChatResponseDTO resp = new com.litisle.litisleapi.dto.ai.AiChatResponseDTO();
+            AiChatResponseDTO resp = new AiChatResponseDTO();
             resp.setContent(result.getContent());
             resp.setModel(result.getModelVersion());
             resp.setProviderTraceId(result.getProviderTraceId());
@@ -134,7 +134,8 @@ public class AiChatService {
                     .tokenOut(null)
                     .occurredAt(LocalDateTime.now())
                     .build());
-            metrics.recordCall(dto.getPurpose().getCode(), providerProperties.getProviderName(), RESULT_FAIL);
+            metrics.recordCall(dto.getPurpose().getCode(), providerProperties.getProviderName(),
+                    AiMetrics.RESULT_FAIL);
             metrics.recordLatency(dto.getPurpose().getCode(), System.currentTimeMillis() - start);
             throw e;
         }
@@ -144,7 +145,7 @@ public class AiChatService {
      * 预算超限执行语义：生成类停用返回明确错误码；机审桶不停调用、告警后继续
      * （机审额度不因超支而静默停摆——转全量人工 + 告警由 review 侧链路承担）
      */
-    private void enforceBudget(com.litisle.litisleapi.dto.ai.AiPurposeEnum purpose, String requestId) {
+    private void enforceBudget(AiPurposeEnum purpose, String requestId) {
         if (MODERATION_PURPOSES.contains(purpose.getCode())) {
             // 机审桶 100%：不停调用，告警观察（AiBudgetService 每分钟缓存判定，告警日志自然节流）
             log.warn("机审桶预算已达 100%，不停调用转告警 purpose={} requestId={}", purpose.getCode(), requestId);

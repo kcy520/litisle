@@ -81,6 +81,7 @@
 - 2026-11-05：search 模块「搜索链路企业级优化」批次一~三（1.1~1.3、2.1、3.1）→ [search-11-temp-checklist.md](../archive/search/search-11-temp-checklist.md)；挂起项 1.4、2.2 → [temporarily-04-deferred.md](../next/temporarily/temporarily-04-deferred.md)；search 重组批次一~八定版记录 → [next_update.md](../next/next_update.md) search模块（2026-11-03）
 - 2026-11-05：content 模块「阅读历史 bizType 枚举化」实施记录 → [content-09-temp-checklist.md](../archive/content/content-09-temp-checklist.md) §E.5
 - 2026-11-15：本清单收口——① search「索引同步并发竞态决策记录（2026-11-05）」原样归档 → [search-11-temp-checklist.md](../archive/search/search-11-temp-checklist.md) 板块十二（P2 条件项与 updateTime 待拍板项此前已录 temporarily-04-deferred.md 9.8 / 9.9-E）；② content「阅读历史 bizType 枚举化方案与配套检查表（参考件）」原样归档 → [content-09-temp-checklist.md](../archive/content/content-09-temp-checklist.md) §E.5 附；③ 未完成的 V1 联想链路优化验证（运行态联调）迁出 → [temporarily-02-verify.md](../next/temporarily/temporarily-02-verify.md) search 模块小节。待办部分已无活跃任务。
+- 2026-11-16：两个 Agent 立项（条件化相似文章推荐 + Agent 交互扩展）**整体转正式待办**——代码条目按板块拆入 [next_update.md](../next/next_update.md)（AI 板块八~十四 / search 板块二~四，任务编号沿用原批次编号不重排，跨立项引用改为板块号）；验证项 V1~V5 迁入 [next_verify.md](../next/next_verify.md)（AI-V4~V8，编号映射留注）；暂不做清单（has_image / OR 组合 / 关注列表 filter / 已读去重 / 用户画像 / stance/audience 词表 / suggestions 字段 / 订阅提醒）迁入 [temporarily-04-deferred.md](../next/temporarily/temporarily-04-deferred.md) ai 模块节。待办部分已无活跃任务。
 
 ***
 
@@ -88,4 +89,4 @@
 
 ## 待办部分
 
-> **本清单当前无活跃任务（2026-11-15 收口）**：全部批次与验证项已归档或迁出，去向见顶部「归档记录」。新临时立项时按上方文档模版在本节登记。
+> 待办部分已无活跃任务（2026-11-16 收口）：两个 Agent 立项已整体转正式待办，去向见顶部「归档记录」末行。

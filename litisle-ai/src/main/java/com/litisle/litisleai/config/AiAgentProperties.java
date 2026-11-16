@@ -3,6 +3,14 @@ package com.litisle.litisleai.config;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+/*
+ * 通俗说明：
+ * 这是"小悦"助手的行为参数总表：最多来回推理几轮、摘要最多多少字、最多生成几个标签、
+ * 建议结果缓存多久、发出去的内容要不要脱敏、每个用户最多存几个会话、
+ * 单个会话最多几条消息、会话保留多少天后清理、每次带给模型几条历史对话。
+ * 只放行为参数；连哪个模型、用什么密钥这类连接参数在 AiProviderProperties 里。
+ */
+
 /**
  * 小悦 Agent 侧配置（板块二：循环上限 / 结构化校验 / 建议缓存 / 出站脱敏开关，全部外置 yml/Nacos）
  *

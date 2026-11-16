@@ -123,7 +123,7 @@ public class OnnxImageModerationAdapter implements ContentModerationService {
      * 不支持文本审核，调用直接抛异常（配置错配 fail-fast）
      */
     @Override
-    public ModerationResult moderateText(String content) {
+    public ModerationResult moderateText(com.litisle.litislereview.moderation.spi.dto.TextModerationRequest request) {
         throw new UnsupportedOperationException("image-provider=onnx 适配器不支持文本审核，请检查 litisle.moderation.text-provider 配置");
     }
 

@@ -11,6 +11,7 @@ import com.litisle.litisleai.constant.AiPromptConstants;
 import com.litisle.litisleai.dto.XiaoyueChatRequest;
 import com.litisle.litisleai.dto.XiaoyueSuggestionResponse;
 import com.litisle.litisleai.enums.AiBudgetDecision;
+import com.litisle.litisleai.enums.AiMessageRole;
 import com.litisle.litisleai.metrics.AiMetrics;
 import com.litisle.litisleai.service.support.SuggestionValidator;
 import com.litisle.litisleapi.dto.ai.AiPurposeEnum;
@@ -122,11 +123,12 @@ public class XiaoyueChatService {
      * 小悦统一入口：意图路由 → Agent 执行（自校验回喂重试 1 次）→ 异常降级直连
      *
      * @param request 对话请求（purpose 入口预传入；sessionId 可空走会话记忆）
+     * @param userId  当前登录用户 ID（controller 从 Sa-Token 会话取得；未登录为 null，仅 QA 允许匿名）
      * @return 建议响应（degraded=true 时为失败提示，不落库）
      * @throws BizException purpose 非法（80001）、requestId 缺失（80002）、
      *                      用户配额超限（80003）、预算超限（80004）
      */
-    public XiaoyueSuggestionResponse chat(XiaoyueChatRequest request) {
+    public XiaoyueSuggestionResponse chat(XiaoyueChatRequest request, Long userId) {
         // ① purpose 校验：入口预传入（P6），仅支持生成类用途；缺省/未知/机审用途一律拒绝并告警
         AiPurposeEnum purpose = request == null ? null : request.getPurpose();
         if (purpose == null || !SUPPORTED_PURPOSES.contains(purpose.getCode())) {
@@ -135,9 +137,9 @@ public class XiaoyueChatService {
                     request == null ? null : request.getRequestId());
             throw new BizException(ErrorCode.AI_PURPOSE_REQUIRED);
         }
-        // ② requestId 必传（计量幂等键组成）；userId 必传（用户级配额归属）
-        // 匿名问答放行（板块四 4.2/P5）：userId 为空且 purpose=QA 且携带 anonIpHash → 匿名配额校验后放行
-        boolean anonymous = request.getUserId() == null;
+        // ② requestId 必传（计量幂等键组成）；userId 取自登录态（用户级配额归属）
+        // 匿名问答放行（板块四 4.2/P5）：未登录且 purpose=QA 且携带 anonIpHash → 匿名配额校验后放行
+        boolean anonymous = userId == null;
         if (request.getRequestId() == null || request.getRequestId().isBlank()) {
             throw new BizException(ErrorCode.AI_REQUEST_ID_REQUIRED);
         }
@@ -159,7 +161,7 @@ public class XiaoyueChatService {
             throw new BizException(ErrorCode.PARAM_ERROR, "该任务必须携带 articleId");
         }
         // ④ 用户级配额（D5/V8：按 用户×用途×日 校验，超额拒绝；匿名模式已走匿名配额跳过）
-        if (!anonymous && !userQuotaService.tryAcquire(request.getUserId(), purpose)) {
+        if (!anonymous && !userQuotaService.tryAcquire(userId, purpose)) {
             throw new BizException(ErrorCode.AI_QUOTA_EXCEEDED);
         }
         // ⑤ 预算分账判定（生成类 EXCEEDED 停新请求，明确错误码；Agent/降级链路均被覆盖）
@@ -179,10 +181,10 @@ public class XiaoyueChatService {
             return cached.get();
         }
         // ⑦ 会话准备（板块三 3.1）：sessionId 非空走会话记忆——归属校验 + USER 消息落库 + 活跃刷新
-        AiSessionService.SessionBound bound = prepareSession(request, purpose);
+        AiSessionService.SessionBound bound = prepareSession(request, purpose, userId);
         // ⑧ 开启调用上下文（Agent 每轮计量与轮次上限依赖它）
         AgentCallContext context = AgentCallContext.begin(
-                request.getRequestId(), purpose, request.getUserId(), request.getScene());
+                request.getRequestId(), purpose, userId, request.getScene());
         // ⑨ RAG 引用上下文（板块四 4.2）：本轮检索命中写入，终答组装时 drain 回传引用卡片
         com.litisle.litisleai.rag.RagContext.begin();
         try {
@@ -201,19 +203,20 @@ public class XiaoyueChatService {
      *
      * @param request 对话请求
      * @param purpose 用途
+     * @param userId  当前登录用户 ID（会话归属校验依据；未登录为 null）
      * @return 会话绑定信息（memoryId 与会话 ID；session 为 null 表示一次性请求）
      */
-    private AiSessionService.SessionBound prepareSession(XiaoyueChatRequest request, AiPurposeEnum purpose) {
+    private AiSessionService.SessionBound prepareSession(XiaoyueChatRequest request, AiPurposeEnum purpose, Long userId) {
         // 无会话请求：memoryId 用一次性键（requestId 前缀），Redis TTL 30 分钟自然过期不跨请求
         if (request.getSessionId() == null) {
             return AiSessionService.SessionBound.of("tmp:" + request.getRequestId(), null);
         }
         // 有会话请求：归属校验（不存在/跨用户/已删拒绝）+ USER 消息落库 + 活跃刷新
-        sessionService.requireOwnedSession(request.getUserId(), request.getSessionId());
+        sessionService.requireOwnedSession(userId, request.getSessionId());
         // USER 消息内容：意图相关文本（问答/润色为用户消息；摘要/标签为任务说明占位）
         String userContent = request.getMessage() == null || request.getMessage().isBlank()
                 ? purpose.getDesc() + "任务（文章 " + request.getArticleId() + "）" : request.getMessage();
-        sessionService.appendMessage(request.getSessionId(), AiSessionService.ROLE_USER, userContent, 0, null, null);
+        sessionService.appendMessage(request.getSessionId(), AiMessageRole.USER, userContent, 0, null, null);
         sessionService.touch(request.getSessionId());
         return AiSessionService.SessionBound.of(String.valueOf(request.getSessionId()), request.getSessionId());
     }
@@ -310,7 +313,7 @@ public class XiaoyueChatService {
         }
         try {
             // 该轮 token 消耗记于终答行（AgentCallContext 最近一轮记录），与 ai_token_usage 日汇总对账
-            sessionService.appendMessage(bound.sessionId(), AiSessionService.ROLE_ASSISTANT, reply,
+            sessionService.appendMessage(bound.sessionId(), AiMessageRole.ASSISTANT, reply,
                     0, contextLastTokenIn(), contextLastTokenOut());
         } catch (Exception e) {
             // 消息存档失败不阻断建议返回（列表展示降级，计量明细不受影响）

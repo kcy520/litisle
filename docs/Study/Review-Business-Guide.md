@@ -15,7 +15,7 @@
   ▼
   异步机审（review 消费 MQ）
   ├─ 幂等 upsert 建任务（bizType+bizId+scene 定位）→ 版本化缓存查重（终局结论复用）
-  ├─ 文本 LLM / 图片 ONNX（SPI 适配器）→ PASS / REJECT / SUSPICIOUS 三分态
+  ├─ 文本云 API 主通道（阿里云内容安全；LLM 保留回切）/ 图片 ONNX（SPI 适配器）→ PASS / REJECT / SUSPICIOUS 三分态
   ├─ PASS → 业务方 CAS 放行；REJECT → 驳回下架 + 处罚记账 + 通知（可申诉）
   ├─ SUSPICIOUS → review_task.status=2 进人工复审队列
   └─ 故障 → 延迟重试，耗尽进 DLQ 转人审兜底（绝不默认放行）
@@ -46,7 +46,7 @@ litisle-review
    │  └─ impl                 # 接口实现（事务边界/CAS 收口都在实现类）
    ├─ moderation              # 机审域
    │  ├─ spi                  # ContentModerationService 门面 + ModerationResult 三分态 + dto
-   │  ├─ adapter              # LlmTextModerationAdapter（防注入三件套）/ OnnxImageModerationAdapter
+   │  ├─ adapter              # AliyunTextModerationAdapter（云 API 主通道）/ LlmTextModerationAdapter（保留不激活）/ OnnxImageModerationAdapter
    │  ├─ consumer             # ModerationTextConsumer / ModerationImageConsumer / ModerationDlqConsumer
    │  ├─ cache                # ModerationResultCache（版本化 key）/ ImageAppealCacheInvalidator
    │  ├─ service              # ModerationText/ImageService（建任务+三分态落库+结果发布）/ RejectPunishAdapterHost / DlqService / Metrics
@@ -322,7 +322,7 @@ litisle-api（契约层，宿主服务与 review 共用）
 
 **功能描述：**
 
-> - MQ 消费驱动 LLM 文本 / ONNX 图片模型，输出 PASS / REJECT / SUSPICIOUS 三分态
+> - MQ 消费驱动文本判定器（云 API 主通道=阿里云内容安全，2026-11-15 板块十起；LLM 保留不激活）/ ONNX 图片模型，输出 PASS / REJECT / SUSPICIOUS 三分态
 > - 幂等 upsert 建任务 + 版本化缓存查重 + 切片聚合（任一片 REJECT 即整文 REJECT）
 > - 故障降级宁严勿松：重试耗尽转人审，绝不默认放行
 
@@ -341,9 +341,9 @@ litisle-api（契约层，宿主服务与 review 共用）
 >
 > **SPI 与适配器**
 >
-> - `ContentModerationService` 门面 + `LlmTextModerationAdapter`（防注入三件套）/ `OnnxImageModerationAdapter`；换模型只动 adapter 层
-> - 文本按段落分片（字符窗口 overlap 硬切），任一片 REJECT 即整文 REJECT
-> - provider 配置错配由启动自检 fail-fast 拦截（`ModerationProviderStartupChecker`）
+> - `ContentModerationService` 门面 + `AliyunTextModerationAdapter`（云 API 主通道：labels 串解析取最高分项，白名单 politics/porn/abuse/ad + reject-threshold 双条件映射三分态，云 requestId 出证，六出口宁疑不放）/ `LlmTextModerationAdapter`（防注入三件套，保留不激活）/ `OnnxImageModerationAdapter`；换判定器只动 adapter 层
+> - 文本按段落分片（字符窗口 overlap 硬切；分片参数随 text-provider 跟随：aliyun 400/350/50、llm 6000/5500/500），任一片 REJECT 即整文 REJECT
+> - provider 配置错配由启动自检 fail-fast 拦截（`ModerationProviderStartupChecker`）；provider 口径（缓存 key/短锁 key/留痕 provider）按 text-provider 派生，禁硬编码
 >
 > **三分态落库与联动**
 >
@@ -375,10 +375,10 @@ litisle-api（契约层，宿主服务与 review 共用）
 >   litisle\_review\moderation\spi\ 同包：\
 >   作用：\
 >   机审 SPI 门面与三分态结果契约
-> - LlmTextModerationAdapter.java / OnnxImageModerationAdapter.java：\
+> - AliyunTextModerationAdapter.java / LlmTextModerationAdapter.java / OnnxImageModerationAdapter.java：\
 >   litisle\_review\moderation\adapter\ 同包：\
 >   作用：\
->   模型适配（LLM 防注入三件套；ONNX 信号量并发闸）；换模型只动这层
+>   判定器适配（aliyun=云 API 主通道：labels→三分态映射+合规凭证出证+宁疑不放六出口；llm=保留不激活防注入三件套；onnx=信号量并发闸）；换判定器只动这层，text-provider 一行配置切换
 > - RejectPunishAdapterHost.java：\
 >   litisle\_review\moderation\service\RejectPunishAdapterHost.java：\
 >   作用：\
@@ -402,7 +402,7 @@ litisle-api（契约层，宿主服务与 review 共用）
 
 **功能描述——详细版：**
 
-> - 文本结果 `review:text-result:{wordlibVer}:{fewShotVer}:{scene}:{hash}`：词库或 prompt 换版自动失效旧结论；命中仍追加 moderation\_record（留痕不省）
+> - 文本结果 `review:text-result:{wordlibVer}:{fewShotVer}:{scene}:{hash}`：词库或 prompt 换版自动失效旧结论；版本化条件另含 provider（板块十派生化：dfa/llm/aliyun 随 text-provider，判定器切换缓存不串）；命中仍追加 moderation\_record（留痕不省）
 > - 图片结果 `review:img-result:{provider}:{modelVersion}:{sha256}`：换模型不复用旧结论
 > - 拒传黑名单 `review:img-blacklist:{sha256}`：REJECT 图片 TTL 30 天不随版本失效；申诉平反时移除
 > - 免审键 `review:last-hash:{wordlibVer}:{bizType}:{scene}:{bizId}`：hash 未变 + PASS + 非驳回态才免审（宿主侧 `LastHashExemptChecker` 消费，**免文不免图**——配图仍发复审）

@@ -48,6 +48,9 @@ public class ModerationProperties {
     /** 文本 LLM 机审参数 */
     private Llm llm = new Llm();
 
+    /** 阿里云内容安全段（板块十 10.1：text-provider=aliyun 文本机审云 API 主通道；AK/SK 禁提交明文经 Nacos/环境变量注入） */
+    private Aliyun aliyun = new Aliyun();
+
     /** 图片机审参数 */
     private Image image = new Image();
 
@@ -297,6 +300,40 @@ public class ModerationProperties {
 
         /** 字符窗口硬切重叠字符数（防违规词跨切点被拆开漏检） */
         private int chunkOverlapChars = 500;
+    }
+
+    /**
+     * 阿里云内容安全配置（板块十 10.1，text-provider=aliyun 时消费）
+     * <p>【职责边界】本段服务 AliyunTextModerationAdapter 云调用与 ModerationTextService 分片参数跟随；
+     * llm 段参数独立保留（LLM 回切时分片/判定参数自动回到 LLM 口径），两段互不共用。</p>
+     */
+    @Data
+    public static class Aliyun {
+
+        /** 内容安全 API 接入点（默认公共云华东）
+         */
+        private String endpoint = "green-cip.aliyuncs.com";
+
+        /** AccessKey ID（经环境变量/Nacos 注入，禁提交明文） */
+        private String accessKeyId = "";
+
+        /** AccessKey Secret（经环境变量/Nacos 注入，禁提交明文） */
+        private String accessKeySecret = "";
+
+        /** 云 API 调用超时（毫秒，SDK Config.setReadTimeout 按 Integer 传递；超时按宁疑不放转 SUSPICIOUS） */
+        private int timeoutMs = 5000;
+
+        /** 直驳置信度阈值：云引擎命中置信度（60~99）≥ 该值判 REJECT，低于该值判 SUSPICIOUS 转人工 */
+        private int rejectThreshold = 90;
+
+        /** 单片送审字符上限（云 API 单条 content 限长口径，分片单片上限；云接口按条计费，限长细于 LLM） */
+        private int maxTextChars = 400;
+
+        /** 段落分片后单片仍超限时字符窗口硬切窗口长度 */
+        private int chunkStepChars = 350;
+
+        /** 字符窗口硬切重叠字符数（防违规词跨切点被拆开漏检） */
+        private int chunkOverlapChars = 50;
     }
 
     @Data

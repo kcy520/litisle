@@ -99,8 +99,8 @@ management:
 # litisle-review 业务配置（外置清单见 Review-Plan §4.7；运营可调）
 litisle:
   moderation:
-    # 适配器激活（生产切 aliyun 零代码）
-    text-provider: llm
+    # 适配器激活（板块十 2026-11-15 定稿：云 API 主通道；LLM 适配器保留不删——回退/「云 SUSPICIOUS→LLM 二次精判」混合方案只需改回 llm）
+    text-provider: aliyun
     image-provider: onnx
     # NLM 语义机审提供方（批次1 ⑦ 预留键）：默认空=未激活，激活前无任何链路消费此键（纯占位）；
     #   二期接线位置=异步层（moderation.spi 适配器，与 LLM 并列/级联），走同一 @ConditionalOnProperty
@@ -186,7 +186,24 @@ litisle:
       temperature: 0
       few-shot-version: v1
       timeout-ms: 15000
+      # ⚠️ 板块十 2026-11-15：分片三参数已改为随 text-provider 跟随（aliyun 段取值），
+      #   本段 max-text-chars 仅 LLM 回切时恢复生效（6000/5500/500 LLM 口径），当前 text-provider=aliyun 下不读取
       max-text-chars: 6000
+    # =============================================================
+    # 阿里云内容安全（板块十 10.1：text-provider=aliyun 主通道消费；AK/SK 经 Nacos/环境变量注入禁提交明文）
+    # =============================================================
+    aliyun:
+      endpoint: green-cip.aliyuncs.com
+      access-key-id: ${ALIYUN_GREEN_AK_ID:}
+      access-key-secret: ${ALIYUN_GREEN_AK_SECRET:}
+      # 云调用超时（超时/异常按宁疑不放转 SUSPICIOUS 人工）
+      timeout-ms: 5000
+      # 直驳置信度阈值（云 confidence 60~99）：≥90 判 REJECT，低于判 SUSPICIOUS 转人工
+      reject-threshold: 90
+      # 分片参数（云单条 content 限长口径，比 LLM 细、按条计费；llm 回切时自动恢复 6000/5500/500）
+      max-text-chars: 400
+      chunk-step-chars: 350
+      chunk-overlap-chars: 50
     onnx:
       timeout-ms: 10000
       # 本地推理并发上限（信号量，默认 CPU 核数）

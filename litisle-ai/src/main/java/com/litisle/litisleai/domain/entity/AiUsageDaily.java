@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.litisle.litisleapi.dto.ai.AiPurposeEnum;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -35,9 +36,9 @@ public class AiUsageDaily implements Serializable {
     @TableField("user_id")
     private Long userId;
 
-    /** 用途编码（同 ai_token_usage.purpose） */
+    /** 用途编码（AiPurposeEnum，同 ai_token_usage.purpose；@EnumValue 入库映射） */
     @TableField("purpose")
-    private String purpose;
+    private AiPurposeEnum purpose;
 
     /** 调用次数（成功+失败） */
     @TableField("calls")

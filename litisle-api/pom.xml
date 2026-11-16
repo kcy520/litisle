@@ -63,6 +63,16 @@
             <artifactId>spring-web</artifactId>
         </dependency>
 
+        <!-- ✅ MyBatis-Plus 注解（仅 @EnumValue 入库映射标记，AiPurposeEnum.code 使用）；
+             契约模块不引 starter，运行期由各服务模块的 mybatis-plus-spring-boot3-starter 提供实现，
+             故 scope=provided；版本沿用父 pom 的 ${mybatis-plus.version} -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-annotation</artifactId>
+            <version>${mybatis-plus.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- ✅ opencc4j（批次2 ③：CharNormalizer 繁简归一，与 houbb ignoreChineseStyle 同源引擎；
              批次3 删 houbb 后独立承载繁简转换） -->
         <dependency>

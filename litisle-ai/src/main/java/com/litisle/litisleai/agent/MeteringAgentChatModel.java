@@ -34,10 +34,6 @@ import java.time.LocalDateTime;
 @Slf4j
 public class MeteringAgentChatModel implements ChatModel {
 
-    /** 指标结果标签 */
-    private static final String RESULT_SUCCESS = "success";
-    private static final String RESULT_FAIL = "fail";
-
     /** 底层模型通道（出站脱敏装饰链的出口） */
     private final ChatModel delegate;
 
@@ -111,7 +107,8 @@ public class MeteringAgentChatModel implements ChatModel {
                     .degraded(0)
                     .occurredAt(LocalDateTime.now())
                     .build());
-            metrics.recordCall(context.getPurpose().getCode(), providerProperties.getProviderName(), RESULT_SUCCESS);
+            metrics.recordCall(context.getPurpose().getCode(), providerProperties.getProviderName(),
+                    AiMetrics.RESULT_SUCCESS);
             metrics.recordLatency(context.getPurpose().getCode(), System.currentTimeMillis() - start);
             // token 指标由 usageRecordService.recordSuccess 统一打点，此处不重复计数
             // 记录最近一轮 token 消耗（终答消息落库 ai_message.prompt/completion_tokens 对账用）
@@ -148,7 +145,8 @@ public class MeteringAgentChatModel implements ChatModel {
                 .degraded(0)
                 .occurredAt(LocalDateTime.now())
                 .build());
-        metrics.recordCall(context.getPurpose().getCode(), providerProperties.getProviderName(), RESULT_FAIL);
+        metrics.recordCall(context.getPurpose().getCode(), providerProperties.getProviderName(),
+                AiMetrics.RESULT_FAIL);
         metrics.recordLatency(context.getPurpose().getCode(), System.currentTimeMillis() - start);
     }
 }

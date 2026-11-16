@@ -6,7 +6,11 @@
 
 #### 云 API 生产适配器
 
-生产切换时落地（pom runtime scope + Nacos 配置 AK/SK 走环境变量）。
+~~生产切换时落地（pom runtime scope + Nacos 配置 AK/SK 走环境变量）。~~ **已于 2026-11-15 随 review 板块十落地**（AliyunTextModerationAdapter + green20220302:3.6.10 依赖 + aliyun 配置段 AK/SK 环境变量注入，text-provider=aliyun 已切默认主通道；实现记录见 [review-10-aliyun-text-moderation.md](../../archive/review/review-10-aliyun-text-moderation.md)，运行态验证 RV-V1 见 next_verify.md），此项从「暂不实现」移出，原触发条件已满足。
+
+#### 云 SUSPICIOUS → LLM 二次精判混合方案（review 板块十预留，2026-11-15）
+
+云引擎初筛 + LLM 边界复核的生产混合方案（生产级项目主流组合）：text-provider=aliyun 主通道判 SUSPICIOUS 的内容，不再直接转人工，先走 LlmTextModerationAdapter 二次语义精判（purpose=MODERATION_TEXT + requestId=taskId:chunkIndex 契约原样复用），仅二次仍 SUSPICIOUS 才进人工——预期降低人工复核量，同时保留 LLM 自定义判定标准能力。LLM 适配器与 AiChatController 机审端点均保留不删（板块十资产处置），本项纯增量接线不回收资产。触发条件：云引擎 SUSPICIOUS 比例偏高（人工量压力大）或需自定义判定标准（如社区特有「引流广告」规则，云 API 自定义词库/策略覆盖不了）时迁回 next_update.md 实施；实施前置：RV-V1 云 API 链路运行态验证通过、AI 侧 provider.text.enabled=true 且 api-key 就绪。
 
 #### 图文组合审核 / OCR 多模态盲区（§2.9）
 
@@ -174,6 +178,30 @@ search 消费 content.published 建 article_idx/book_idx（Sql-Document §九：
 **推荐方案**：B（复用 common-redis 已有的 Resilience4j 熔断器，feed 快照探测点接入同一 CircuitBreaker），落地时 command timeout 调小作为配套（C）。理由：熔断点唯一、状态机与降级指标（`redis_guard_degraded`）现成可复用，与「common-redis 不引 Sentinel（保持轻量）」纪律不冲突。登记时（2026-11-09）原推荐「自研轻量熔断」，同日复核发现自研 RedisGuard 已于 2026-11-07 被 Resilience4j 替代（自研路线已被项目否决），故改推荐复用；原方案B 描述（手写三态状态机）作废。
 
 **触发条件**：Redis 黑洞型故障真实发生（或演练复现）且降级接口 P99 被拉长到 command timeout 量级、监控可观测时立项实施；未发生前仅登记不排期。
+
+### ai 模块（迁自 temp.md 两 Agent 立项暂不做清单，2026-11-16 转正式登记）
+
+#### 维度注册表暂不做清单（迁自 temp.md 公共配置条目，2026-11-16）
+
+一期检索维度范围收口，以下五项不做（next_update.md search 板块二 2.1 / 板块三 3.1 均留指针）：
+
+- **has_image**：无场景支撑。触发条件：出现「带图的」类高频检索表达且内容侧有图片元数据支撑时迁回。
+- **OR 逻辑组合**：AND+排除已覆盖主流表达。触发条件：出现高频用户 OR 组合表达时迁回。
+- **关注列表 filter**：需 user/social 契约扩展。触发条件：关注列表契约可经 Feign 复用时迁回（对应 next_update.md AI 板块十四 6.3 前置核对）。
+- **已读去重（维度 filter）**：需核对 content 阅读历史契约是否现成，契约就绪即二期首位。触发条件：阅读历史契约可经 Feign 复用时迁回（对应 AI 板块十四 6.4 前置核对；白名单式排除已读已由 search 板块四 excludeArticleIds 覆盖）。
+- **用户画像个性化**：独立立项范畴。触发条件：个性化推荐独立立项时。
+
+#### stance / audience 词表留位（迁自 temp.md 公共配置二期首批词表注，2026-11-16）
+
+词表留位、观察不做。触发条件：用户出现立场/受众类高频表达（如「观点中立的」「写给新手看的」）且现有 style/depth 词表无法覆盖时评估纳入。
+
+#### suggestions 字段——结果即时提示（迁自 temp.md 第二立项批次五注，2026-11-16）
+
+结果即时提示 suggestions 字段暂不做（能力发现取三板斧：chips / 能力面板 / 边界响应模板）。触发条件：实测冷启动引导不足时迁回（对应 AI 板块十三板块注）。
+
+#### 订阅提醒 / 追更推送（迁自 temp.md 第二立项方案行，2026-11-16）
+
+订阅提醒不做。触发条件：产品明确立项站内通知/推送能力时评估。
 
 ### search 模块
 

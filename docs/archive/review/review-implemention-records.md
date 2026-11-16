@@ -15,5 +15,6 @@
 | 板块七 | 观测与告警收尾（§4.8/§4.7） | [review-07-observability-alert.md](review-07-observability-alert.md) |
 | 板块八 | 词库治理与 DFA 同步闸门优化（wordlib_misreport/词库建议清单/AC 自动机替换批次1~4；迁自 temp.md 批次6） | [review-08-wordlib-dfa.md](review-08-wordlib-dfa.md) |
 | 板块九 | DFA 引擎切换 hankcs ACDAT（三批次：依赖适配/接线影子比对/旧引擎收口；迁自 temp.md 批次7） | [review-09-dfa-acdat-switch.md](review-09-dfa-acdat-switch.md) |
+| 板块十 | 文本机审判定器切换云 API（阿里云内容安全 text-provider=aliyun 主通道；LLM 适配器保留不激活；provider 派生化/分片参数跟随/计量脱钩；2026-11-15 迁自 next_update.md） | [review-10-aliyun-text-moderation.md](review-10-aliyun-text-moderation.md) |
 
 ## 后续修改

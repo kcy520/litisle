@@ -4,10 +4,12 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleai.config.AiRagProperties;
+import com.litisle.litisleai.constant.AiContentConstant;
 import com.litisle.litisleai.provider.embedding.EmbeddingProvider;
 import com.litisle.litisleai.rag.ArticleChunkDoc;
 import com.litisle.litisleai.rag.ChunkIndexClient;
 import com.litisle.litisleai.rag.ContentChunker;
+import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import lombok.RequiredArgsConstructor;
@@ -42,15 +44,6 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class RagIngestService {
-
-    /** 内容 bizType：1-文章 */
-    private static final int BIZ_TYPE_ARTICLE = 1;
-
-    /** 发布态：2-已发布（消费端门控回查口径：status=2 且 visibility=公开） */
-    private static final int STATUS_PUBLISHED = 2;
-
-    /** 可见性：1-公开（摄入门控唯一通过值） */
-    private static final int VISIBILITY_PUBLIC = 1;
 
     /** 内容服务客户端（权威数据回查） */
     private final ContentClient contentClient;
@@ -126,7 +119,7 @@ public class RagIngestService {
      */
     private ContentDTO fetchArticle(Long articleId) {
         try {
-            Result<ContentDTO> resp = contentClient.getContent(BIZ_TYPE_ARTICLE, articleId);
+            Result<ContentDTO> resp = contentClient.getContent(ModerationConstant.BIZ_TYPE_ARTICLE, articleId);
             if (resp == null || !resp.isSuccess() || resp.getData() == null) {
                 return null;
             }
@@ -148,9 +141,9 @@ public class RagIngestService {
      */
     private boolean isPublic(ContentDTO content) {
         return content.getStatus() != null
-                && content.getStatus() == STATUS_PUBLISHED
+                && content.getStatus() == AiContentConstant.STATUS_PUBLISHED
                 && content.getVisibility() != null
-                && content.getVisibility() == VISIBILITY_PUBLIC;
+                && content.getVisibility() == AiContentConstant.VISIBILITY_PUBLIC;
     }
 
     /**

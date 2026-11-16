@@ -11,6 +11,14 @@ import org.springframework.context.annotation.Configuration;
 
 import java.time.Duration;
 
+/*
+ * 通俗说明：
+ * 这个类负责创建"真正去调用大模型的那个客户端"。
+ * 用 OpenAI 通用协议对接 DeepSeek 等服务商，并在外面包一层"脱敏装饰"——
+ * 发给模型之前先把敏感信息替换掉，这层可以通过配置一键关掉。
+ * litisle.ai.provider.text.enabled=false 时不创建客户端，没有 api-key 的本地环境也能启动，
+ * 调用方会收到明确的错误码，而不是空指针崩溃。
+ */
 /**
  * AI 模型通道装配（板块一 1.1：模型 SDK Bean 的唯一装配点；板块二叠加出站脱敏装饰器）
  *

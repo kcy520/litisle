@@ -100,8 +100,8 @@ litisle:
         provider-name: deepseek
         # OpenAI 兼容端点（DeepSeek 国内直连；换供应商只改此处）
         base-url: https://api.deepseek.com/v1
-        # 密钥经环境变量注入，禁止提交明文
-        api-key: ${DEEPSEEK_API_KEY:}
+        # 密钥经环境变量注入，禁止提Deepseek_API_KEY交明文
+        api-key: ${:}
         # 模型标识（同时作为计量 model_version / prompt_version，文本场景两者同值）
         model: deepseek-chat
         timeout-ms: 30000
@@ -116,6 +116,8 @@ litisle:
       # 润色/结构分析独立桶（板块三 3.3，D15 生成类各自独立桶精神）
       polish: 0
       structure: 0
+      # 相似推荐独立桶（板块五 5.1：纯检索 token=0 成本恒 0，桶仅保持分账完整性）
+      similar: 0
       # 预警线比例（≥80% WARN 只提醒不停用）
       warn-ratio: 0.8
     quota:
@@ -136,6 +138,10 @@ litisle:
         daily-calls: 0
         daily-tokens: 0
       structure:
+        daily-calls: 0
+        daily-tokens: 0
+      # 相似推荐配额（板块五 5.1：纯检索形态只读伴随能力，预留桶默认不拦截）
+      similar:
         daily-calls: 0
         daily-tokens: 0
     # =============================================================
@@ -193,6 +199,18 @@ litisle:
       min-score: 0.6
       # 匿名问答日配额（P5：IP 哈希×日 Redis 计数，≤0 未定档不拦截）
       anon-qa-daily-limit: 10
+      # 相似文章推荐（板块五 5.1/5.2：F8 纯检索形态，随 rag.enabled 总开关生效）
+      similar:
+        # 推荐篇数上限（切片召回后按篇去重返回的文章数上限）
+        top-k: 5
+        # 相似度下限（低于该分数的召回切片丢弃）
+        min-score: 0.6
+        # 推荐理由生成开关（5.2 可选增强，默认关闭避免每次推荐产生生成成本）
+        reason-enabled: false
+        # 生成理由的候选篇数上限（TopN）
+        reason-top-n: 3
+        # 一句话理由字数上限（service 侧校验）
+        reason-max-chars: 60
 
 logging:
   level:

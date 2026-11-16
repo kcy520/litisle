@@ -1,6 +1,9 @@
 package com.litisle.litislereview.moderation.spi;
 
 
+import com.litisle.litislereview.moderation.spi.dto.TextModerationRequest;
+
+
 /**
  * 内容审核 SPI 门面（机审域统一收口，业务代码只依赖本接口）
  *
@@ -11,7 +14,8 @@ package com.litisle.litislereview.moderation.spi;
  * <p>使用场景示例（MQ 异步消费端）：</p>
  * <pre>{@code
  * // 文本：ModerationTextConsumer 定位任务后回查正文，逐片送审
- * ModerationResult r = contentModerationService.moderateText(chunk);
+ * // requestId = taskId:chunkIndex 由适配器组装（AI 侧计量幂等键，重试复用不重复计费）
+ * ModerationResult r = contentModerationService.moderateText(chunkRequest);
  * switch (r.verdict()) { case PASS -> ...; case REJECT -> ...; case SUSPICIOUS -> ...; }
  * // 图片：ModerationImageConsumer 经 FileClient 内部契约按 fileId 取字节流后送审
  * ModerationResult img = contentModerationService.moderateImage(bytes);
@@ -43,15 +47,17 @@ public interface ContentModerationService {
 
     /**
      * 文本审核（MQ 异步消费端调用）
-     * <p>入参为单片待审文本：标题与正文拼接后一并送审（hash 含标题但送审漏标题时，
-     * 违规语义藏标题可躲过语义层）；超长正文按段落分片/字符窗口硬切由消费端负责，
-     * 本方法收到的已是切分后单片；实现须防 Prompt 注入（分隔符包裹 + system 声明
-     * 数据非指令 + 强制 JSON 输出，解析失败按 SUSPICIOUS 宁疑不放）</p>
+     * <p>入参为单片送审请求：content 为单片待审文本，标题与正文拼接后一并送审（hash 含标题
+     * 但送审漏标题时，违规语义藏标题可躲过语义层）；超长正文按段落分片/字符窗口硬切由消费端
+     * 负责，本方法收到的已是切分后单片；taskId/chunkIndex 供 LLM 适配器组装 AI 侧计量幂等键
+     * requestId=taskId:chunkIndex（确定性切分，延迟重试复用同一键不重复计费）；实现须防
+     * Prompt 注入（分隔符包裹 + system 声明数据非指令 + 强制 JSON 输出，解析失败按
+     * SUSPICIOUS 宁疑不放）</p>
      *
-     * @param content 待审文本（单片）
+     * @param request 单片送审请求（content 必填；taskId/chunkIndex 为 LLM 通道必填）
      * @return 三分态判定结果
      */
-    ModerationResult moderateText(String content);
+    ModerationResult moderateText(TextModerationRequest request);
 
     /**
      * 图片审核（AVATAR/COVER 上传即审与 ARTICLE_IMG 预审/复审共用）

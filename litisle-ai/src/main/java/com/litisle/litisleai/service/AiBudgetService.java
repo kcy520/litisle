@@ -5,6 +5,7 @@ import com.litisle.litisleai.config.AiBudgetProperties;
 import com.litisle.litisleai.domain.entity.AiUsageDaily;
 import com.litisle.litisleai.enums.AiBudgetDecision;
 import com.litisle.litisleai.mapper.AiUsageDailyMapper;
+import com.litisle.litisleapi.dto.ai.AiPurposeEnum;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,27 @@ public class AiBudgetService {
     /** 预算桶-机审（MODERATION_TEXT + MODERATION_IMAGE 合并计费） */
     private static final String BUCKET_MODERATION = "moderation";
 
+    /** 预算桶-摘要（与 AiBudgetProperties 配置键同名） */
+    private static final String BUCKET_SUMMARY = "summary";
+
+    /** 预算桶-标签 */
+    private static final String BUCKET_TAGGING = "tagging";
+
+    /** 预算桶-问答 */
+    private static final String BUCKET_QA = "qa";
+
+    /** 预算桶-润色 */
+    private static final String BUCKET_POLISH = "polish";
+
+    /** 预算桶-结构分析 */
+    private static final String BUCKET_STRUCTURE = "structure";
+
+    /** 预算桶-相似推荐 */
+    private static final String BUCKET_SIMILAR = "similar";
+
+    /** 预算桶-未归类（OTHER 不计预算，仅保持映射完整性；check 入口已提前放行） */
+    private static final String BUCKET_OTHER = "other";
+
     /** 预算判定缓存有效期（毫秒）：判定读汇总表 + 本地缓存 60 秒 */
     private static final long CACHE_TTL_MS = 60_000L;
 
@@ -44,14 +66,15 @@ public class AiBudgetService {
     /** 日汇总 Mapper（当日合计读取） */
     private final AiUsageDailyMapper usageDailyMapper;
 
-    /** 预算桶 → 桶内用途集合的映射（MODERATION_TEXT/IMAGE 同属机审桶；POLISH/STRUCTURE 板块三 3.3 各立独立桶） */
-    private final Map<String, Set<String>> bucketPurposes = Map.of(
-            BUCKET_MODERATION, Set.of("MODERATION_TEXT", "MODERATION_IMAGE"),
-            "summary", Set.of("SUMMARY"),
-            "tagging", Set.of("TAGGING"),
-            "qa", Set.of("QA"),
-            "polish", Set.of("POLISH"),
-            "structure", Set.of("STRUCTURE"));
+    /** 预算桶 → 桶内用途集合的映射（MODERATION_TEXT/IMAGE 同属机审桶；POLISH/STRUCTURE 板块三 3.3、SIMILAR 板块五 5.1 各立独立桶） */
+    private final Map<String, Set<AiPurposeEnum>> bucketPurposes = Map.of(
+            BUCKET_MODERATION, Set.of(AiPurposeEnum.MODERATION_TEXT, AiPurposeEnum.MODERATION_IMAGE),
+            BUCKET_SUMMARY, Set.of(AiPurposeEnum.SUMMARY),
+            BUCKET_TAGGING, Set.of(AiPurposeEnum.TAGGING),
+            BUCKET_QA, Set.of(AiPurposeEnum.QA),
+            BUCKET_POLISH, Set.of(AiPurposeEnum.POLISH),
+            BUCKET_STRUCTURE, Set.of(AiPurposeEnum.STRUCTURE),
+            BUCKET_SIMILAR, Set.of(AiPurposeEnum.SIMILAR));
 
     /** 预算桶当日成本缓存（key=桶名；60 秒过期，避免每次调用读库） */
     private final Map<String, CachedCost> costCache = new ConcurrentHashMap<>();
@@ -62,7 +85,7 @@ public class AiBudgetService {
      * @param purpose 用途打标（OTHER 不设预算，直接放行）
      * @return ALLOWED / WARN（≥80%）/ EXCEEDED（100%）
      */
-    public AiBudgetDecision check(com.litisle.litisleapi.dto.ai.AiPurposeEnum purpose) {
+    public AiBudgetDecision check(AiPurposeEnum purpose) {
         // OTHER 仅兜底落明细，不计入预算（不拦截、不告警——告警由端点侧「未归类调用」口径承担）
         if (!purpose.isMetered()) {
             return AiBudgetDecision.ALLOWED;
@@ -88,15 +111,16 @@ public class AiBudgetService {
     /**
      * 用途 → 预算桶映射（机审文本/图片同桶，其余各归独立桶）
      */
-    private String resolveBucket(com.litisle.litisleapi.dto.ai.AiPurposeEnum purpose) {
+    private String resolveBucket(AiPurposeEnum purpose) {
         return switch (purpose) {
             case MODERATION_TEXT, MODERATION_IMAGE -> BUCKET_MODERATION;
-            case SUMMARY -> "summary";
-            case TAGGING -> "tagging";
-            case QA -> "qa";
-            case POLISH -> "polish";
-            case STRUCTURE -> "structure";
-            case OTHER -> "other";
+            case SUMMARY -> BUCKET_SUMMARY;
+            case TAGGING -> BUCKET_TAGGING;
+            case QA -> BUCKET_QA;
+            case POLISH -> BUCKET_POLISH;
+            case STRUCTURE -> BUCKET_STRUCTURE;
+            case SIMILAR -> BUCKET_SIMILAR;
+            case OTHER -> BUCKET_OTHER;
         };
     }
 
@@ -106,11 +130,12 @@ public class AiBudgetService {
     private BigDecimal resolveBudget(String bucket) {
         return switch (bucket) {
             case BUCKET_MODERATION -> budgetProperties.getModeration();
-            case "summary" -> budgetProperties.getSummary();
-            case "tagging" -> budgetProperties.getTagging();
-            case "qa" -> budgetProperties.getQa();
-            case "polish" -> budgetProperties.getPolish();
-            case "structure" -> budgetProperties.getStructure();
+            case BUCKET_SUMMARY -> budgetProperties.getSummary();
+            case BUCKET_TAGGING -> budgetProperties.getTagging();
+            case BUCKET_QA -> budgetProperties.getQa();
+            case BUCKET_POLISH -> budgetProperties.getPolish();
+            case BUCKET_STRUCTURE -> budgetProperties.getStructure();
+            case BUCKET_SIMILAR -> budgetProperties.getSimilar();
             default -> BigDecimal.ZERO;
         };
     }

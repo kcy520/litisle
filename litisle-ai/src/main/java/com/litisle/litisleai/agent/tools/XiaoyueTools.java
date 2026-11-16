@@ -1,6 +1,7 @@
 package com.litisle.litisleai.agent.tools;
 
 import com.litisle.commoncore.result.Result;
+import com.litisle.litisleapi.constant.ModerationConstant;
 import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.dto.content.TagSuggestDTO;
 import com.litisle.litisleapi.feign.ContentClient;
@@ -34,9 +35,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class XiaoyueTools {
 
-    /** 内容 bizType：1-文章（ModerationBizTypeEnum 口径） */
-    private static final int BIZ_TYPE_ARTICLE = 1;
-
     /** RAG 检索降级文案（rag.enabled=false 或无有效命中：模型改走无检索回答，Q54） */
     private static final String RAG_DEGRADED_HINT =
             "知识库检索暂不可用或无相关资料：请基于稿件内容直接回答，并在回答开头注明「未引用站内检索结果」。";
@@ -57,7 +55,7 @@ public class XiaoyueTools {
     public String getArticleDraft(Long articleId) {
         try {
             // 文章按 bizType=1 回查；Result.fail 表示稿件不存在
-            Result<ContentDTO> resp = contentClient.getContent(BIZ_TYPE_ARTICLE, articleId);
+            Result<ContentDTO> resp = contentClient.getContent(ModerationConstant.BIZ_TYPE_ARTICLE, articleId);
             if (resp == null || !resp.isSuccess() || resp.getData() == null) {
                 log.warn("工具①取稿件失败：稿件不存在或返回异常 articleId={}", articleId);
                 return "取稿失败：文章不存在或暂时无法获取，请基于已有信息继续任务。";
@@ -116,7 +114,7 @@ public class XiaoyueTools {
      */
     @Tool("对文本做敏感词预检（当前暂不可用，调用会返回占位说明）")
     public String sensitiveWordPrecheck(String text) {
-        // 占位实现：DFA 闸门内部端点未落地（2.2 条目口径），注册占位保持工具面稳定
+        // todo 占位实现：DFA 闸门内部端点未落地（2.2 条目口径），注册占位保持工具面稳定
         log.info("工具③敏感词预检（占位）textChars={}", text == null ? 0 : text.length());
         return "敏感词预检工具暂不可用：请直接产出建议内容，展示前的敏感词闸门由调用方兜底执行。";
     }

@@ -14,15 +14,15 @@ import java.io.Serializable;
  * <p>【会话口径】sessionId 非空走多轮记忆（板块三 3.2 Redis ChatMemory + DB 存档）；
  * 为空则无会话一次性请求（memoryId 用 requestId 一次性键，不落 ai_session/ai_message）。</p>
  *
+ * <p>【身份口径】userId 属于登录态数据，禁止由客户端传入：controller 从 Sa-Token 会话取当前用户，
+ * 作为独立入参交 service 收口（配额归属/计量留痕/会话归属校验）；未登录时为 null（仅 QA 允许匿名）。</p>
+ *
  * @author litisle
  */
 @Data
 public class XiaoyueChatRequest implements Serializable {
 
     private static final long serialVersionUID = 1L;
-
-    /** 发起用户 ID（用户级配额与计量归属，必传） */
-    private Long userId;
 
     /** 请求幂等键（业务侧生成，重试复用同一键；计量幂等键组成，必传） */
     private String requestId;

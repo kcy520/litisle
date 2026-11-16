@@ -36,10 +36,6 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class AiUsageRecordService {
 
-    /** token_in/out 的指标方向标签（in/out） */
-    private static final String DIRECTION_IN = "in";
-    private static final String DIRECTION_OUT = "out";
-
     /** 成本保留两位小数（与 ai_token_usage.cost decimal(14,2) 对齐） */
     private static final int COST_SCALE = 2;
 
@@ -60,8 +56,8 @@ public class AiUsageRecordService {
     public void recordSuccess(AiUsageDetail detail) {
         saveDetail(detail, AiUsageStatus.SUCCESS);
         // token 用量指标按值累加（ai.tokens_total{purpose,direction}）
-        metrics.recordTokens(detail.getPurpose().getCode(), DIRECTION_IN, detail.getTokenIn());
-        metrics.recordTokens(detail.getPurpose().getCode(), DIRECTION_OUT, detail.getTokenOut());
+        metrics.recordTokens(detail.getPurpose().getCode(), AiMetrics.DIRECTION_IN, detail.getTokenIn());
+        metrics.recordTokens(detail.getPurpose().getCode(), AiMetrics.DIRECTION_OUT, detail.getTokenOut());
     }
 
     /**
@@ -81,7 +77,7 @@ public class AiUsageRecordService {
         usage.setRequestId(detail.getRequestId());
         usage.setCallSeq(detail.getCallSeq() == null ? 1 : detail.getCallSeq());
         usage.setUserId(detail.getUserId());
-        usage.setPurpose(detail.getPurpose().getCode());
+        usage.setPurpose(detail.getPurpose());
         usage.setScene(detail.getScene());
         usage.setModelVersion(detail.getModelVersion());
         // 文本场景 prompt_version 由 model_version 承载（口径：两者同值）

@@ -6,12 +6,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.ai.AiChatRequestDTO;
 import com.litisle.litisleapi.dto.ai.AiChatResponseDTO;
+import com.litisle.litisleapi.dto.ai.AiPurposeEnum;
 import com.litisle.litisleapi.feign.AiClient;
 import com.litisle.litislereview.enums.ModerationCategoryEnum;
 import com.litisle.litislereview.enums.VerdictEnum;
 import com.litisle.litislereview.moderation.config.ModerationProperties;
 import com.litisle.litislereview.moderation.spi.ContentModerationService;
 import com.litisle.litislereview.moderation.spi.ModerationResult;
+import com.litisle.litislereview.moderation.spi.dto.TextModerationRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -60,25 +62,37 @@ public class LlmTextModerationAdapter implements ContentModerationService {
     private final ModerationProperties properties;
 
     /**
-     * 文本审核：防注入包裹后经 AiClient 调 LLM，输出按白名单三分态映射
+     * 文本审核：防注入包裹后经 AiClient 调 LLM，输出按白名单三分态映射；
+     * purpose/requestId/scene 按板块一 1.4 契约传 AI 侧（计量与预算必需，缺省会被提供方 80001/80002 拒绝）
      */
     @Override
-    public ModerationResult moderateText(String content) {
+    public ModerationResult moderateText(TextModerationRequest request) {
         // 起点计时：costMs 记录本次审核耗时（ModerationResult.costMs，观测 Timer 旁路佐证）
         long start = System.currentTimeMillis();
+        // 确定性幂等键前置校验：requestId=taskId:chunkIndex 缺段即调用方接线错误，fail-fast 暴露
+        //（静默随机键会导致延迟重试重复计费，语义错误）
+        if (request.getTaskId() == null || request.getChunkIndex() == null) {
+            throw new IllegalArgumentException("机审送审缺少 taskId/chunkIndex，无法构造计量幂等键 requestId=taskId:chunkIndex");
+        }
         // 防注入①：把用户文本中的 </content> 变体（含大小写/空白）替换为占位符，
         // 破坏「提前闭合标签逃逸包裹、注入伪指令」的攻击路径
-        String sanitized = CONTENT_TAG_PATTERN.matcher(content).replaceAll("[/content]");
-        AiChatRequestDTO request = new AiChatRequestDTO();
+        String sanitized = CONTENT_TAG_PATTERN.matcher(request.getContent()).replaceAll("[/content]");
+        AiChatRequestDTO aiRequest = new AiChatRequestDTO();
         // system 段：角色 + 判定标准 + 数据非指令声明 + JSON 格式 + few-shot（示例变更须 +1 few-shot-version）
-        request.setSystemPrompt(buildSystemPrompt());
+        aiRequest.setSystemPrompt(buildSystemPrompt());
         // user 段：待审数据用 <content> 标签包裹，与 system 声明配套（防注入②：标签内全是待审数据）
-        request.setUserPrompt("<content>\n" + sanitized + "\n</content>");
+        aiRequest.setUserPrompt("<content>\n" + sanitized + "\n</content>");
         // temperature 外置（默认 0）：审核判定要求确定性输出，禁止随机发散
-        request.setTemperature(properties.getLlm().getTemperature());
+        aiRequest.setTemperature(properties.getLlm().getTemperature());
+        // purpose 固定机审文本（AI 侧计费与预算分账归属机审合并桶的依据）
+        aiRequest.setPurpose(AiPurposeEnum.MODERATION_TEXT);
+        // requestId=taskId:chunkIndex：分片确定性切分，延迟重试复用同一键（AI 侧 requestId+callSeq 联合唯一不重复计费）
+        aiRequest.setRequestId(request.getTaskId() + ":" + request.getChunkIndex());
+        // scene 快照透传（可空）：AI 侧计量明细按场景统计
+        aiRequest.setScene(request.getScene());
         try {
             // 经 Feign 通道调 litisle-ai：通道故障时 fallbackFactory fail-fast 抛异常 → 下方 catch 兜住
-            Result<AiChatResponseDTO> resp = aiClient.chat(request);
+            Result<AiChatResponseDTO> resp = aiClient.chat(aiRequest);
             // Result 壳与 data 双判空：HTTP 200 但响应体空同样视为「无结论」
             AiChatResponseDTO data = resp == null ? null : resp.getData();
             if (data == null || data.getContent() == null || data.getContent().isBlank()) {

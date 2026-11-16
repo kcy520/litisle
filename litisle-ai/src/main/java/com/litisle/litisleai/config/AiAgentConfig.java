@@ -15,6 +15,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/*
+ * 通俗说明：
+ * 这个类负责把"小悦"这个 AI 助手拼装出来：接上大模型、设定人设（系统提示词）、
+ * 挂上它能调用的工具、接上会话记忆（Redis 存最近几条对话），
+ * 最后套一层计量装饰——统计每次调用花了多少、并限制最多来回几轮防死循环。
+ * 模型通道 enabled=false 时不创建这个助手，接口返回"服务未开启"的明确错误码，不会崩。
+ */
 /**
  * 小悦 Agent 装配（板块二 2.1：LangChain4j AiServices 唯一装配点）
  *

@@ -27,6 +27,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Component
 public class AiMetrics {
 
+    /** 指标结果标签：成功（各业务的 ai_call_total / ai_generation_total 共用） */
+    public static final String RESULT_SUCCESS = "success";
+
+    /** 指标结果标签：失败 */
+    public static final String RESULT_FAIL = "fail";
+
+    /** token 方向标签：输入 */
+    public static final String DIRECTION_IN = "in";
+
+    /** token 方向标签：输出 */
+    public static final String DIRECTION_OUT = "out";
+
+    /** 场景标签兜底值（scene 为空时打点用，防 null 标签） */
+    public static final String SCENE_DEFAULT = "default";
+
     /** 模型调用总次数（结果计数） */
     private static final String METRIC_CALL_TOTAL = "ai.call.total";
 

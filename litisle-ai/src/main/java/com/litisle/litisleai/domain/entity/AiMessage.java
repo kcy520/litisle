@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.litisle.litisleai.enums.AiMessageRole;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -32,9 +33,9 @@ public class AiMessage implements Serializable {
     @TableField("session_id")
     private Long sessionId;
 
-    /** 角色：USER / ASSISTANT / SYSTEM */
+    /** 消息产生方角色（AiMessageRole：USER / ASSISTANT / SYSTEM，@EnumValue 入库映射） */
     @TableField("role")
-    private String role;
+    private AiMessageRole role;
 
     /** 消息内容 */
     @TableField("content")

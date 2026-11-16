@@ -3,6 +3,14 @@ package com.litisle.litisleai.config;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+/*
+ * 通俗说明：
+ * 这是"连大模型要用到的连接参数"：用哪家服务、接口地址、api-key、模型名、
+ * 单次最多等多久、失败重试几次、回答的随机程度（温度）。
+ * enabled=false 时不创建模型客户端，本地没有 api-key 也能正常启动服务。
+ * 换供应商只改配置不改代码；api-key 必须通过环境变量或 Nacos 注入，不能写进代码提交。
+ */
+
 /**
  * 文本模型通道配置（provider 层唯一接触模型 SDK，连接参数全部外置，代码内不硬编码端点）
  *

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.litisle.litisleapi.dto.ai.AiPurposeEnum;
 import com.litisle.litisleai.enums.AiUsageStatus;
 import lombok.Data;
 
@@ -41,9 +42,9 @@ public class AiTokenUsage implements Serializable {
     @TableField("user_id")
     private Long userId;
 
-    /** 用途打标编码（AiPurposeEnum.code，计费与预算只认前五类） */
+    /** 用途打标（AiPurposeEnum.code，计费与预算只认前五类；@EnumValue 入库映射） */
     @TableField("purpose")
-    private String purpose;
+    private AiPurposeEnum purpose;
 
     /** 业务场景快照（可空，与 review_task.scene 同名） */
     @TableField("scene")

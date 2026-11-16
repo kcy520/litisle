@@ -63,7 +63,7 @@ public class AiUserQuotaService {
         List<AiUsageDaily> rows = usageDailyMapper.selectList(new LambdaQueryWrapper<AiUsageDaily>()
                 .eq(AiUsageDaily::getStatDate, LocalDate.now())
                 .eq(AiUsageDaily::getUserId, userId)
-                .eq(AiUsageDaily::getPurpose, purpose.getCode()));
+                .eq(AiUsageDaily::getPurpose, purpose));
         if (rows.isEmpty()) {
             return true;
         }
@@ -130,6 +130,7 @@ public class AiUserQuotaService {
             case QA -> quotaProperties.getQa();
             case POLISH -> quotaProperties.getPolish();
             case STRUCTURE -> quotaProperties.getStructure();
+            case SIMILAR -> quotaProperties.getSimilar();
             case OTHER -> new AiQuotaProperties.Limit();
         };
     }

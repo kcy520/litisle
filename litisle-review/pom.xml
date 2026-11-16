@@ -50,6 +50,13 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- 阿里云内容安全 SDK（板块十 10.1：text-provider=aliyun 文本机审主通道；
+             版本由父 POM dependencyManagement 锁定，AK/SK 经 Nacos/环境变量注入禁提交明文） -->
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>green20220302</artifactId>
+        </dependency>
+
         <!-- Actuator 监控端点：暴露 /actuator/prometheus（moderation_total/backlog 等指标） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

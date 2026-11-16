@@ -20,6 +20,13 @@ import org.springframework.util.StringUtils;
 import java.util.Arrays;
 import java.util.List;
 
+/*
+ * 通俗说明：
+ * 这个类只做一件事：把知识库功能要用的两个"外部连接"创建成 Spring Bean 给别处用——
+ * ① 向量化客户端：把文字转成向量，连本地 Ollama；
+ * ② Elasticsearch 客户端：存向量、按相似度检索。
+ * 只有 litisle.ai.rag.enabled=true 时才创建；关闭时不创建，没装 Ollama/ES 的本地环境也能启动服务。
+ */
 /**
  * RAG 基础设施装配（板块四 4.1：ES 客户端与向量通道的唯一装配点）
  *

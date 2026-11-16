@@ -7,6 +7,9 @@ import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litisleai.config.AiAgentProperties;
 import com.litisle.litisleai.domain.entity.AiMessage;
 import com.litisle.litisleai.domain.entity.AiSession;
+import com.litisle.litisleai.enums.AiAgentType;
+import com.litisle.litisleai.enums.AiMessageRole;
+import com.litisle.litisleai.enums.XiaoyueMode;
 import com.litisle.litisleai.mapper.AiMessageMapper;
 import com.litisle.litisleai.mapper.AiSessionMapper;
 import lombok.RequiredArgsConstructor;
@@ -38,24 +41,15 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AiSessionService {
 
-    /** Agent 类型：小悦 */
-    public static final String AGENT_TYPE_XIAOYUE = "XIAOYUE";
-
-    /** 消息角色：用户 */
-    public static final String ROLE_USER = "USER";
-
-    /** 消息角色：助手 */
-    public static final String ROLE_ASSISTANT = "ASSISTANT";
-
-    /** 消息角色：系统 */
-    public static final String ROLE_SYSTEM = "SYSTEM";
-
     /** 暂存区标记 */
     private static final int LRU_STASH = 1;
 
     /** 未删除标记 */
     private static final int DEL_FLAG_NORMAL = 0;
     private static final int DEL_FLAG_DELETED = 1;
+
+    /** 会话标题最大长度（ai_session.title varchar(100)，超长按字符截断） */
+    private static final int TITLE_MAX_CHARS = 100;
 
     /** 会话 Mapper */
     private final AiSessionMapper sessionMapper;
@@ -73,12 +67,12 @@ public class AiSessionService {
      * 创建会话（暂存区默认）；暂存区达上限时 LRU 淘汰最久未活跃会话（软删懒删）
      *
      * @param userId    用户ID
-     * @param agentType Agent 类型（XIAOYUE）
-     * @param mode      小悦模式（POLISH/STRUCTURE/SUMMARY/DEEP，可空）
+     * @param agentType Agent 类型（AiAgentType.XIAOYUE）
+     * @param mode      小悦模式（XiaoyueMode：POLISH/STRUCTURE/SUMMARY/DEEP，可空）
      * @param title     会话标题（首条消息摘要，可空）
      * @return 新建会话实体（含自增 ID）
      */
-    public AiSession createSession(Long userId, String agentType, String mode, String title) {
+    public AiSession createSession(Long userId, AiAgentType agentType, XiaoyueMode mode, String title) {
         // LRU 淘汰前置：达上限先腾位（淘汰失败不阻断创建——治理参数未定档时上限内自然放行）
         evictLruIfNeeded(userId);
         AiSession session = new AiSession();
@@ -128,14 +122,14 @@ public class AiSessionService {
      * 追加一条消息（单会话 500 条上限校验，超限拒绝并提示开新会话）
      *
      * @param sessionId  会话ID
-     * @param role       角色（USER/ASSISTANT）
+     * @param role       角色（AiMessageRole：USER/ASSISTANT）
      * @param content    消息内容
      * @param tokenCnt   token 数（未接估算器传 0）
      * @param promptTokens    该轮输入 token（仅终答行记录，其余传 null）
      * @param completionTokens 该轮输出 token（仅终答行记录，其余传 null）
      * @throws BizException 超过单会话消息上限（10001）
      */
-    public void appendMessage(Long sessionId, String role, String content,
+    public void appendMessage(Long sessionId, AiMessageRole role, String content,
                               Integer tokenCnt, Integer promptTokens, Integer completionTokens) {
         // 消息上限校验：D25 单会话 500 条上限（分页插件 count，不拼 LIMIT 串）
         long count = messageMapper.selectCount(new LambdaQueryWrapper<AiMessage>()
@@ -233,7 +227,7 @@ public class AiSessionService {
         if (title == null) {
             return null;
         }
-        return title.length() <= 100 ? title : title.substring(0, 100);
+        return title.length() <= TITLE_MAX_CHARS ? title : title.substring(0, TITLE_MAX_CHARS);
     }
 
     /**

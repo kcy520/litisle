@@ -1,6 +1,7 @@
 # litisle-review 审核模块架构文档（简化版）
 
-> 版本：v1.3（2026-11-02 删除语义统一：隔离图到期删除改「软删 + 解绑引用」由 Sweeper 委派，物理清理统一交 file 侧对账任务（不再豁免）；retention-days 过期值修正 30→10）
+> 版本：v1.4（2026-11-15 板块十：文本机审判定器切阿里云云 API 主通道（text-provider=aliyun），LLM 适配器保留不激活；SPI moderateText 签名对齐现行 TextModerationRequest 载体；provider 派生化 + 分片参数随 provider 跟随；实现记录见 archive/review/review-10-aliyun-text-moderation.md）
+> 前版：v1.3（2026-11-02 删除语义统一：隔离图到期删除改「软删 + 解绑引用」由 Sweeper 委派，物理清理统一交 file 侧对账任务（不再豁免）；retention-days 过期值修正 30→10）
 > 前版：v1.2（2026-10-14，按当前实现对齐）
 >
 > 关联文档：[Review-Architecture-Development-detailed.md](Review-Architecture-Development-detailed.md)（详细版，防绕过推演/竞态分析看它）· [Sql-Document.md] litisle_review 章节（表结构 SSOT）· [Api-Architecture.md](Api-Architecture.md) · [commom-des.md](commom-des.md)
@@ -14,7 +15,7 @@
 | 项目     | 说明                                                         |
 | -------- | ------------------------------------------------------------ |
 | 定位     | 独立微服务，内容安全统一收口方：**同步关键词闸门 + 异步机审（三分态）+ 人审工作流** |
-| 技术选型 | hankcs ACDAT 双数组 trie（AcdatTextScanEngine；演进：houbb → 自研 AC 自动机（dfa 批次3 ⑤b 删 houbb sensitive-word 依赖）→ hankcs AhoCorasickDoubleArrayTrie 内核，2026-11-01 DFA 引擎切换批次影子比对归零后收口）· LLM 文本审核（经 litisle-ai 通道）· ONNX（开发期图片）/ 云 API（生产期）· RabbitMQ 延迟插件 · Redis 结果缓存 |
+| 技术选型 | hankcs ACDAT 双数组 trie（AcdatTextScanEngine；演进：houbb → 自研 AC 自动机（dfa 批次3 ⑤b 删 houbb sensitive-word 依赖）→ hankcs AhoCorasickDoubleArrayTrie 内核，2026-11-01 DFA 引擎切换批次影子比对归零后收口）· 文本机审主通道=阿里云内容安全云 API（green20220302 SDK，2026-11-15 板块十切换；LLM 经 litisle-ai 通道保留不激活，配置一行回切/「云 SUSPICIOUS→LLM 二次精判」混合方案备用）· ONNX（开发期图片）· RabbitMQ 延迟插件 · Redis 结果缓存 |
 | 依赖方   | content / file / social 经 litisle-api 契约（Feign + MQ 事件）接入（私信归属 social，无独立 message 模块）；notification 消费结果事件做通知 |
 | 硬边界   | review **不跨库直写业务表**（回写一律 result 事件 + 业务方 CAS 回写）；业务方**不跨库直查** review 库（唯一特例：DFA 冷启动只读词库表兜底） |
 
@@ -23,7 +24,7 @@
 | 能力 | 载体 | 说明 |
 | --- | --- | --- |
 | 同步闸门 | DfaFacade（下沉 litisle-api 共享）+ AcdatTextScanEngine（hankcs ACDAT 双数组 trie 内核，零传递依赖） | 发布/注册/私信链路内**本地执行**（免网络、不依赖 review 可用性）；构建期归一化展开变体 pattern（繁简/全半角/叠词只长不短，文本侧永不折叠），扫描后 allow 区间过滤 + 最长优先裁决；HIGH 黑名单词直接拒绝 70001，MID 只标记不拦截 |
-| 异步机审 | moderation 包 consumer + SPI 适配器 | MQ 消费驱动 LLM/图片模型，输出 PASS / REJECT / SUSPICIOUS 三分态 |
+| 异步机审 | moderation 包 consumer + SPI 适配器 | MQ 消费驱动文本判定器（云 API 主通道/LLM 保留）与图片模型（ONNX），输出 PASS / REJECT / SUSPICIOUS 三分态 |
 | 人审工作流 | ReviewService（workflow 域） | SUSPICIOUS 终审、举报处理、申诉裁决、违规分与处罚 |
 
 ### 1.2 代码结构（★=已落地，☆=板块三待建）
@@ -34,7 +35,8 @@ litisle-review
 │                       / AppealController / PunishController / WordlibController
 ├── moderation/                    # 机审域
 │   ├── spi/          ★ ContentModerationService 门面 + ModerationResult + dto/
-│   ├── adapter/      ★ LlmTextModerationAdapter（防注入三件套）/ OnnxImageModerationAdapter
+│   ├── adapter/      ★ AliyunTextModerationAdapter（云 API 主通道，labels→三分态映射+合规凭证出证）
+│   │                   / LlmTextModerationAdapter（防注入三件套，保留不激活）/ OnnxImageModerationAdapter
 │   ├── config/       ★ ModerationProperties + 启动自检 fail-fast + 文本/图片 AdapterProvider
 │   │                   （ObjectProvider 惰性注入收敛）+ ReviewRabbitConfig（文本/图片队列+DLX 声明）
 │   ├── consumer/     ★ ModerationTextConsumer / ModerationImageConsumer / ModerationDlqConsumer
@@ -73,7 +75,8 @@ litisle-review
   ▼ 异步消费者（litisle-review）
   ├─ 幂等：bizType+bizId+scene 定位任务，status≠0 按 content_hash 分流；CAS 条件更新
   ├─ 缓存查重：终局结论（PASS/REJECT）直接复用，SUSPICIOUS 挂既有任务
-  ├─ SPI 调用：超长文本按段落分片（字符窗口 overlap 硬切），任一片 REJECT 即整文 REJECT
+  ├─ SPI 调用：判定器=云 API 主通道（阿里云内容安全；LLM 保留回切）；超长文本按段落分片
+  │   （分片参数随 text-provider 跟随：aliyun 400/350/50，llm 6000/5500/500），任一片 REJECT 即整文 REJECT
   ▼ 三分态
   ├─ PASS       → 业务态放行（article 2 / safe_flag 1）
   ├─ REJECT     → 驳回/下架 + punish_log(action=3) + violation_score 累计 → 通知作者（可申诉）
@@ -109,7 +112,7 @@ litisle-review
 
 | Key | 结构 | 要点 |
 | --- | --- | --- |
-| 文本结果缓存 | `review:text-result:{wordlibVer}:{fewShotVer}:{scene}:{hash}` | 仅复用终局结论；命中仍追加 moderation_record（留痕不省） |
+| 文本结果缓存 | `review:text-result:{wordlibVer}:{fewShotVer}:{scene}:{hash}` | 仅复用终局结论；命中仍追加 moderation_record（留痕不省）；版本化条件另含 provider（板块十派生化：dfa/llm/aliyun 随 text-provider 派生，判定器切换缓存不串） |
 | 图片结果缓存 | `review:img-result:{provider}:{modelVersion}:{sha256}` | 版本/模型换版不复用旧结论 |
 | REJECT 拒传黑名单 | `review:img-blacklist:{sha256}` | TTL 30 天，不随版本失效；申诉平反时移除 |
 | 发布侧免审 | `review:last-hash:{wordlibVer}:{bizType}:{scene}:{bizId}` | hash 未变 + PASS + 非驳回/下架态才免审；含配图须连带校验图片复审键 |
@@ -134,15 +137,17 @@ litisle-review
 
 ```java
 public interface ContentModerationService {
-    ModerationResult moderateText(String content);      // 文本异步消费端调用（入参=分片后单片，非整体 DTO）
+    ModerationResult moderateText(TextModerationRequest request);   // 文本异步消费端调用（分片后单片载体：taskId+chunkIndex 撑云侧 dataId=taskId:chunkIndex 幂等出证键，scene 撑云 service 映射）
     ModerationResult moderateImage(byte[] imageBytes);  // 图片上传即审/复审共用（字节流，禁用户 URL）
 }
-// dto/ 下 TextModerationRequest/ImageModerationRequest 为 SPI 扩展预留载体，现行入参为标量
+// dto/ 下 TextModerationRequest 为现行文本入参载体（2026-11-15 review 侧传参改造起，替代原标量入参）；ImageModerationRequest 为图片扩展预留
 // ModerationResult: verdict(PASS/REJECT/SUSPICIOUS) + category + reason + providerTraceId + costMs
 // 视频音频一期显式不支持，预留 moderateVideo 扩展点，禁「无方法即默认放行」
 ```
 
-适配器经 `litisle.moderation.text-provider / image-provider` 配置激活（@ConditionalOnProperty），配置与 Bean 不匹配时启动 fail-fast。
+适配器经 `litisle.moderation.text-provider / image-provider` 配置激活（@ConditionalOnProperty），配置与 Bean 不匹配时启动 fail-fast：
+- 文本：**aliyun=阿里云内容安全（主通道，2026-11-15 板块十起）**——labels 串解析取最高分项，白名单 politics/porn/abuse/ad + reject-threshold 双条件映射三分态，云 requestId 透传 providerTraceId 出证，异常/超时/标签越界/格式异常/AK 缺失/非 200 六出口宁疑不放转 SUSPICIOUS
+- llm=DeepSeek 经 litisle-ai（保留不激活；防注入三件套照旧，回切只改一行配置，未来「云 SUSPICIOUS→LLM 二次精判」混合方案备用，预留项登记 temporarily-04）
 
 ### 3.2 MQ 契约（常量落 litisle-api MqConstant）
 
@@ -199,7 +204,10 @@ public interface ContentModerationService {
 
 | 配置键 | 默认 | 说明 |
 | --- | --- | --- |
-| litisle.moderation.text-provider / image-provider | llm / onnx | 激活适配器（生产切 aliyun 零代码） |
+| litisle.moderation.text-provider / image-provider | **aliyun** / onnx | 激活适配器（2026-11-15 板块十起文本主通道=aliyun；llm 保留回切只改一行） |
+| litisle.moderation.aliyun.endpoint / access-key-id / access-key-secret / timeout-ms | green-cip.aliyuncs.com / 空 / 空 / 5000 | 云 API 接入点与凭证（AK/SK 环境变量 ALIYUN_GREEN_AK_ID/SECRET 注入禁提交明文）；超时/异常转 SUSPICIOUS 宁疑不放 |
+| litisle.moderation.aliyun.reject-threshold | 90 | 直驳置信度阈值（云 confidence 60~99）：≥90 判 REJECT，低于判 SUSPICIOUS 转人工 |
+| litisle.moderation.aliyun.max-text-chars / chunk-step-chars / chunk-overlap-chars | 400 / 350 / 50 | 云单条限长口径分片参数（text-provider=aliyun 时消费，与 llm 段互不共用） |
 | litisle.moderation.retry.max-count / base-delay-ms | 5 / 30000 | 重试次数与退避基数 |
 | litisle.moderation.cache.ttl-hours / ttl-jitter-ratio | 72 / 0.1 | 结果缓存有效期与抖动比例 |
 | litisle.moderation.reject-blacklist.ttl-days | 30 | REJECT 拒传黑名单有效期 |
@@ -212,7 +220,7 @@ public interface ContentModerationService {
 | litisle.moderation.quarantine.* | retention-days=10 等 | 隔离保留期 + 限速删除/批次/短锁；到期软删由 Sweeper 委派 file 侧，物理清理统一交 file 侧对账任务（不再豁免，可恢复窗口 = 10 + 7 = 17 天） |
 | litisle.moderation.sweeper.* | claim-timeout-minutes=30 / appeal-timeout-days=7 / stuck-resubmit-minutes=30 / stuck-resubmit-every-rounds=30 | 认领超时回池 / 申诉超时维持 / status=0 卡死任务分频重投 |
 | litisle.moderation.record.* | retention-months=6 / archive-enabled=false | 留痕归档：保留期与归档开关（默认关，04:00 错峰调度） |
-| litisle.moderation.llm.temperature / few-shot-version / timeout-ms / max-text-chars | 0 / v1 / 15000 / 6000 | LLM 判定一致性与超长分片阈值 |
+| litisle.moderation.llm.temperature / few-shot-version / timeout-ms / max-text-chars | 0 / v1 / 15000 / 6000 | LLM 判定一致性与超长分片阈值（⚠️ 板块十起 max-text-chars 仅 LLM 回切时恢复生效——分片参数随 text-provider 跟随，aliyun 主通道下不读取本段分片参数） |
 | litisle.moderation.onnx.timeout-ms / max-concurrency | 10000 / CPU 核数 | ONNX 超时与并发信号量 |
 | litisle.moderation.api.timeout-ms / image.model-version | 8000 / v1 | 云 API 超时与图片判定口径版本 |
 | litisle.moderation.dedup.lock-seconds | 60 | 在途去重短锁 TTL（防并发穿透烧费用） |
@@ -277,3 +285,6 @@ review 进程异步机审（同步闸门 HIGH 拦截在宿主本地，不建任�
 | 板块五 | 申诉与处罚联动（appeal.result / punish.result / 双向对账） | ★ 已落地（改判七步编排 / MachineRejectPunishGate 收口 / PunishReconcileSweeper 对账） |
 | 板块六 | sweeper 基础设施（认领超时/申诉超时/隔离清理） | ★ 已落地（sweeper 包四任务，含 6-2 stuck 分频重投 / 6-4 留痕归档） |
 | 板块七 | 观测指标埋点与 Alertmanager 规则 | ★ 已落地（ModerationMetrics / AlertThresholdMetrics / 7-4 配置绑定全量收口） |
+| 板块八 | 词库治理与 DFA 同步闸门优化（wordlib_misreport/建议清单/AC 自动机替换批次1~4） | ★ 已落地（归档 docs/archive/review/review-08-wordlib-dfa.md） |
+| 板块九 | DFA 引擎切换 hankcs ACDAT（依赖适配/影子比对/旧引擎收口三批次） | ★ 已落地（归档 docs/archive/review/review-09-dfa-acdat-switch.md） |
+| 板块十 | 文本机审判定器切换云 API（AliyunTextModerationAdapter / text-provider=aliyun 主通道 / provider 派生化 / 分片参数随 provider 跟随 / 计量脱钩转云账单；LLM 适配器保留不激活） | ★ 已落地（2026-11-15，归档 docs/archive/review/review-10-aliyun-text-moderation.md；运行态验证 RV-V1 见 next_verify.md） |
