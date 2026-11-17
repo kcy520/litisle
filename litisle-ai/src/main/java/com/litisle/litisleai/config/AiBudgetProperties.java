@@ -46,6 +46,9 @@ public class AiBudgetProperties {
     /** 相似推荐桶日预算（SIMILAR，板块五 5.1；纯检索 token=0 成本恒 0，桶仅保持分账完整性；≤0=未设预算） */
     private BigDecimal similar = BigDecimal.ZERO;
 
+    /** 索引期打标桶日预算（LABELING，板块八 1.3：ai_labels 维度标注管线，索引链路消费；≤0=未设预算） */
+    private BigDecimal labeling = BigDecimal.ZERO;
+
     /** 预警线比例（当日合计 ≥ 预算×该值返回 WARN，只提醒不停用） */
     private double warnRatio = 0.8;
 }

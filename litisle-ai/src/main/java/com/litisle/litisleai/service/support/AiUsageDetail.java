@@ -10,6 +10,13 @@ import java.time.LocalDateTime;
  * 一次模型调用的计量上下文（AiUsageRecordService 写明细的统一入参）
  *
  * <p>成本不入参：由 AiUsageRecordService 按 model_version + 归属日从 ai_pricing 核算。</p>
+ *
+ * <p>【通俗说明】这是 AI 每次调用模型时的"话费账单条目"：谁调的（userId）、调来干什么
+ * （purpose/scene）、用的哪个模型（modelVersion）、吃了多少 token（tokenIn/tokenOut）、
+ * 是不是降级期间产生的（degraded）、什么时候调完的（occurredAt）。注意成本（钱）不在这
+ * 张单子上——记录服务拿到账单条目后，再按模型版本和归属日期去 ai_pricing 表换算成
+ * 实际费用。requestId + callSeq 用来定位"哪个业务请求的第几次调用"，重试时复用同一个
+ * requestId，保证重复记账可识别。</p>
  */
 @Data
 @Builder

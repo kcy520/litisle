@@ -5,6 +5,7 @@ import com.litisle.litisleai.domain.entity.AiUsageDaily;
 import com.litisle.litisleai.enums.AiUsageStatus;
 import com.litisle.litisleai.mapper.AiTokenUsageMapper;
 import com.litisle.litisleai.mapper.AiUsageDailyMapper;
+import com.litisle.litisleai.service.AiBudgetService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -35,7 +36,9 @@ import java.util.List;
  * 覆盖写保证同一日期重复执行不翻倍，任务失败后下轮整点重跑覆盖写即自愈。</p>
  *
  * <p>【对账】每次聚合后核对明细成本合计 vs 汇总成本合计，差异 >1% 记 warn 告警，
- * 用于发现聚合 SQL 异常或数据丢失导致的计费不准，需人工排查计量链路。</p>
+ * 用于发现聚合 SQL 异常或数据丢失导致的计费不准，需人工排查计量链路；此外聚合完成
+ * 后对当日 Redis 预算计数做只增不减修正（AiBudgetService.reconcileBuckets），
+ * 补齐 Redis 故障期间漏记的预算增量。</p>
  *
  * <p>【调度】每小时整点聚合 + 启动 30 秒后补跑一次（fixedDelay 设为极大值使固定期只触发一次）。</p>
  */
@@ -100,6 +103,9 @@ public class AiUsageDailyAggregateTask {
     /** 汇总 Mapper（覆盖写 + 差异核对读） */
     private final AiUsageDailyMapper usageDailyMapper;
 
+    /** 预算服务（聚合后对当日 Redis 预算计数做只增不减对账修正） */
+    private final AiBudgetService budgetService;
+
     /**
      * 定时聚合入口：每小时整点 + 启动延迟一次（@Scheduled 可重复标注）
      */
@@ -111,6 +117,8 @@ public class AiUsageDailyAggregateTask {
             LocalDate today = LocalDate.now();
             upsertForDay(today);
             upsertForDay(today.minusDays(1));
+            // Redis 预算计数对账：以账本值只增不减修正当日计数（仅当日——昨日键已过期废弃不参与判定）
+            budgetService.reconcileBuckets(today);
             // 差异核对：明细合计 vs 汇总合计，>1% 记日志告警（人工排查计量链路）
             checkDiff(today);
             checkDiff(today.minusDays(1));

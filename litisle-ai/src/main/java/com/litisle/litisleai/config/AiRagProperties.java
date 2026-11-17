@@ -105,8 +105,11 @@ public class AiRagProperties {
     @Data
     public static class Similar {
 
-        /** 推荐篇数上限（切片召回后按篇去重，返回的文章数上限） */
+        /** 相似推荐篇数上限（切片召回后按篇去重，返回的文章数上限） */
         private int topK = 5;
+
+        /** 条件版检索 topK 上限（板块八 1.2 提取侧校验与 search 侧截断对齐口径，防止客户端超量拉取） */
+        private int conditionalTopKMax = 50;
 
         /** 相似度下限（低于该分数的召回切片丢弃，防低质推荐） */
         private double minScore = 0.6;
@@ -119,5 +122,8 @@ public class AiRagProperties {
 
         /** 一句话推荐理由字数上限（service 侧校验，超出判失败回喂重试） */
         private int reasonMaxChars = 60;
+
+        /** 发布前查重风险阈值（板块十二 4.2：相似度 ≥ 该值提示与库内已有文章的重复风险，外置可调） */
+        private double duplicateScoreThreshold = 0.85;
     }
 }

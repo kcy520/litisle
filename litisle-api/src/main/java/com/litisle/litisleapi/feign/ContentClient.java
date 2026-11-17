@@ -162,6 +162,53 @@ public interface ContentClient {
     Result<List<TagSuggestDTO>> getTagSuggestions(@RequestParam("keyword") String keyword);
 
     /**
+     * 服务间收藏目标（板块九 1.2：AI 结果动作工具经序号映射定位 articleId 后代用户收藏）
+     *
+     * <p>【使用场景】小悦 Agent 解析「收藏第 2、3 篇」类结果动作指令后，按会话结果集
+     * 序号映射定位 articleId，经本契约以当前登录用户身份收藏文章（targetType=1）；
+     * 复用 content 收藏域既有幂等/可见性校验语义（重复收藏视为成功）。</p>
+     *
+     * <p>【设计说明】
+     * 1. 契约先行：本接口已就绪；提供方端点随板块九 1.2 补齐（ContentFeignProviderController）；
+     * 2. 路径前缀 /api/feign/content 网关未路由，仅服务间可用；
+     * 3. 收藏动作为业务写操作，降级 fail-fast（见 ContentClientFallbackFactory）：
+     *    静默返回 success 会让 AI 侧误报「收藏成功」，异常穿透由 AI 工具层组装明确失败响应；
+     * 4. userId 由调用方显式传入（Feign 服务端无用户会话，不复用 StpUtil）；
+     *    目标可见性校验与类型白名单仍由提供方 FavoriteService 收口</p>
+     *
+     * @param userId     收藏用户 ID（AI 侧取当前登录态，禁止匿名调用）
+     * @param targetType 目标类型（1-文章 2-书籍；非法值提供方抛 PARAM_ERROR）
+     * @param targetId   目标 ID
+     * @return 成功返回 success；目标不存在或不可见返回 Result.fail（调用方判码组装失败响应）
+     */
+    @PostMapping("/api/feign/content/favorite")
+    Result<Void> favorite(@RequestParam("userId") Long userId,
+                          @RequestParam("targetType") Integer targetType,
+                          @RequestParam("targetId") Long targetId);
+
+    /**
+     * 服务间收藏目标 ID 列表（板块十一 3.2：AI 收藏夹语义检索拉取用户收藏的文章 ID 白名单）
+     *
+     * <p>【使用场景】小悦 Agent 处理「我收藏过的讲 X 的文章」时，先经本契约按收藏时间
+     * 倒序拉取用户收藏的文章 ID（targetType=1），再作为 includeArticleIds 白名单 filter
+     * 传入 search 条件版语义检索——只返回已收藏且当前公开的文章（visibility=PUBLIC
+     * 铁律由 search 侧强制）。</p>
+     *
+     * <p>【设计说明】
+     * 1. 只查 ID 不做多态 join 装配（展示字段由 AI 侧经检索结果回填）；
+     * 2. limit 为白名单规模上限（防 terms filter 过大），超过按上限截断；
+     * 3. 降级 fail-fast：静默返回空列表会让收藏夹检索误报「没有收藏」，异常穿透由 AI
+     *    工具层组装明确失败响应。</p>
+     *
+     * @param userId 用户 ID（AI 侧取当前登录态）
+     * @param limit  取数上限（正数）
+     * @return 收藏文章 ID 列表（按收藏时间倒序）；无收藏返回空列表
+     */
+    @PostMapping("/api/feign/content/favorite/article-ids")
+    Result<List<Long>> listFavoriteArticleIds(@RequestParam("userId") Long userId,
+                                              @RequestParam("limit") Integer limit);
+
+    /**
      * 查询热门文章列表（search ES 不可用降级链路的数据源，批次八 8.1）。
      *
      * <p>【使用场景】search 检测到 ES 整体不可用且 `litisle.search.fallback.enabled=true` 时，

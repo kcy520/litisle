@@ -19,6 +19,12 @@ import java.util.regex.Pattern;
  *
  * <p>【日志纪律】只记录替换次数与文本长度，禁止打印命中内容原文。</p>
  *
+ * <p>【通俗说明】出站内容的"保密检查员"：凡是发往外部模型的文字（prompt、工具回喂的
+ * 稿件片段等），先过它这一关——用四条正则把手机号、邮箱、身份证号、外部链接统统
+ * 换成"[手机号]""[邮箱]"这样的占位符。模型只需要知道"这里有个手机号"就能干活，
+ * 不需要知道真实号码是什么。它只负责"擦掉敏感信息"，不管内容该不该外发
+ * （拦不拦得住由调用方和 DFA 闸门决定）；日志里也只记替换了几处，绝不打印原文。</p>
+ *
  * @author litisle
  */
 @Slf4j
@@ -58,6 +64,11 @@ public class OutboundSanitizer {
      *
      * @param text 待脱敏文本（prompt/工具结果回喂等出站内容）
      * @return 脱敏后的文本（无命中时与入参相同）
+     *
+     * <p>【通俗说明】四条规则按固定顺序过一遍：先换链接（防 URL 里的数字被手机号规则
+     * 拦腰截走），再换身份证（18 位里包含 11 位手机号样式，先长后短防误伤），然后
+     * 邮箱、最后手机号。空文本直接原样返回；有没有命中通过"替换前后文本是否变了"
+     * 粗略判断，命中就记一条不露内容的观测日志。</p>
      */
     public String sanitize(String text) {
         // 空文本无脱敏必要，原样返回
@@ -87,6 +98,10 @@ public class OutboundSanitizer {
      * @param pattern     规则正则
      * @param placeholder 替换占位符
      * @return 替换后的文本
+     *
+     * <p>【通俗说明】单条规则的执行器：先扫一眼文本里有没有命中，没有就原样返回
+     * （省一次整体替换的开销）；命中则复位匹配器后全文替换——占位符套一层
+     * quoteReplacement，防止占位符里万一出现 $、\ 这类正则特殊字符时被误解析。</p>
      */
     private String replaceAll(String input, Pattern pattern, String placeholder) {
         Matcher matcher = pattern.matcher(input);

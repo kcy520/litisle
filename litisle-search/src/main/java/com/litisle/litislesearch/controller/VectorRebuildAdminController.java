@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
  * | 方法 | 路径                                  | 说明                         | 权限               |
  * |------|--------------------------------------|------------------------------|--------------------|
  * | POST | /api/search/admin/rebuild-vectors    | 重建两索引向量并刷新 _meta   | ADMIN / SUPER_ADMIN |
+ * | POST | /api/search/admin/relabel-ai-labels  | ai_labels 存量补标（板块八/search 板块二 2.2，新维度接入/历史文章补标后执行） | ADMIN / SUPER_ADMIN |
  *
  * 【安全】网关未放行本路径（需登录态），服务内再用 {@link SaRoleHelper#checkAdmin()} 校验角色；
  * 运维也可直接注入 {@link VectorRebuildService} 调用服务方法（不经 HTTP）。
@@ -48,5 +49,21 @@ public class VectorRebuildAdminController {
         result.setArticleUpdated(vectorRebuildService.rebuildArticleVectors());
         result.setChunkUpdated(vectorRebuildService.rebuildChunkVectors());
         return Result.success(result);
+    }
+
+    /**
+     * ai_labels 存量补标（板块八/search 板块二 2.2：一次全量重建补齐历史文章标签）。
+     *
+     * <p>【成本提示】逐篇调 LLM 打标（LABELING 独立预算桶），全库执行前注意预算与调用时长；
+     * 打标开关关闭时返回 0 整体跳过；单篇失败跳过不中断，重跑可补齐。</p>
+     *
+     * @return 成功补标条数（打标失败跳过的篇数不计入）
+     */
+    @Operation(summary = "ai_labels 存量补标", description = "仅 ADMIN/SUPER_ADMIN 可调用；分页扫描公开文章逐篇重新打标，覆盖 ai_labels 与 word_count")
+    @PostMapping("/relabel-ai-labels")
+    public Result<Integer> relabelAiLabels() {
+        // 角色校验：ADMIN / SUPER_ADMIN 才能触发存量补标（未登录/越权由 Sa-Token 抛异常统一处理）
+        SaRoleHelper.checkAdmin();
+        return Result.success(vectorRebuildService.relabelAiLabels());
     }
 }

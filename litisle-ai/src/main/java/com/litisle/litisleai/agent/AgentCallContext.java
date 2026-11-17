@@ -32,6 +32,9 @@ public final class AgentCallContext {
     /** 业务场景快照（可空） */
     private final String scene;
 
+    /** 会话 ID（板块九 1.1：会话结果集序号解析与结果动作工具的会话定位依据；null=一次性请求，结果动作不可用） */
+    private final Long sessionId;
+
     /** 模型调用序号（从 1 开始递增） */
     private final AtomicInteger callSeq = new AtomicInteger(0);
 
@@ -47,11 +50,12 @@ public final class AgentCallContext {
     /**
      * 私有构造：统一走 begin() 工厂方法
      */
-    private AgentCallContext(String requestId, AiPurposeEnum purpose, Long userId, String scene) {
+    private AgentCallContext(String requestId, AiPurposeEnum purpose, Long userId, String scene, Long sessionId) {
         this.requestId = requestId;
         this.purpose = purpose;
         this.userId = userId;
         this.scene = scene;
+        this.sessionId = sessionId;
     }
 
     /**
@@ -64,7 +68,21 @@ public final class AgentCallContext {
      * @return 新建的上下文实例
      */
     public static AgentCallContext begin(String requestId, AiPurposeEnum purpose, Long userId, String scene) {
-        AgentCallContext context = new AgentCallContext(requestId, purpose, userId, scene);
+        return begin(requestId, purpose, userId, scene, null);
+    }
+
+    /**
+     * 开启一次生成请求的调用上下文（携带会话 ID，板块九 1.1 结果动作工具定位会话结果集）
+     *
+     * @param requestId 请求幂等键
+     * @param purpose   用途打标
+     * @param userId    发起用户 ID
+     * @param scene     业务场景快照
+     * @param sessionId 会话 ID（null=一次性请求，结果集动作工具按不可用响应）
+     * @return 新建的上下文实例
+     */
+    public static AgentCallContext begin(String requestId, AiPurposeEnum purpose, Long userId, String scene, Long sessionId) {
+        AgentCallContext context = new AgentCallContext(requestId, purpose, userId, scene, sessionId);
         HOLDER.set(context);
         return context;
     }
@@ -144,6 +162,15 @@ public final class AgentCallContext {
 
     public String getScene() {
         return scene;
+    }
+
+    /**
+     * 会话 ID（null=一次性请求；结果集动作/序号解析工具据此判断可用性）
+     *
+     * @return 会话 ID；一次性请求返回 null
+     */
+    public Long getSessionId() {
+        return sessionId;
     }
 
     public Integer getLastTokenIn() {

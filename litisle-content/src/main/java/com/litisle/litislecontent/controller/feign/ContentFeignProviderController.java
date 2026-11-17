@@ -87,6 +87,25 @@ public class ContentFeignProviderController implements ContentClient {
     }
 
     /**
+     * 服务间收藏目标（板块九 1.2）：委托 Service（AI 结果动作写依赖，fail-fast）
+     */
+    @Override
+    public Result<Void> favorite(Long userId, Integer targetType, Long targetId) {
+        log.info("远程api调用favorite userId:{} targetType:{} targetId:{}", userId, targetType, targetId);
+        contentInternalService.favorite(userId, targetType, targetId);
+        return Result.success();
+    }
+
+    /**
+     * 服务间收藏目标 ID 列表（板块十一 3.2）：委托 Service（AI 收藏夹语义检索白名单数据源，fail-fast）
+     */
+    @Override
+    public Result<List<Long>> listFavoriteArticleIds(Long userId, Integer limit) {
+        log.info("远程api调用listFavoriteArticleIds userId:{} limit:{}", userId, limit);
+        return Result.success(contentInternalService.listFavoriteArticleIds(userId, limit));
+    }
+
+    /**
      * 回查书籍建索引全量字段：委托 Service（search book_idx 同步核心读依赖，fail-fast）
      *
      * @param bookId 书籍 ID

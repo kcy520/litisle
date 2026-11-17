@@ -21,6 +21,11 @@ import java.util.List;
  *
  * <p>【接线说明】本批次只提供校验能力；1.4 机审通道无发起用户不消费本服务，
  * 用户维度拦截随板块二生成端点接线（届时等级/VIP 放开系数一并接入）。</p>
+ *
+ * <p>【通俗说明】个人"话费限额"检查员：预算服务管的是全平台总账，本类管的是单个用户
+ * 的账——每个用途每天最多用多少次、吃多少 token（具体数值按用户等级/VIP 放开），
+ * 任一超限就拒绝，提示"今日额度已用完"。数据读日汇总表；数值还没定档时（上限 ≤0）
+ * 只记账不拦截。匿名用户没有 ID，单独走 Redis 按 IP 哈希计数。</p>
  */
 @Slf4j
 @Service
@@ -48,6 +53,9 @@ public class AiUserQuotaService {
      * @param userId  发起用户ID
      * @param purpose 用途打标
      * @return true=放行；false=超额拒绝（含 OTHER 兜底用途按放行处理）
+     *
+     * <p>【通俗说明】查该用户该用途今天的账：没超次数上限、也没超 token 上限（输入+
+     * 输出合计）才放行；汇总表里查无记录说明今天还没用过，直接放行。</p>
      */
     public boolean tryAcquire(Long userId, AiPurposeEnum purpose) {
         // OTHER 仅兜底落明细，不做配额拦截
@@ -93,6 +101,10 @@ public class AiUserQuotaService {
      * @param anonIpHash 调用方传入的 IP 哈希（网关脱敏，AI 不存原文）
      * @param dailyLimit 匿名日上限（rag.anon-qa-daily-limit）
      * @return true=放行；false=超额拒绝
+     *
+     * <p>【通俗说明】匿名问答的限额：拿 IP 哈希在 Redis 里当日计数（自增 1，第一次
+     * 访问设置 24 小时过期），超过日上限就拒绝。Redis 挂了也不拦人——降级放行
+     * 保证匿名问答能用，只是限额暂时失效并告警。</p>
      */
     public boolean tryAcquireAnonymous(String anonIpHash, int dailyLimit) {
         // 上限 ≤0：未定档仅计量不拦截（与用户级口径一致）
@@ -120,9 +132,16 @@ public class AiUserQuotaService {
     }
 
     /**
-     * 用途 → 配额上限映射（机审用途无发起用户，读取仅为占位完整性）
+     * 用途 → 配额上限映射（机审用途无发起用户，读取仅为占位完整性；
+     * 板块六 6.1 用量查询复用本映射计算剩余配额）
+     *
+     * @param purpose 用途打标
+     * @return 该用途的配额上限（≤0 = 未定档不拦截）
+     *
+     * <p>【通俗说明】查配置里某用途的每日限额（次数 + token 两项）；用量查询页也
+     * 复用这个映射来算"还剩多少额度"。</p>
      */
-    private AiQuotaProperties.Limit resolveLimit(AiPurposeEnum purpose) {
+    public AiQuotaProperties.Limit resolveLimit(AiPurposeEnum purpose) {
         return switch (purpose) {
             case MODERATION_TEXT, MODERATION_IMAGE -> quotaProperties.getModeration();
             case SUMMARY -> quotaProperties.getSummary();
@@ -131,6 +150,7 @@ public class AiUserQuotaService {
             case POLISH -> quotaProperties.getPolish();
             case STRUCTURE -> quotaProperties.getStructure();
             case SIMILAR -> quotaProperties.getSimilar();
+            case LABELING -> quotaProperties.getLabeling();
             case OTHER -> new AiQuotaProperties.Limit();
         };
     }

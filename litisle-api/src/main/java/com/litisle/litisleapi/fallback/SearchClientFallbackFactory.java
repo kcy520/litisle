@@ -4,9 +4,11 @@ import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.search.SearchRequestDTO;
+import com.litisle.litisleapi.dto.search.SimilarConditionRequestDTO;
 import com.litisle.litisleapi.feign.SearchClient;
 import com.litisle.litisleapi.vo.search.SearchResultVO;
 import com.litisle.litisleapi.vo.search.SimilarArticleVO;
+import com.litisle.litisleapi.vo.search.UserSearchVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
 
@@ -47,6 +49,38 @@ public class SearchClientFallbackFactory implements FallbackFactory<SearchClient
             public Result<SearchResultVO> search(SearchRequestDTO dto) {
                 // 记录检索请求与根因，便于熔断/网络故障排查
                 log.error("远程调用 search 模块 search 失败！request = {}", dto, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "搜索服务暂不可用，请稍后重试", cause);
+            }
+
+            /**
+             * 条件版相似检索 fail-fast（板块三 3.1）：静默空列表会让 ai 侧误判「条件无命中」，
+             * 异常穿透到调用方由调用方决策降级表现（ai 侧降级 L0 普通相似推荐）
+             */
+            @Override
+            public Result<List<SimilarArticleVO>> similarByCondition(SimilarConditionRequestDTO dto) {
+                log.error("远程调用 search 模块 similarByCondition 失败！requestId = {}",
+                        dto == null ? null : dto.getRequestId(), cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "搜索服务暂不可用，请稍后重试", cause);
+            }
+
+            /**
+             * 用户笔名查询 fail-fast（板块八 1.2）：作者名解析失败由调用方决策
+             * （ai 侧丢弃该条件继续检索，不中断条件管道）
+             */
+            @Override
+            public Result<List<UserSearchVO>> searchUsers(String keyword, Integer limit) {
+                log.error("远程调用 search 模块 searchUsers 失败！keywordChars = {}",
+                        keyword == null ? 0 : keyword.length(), cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "搜索服务暂不可用，请稍后重试", cause);
+            }
+
+            /**
+             * 文章 AI 标签回查 fail-fast（板块十二 4.6）：静默空 map 会让风格仿写误判
+             * 「无标签可约束」，异常穿透到调用方由 AI 工具层组装明确失败响应
+             */
+            @Override
+            public Result<java.util.Map<String, String>> getArticleAiLabels(Long articleId) {
+                log.error("远程调用 search 模块 getArticleAiLabels 失败！articleId = {}", articleId, cause);
                 throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "搜索服务暂不可用，请稍后重试", cause);
             }
         };

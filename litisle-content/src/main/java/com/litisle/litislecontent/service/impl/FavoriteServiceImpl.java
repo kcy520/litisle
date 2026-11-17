@@ -155,6 +155,34 @@ public class FavoriteServiceImpl implements FavoriteService {
     }
 
     /**
+     * 收藏目标 ID 列表（服务间：AI 板块十一 3.2 收藏夹语义检索白名单数据源）。
+     * <p>按收藏时间倒序取前 N 条：Page 对象分页承接取前 N（不拼 LIMIT）；只查 target_id
+     * 单列不做多态 join 装配；匿名/无收藏返回空列表不报错</p>
+     */
+    @Override
+    public java.util.List<Long> listFavoriteTargetIds(Long userId, Integer targetType, int limit) {
+        // 匿名无身份：无收藏语义直接空列表
+        if (userId == null) {
+            return java.util.List.of();
+        }
+        // 类型白名单：显式查询对非法值报错（与状态查询同口径）
+        FavoriteTargetTypeEnum type = requireValidType(targetType);
+        // 前 N 条用 Page 承接（1, limit）；上限兜底至少 1 防构造非法分页
+        Page<Favorite> page = favoriteMapper.selectPage(
+                Page.of(1, Math.max(1, limit)),
+                new LambdaQueryWrapper<Favorite>()
+                        .select(Favorite::getTargetId)
+                        .eq(Favorite::getUserId, userId)
+                        .eq(Favorite::getTargetType, type.getCode())
+                        .orderByDesc(Favorite::getCreateTime));
+        // 只透出非空目标 ID（防御脏数据行）
+        return page.getRecords().stream()
+                .map(Favorite::getTargetId)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    /**
      * 类型白名单强制解析：非法值抛 PARAM_ERROR。
      *
      * @param targetType 请求入参类型编码

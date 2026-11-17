@@ -100,6 +100,28 @@ public class ContentClientFallbackFactory implements FallbackFactory<ContentClie
             }
 
             /**
+             * 收藏动作为业务写操作 fail-fast：静默返回 success 会让 AI 结果动作工具
+             * 误报「收藏成功」，异常穿透到调用方由 AI 工具层组装明确失败响应
+             */
+            @Override
+            public Result<Void> favorite(Long userId, Integer targetType, Long targetId) {
+                log.error("远程调用 content 模块 favorite 失败！userId = {}, targetType = {}, targetId = {}",
+                        userId, targetType, targetId, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);
+            }
+
+            /**
+             * 收藏列表查询 fail-fast：静默返回空列表会让收藏夹检索误报「没有收藏」，
+             * 异常穿透到调用方由 AI 工具层组装明确失败响应
+             */
+            @Override
+            public Result<List<Long>> listFavoriteArticleIds(Long userId, Integer limit) {
+                log.error("远程调用 content 模块 listFavoriteArticleIds 失败！userId = {}, limit = {}",
+                        userId, limit, cause);
+                throw new BizException(ErrorCode.REMOTE_SERVICE_ERROR, "内容服务暂不可用，请稍后重试", cause);
+            }
+
+            /**
              * 热门列表是 ES 不可用降级链路的唯一保底数据源：调用失败即降级失败，
              * 异常穿透由 search 返回 SEARCH_ES_UNAVAILABLE；静默返回空列表会让用户
              * 误以为「搜索无结果」，掩盖服务不可用状态

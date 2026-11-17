@@ -29,7 +29,9 @@ import com.litisle.litislecontent.mapper.BookMapper;
 import com.litisle.litislecontent.mapper.TagMapper;
 import com.litisle.litislecontent.service.ContentInternalService;
 import com.litisle.litislecontent.service.ArticleService;
+import com.litisle.litislecontent.service.FavoriteService;
 import com.litisle.litislecontent.service.TagService;
+import com.litisle.litislecontent.enums.FavoriteTargetTypeEnum;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -82,6 +84,9 @@ public class ContentInternalServiceImpl implements ContentInternalService {
 
     /** 文章服务（热门列表降级数据源复用 /article/hot 读链路，批次八 8.1） */
     private final ArticleService articleService;
+
+    /** 收藏域服务（板块九 1.2 服务间收藏动作收口：白名单/可见性/幂等语义唯一提供方） */
+    private final FavoriteService favoriteService;
 
     /**
      * 机审回查内容正文。
@@ -485,6 +490,26 @@ public class ContentInternalServiceImpl implements ContentInternalService {
         }
         // 逐条映射为轻量 DTO（不再补作者昵称/标签，降级链路不叠加额外远程调用）
         return hotList.stream().map(this::toHotArticleDTO).collect(Collectors.toList());
+    }
+
+    /**
+     * 服务间收藏目标（板块九 1.2）：委托 FavoriteService 收口白名单/可见性/幂等语义。
+     */
+    @Override
+    public void favorite(Long userId, Integer targetType, Long targetId) {
+        // 收藏域唯一收口在 FavoriteService：类型白名单 + 目标可见性校验 + 幂等插入均不在此重复实现
+        favoriteService.favorite(userId, targetType, targetId);
+    }
+
+    /**
+     * 服务间收藏目标 ID 列表（板块十一 3.2）：委托 FavoriteService 收口白名单与取数口径。
+     */
+    @Override
+    public java.util.List<Long> listFavoriteArticleIds(Long userId, Integer limit) {
+        // 只读查询收口在 FavoriteService：类型白名单 + Page 承接取前 N 均不在此重复实现；
+        // 目标类型固定文章（AI 收藏夹检索只覆盖文章收藏，书籍不走 ES 文章白名单）
+        return favoriteService.listFavoriteTargetIds(userId,
+                FavoriteTargetTypeEnum.ARTICLE.getCode(), limit == null ? 0 : limit);
     }
 
     /**

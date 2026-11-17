@@ -1,7 +1,7 @@
 # ai 模块实现记录（归档索引）
 
 > 本目录为 litisle-ai（AI）模块实现记录归档（2026-11-15 新建），按板块拆分维护，本页保留为索引，正文一律在板块文件中维护。
-> **归档日期**：2026-11-15（板块零~四全部完成，随板块四收口一并归档）
+> **归档日期**：2026-11-15（板块零~四全部完成，随板块四收口一并归档）；2026-11-16 追加板块五/六/七归档（随板块七文档收口一并归档）；2026-11-16 追加板块八归档（条件化相似推荐，与 search 模块板块二/三 3.1 同批落地）；2026-11-16 追加板块九归档（Agent 交互扩展，书单动作与金句落库契约缺失部分挂起 temporarily-01-code.md）；2026-11-16 追加板块十归档（多轮调条件，板块八管道的会话增量扩展）；2026-11-16 追加板块十一归档（多文对比与收藏夹语义检索，search 板块四 4.1 白名单 filter 同批配套落地）；2026-11-16 追加板块十二归档（检索编排与创作辅助扩展，4.6 配套补 SearchClient#getArticleAiLabels 契约，4.7 并入板块十五承载）；2026-11-17 追加板块十五归档（写作辅助扩展——多级改写建议与文章草稿）
 > **来源**：迁移自 [next_update.md](../../next/next_update.md)「litisle-ai（AI）模块」节，条目原样搬运不压缩（含口径修正、跨板块遗留标注）
 > **口径说明**：`AI-Business-Guide.md` 曾被清空，已于 2026-11-15 从 git 提交 0106d4a（871 行完整原版）恢复，并新增「§4.6 生成式流程（小悦 Agent）」「§5.3 计量幂等键修订」「§十七 Agent 化定档（P1–P10）」；D 决策口径恢复以业务指南为唯一来源
 > **范围说明**：本清单聚焦面向用户文章的小悦（Xiaoyue）生成式 Agent（简历导向优先）；图片判定端点、小审判定辅助、反馈采集、评测集不在清单范围
@@ -16,6 +16,15 @@
 | 板块二 | 小悦 Agent 底座（AiServices 装配 + 工具注册 + 意图路由降级 + 结构化自校验 + 摘要标签） | [ai-02-agent-base.md](ai-02-agent-base.md) |
 | 板块三 | 小悦有状态 Agent（会话实体/治理 + Redis ChatMemoryStore + 润色/结构分析） | [ai-03-session-polish-structure.md](ai-03-session-polish-structure.md) |
 | 板块四 | RAG 知识库与站内问答（摄入链路 + 检索转正/引用回查/降级/匿名配额） | [ai-04-rag-qa.md](ai-04-rag-qa.md) |
+| 板块五 | F8 相似文章推荐（similarArticles knn 检索 + 可见性双保险回查 + 可选推荐理由） | [ai-05-similar-recommend.md](ai-05-similar-recommend.md) |
+| 板块六 | 用量可观测与模型自检（用量查询出账三端点 + CircuitBreakerChatModel 熔断自检 + ai_guard_state） | [ai-06-usage-observability.md](ai-06-usage-observability.md) |
+| 板块七 | 文档收尾与登记（AI-Architecture 状态同步 + AI-Business-Guide §5.3 八类口径 + Api/Gateway-Architecture 网关前缀登记） | [ai-07-docs-registration.md](ai-07-docs-registration.md) |
+| 板块八 | 条件化相似推荐——条件提取管道（freeText 入口 L0/L1 静态路由 + 1 次 LLM 结构化提取 + LABELING 打标端点） | [ai-08-conditional-similar.md](ai-08-conditional-similar.md) |
+| 板块九 | Agent 交互扩展——会话结果集地基 + 结果动作 + 读后服务（序号映射注册 + 收藏动作工具 + 读后摘要/追问/大纲/术语/陪聊/金句） | [ai-09-agent-interaction.md](ai-09-agent-interaction.md) |
+| 板块十 | 多轮调条件——会话记忆增量改条件（上一轮条件 JSON 暂存 + 增量提取 prompt 合并基线，复用板块八管道） | [ai-10-multi-turn-condition.md](ai-10-multi-turn-condition.md) |
+| 板块十一 | 多文对比与收藏夹语义检索（工具⑨序号定位 ≤3 篇对比 + 工具⑩收藏白名单语义检索；含 search 板块四 4.1 include/excludeArticleIds 配套落地） | [ai-11-compare-favorites.md](ai-11-compare-favorites.md) |
+| 板块十二 | 检索编排与创作辅助扩展（工具⑪找系列/工具⑫热榜上下文/工具⑬风格仿写素材 + /duplicate-check 查重端点 + 读者预设问题/选题灵感 scene 路由；含 SearchClient#getArticleAiLabels 配套落地；4.5 并入 3.1、4.7 并入板块十五） | [ai-12-creator-assist.md](ai-12-creator-assist.md) |
+| 板块十五 | 写作辅助扩展——多级改写建议与文章草稿（/rewrite 四粒度 + /draft 建议态草稿，purpose=POLISH 复用写作辅助桶；板块十二 4.7 归并随 15.1 TITLE 粒度回收，2026-11-17 归档自 next_update.md ai 板块十五） | [ai-15-writing-assist.md](ai-15-writing-assist.md) |
 
 ## 横跨板块的 Agent 化定档决策（P1–P10，2026-11-15 全部定档；原样搬运自 next_update.md「待决策与外部前置」）
 

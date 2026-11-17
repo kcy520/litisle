@@ -53,4 +53,22 @@ public class AiProviderProperties {
 
     /** 默认采样温度（机审/结构化产出要求确定性，默认 0） */
     private Double temperature = 0.0D;
+
+    /**
+     * 熔断自检——连续失败判定阈值（6.2 口径：连续失败 N 次判定「确定不可用」进入熔断期；
+     * ≤0 = 停用熔断自检，仅保留 ai_guard_state 单次成败观测）
+     */
+    private int breakerFailureThreshold = 5;
+
+    /**
+     * 熔断自检——失败计数窗口（毫秒）：窗口外的失败重新计数，防偶发失败跨窗口累积
+     * （对齐 V5 定档「连续失败达 5 次（5 分钟窗口）即打开」）
+     */
+    private long breakerWindowMs = 300000L;
+
+    /**
+     * 熔断自检——熔断期时长（毫秒）：熔断期内调用直接失败不再逐条请求模型；
+     * 到期后半开探测一次，成功自动恢复切回（恢复无需人工干预）
+     */
+    private long breakerOpenMs = 60000L;
 }

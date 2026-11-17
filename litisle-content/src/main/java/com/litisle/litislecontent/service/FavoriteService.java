@@ -56,4 +56,18 @@ public interface FavoriteService {
      * @return true=已收藏；false=未收藏或匿名
      */
     boolean isFavorited(Long userId, Integer targetType, Long targetId);
+
+    /**
+     * 收藏目标 ID 列表（服务间：AI 板块十一 3.2 收藏夹语义检索拉取用户收藏的文章 ID 集合）。
+     *
+     * <p>【口径】按收藏时间倒序取前 N 条（Page 对象分页承接，不做深翻）；只查 ID 不做多态
+     * join 装配（供白名单 filter 使用，标题等展示字段由 AI 侧经检索结果回填）；
+     * 查询失败/无收藏由调用方语义处理，本方法空收藏返回空列表不报错。</p>
+     *
+     * @param userId     用户ID（null 返回空列表）
+     * @param targetType 目标类型（1-文章 2-书籍；非法值抛 PARAM_ERROR）
+     * @param limit      取数上限（防白名单 filter 过大，超过按上限截断）
+     * @return 目标 ID 列表（按收藏时间倒序）；无收藏返回空列表
+     */
+    java.util.List<Long> listFavoriteTargetIds(Long userId, Integer targetType, int limit);
 }

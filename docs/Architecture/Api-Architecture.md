@@ -152,7 +152,7 @@ litisle-api
 
 │   ├── FileClient            # ✅ 文件服务契约（引用登记/隔离/机审取图，见 §4.4）
 
-│   ├── AiClient              # ✅ AI 服务契约（LLM 通用对话通道，提供方端点待实现，见 §4.5）
+│   ├── AiClient              # ✅ AI 服务契约（LLM 通用对话通道，提供方端点已实现 2026-11-15，见 §4.5）
 
 │   ├── ContentClient         # ✅ 内容服务契约（机审回查正文/配图反查/计数回写，提供方已落地，见 §4.6）
 │   ├── SocialClient          # ✅ 私信服务契约（私信机审回查，见 §4.7）
@@ -323,11 +323,14 @@ litisle-api
 | `batchGetSafeFlags`  | POST `/api/feign/file/batch-safe-flags`     | List\<fileId\> | Map\<fileId,Integer\> | 静默空 Map   | 批量读 safe_flag（0/1/2/3 int code，SSOT 为 file 侧枚举）；缺失的 fileId 须视为未知态保守处理 |
 | `getContent`         | GET `/api/feign/file/{fileId}/content`      | fileId         | `FileContentDTO`      | fail-fast    | 机审取图唯一入口（字节流 Base64，防 SSRF；不过 safe_flag 闸口，申诉复核需重取隔离图） |
 
-### 4.5 AiClient（AI 服务契约，由 litisle-ai 实现提供方，端点待实现）
+### 4.5 AiClient（AI 服务契约，由 litisle-ai 实现提供方，端点已实现 2026-11-15）
 
 | 方法   | 路径                     | 入参                | 出参                 | 降级语义 | 说明                                                         |
 | ------ | ------------------------ | ------------------- | -------------------- | -------- | ------------------------------------------------------------ |
 | `chat` | POST `/api/feign/ai/chat`| `AiChatRequestDTO`  | `AiChatResponseDTO`  | fail-fast | OpenAI 兼容通道（base-url/api-key/model 外置 Nacos）；system+user 双段 prompt 最小对话面，few-shot/防注入/JSON 白名单校验由调用方组织；降级由 review 侧转 SUSPICIOUS 人审；**请求须带计量打标字段 `purpose`/`requestId`（用途由调用方显式传入，缺省端点拒绝，见 AI-Architecture「按用途计量与预算分账」）** |
+| `label` | POST `/api/feign/ai/label` | `AiLabelRequestDTO`（articleId + 各维度待标文本） | `Result<Map<String,String>>`（维度名 → 词表值） | fail-fast | 板块八打标契约（2026-11-16）：维度注册表词表值产出，search ai_labels 标签槽数据源；提供方 AiLabelController 已落地 |
+
+> 提供方端点已由 litisle-ai `AiChatController` 落地（2026-11-15，板块二）。网关前缀登记（2026-11-16 板块七 7.1）：litisle-ai 用户侧/运营侧端点（/ai/xiaoyue/**、/ai/sessions、/ai/usage/**）经网关 `/api/ai/**` 前缀转发（路由已登记 [Gateway-Architecture.md](Gateway-Architecture.md) §2.1，端点路径与出入参定稿见 [AI-Architecture.md](AI-Architecture.md) §7.1）；本契约端点 `/api/feign/ai/chat` 为内部端点，网关无路由、不经公网。
 
 ### 4.6 ContentClient（litisle-content 提供方，端点已落地：ContentFeignProviderController，均 fail-fast）
 
@@ -335,6 +338,10 @@ litisle-api
 - `listArticleImages(articleId)` — GET `/api/feign/content/article-images` → `List<ArticleImageRefDTO>`：配图复审反查列表（逐张经 FileClient 取图）
 - `listArticleIdsByFileId(fileId)` — GET `/api/feign/content/article-ids-by-file` → `List<Long>`：按 idx_file_id 反查引用文章（图片复审再聚合用；聚合判定收口 review 消费端）
 - `updateCounters(ArticleCounterUpdateDTO)` — POST `/api/feign/content/counters/update` → Void：social 计数回写冗余列（view/like/comment cnt，幂等绝对值 SET）
+- `getArticleIndexDoc(articleId)` — GET `/api/feign/content/article-index-doc` → `ArticleIndexDocDTO`：索引快照回查（含摘要；ai 板块一 1.4 查询文本口径对齐用，fail-fast）
+- `getBookIndexDoc(bookId)` / `tagSuggest(...)` / `getHotArticles(limit)` — book 索引快照 / 标签建议 / 热榜列表（板块八 1.2 作者解析与板块十二 4.4 选题灵感数据源，fail-fast）
+- `favorite(articleId, userId)` — POST `/api/feign/content/favorite`：收藏落库（板块九 1.2 收藏动作，fail-fast）
+- `listFavoriteArticleIds(userId)` — GET `/api/feign/content/favorite/article-ids` → `List<Long>`：收藏 ID 白名单（板块十一 3.2 收藏夹检索，fail-fast）
 
 ### 4.7 SocialClient（litisle-social 私信域提供方，端点待实现，fail-fast）
 
@@ -344,6 +351,14 @@ litisle-api
 
 - `insertUsernameRejectRecord(UsernameRejectRecordDTO)` — POST `/api/feign/moderation/insert-username-reject-record`：注册拒绝取证（不建任务不进 MQ）
 - `getPunishStatus(userId)` — GET `/api/review/punish/status` → `PunishStatusDTO`：处罚权威态回查（撤销返回全空快照；网关不路由防公网直查）
+
+### 4.9 SearchClient（litisle-search 提供方，端点已落地：SearchFeignProviderController，均 fail-fast；`/api/feign/search/**` 网关不路由）
+
+- `similar(articleId, topK)` — GET `/api/feign/search/similar` → `List<SimilarArticleVO>`：相似推荐（ai RAG / 前端相关文章复用；KNN 强制 PUBLIC 过滤，批次C C3）
+- `search(SearchRequestDTO)` — POST `/api/feign/search/search` → `SearchResultVO`：服务间检索（非降级链路）
+- `similarByCondition(SimilarConditionRequestDTO)` — POST `/api/feign/search/similar-by-condition` → `List<SimilarArticleVO>`：条件版相似查询（板块三 3.1，2026-11-16；维度注册表四类 match 路由 + includeArticleIds/excludeArticleIds 白黑名单 filter 板块四 4.1；queryText 非空且相关性类排序可叠加本地 reranker 精排 litisle.search.rerank.*，0 次 LLM，fail-open 退融合基线）
+- `searchUsers(keyword)` — GET `/api/feign/search/users` → `List<UserSearchVO>`：作者名解析（板块八 1.2 配套）
+- `getArticleAiLabels(articleId)` — GET `/api/feign/search/article-labels` → `Map<String,String>`：单篇 ai_labels 词表型映射回查（板块十二 4.6 配套；未入索引/未打标返回空 map 不报错）
 
 ------
 

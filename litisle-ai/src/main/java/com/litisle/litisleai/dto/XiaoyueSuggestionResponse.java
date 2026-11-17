@@ -44,6 +44,23 @@ public class XiaoyueSuggestionResponse implements Serializable {
     /** 结构分析建议（STRUCTURE 场景，板块三 3.3：结构问题清单与改进建议） */
     private String analysis;
 
+    // ==================== 写作辅助扩展（板块十五） ====================
+
+    /** 改写目标粒度（板块十五 15.1 REWRITE 场景：TITLE/PARAGRAPH/SENTENCE/WORD，其余场景 null） */
+    private String targetType;
+
+    /** 改写候选版本列表（板块十五 15.1：每版附一句改动理由；service 侧按粒度校验） */
+    private java.util.List<com.litisle.litisleai.dto.RewriteCandidate> rewriteCandidates;
+
+    /** 优化建议清单（板块十五 15.1：冗余/歧义/语气/结构诊断，只诊断不贬损——F6/F8 边界） */
+    private java.util.List<String> rewriteSuggestions;
+
+    /** 文章草稿正文（板块十五 15.2 DRAFT 场景：建议态，AI 不落库——作者采用后由前端带入 content 正常创建流程） */
+    private String draft;
+
+    /** 段落结构建议（板块十五 15.2 DRAFT 场景：各段要点与衔接逻辑） */
+    private String outline;
+
     /** 引用卡片列表（QA 场景，板块四 4.2：站内问答引用溯源；仅元数据不放正文原文） */
     private java.util.List<com.litisle.litisleapi.dto.ai.XiaoyueCitationDTO> citations;
 

@@ -42,7 +42,19 @@ public class ArticleMetaDoc {
     @JsonProperty(SearchFieldConstant.FIELD_CATEGORY)
     private String category;
 
+    /** ai_labels 维度标签槽（板块八/search 板块二 2.2：改稿重新打标整体覆盖；打标失败不写保持原值） */
+    @JsonProperty(SearchFieldConstant.FIELD_AI_LABELS)
+    private java.util.Map<String, String> aiLabels;
+
+    /** 正文字数（改稿按最新正文重算覆盖） */
+    @JsonProperty(SearchFieldConstant.FIELD_WORD_COUNT)
+    private Long wordCount;
+
     /** 更新时间（同步推进，保证 NEWEST 排序准确） */
     @JsonProperty(SearchFieldConstant.FIELD_UPDATE_TIME)
     private LocalDateTime updateTime;
+
+    /** 文章向量（search 板块一 1.3 改稿联动：池化口径重算刷新；embed 失败为 null 不序列化即保持原值） */
+    @JsonProperty(SearchFieldConstant.FIELD_VEC_DENSE)
+    private List<Float> vecDense;
 }

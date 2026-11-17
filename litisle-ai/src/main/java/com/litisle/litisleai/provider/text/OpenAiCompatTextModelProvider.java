@@ -3,7 +3,6 @@ package com.litisle.litisleai.provider.text;
 import com.litisle.commoncore.exception.BizException;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.litisleai.config.AiProviderProperties;
-import com.litisle.litisleai.metrics.AiMetrics;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
@@ -13,8 +12,6 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
-
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * OpenAI 兼容文本模型通道实现（P2 定档：DeepSeek API 国内直连，LangChain4j OpenAI 模块承载 SDK/HTTP）
@@ -27,8 +24,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>【日志纪律】只记字符数/模型标识/token 数/耗时与合规凭证 ID，禁止打印 prompt 正文全文。</p>
  *
- * <p>【观测】ai.guard.state{provider} Gauge 绑定健康标记：调用成功置 1、失败置 0，
- * 供 Prometheus 观察通道可用性（未接 actuator 时静默跳过）。</p>
+ * <p>【观测】ai.guard.state{provider} Gauge 由装饰链中的熔断自检装饰器
+ * （CircuitBreakerChatModel）持有与注册，本类不再单独维护健康标记。</p>
+ *
+ * <p>【通俗说明】文本模型通道的"真身"：前面那些接口和装饰器都是壳，真正拨号打给
+ * DeepSeek 的是这里。它做的事很单纯——把两段 prompt 装进 SDK 要求的消息格式、
+ * 发出去、等回复，然后从回复里抠出正文和 token 用量打包成回执交上去。它对失败
+ * 的态度很硬：模型没响应就报错上抛（SDK 自带几次瞬时重试兜底），绝不编个假回复
+ * 蒙混过关；AI 功能没开时也是明确报"通道未启用"，而不是悄悄装没事发生。</p>
  *
  * @author litisle
  */
@@ -42,27 +45,26 @@ public class OpenAiCompatTextModelProvider implements TextModelProvider {
     /** 通道配置（providerName 指标标签 / model 版本快照来源） */
     private final AiProviderProperties properties;
 
-    /** 通道健康标记（ai.guard.state Gauge 数据源；成功置 true、失败置 false） */
-    private final AtomicBoolean healthy = new AtomicBoolean(true);
-
-    /** 指标打点组件（ai.guard.state 注册入口） */
-    private final AiMetrics metrics;
-
     /**
-     * 构造注入：模型通道按需取用（未启用时 Bean 缺席不阻断启动）+ 启动期注册通道健康 Gauge
+     * 构造注入：模型通道按需取用（未启用时 Bean 缺席不阻断启动）
+     *
+     * <p>【通俗说明】用 ObjectProvider 拿模型通道，而不是直接塞一个：好处是 AI 功能
+     * 没启用时这个 Bean 根本不存在，程序也能正常启动，等真调用了再报"未启用"。</p>
      */
     public OpenAiCompatTextModelProvider(ObjectProvider<ChatModel> chatModelProvider,
-                                         AiProviderProperties properties,
-                                         AiMetrics metrics) {
+                                         AiProviderProperties properties) {
         this.chatModelProvider = chatModelProvider;
         this.properties = properties;
-        this.metrics = metrics;
-        // 启动期惰性注册 ai.guard.state{provider} Gauge（未接 actuator 时注册静默跳过）
-        metrics.registerGuardGauge(properties.getProviderName(), healthy);
     }
 
     /**
      * 发起一次文本模型调用：成功返回输出与 token 用量；失败 fail-fast 抛 BizException（含原始原因）
+     *
+     * <p>【通俗说明】完整流程：① 先确认通道已启用（没启用直接报错）；② 把 system +
+     * user 两段话按 SDK 格式组装，调用方指定了温度就一并带上（机审传 0 让输出稳定）；
+     * ③ 发起调用，SDK 内部自带瞬时重试；④ 从回复里提取正文、token 进出量、供应商
+     * 流水号，连同耗时一起打进日志（只记数字不记正文）；⑤ 打包成回执返回。中途任何
+     * 异常都包装成明确错误上抛，绝不吞掉。</p>
      */
     @Override
     public TextChatResult chat(TextChatRequest request) {
@@ -87,8 +89,6 @@ public class OpenAiCompatTextModelProvider implements TextModelProvider {
             // 提取输出与用量：token 数可能为 null（供应商未返回），计量侧按 0 兜底
             Integer tokenIn = response.tokenUsage() == null ? null : response.tokenUsage().inputTokenCount();
             Integer tokenOut = response.tokenUsage() == null ? null : response.tokenUsage().outputTokenCount();
-            // 调用成功：健康标记置 1（Gauge 下一次抓取即反映）
-            healthy.set(true);
             log.info("模型通道调用成功 provider={} model={} promptChars={} tokenIn={} tokenOut={} costMs={} traceId={}",
                     properties.getProviderName(), properties.getModel(),
                     request.getUserPrompt() == null ? 0 : request.getUserPrompt().length(),
@@ -101,11 +101,10 @@ public class OpenAiCompatTextModelProvider implements TextModelProvider {
                     .tokenOut(tokenOut)
                     .build();
         } catch (BizException e) {
-            // 本类自身的明确异常直接透出（通道未启用），健康标记保持不动
+            // 本类自身的明确异常直接透出（通道未启用）
             throw e;
         } catch (Exception e) {
-            // SDK/网络异常 fail-fast：健康标记置 0 供 ai.guard.state 观测，异常包装后上抛（不吞错）
-            healthy.set(false);
+            // SDK/网络异常 fail-fast：异常包装后上抛（不吞错）；健康观测由装饰链熔断自检承担
             log.error("模型通道调用失败 provider={} model={} costMs={}",
                     properties.getProviderName(), properties.getModel(), System.currentTimeMillis() - start, e);
             throw new BizException(ErrorCode.AI_PROVIDER_UNAVAILABLE, "AI 模型调用失败", e);

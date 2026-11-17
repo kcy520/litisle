@@ -65,6 +65,19 @@ docker-compose stop
  执行初始化sql
  docker exec -i litisle-mysql mysql -uroot -pverysecret < docker/init/nacos/mysql-schema.sql
 
+ ---------------------------------------------------------------------
+
+# 方式一：后台隐藏窗口启动（推荐，关掉终端不影响服务）
+Start-Process ollama "serve" -WindowStyle Hidden
+
+# 方式二：前台窗口启动（能看到实时日志，Ctrl+C 即停止）
+ollama serve
+
+## 验证是否在跑
+ollama list          # 能列出 bge-m3 即服务正常
+
+关闭
+Stop-Process -Name ollama -Force -ErrorAction SilentlyContinue
 
  */
 

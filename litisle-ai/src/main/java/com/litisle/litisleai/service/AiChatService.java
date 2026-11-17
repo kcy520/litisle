@@ -31,6 +31,13 @@ import java.util.List;
  *
  * <p>【计量承诺】调用失败也落一条 status=FAIL 明细（失败即无成本防护）；
  * 同一 requestId+callSeq 重试复用不重复计费（DB 唯一键兜底）。</p>
+ *
+ * <p>【通俗说明】内部其他服务想调 AI 模型，都得经过这个"总前台"：先查身份证
+ * （purpose 和 requestId 没带就拒绝），再看钱包（预算桶判定：生成类用途超支就拒，
+ * 机审用途超支也照常审、只是告警），然后才真正把话递给模型。不管模型答没答上来，
+ * 都要记一笔账（成功记 token 用量，失败也留一条失败记录）——这样才不会出现
+ * "模型挂了钱却没人管"的漏洞。它只接待"一问一答"的单次调用，多轮对话的 Agent
+ * 不走这里。</p>
  */
 @Slf4j
 @Service
@@ -66,6 +73,10 @@ public class AiChatService {
      * @return 模型原始文本输出 + 模型标识 + 合规凭证 ID
      * @throws BizException purpose/requestId 缺失（80001/80002）、生成类预算超限（80004）、
      *                      模型通道未启用或调用失败（80005）
+     *
+     * <p>【通俗说明】六步流水线：①② 验 purpose 和 requestId 必传；③ 查预算桶
+     * （超限交给 enforceBudget 决定停不停）；④ 调模型；⑤ 成功记成功账、失败记失败账
+     * （都不吞异常）；⑥ 把模型原文、模型标识、合规流水号打包成响应返回。</p>
      */
     public AiChatResponseDTO chat(AiChatRequestDTO dto) {
         // ① purpose 必传校验：缺省/未知值拒绝并告警，防「忘传」被默认归机审
@@ -144,6 +155,10 @@ public class AiChatService {
     /**
      * 预算超限执行语义：生成类停用返回明确错误码；机审桶不停调用、告警后继续
      * （机审额度不因超支而静默停摆——转全量人工 + 告警由 review 侧链路承担）
+     *
+     * <p>【通俗说明】预算花超了怎么办，分两种态度：内容机审是安全底线，超支也不能
+     * 停摆（停了违规内容就没人审了），所以只告警继续干；生成类功能（摘要/润色等）
+     * 超支就直接拒绝新请求，返回明确的"预算超限"错误，而不是默默返回空结果。</p>
      */
     private void enforceBudget(AiPurposeEnum purpose, String requestId) {
         if (MODERATION_PURPOSES.contains(purpose.getCode())) {

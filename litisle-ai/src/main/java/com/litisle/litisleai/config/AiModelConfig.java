@@ -1,5 +1,8 @@
 package com.litisle.litisleai.config;
 
+import com.litisle.litisleai.metrics.AiMetrics;
+import com.litisle.litisleapi.config.AiLabelDimensionsProperties;
+import com.litisle.litisleai.provider.text.CircuitBreakerChatModel;
 import com.litisle.litisleai.provider.text.DesensitizingChatModel;
 import com.litisle.litisleai.provider.text.OutboundSanitizer;
 import dev.langchain4j.model.chat.ChatModel;
@@ -29,29 +32,32 @@ import java.time.Duration;
  * enabled 开关替代 starter 自动装配：本地无 api-key 也能启动服务（通道缺席时端点
  * fail-fast 返回明确错误码），且超时/重试参数与配置类单向对齐，避免双配置源漂移。</p>
  *
- * <p>【装饰链（板块二 P1）】容器唯一 ChatModel Bean = DesensitizingChatModel（出站脱敏）
+ * <p>【装饰链（板块二 P1 / 板块六 6.2）】容器唯一 ChatModel Bean = DesensitizingChatModel（出站脱敏）
+ * → CircuitBreakerChatModel（熔断自检：连续失败达阈值熔断、到期半开探测自动切回）
  * → OpenAiChatModel（SDK）：机审通道（TextModelProvider）与 Agent 通道（AiServices）
- * 出站统一经过脱敏装饰器，开关关闭时透传。</p>
+ * 出站统一经过熔断与脱敏装饰器，开关关闭时透传。</p>
  *
  * @author litisle
  */
 @Configuration
-@EnableConfigurationProperties({AiProviderProperties.class, AiAgentProperties.class})
+@EnableConfigurationProperties({AiProviderProperties.class, AiAgentProperties.class, AiLabelDimensionsProperties.class})
 public class AiModelConfig {
 
     /**
-     * 出站脱敏装饰模型 Bean（容器唯一 ChatModel：装饰器 → OpenAI 兼容通道）
+     * 出站脱敏装饰模型 Bean（容器唯一 ChatModel：装饰器 → 熔断自检 → OpenAI 兼容通道）
      *
-     * @param properties      通道配置（enabled=true 时本 Bean 才装配）
+     * @param properties      通道配置（enabled=true 时本 Bean 才装配；含熔断阈值/窗口/时长）
      * @param sanitizer       出站脱敏过滤器
      * @param agentProperties Agent 侧配置（脱敏开关）
-     * @return ChatModel 通道实例（脱敏装饰链）
+     * @param metrics         指标打点（熔断自检装饰器注册 ai_guard_state Gauge 用）
+     * @return ChatModel 通道实例（脱敏 + 熔断装饰链）
      */
     @Bean
     @ConditionalOnProperty(prefix = "litisle.ai.provider.text", name = "enabled", havingValue = "true")
     public ChatModel desensitizedChatModel(AiProviderProperties properties,
                                            OutboundSanitizer sanitizer,
-                                           AiAgentProperties agentProperties) {
+                                           AiAgentProperties agentProperties,
+                                           AiMetrics metrics) {
         // 底层 OpenAI 兼容通道（DeepSeek 直接可用）：连接参数全部取自外置配置，代码内不硬编码端点
         ChatModel delegate = OpenAiChatModel.builder()
                 .baseUrl(properties.getBaseUrl())
@@ -61,6 +67,9 @@ public class AiModelConfig {
                 .timeout(Duration.ofMillis(properties.getTimeoutMs()))
                 .maxRetries(properties.getMaxRetries())
                 .build();
+        // 熔断自检装饰器（板块六 6.2）：机审/Agent 全通道统一经过——连续失败达阈值熔断期内
+        // 直接拒绝（机审侧 review 转人工兜底，生成侧抛 80005），到期半开探测成功自动恢复切回
+        delegate = new CircuitBreakerChatModel(delegate, properties, metrics);
         // 出站脱敏装饰器：机审/Agent 全通道统一执行（开关关闭时透传）
         return new DesensitizingChatModel(delegate, sanitizer, agentProperties);
     }

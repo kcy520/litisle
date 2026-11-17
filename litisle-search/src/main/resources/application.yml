@@ -251,6 +251,24 @@ litisle:
       batch-size: 16
       # 全量重建扫描批量（search_after 每批拉取文档数）
       rebuild-batch-size: 100
+      # 切片向量池化策略（search 板块一 1.1）：mean=逐维平均（默认）；max-pool=逐维取切片最大值（备选不默认，多主题长文更尖锐但可能放大噪声）
+      pool:
+        strategy: mean
+    # 本地 reranker 精排（search 板块三 3.2 升级②：bge-reranker/cross-encoder 对 (queryText, 候选摘要) 打分重排，0 次 LLM 零 API 费；条件版查询 queryText 非空且相关性类排序意图时触发；关闭/失败退回三路融合基线排序，结果不劣化）
+    rerank:
+      enabled: false
+      # 提供方类型标识（条件装配）：openai-compatible=主适配器（OpenAI 兼容 /v1/rerank，覆盖 SiliconFlow/Jina/Cohere 兼容入口/自建 rerank 网关）
+      provider: openai-compatible
+      # 模型标识（如 bge-reranker-v2-m3）
+      model: bge-reranker-v2-m3
+      # 服务地址（OpenAI 兼容 base-url；如 https://api.siliconflow.cn，内网自建填内网地址）
+      base-url: ""
+      # 鉴权密钥：禁止落盘明文，用环境变量注入（内网无鉴权可为空，空值不发送 Bearer 头）
+      api-key: ${LITISLE_RERANK_API_KEY:}
+      # 单次重排请求超时
+      timeout: 10s
+      # 送入重排的候选条数（条件版查询多取候选重排后截回 topK，上限受 knn.max-top-k 约束）
+      top-n: 20
     # 索引同步消费重试（异常按指数退避延迟重投，超次数 nack 入死信队列；批次二 2.4）
     retry:
       # 最大重试次数（含首发共 max-count + 1 次投递）

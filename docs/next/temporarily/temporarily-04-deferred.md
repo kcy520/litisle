@@ -197,7 +197,7 @@ search 消费 content.published 建 article_idx/book_idx（Sql-Document §九：
 
 #### suggestions 字段——结果即时提示（迁自 temp.md 第二立项批次五注，2026-11-16）
 
-结果即时提示 suggestions 字段暂不做（能力发现取三板斧：chips / 能力面板 / 边界响应模板）。触发条件：实测冷启动引导不足时迁回（对应 AI 板块十三板块注）。
+结果即时提示 suggestions 字段暂不做（能力发现三板斧中仅边界响应模板已落地（板块十三 5.3，2026-11-16），chips / 能力面板条目已随 2026-11-16 恢复迁回 next_update.md AI 板块十三 5.1/5.2 待开发，不在本清单范畴）。触发条件：实测冷启动引导不足时迁回（对应 AI 板块十三板块注）。
 
 #### 订阅提醒 / 追更推送（迁自 temp.md 第二立项方案行，2026-11-16）
 
@@ -270,6 +270,16 @@ search 消费 content.published 建 article_idx/book_idx（Sql-Document §九：
 原条目：- [x] H 消息级 RabbitMQ exporter / 最老消息年龄——**暂不引入**（状态：已决定不做，本轮仅登记）。理由：需额外 exporter/插件与采集链路，当前用 backlog gauge + `for` 时长已可近似表达；真正的「最老消息停留时长」待积压成为真问题再评估。
 
 触发条件：积压成为真问题（backlog gauge 告警持续触发且无法用现有采集定位），或需要按消息年龄做 SLA 统计时再评估引入 exporter。
+
+#### 条件版相似查询按需升级——升级① 查询改写重检（search 板块三 3.2 二期预留，2026-11-17 拍板留二期）
+
+原条目（next_update.md search 板块三 3.2）：- [ ] 升级①查询改写重检（+1 次 LLM，触发式）：有效命中 < 3 条 或 最高分 < 阈值时，LLM 改写 queryText 再检索一轮（每请求至多 1 次改写；改写仍无命中 → 返回空列表不报错）——CRAG 式按检索质量补救，钱花在结果不好的时候。
+基线说明：升级② 本地 reranker 精排已随 3.2 落地（2026-11-17，实现记录见 [search-14-conditional-query.md](../../archive/search/search-14-conditional-query.md)），本项为其之上的触发式补救档。触发条件：基线命中率实测不达标时迁回 next_update.md 实施。
+
+#### 条件版相似查询按需升级——升级③ LLM judge 精排（search 板块三 3.2 预留，2026-11-17 拍板维持默认关不实现）
+
+原条目（next_update.md search 板块三 3.2）：- [ ] 升级③LLM judge 精排（+N 次 LLM，配置开关默认关）：对 TopN≤5 逐篇评断「符合用户要求吗」（跨维度主观权衡），每查询成本随候选线性涨，仅作最准档。
+护栏铁律（随条目保留）：每次升级必须有明确触发条件 + 配置开关 + 降级路径（升级失败退回上一级结果，结果不劣化），无任何「无条件多调」；注册表外长尾表达仍由 3.1 semantic 路径语义兜底。触发条件：出现 reranker 判不了的复杂要求场景（跨维度主观权衡需求实测出现）时迁回 next_update.md 实施。
 
 ### file 文件模块
 

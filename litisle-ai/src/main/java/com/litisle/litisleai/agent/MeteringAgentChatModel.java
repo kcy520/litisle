@@ -87,7 +87,7 @@ public class MeteringAgentChatModel implements ChatModel {
             throw new BizException(ErrorCode.AI_AGENT_LOOP_EXCEEDED);
         }
         // 本轮调用序号（requestId+callSeq 联合唯一落明细）
-        int callSeq = context.nextCallSeq();
+        int callSeq = context.nextCallSeq();    //「当前已消耗次数」就是`AgentCallContext` 内的一个内存计数器`callSeq` ，按 每次模型调用轮次 递增，不查数据库、纯请求内累计。
         long start = System.currentTimeMillis();
         try {
             ChatResponse response = delegate.chat(request);

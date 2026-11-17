@@ -9,7 +9,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 
 /**
  * AI 侧指标统一打点（1.5：指标名集中定义，避免同一语义多个指标名）
@@ -166,17 +166,18 @@ public class AiMetrics {
     }
 
     /**
-     * 注册通道健康 Gauge（ai_guard_state{provider}：1=正常 0=异常）
+     * 注册通道健康 Gauge（ai_guard_state{provider}：1=正常 0=熔断；板块六 6.2 起由
+     * 熔断自检装饰器持有状态源——1=正常/半开探测中，0=熔断期）
      *
      * @param provider 通道提供方标识
-     * @param healthy  健康标记（Gauge 每次抓取实时读取）
+     * @param healthy  健康状态源（Gauge 每次抓取实时读取）
      */
-    public void registerGuardGauge(String provider, AtomicBoolean healthy) {
+    public void registerGuardGauge(String provider, BooleanSupplier healthy) {
         MeterRegistry registry = registryProvider.getIfAvailable();
         if (registry == null) {
             return;
         }
-        Gauge.builder(METRIC_GUARD_STATE, healthy, state -> state.get() ? 1 : 0)
+        Gauge.builder(METRIC_GUARD_STATE, healthy, state -> state.getAsBoolean() ? 1 : 0)
                 .tag("provider", provider)
                 .register(registry);
     }

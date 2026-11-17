@@ -20,6 +20,11 @@ import java.util.Optional;
  *
  * <p>【降级语义】Redis 不可用时缓存读写静默跳过（best-effort），不阻断建议生成主链路。</p>
  *
+ * <p>【通俗说明】AI 建议的"临时答案柜"：同一请求（requestId 相同）重试或重查时，
+ * 先来这里看看有没有现成答案——有就直接返回，不再重复调模型花钱。三条规矩：
+ * 只存成功的建议；30 分钟自动过期（作者没采用的建议到期自动丢弃，AI 建议永不
+ * 落库）；Redis 挂了就当没有缓存，照常走生成链路，绝不因缓存故障影响主流程。</p>
+ *
  * @author litisle
  */
 @Slf4j
@@ -44,6 +49,9 @@ public class SuggestionCacheService {
      *
      * @param requestId 请求幂等键
      * @return 缓存的建议响应；未命中/开关关闭/Redis 异常返回 empty（走正常生成链路）
+     *
+     * <p>【通俗说明】查柜子：开关关着、没存过、过期了、读失败——都按"没缓存"
+     * 处理，走正常生成。</p>
      */
     public Optional<XiaoyueSuggestionResponse> get(String requestId) {
         // 缓存开关关闭：直接走生成链路
@@ -68,6 +76,9 @@ public class SuggestionCacheService {
      *
      * @param requestId 请求幂等键
      * @param response  建议响应（degraded=false 的成功建议才调用本方法）
+     *
+     * <p>【通俗说明】往柜子里放一份成功建议（TTL 外置配置）；写失败只打日志——
+     * 损失的只是幂等回查能力，建议本身照常返回给用户。</p>
      */
     public void put(String requestId, XiaoyueSuggestionResponse response) {
         // 缓存开关关闭：跳过（建议随响应返回后即弃，D4 不落库）

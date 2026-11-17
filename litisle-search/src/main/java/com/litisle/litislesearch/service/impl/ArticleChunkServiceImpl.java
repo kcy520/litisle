@@ -48,26 +48,31 @@ public class ArticleChunkServiceImpl implements ArticleChunkService {
     private final VectorService vectorService;
 
     /**
-     * 重建文章切片：先删旧块，再按当前正文写入新块。
+     * 重建文章切片：先删旧块，再按当前正文写入新块，返回本批切片向量。
      *
      * @param doc       文章索引文档（冗余字段来源）
      * @param plainText 正文纯文本
+     * @return 本批切片向量列表（按切片顺序剔除 null；未入库或 Embedding 未产出返回空列表）
      */
     @Override
-    public void rebuild(ArticleIndexDoc doc, String plainText) {
+    public List<List<Float>> rebuild(ArticleIndexDoc doc, String plainText) {
+
+
 
         // 步骤1：正文长度门槛校验（过短文章不入 RAG 知识库）
         int minLength = properties.getIngest().getMinContentLength();
         if (plainText == null || plainText.length() < minLength) {
             log.debug("[切片摄入] 正文过短不入库：articleId={}, length={}, min={}",
                     doc.getId(), plainText == null ? 0 : plainText.length(), minLength);
-            return;
+            // 未入库返回空列表：调用方（池化编排）走无切片兜底直算
+            return List.of();
         }
         // 步骤2：切片（重叠切片防断章取义）
         List<String> chunks = SearchTextUtils.splitIntoChunks(plainText,
                 properties.getIngest().getChunkSize(), properties.getIngest().getChunkOverlap());
         if (chunks.isEmpty()) {
-            return;
+            // 切片为空（异常防御）：返回空列表走无切片兜底
+            return List.of();
         }
 
         // 步骤3：先删旧块（正文变短/标签变更时保证不残留过期切片）
@@ -78,9 +83,16 @@ public class ArticleChunkServiceImpl implements ArticleChunkService {
         List<ArticleChunkDoc> chunkDocs = java.util.stream.IntStream.range(0, chunks.size())
                 .mapToObj(index -> buildChunkDoc(doc, chunks.get(index), index, now))
                 .toList();
+        // 步骤4.5：收集切片向量供池化聚合（search 板块一 1.3：切片向量在位后再池化 vec_dense；
+        // 单片 embed 失败为 null，剔除后由池化器按剩余切片聚合，不影响其余切片）
+        List<List<Float>> chunkVectors = chunkDocs.stream()
+                .map(ArticleChunkDoc::getChunkVector)
+                .filter(java.util.Objects::nonNull)
+                .toList();
         // 步骤5：批量写入并校验结果（失败抛异常交给消费端重试，不吞错）
         bulkIndex(chunkDocs);
         log.info("[切片摄入] 完成：articleId={}, chunks={}", doc.getId(), chunkDocs.size());
+        return chunkVectors;
     }
 
     /**

@@ -14,7 +14,7 @@
 | 库 | `litisle_search`（1 表：search_history，唯一自有 MySQL 表） |
 | ES 索引 | `article_idx`（含 vec_dense 1024 维 + suggest 字段）/ `book_idx` / `user_idx` / `article_chunks`（RAG 知识库，search 摄入 ai 纯查询）；启动时幂等创建，_meta 登记 Embedding 模型版本与维度 |
 | 关键依赖 | Elasticsearch 8.18.8（Java Client）· spring-boot-starter-amqp（手动 ACK + DLX/DLQ + 延迟重投）· common-redis（热点缓存/热度待刷新键）· litisle-api（SearchClient 契约 + ContentClient 回查）· Sa-Token · actuator + micrometer（批次九） |
-| 只管 | 全文检索 / 搜索联想 / 搜索历史 / 相似推荐 / 索引与向量同步 / 向量全量重建 |
+| 只管 | 全文检索 / 搜索联想 / 搜索历史 / 相似推荐 / 条件版相似查询（维度注册表四类 match + 白黑名单 filter） / 本地 reranker 精排（0 次 LLM，fail-open） / 切片向量池化（vec_dense 生产口径） / 索引与向量同步 / 向量全量重建 |
 | 不负责 | 业务数据存储（ES 投影非 SSOT）· 推荐流分页与快照（content）· RAG 摄入决策与 LLM 调用（ai）· 标签搜索（复用 content `/tags?keyword=` 聚合） |
 
 ## 二、包结构（`com.litisle.litislesearch`）
@@ -22,13 +22,16 @@
 ```text
 controller/       SearchController（GET /search · GET /search/suggest）/ SimilarController（GET /search/similar/{id}）
                   / SearchHistoryController（GET·DELETE /search/history）/ VectorRebuildAdminController（向量全量重建管理端点）
-controller/feign/ SearchFeignProviderController（implements SearchClient，/api/feign/search）
-service/          SearchService（检索编排）/ SuggestService / SimilarService / SearchHistoryService
-                  / VectorService（Embedding）/ VectorRebuildService / ArticleIndexService / BookIndexService
+controller/feign/ SearchFeignProviderController（implements SearchClient，/api/feign/search：similar/search/similar-by-condition/users/article-labels）
+service/          SearchService（检索编排）/ SuggestService / SimilarService（含条件版 similarByCondition 四类 match 路由）/ SearchHistoryService
+                  / RerankService（条件版本地精排编排，fail-open）/ VectorService（Embedding）/ VectorRebuildService / ArticleIndexService / BookIndexService
                   / UserIndexService / ArticleChunkService / HeatPendingService（热度待刷新键）/ HotQueryCacheService
                   / ArticleTombstoneService（下架墓碑）
 service/impl/     对应实现（门控/幂等/写路径编排；版本比较统一委托 IndexVersionGuard）
 service/support/  IndexVersionGuard（article/book/user 三索引写入版本守卫：现有 updateTime ≥ 新快照（含相等）跳过；读 ES 失败抛异常交 MQ 重试）
+                  / ArticleVectorComposer（切片向量池化聚合单点：写入/重建/改稿共用，无切片兜底直算）
+rerank/           RerankProvider（SPI）· OpenAiCompatibleRerankProvider（OpenAI 兼容 /v1/rerank 主适配器）
+utils/            ArticleVectorPooler（纯函数池化聚合：加权 mean/max-pool + L2 归一化，拼接规则委托 litisle-api ArticleVectorTextUtils）
 mq/               SearchMqConfig（**十同步队列** + 独立 DLX/DLQ + 延迟交换机拓扑声明）
 mq/consumer 级：   IndexSyncConsumer（published/unpublished/article-updated/book-changed/user.registered/user.profile-updated）
                   / HeatEventConsumer（onLiked/onUnliked🆕/onCommented/onViewCountFlushed，只累加 Redis 热度键不直写 ES）
@@ -57,7 +60,7 @@ config/           SearchProperties（prefix litisle.search.*）/ SearchMqConfig 
 |---|---|---|---|
 | GET | `/search` | 匿名（网关白名单） | 全文检索：multi_match（title^4/tags^3/summary^2/content）+ filter（visibility=PUBLIC/tag/category/zone/时间范围）+ function_score(heat)；空结果兜底 = 实时 Embedding → KNN 语义相似（标 fallback）；查询词转义防 ES 注入 |
 | GET | `/search/suggest?q=` | 匿名 | 联想：title/authorName completion+prefix + 标签复用 content 接口聚合 |
-| GET | `/search/similar/{articleId}` | 匿名 | KNN vec_dense + 标签重合 + 行为加权，强制 filter PUBLIC，排除自身/已下架 |
+| GET | `/search/similar/{articleId}` | 匿名 | KNN vec_dense + 标签重合 + 行为加权，强制 filter PUBLIC，排除自身/已下架；vec_dense 生产口径 = 切片向量池化聚合（2026-11-17 板块一：ArticleVectorPooler/Composer，无切片兜底直算） |
 | GET / DELETE | `/search/history` | 登录 | 搜索历史列表 / 清空（UPSERT 同词仅前进，超 max-per-user=20 懒删最旧；keyword 不入索引） |
 | POST | 向量重建管理端点 | 管理 | Embedding 模型变更 → 全量重建（VectorRebuildAdminController） |
 
@@ -67,14 +70,17 @@ config/           SearchProperties（prefix litisle.search.*）/ SearchMqConfig 
 
 - `GET /api/feign/search/similar` → `List<SimilarArticleVO>`（ai RAG / 前端相关文章复用）
 - `POST /api/feign/search/search` → `SearchResultVO`（业务方直接检索，非降级链路）
+- `POST /api/feign/search/similar-by-condition` → `List<SimilarArticleVO>`（条件版相似查询，板块三 3.1：维度注册表四类 match 路由 + include/excludeArticleIds 白黑名单；queryText 相关性类排序叠加 reranker 精排）
+- `GET /api/feign/search/users` → `List<UserSearchVO>`（作者名解析，板块八 1.2 配套）
+- `GET /api/feign/search/article-labels` → `Map<String,String>`（单篇 ai_labels 回查，板块十二 4.6 配套，未打标返回空 map）
 
 ## 六、索引同步（10 条 MQ 队列，SearchMqConfig 声明）
 
 | 事件 | 消费方法 | 动作 |
 |---|---|---|
-| `content.published` | IndexSyncConsumer.onPublished | 回查元数据 → 乱序门控（status=2 且 PUBLIC 才写）→ **IndexVersionGuard 版本比较**（旧/同版本跳过）→ Embedding 预计算 → upsert article_idx + 摄入 article_chunks |
+| `content.published` | IndexSyncConsumer.onPublished | 回查元数据 → 乱序门控（status=2 且 PUBLIC 才写）→ **IndexVersionGuard 版本比较**（旧/同版本跳过）→ vec_dense 池化预计算（2026-11-17 板块一：先重建切片取回切片向量 → ArticleVectorComposer 聚合；无切片兜底直算）→ upsert article_idx + 摄入 article_chunks |
 | `content.unpublished` | onUnpublished | 删 article_idx 文档 + article_chunks 旧块（幂等 404 视为成功）+ 落下架墓碑 |
-| `content.article-updated` | onArticleUpdated | **IndexVersionGuard 版本比较** → partial update 元数据字段（不动向量与 chunks） |
+| `content.article-updated` | onArticleUpdated | **IndexVersionGuard 版本比较** → partial update 元数据字段 + refreshSlicesAndVector：重建切片（元数据编辑不改正文，chunk_text 不变）并按池化口径重算 vec_dense（2026-11-17 板块一 1.3 改稿联动，embed 失败不覆盖原向量） |
 | `content.book-changed` | onBookChanged | upsert book_idx（批次五 B4） |
 | `user.registered` / `user.profile-updated` | onUserRegistered / onUserProfileUpdated | upsert user_idx（批次五 B5）；版本源取 `user.update_time` 与 `user_profile.update_time` 的较大者，写入前过 IndexVersionGuard |
 | `social.liked` | HeatEventConsumer.onLiked | `HINCRBY` 累加 like 增量（按 SocialLikedEvent.delta，无 delta 兜底 +1、delta=0 跳过） |
@@ -95,7 +101,11 @@ config/           SearchProperties（prefix litisle.search.*）/ SearchMqConfig 
 | `weight.title / tags / summary` | 4 / 3 / 2 | multi_match 字段权重 |
 | `weight.heat.like / comment / view / time-decay-half-life` | 2 / 3 / 0.1 / 168h | heat 公式权重 + 半衰期 |
 | `heat.flush.interval-ms / initial-delay-ms / batch-size / concurrency / pending-key-ttl` | 900000 / 60000 / 1000 / 2 / 2h | 热度刷写任务 |
-| `knn.top-k / num-candidates / max-top-k / similarity-threshold` | 10 / 100 / 50 / 0.0 | KNN 参数 |
+| `knn.top-k / num-candidates / max-top-k / similarity-threshold` | 10 / 100 / 50 / 0.4 | KNN 参数（阈值批次七选型定案默认 0.4：过滤明显不相关候选） |
+| `embedding.enabled / provider / model / base-url / api-key / timeout` | false / openai-compatible / bge-m3 / — / 环境变量注入 / 10s | 向量提供方（provider 条件装配适配器）；关闭时不写向量不阻断索引；model 变更走全量重建 |
+| `embedding.pool.strategy` | mean | 切片向量池化策略（板块一 1.1）：mean 逐维平均 / max-pool 逐维最大值（备选不默认）；权重 w_t=2/w_s=2/w_c=1 在 ArticleVectorPooler 固化 |
+| `rerank.enabled / provider / model / base-url / api-key / timeout / top-n` | false / openai-compatible / bge-reranker-v2-m3 / — / 环境变量注入 / 10s / 20 | 本地 reranker 精排（板块三 3.2②）：条件版查询 queryText 非空且相关性类排序时重排；未启用/失败 fail-open 退融合基线，0 次 LLM |
+| `ai-labels.labeling-enabled / label-content-max-chars` | true / 2000 | 索引期 AI 打标开关与正文截断（板块二）；维度注册表在 litisle-api AiLabelDimensionsProperties 三端共读 |
 | `cache.hot-query-enabled / ttl / evict-merge-interval-ms` | true / 10m / 1000 | 热点查询缓存与合并失效 |
 | `suggest.enabled / size` | true / 10 | 搜索联想 |
 | `history.max-per-user` | 20 | 搜索历史上限懒删 |

@@ -97,7 +97,8 @@ litisle-search
 | 全文检索 | 文章/书籍/用户多维检索 | multi\_match 权重 title^4 → tags^3 → summary^2 → content；function\_score 热度加权；tag/category/zone/时间范围筛选 + 排序；**空结果兜底：查询词实时 Embedding → KNN 语义相似集（标记来源，2026-11-03 批次A A1 定案）**                                                      |
 | 搜索联想 | 输入即联想        | 标题/作者 ES completion/prefix suggester；标签联想复用 content 标签接口聚合返回                                                                                                                                                                    |
 | 搜索历史 | 用户维度搜索词记录    | 单表 UPSERT：同词去重仅前进 + 条数上限懒删 + 清空接口；搜索词不入 ES 索引                                                                                                                                                                                   |
-| 相似推荐 | KNN + 多因子加权  | 取源文章向量/标签 → KNN TopK（强制 filter visibility=PUBLIC）→ 标签重合度 + 向量相似 + 行为数据融合 → 阈值过滤；供 ai RAG 与前端复用                                                                                                                                  |
+| 相似推荐 | KNN + 多因子加权 | 取源文章向量/标签 → KNN TopK（强制 filter visibility=PUBLIC）→ 标签重合度 + 向量相似 + 行为数据融合 → 阈值过滤；供 ai RAG 与前端复用；**vec\_dense 生产口径（2026-11-17 池化专项板块一）**：由 article\_chunks 切片向量池化聚合（加权 mean/max-pool + L2 归一化，写入/重建/改稿全链路共用 ArticleVectorComposer 单点，无切片兜底直算），长文后半段主题不再丢失；**条件版查询可叠加本地 reranker 精排（2026-11-17 板块三 3.2 升级②）**：queryText 非空且相关性类排序时多取 rerank.top-n 候选对 (queryText, 标题+摘要) 打分重排（0 次 LLM，零 API 费），未启用/失败 fail-open 退回融合基线排序（结果不劣化） |
+| 条件版相似查询 | 按维度组合的组合检索（AI 条件推荐/收藏夹检索/多文对比底座） | `SearchClient#similarByCondition`（SimilarConditionRequestDTO：queryText/excludeArticleId/authorId/excludeAuthorIds/category/tags/aiLabels/wordCount 区间/publishTime 区间/topK/sortHint + includeArticleIds 白名单/excludeArticleIds 黑名单 filter，2026-11-16 板块三 3.1 + 板块四 4.1）：按维度注册表四类 match 路由——filter 词表型 term（aiLabels 缺省写 ai\_labels.{维度名}）/ range 数值型 range（word\_count、publish\_time）/ param 型 topK 截断 + sortHint（related 融合 / newest updateTime 降序 / heat 热度降序 / similarity-first 纯向量）/ semantic queryText embed 后 knn 作参照向量；queryText 空或 embedding 未就绪退化纯条件过滤检索按 sortHint 排序；visibility=PUBLIC + 排除自身强制（filter + mustNot 双保险） |
 | 降级查询 | ES 不可用兜底     | 返回热门列表（content `/article/hot` 同源数据）+ 前端提示搜索不可用（`source=DEGRADED` 标记，结果不缓存；2026-11-03 批次A A3 定案）                                                                                                                                 |
 
 ### 2.2 枚举定义
@@ -115,7 +116,7 @@ SearchSortEnum // RELATED(默认，relevance+function_score) / NEWEST(updateTime
 事件到达 IndexSyncConsumer（手动 ACK）
 1. 解析事件体（articleId + 元数据/状态）
 2. unpublished → 删除 article_idx 文档（幂等，404 视为成功）
-3. published → 校验 visibility=PUBLIC → IndexVersionGuard 版本比较（现有 updateTime ≥ 本次快照含相等则跳过；读 ES 失败抛异常交 MQ 重试）→ Embedding 预计算 vec_dense → upsert 文档
+3. published → 校验 visibility=PUBLIC → IndexVersionGuard 版本比较（现有 updateTime ≥ 本次快照含相等则跳过；读 ES 失败抛异常交 MQ 重试）→ vec\_dense 预计算（**2026-11-17 池化口径**：先重建该篇 article\_chunks 切片并取回切片向量 → ArticleVectorComposer 池化聚合；无切片兜底 buildEmbeddingInput 标题+摘要+正文 2000 字直算）→ upsert 文档
 4. article-updated → 轻量回查元数据 → IndexVersionGuard 版本比较 → partial update 元数据字段（title/tags/summary 等索引字段，不动向量与 chunks；2026-11-03 批次A A2 定案）
 4.5 user.registered / user.profile-updated → UserClient.getUserIndexDoc 回查 → 门控（无公开资料不建、已不可索引则删）→ IndexVersionGuard 版本比较 → upsert user_idx；版本源取 user.update_time 与 user_profile.update_time 的较大者（只改笔名时主表时间可能不前进，单取主表会被版本守卫永久判旧）；MQ 消费线程无 SaToken 上下文，FeignAuthInterceptor 只透传 traceId
 5. liked/unliked/commented/view-count-flushed → **只累加 Redis 热度待刷新键，不直写 ES**（`HINCRBY` 累加 like/comment 增量 + `HSET` 覆盖 view_cnt 绝对值；点赞按 SocialLikedEvent.delta 累加（无 delta 兜底 +1、delta=0 跳过），取消点赞按 SocialUnlikedEvent.delta=-1 负数累加，IndexHeatFlushJob 写回 ES 前 `Math.max(0, …+likeDelta)` 下限保护防负值（批次十一 11.14）；2026-11-03 批次A A7 定案：article_idx 带 1024 维向量约 4KB，ES partial update 实为整文档重写，逐条互动消费写放大严重）；**ACK 后置**：Redis 累加成功才 ACK，累加失败 nack 重试（防丢数致 heat 漂移）→ IndexHeatFlushJob 定时聚合（`heat.flush.interval-ms` 默认 15min、可调 15~30min，fixedDelay 不堆积）→ `_bulk` 批量 partial update 重算 heat（每篇每窗口至多 1 次写，不动向量；heat 公式按 A5；**分片执行**：按 `batch-size`(1000)×`concurrency`(2) 分批防超大请求被 ES 拒绝，bulk 用 update+doc 只改 heat 字段禁 index 整篇替换；pending 键 TTL 2h 兜底防未刷先清）
@@ -159,6 +160,17 @@ GET /search/similar/{articleId} → 取源文章 vec_dense + tags
 → 强制 filter(visibility=PUBLIC)（批次C C3 定版，与 §四查询侧双保险红线对齐）+ 阈值过滤 + 排除自身与已下架文档 → 返回列表
 ```
 
+**条件版相似查询（板块三 3.1，2026-11-16）**：
+
+```
+SearchClient#similarByCondition → 参数校验（topK 截断 + sortHint 归一化）
+→ queryText 非空时 embed 作 knn 参照向量（embedding 未就绪退化纯条件过滤）
+→ 按维度注册表四类 match 构造 filter：filter 词表型 term / range 数值型 range / param 型 topK+sortHint / semantic 已在向量化步承载
+→ 有参照向量走 knn + filter（visibility=PUBLIC + 排除自身 mustNot 双保险）；无向量退化纯条件过滤检索按 sortHint ES 排序
+→ 阈值过滤（仅向量路径）+ 融合/sortHint 排序 → rerank 可用时多取 rerank.top-n 候选送本地 reranker 重排（0 次 LLM）后截回 topK
+→ 未命中返回空列表不报错；rerank 未启用/失败 fail-open 退回融合基线（结果不劣化）
+```
+
 ***
 
 ## 三、接口设计
@@ -195,6 +207,12 @@ SimilarArticleVO  { articleId, title, summary, authorName, score }
 List<SimilarArticleVO> similar(Long articleId, Integer topK);
 // 业务方或 ai 服务间直接调检索（非降级链路；ES 降级见 §八-5，批次A A3 定案）
 SearchResultVO search(SearchRequestDTO request);
+// 条件版相似查询（板块三 3.1，2026-11-16；AI 条件推荐/收藏夹检索/查重/找系列底座 + rerank 精排 3.2②）
+List<SimilarArticleVO> similarByCondition(SimilarConditionRequestDTO dto);
+// 作者名解析数据源（板块八 1.2 配套，2026-11-16）
+List<UserSearchVO> searchUsers(String keyword);
+// 单篇文章 ai_labels 词表型映射回查（板块十二 4.6 配套，2026-11-16；未入索引/未打标返回空 map 不报错）
+Map<String, String> getArticleAiLabels(Long articleId);
 ```
 
 ***
@@ -215,7 +233,8 @@ SearchResultVO search(SearchRequestDTO request);
 | authorName                               | text（ik\_max\_word / ik\_smart，multi-field 含 .completion 子字段） | 作者名检索 + suggest 联想源（2026-11-03 批次A A4 补）                                                                                                                                                        |
 | like\_cnt / comment\_cnt / view\_cnt     | long                                                          | heat 计算基数：like/comment 随互动事件增量，view\_cnt 随浏览量 flush 事件覆盖更新（2026-11-03 批次A A5 补）                                                                                                                 |
 | heat                                     | double                                                        | 互动热度 = `(w_like×like_cnt + w_comment×comment_cnt + w_view×view_cnt) × 时间衰减因子`（衰减按发布时间距今计算，防旧爆款长期霸榜；权重与半衰期外置 Nacos 可调，默认 2 / 3 / 0.1 / 168h，2026-11-03 批次A A5 定案）；function\_score 加权因子 + HEAT 排序 |
-| vec\_dense                               | dense\_vector（dims=1024，cosine，indexed）                       | KNN 相似推荐；维度与 Embedding 模型对齐                                                                                                                                                                     |
+| ai\_labels                               | object（维度名 → keyword 词表值）                                    | AI 标签槽（板块八/search 板块二，2026-11-16）：索引期打标写入维度注册表词表值；条件版查询 filter 词表型路由读 `ai_labels.{维度名}`，风格素材读取走 getArticleAiLabels 回查；打标开关 labeling-enabled=false 时留空该维度过滤退化为语义兜底 |
+| vec\_dense                               | dense\_vector（dims=1024，cosine，indexed）                       | KNN 相似推荐；维度与 Embedding 模型对齐；**生产口径（2026-11-17 池化专项板块一）**：由切片向量池化聚合（w_t=2 / w_s=2 / w_c=1 加权 + L2 归一化，策略 pool.strategy=mean\|max-pool），写入/重建/改稿全链路共用 ArticleVectorComposer；无切片兜底 buildEmbeddingInput 直算；模型变更仍走「\_meta 防漂移 + 全量重建」纪律（§八-8）                                                              |
 | updateTime                               | date                                                          | NEWEST 排序                                                                                                                                                                                       |
 | title.completion / authorName.completion | completion                                                    | 搜索联想 suggester 字段（authorName.completion 为 authorName 的 multi-field 子字段；2026-11-03 补，仅联想用不参与打分）                                                                                                  |
 
@@ -266,7 +285,7 @@ SearchResultVO search(SearchRequestDTO request);
 | `litisle.search.weight.heat.like / comment / view / time-decay-half-life`                               | 2 / 3 / 0.1 / 168h                   | heat 公式权重 + 时间衰减半衰期（衰减后热度按半衰期折半，评论 > 点赞 > 浏览，Nacos 可调；2026-11-03 批次A A5 定案 + 增强采纳）                                                                                                                                                                                                                   |
 | `litisle.search.heat.flush.interval-ms / initial-delay-ms / batch-size / concurrency / pending-key-ttl` | 900000（15min）/ 60000 / 1000 / 2 / 2h | 互动热度刷写：liked/commented/view-count-flushed 消费仅累加 Redis 热度待刷新键，本任务按周期聚合 `_bulk` 更新 heat（fixedDelay 不堆积，每篇每窗口至多 1 次写，容忍 15\~30min 滞后）；`_bulk` 按 batch-size（主流区间 500\~2000）× concurrency（2\~4）分片执行，bulk 用 update+doc 只改 heat 字段禁 index 整篇替换；pending 键 TTL ≥2 个刷写周期防未刷先清（2026-11-03 批次A A7 定案新增 + 工程细节补充） |
 | `litisle.search.knn.top-k / num-candidates`                                                             | 10 / 100                             | KNN 参数                                                                                                                                                                                                                                                                                               |
-| `litisle.search.knn.similarity-threshold`                                                               | 0.0（默认不过滤）                           | 相似推荐阈值（ai RAG 的 0.65 阈值属 ai 侧，不在此收敛）                                                                                                                                                                                                                                                                 |
+| `litisle.search.knn.similarity-threshold`                                                               | 0.4                                  | 相似推荐阈值（批次七选型定案默认 0.4：过滤明显不相关候选；ai RAG 的 0.65 阈值仍属 ai 侧，不在此收敛）                                                                                                                                                                                                                                                                 |
 | `litisle.search.cache.hot-query-enabled / ttl`                                                          | true / 10m                           | 热点查询缓存                                                                                                                                                                                                                                                                                               |
 | `litisle.search.suggest.enabled / size`                                                                 | true / 10                            | 搜索联想开关与默认条数（2026-11-03 新增）                                                                                                                                                                                                                                                                           |
 | `litisle.search.history.max-per-user`                                                                   | 20                                   | 单用户搜索历史上限，超限懒删最旧（2026-11-03 新增）                                                                                                                                                                                                                                                                      |
@@ -276,6 +295,12 @@ SearchResultVO search(SearchRequestDTO request);
 | `litisle.search.metrics.backlog-collect-interval-ms / backlog-collect-initial-delay-ms`                 | 15000 / 15000                        | 索引同步队列积压采集任务周期（IndexBacklogCollectJob，写入 gauge `litisle_search_index_backlog{queue}`，支撑「积压持续 >5 分钟」告警；批次九 9.9-F）                                                                                                                                                                                     |
 | `litisle.search.fallback.embedding-timeout`                                                             | 1s                                   | 空结果兜底查询词实时 Embedding 超时上限（超时/失败二级兜底 HEAT 热门列表，2026-11-03 批次A A1 定案新增）                                                                                                                                                                                                                                |
 | `litisle.search.fallback.enabled`                                                                       | true                                 | ES 不可用降级开关（降级返回热门列表 + 前端提示，2026-11-03 批次A A3 定案，原 db-query-enabled 废弃）                                                                                                                                                                                                                               |
+| `litisle.search.embedding.enabled / provider / model / dimension`                                       | false / openai-compatible / bge-m3 / 1024 | 向量提供方（批次七）：开关关闭时 vec\_dense/chunk\_vector 不写入不阻断索引；provider 条件装配适配器（openai-compatible 主 / ollama 备）；model 写索引 \_meta，变更必须全量重建向量字段（§八-8）                                                                                                                                                              |
+| `litisle.search.embedding.base-url / api-key / timeout / batch-size / rebuild-batch-size`               | — / 环境变量注入 / 10s / 16 / 100          | HTTP 提供方参数：内网地址走 Nacos/环境变量覆盖禁硬编码；单批向量化条数与全量重建扫描批量（批次七选型定案）                                                                                                                                                                                                                                          |
+| `litisle.search.embedding.pool.strategy`                                                                | mean                                 | 切片向量池化策略（2026-11-17 板块一 1.1）：mean=逐维平均（默认）；max-pool=逐维取各切片最大值（备选不默认，多主题长文更尖锐但可能放大噪声）；非法值按 mean 兜底；池化权重 w_t=2 / w_s=2（摘要为空并入 w_t）/ w_c=1 在 ArticleVectorPooler 固化，写入/重建共用同一聚合器防口径漂移                                                                                                                   |
+| `litisle.search.rerank.enabled / provider / model`                                                      | false / openai-compatible / bge-reranker-v2-m3 | 本地 reranker 精排（2026-11-17 板块三 3.2 升级②）：开关关闭时条件版查询走三路融合基线排序；provider 条件装配适配器（OpenAI 兼容 /v1/rerank 协议，覆盖 SiliconFlow/Jina/Cohere 兼容入口/自建 rerank 网关）                                                                                                                                                 |
+| `litisle.search.rerank.base-url / api-key / timeout / top-n`                                            | — / 环境变量注入 / 10s / 20                | 重排提供方参数：top-n=送入重排的候选条数（条件版查询多取候选重排后截回 topK，上限受 knn.max-top-k 约束）；未启用/queryText 空/打分失败一律 fail-open 退回融合基线，结果不劣化；0 次 LLM 零 API 费                                                                                                                                                                  |
+| `litisle.search.ai-labels.labeling-enabled / label-content-max-chars`                                   | true / 2000                          | 索引期 AI 打标开关与正文截断（板块八/search 板块二，2026-11-16）：关闭时索引链路跳过打标 ai\_labels 留空，维度过滤退化为语义兜底；维度注册表本体在 litisle-api AiLabelDimensionsProperties（打标/提取/查询三端共读）                                                                                                                                                   |
 
 ***
 

@@ -51,8 +51,9 @@
 - `Result<Map<String,Integer>> batchGetSafeFlags(List<String> fileIds)` — 读，静默空 Map（缺失=未知态保守）
 - `Result<FileContentDTO> getContent(String fileId)` — GET `/{fileId}/content`（**机审取图唯一入口**，不过 safe_flag 闸口，fail-fast）
 
-### AiClient ✅（契约就绪，提供方端点未实现）
+### AiClient ✅（提供方端点已实现：AiChatController 板块一 / AiLabelController 板块八）
 - `Result<AiChatResponseDTO> chat(AiChatRequestDTO dto)` — POST `/api/feign/ai/chat`（fail-fast）
+- `Result<Map<String,String>> label(...)` — POST `/api/feign/ai/label`（板块八打标契约，维度注册表词表值产出，search ai_labels 数据源；fail-fast）
 
 ### UserClient ✅ / AuthClient ✅
 - `UserClient`：`getUserById` / `createUser` / `findByAccount` / `findByEmail` / `getAuthUserInfo`
@@ -63,15 +64,22 @@
 - `Result<List<ArticleImageRefDTO>> listArticleImages(articleId)` — GET `/api/feign/content/article-images`（配图复审反查，fail-fast）
 - `Result<List<Long>> listArticleIdsByFileId(fileId)` — GET `/api/feign/content/article-ids-by-file`（按 idx_file_id 反查引用文章，图片复审再聚合用，fail-fast；聚合判定收口 review 消费端，板块八 8.2）
 - `Result<Void> updateCounters(ArticleCounterUpdateDTO dto)` — POST `/api/feign/content/counters/update`（social 计数回写冗余列 view/like/comment cnt，幂等绝对值 SET，fail-fast）
+- `Result<ArticleIndexDocDTO> getArticleIndexDoc(articleId)` — GET `/api/feign/content/article-index-doc`（索引快照含摘要；ai 板块一 1.4 查询文本口径对齐用，fail-fast）
+- `getBookIndexDoc / tagSuggest / getHotArticles` — book 索引快照 / 标签建议 / 热榜列表（板块八 1.2 与板块十二 4.4 数据源，fail-fast）
+- `Result<Void> favorite(articleId, userId)` — POST `/api/feign/content/favorite`（板块九收藏动作落库，fail-fast）
+- `Result<List<Long>> listFavoriteArticleIds(userId)` — GET `/api/feign/content/favorite/article-ids`（板块十一收藏 ID 白名单，fail-fast）
 - ⚠️ search 建索引回查字段充足性 + **审核终态/DFA 结论获取方式**待核（temp search批次B B6，契约待落地）；不足则扩提供方端点（禁事件体塞大字段）
 
 ### SocialClient ✅（`name="litisle-social"`，提供方端点待 social 实现）
 - `Result<MessageDTO> getContent(bizId)` — GET `/api/feign/message/get`（私信机审回查，fail-fast；降级工厂类名 `MessageClientFallbackFactory`）
 - `Result<Boolean> isFollowing(ownerId, viewerId)` — GET `/api/feign/follow/check`（visibility=3 仅关注者判定回查，fail-fast；业务 fail 按非关注者处理宁严勿松）
 
-### SearchClient ✅（temp search批次B B1 落地 2026-11-03；缺口 G1 闭环；`name="litisle-search"`，`/api/feign/search/**`，网关不路由；提供方端点待 search 服务实现）
+### SearchClient ✅（temp search批次B B1 落地 2026-11-03；缺口 G1 闭环；`name="litisle-search"`，`/api/feign/search/**`，网关不路由；提供方端点已实现：SearchFeignProviderController）
 - `Result<List<SimilarArticleVO>> similar(articleId, topK)` — GET `/api/feign/search/similar`，相似推荐（ai RAG / 前端相关文章复用；KNN 强制 PUBLIC 过滤，批次C C3；fail-fast）
 - `Result<SearchResultVO> search(SearchRequestDTO dto)` — POST `/api/feign/search/search`，服务间检索（非降级链路；fail-fast）
+- `Result<List<SimilarArticleVO>> similarByCondition(SimilarConditionRequestDTO dto)` — POST `/api/feign/search/similar-by-condition`，条件版相似查询（板块三 3.1 2026-11-16：维度注册表四类 match 路由；板块四 4.1 扩 includeArticleIds 白名单 + excludeArticleIds 黑名单 filter；queryText 相关性类排序可叠加本地 reranker 精排，0 次 LLM fail-open；fail-fast）
+- `Result<List<UserSearchVO>> searchUsers(keyword)` — GET `/api/feign/search/users`，作者名解析（板块八 1.2 配套；fail-fast）
+- `Result<Map<String,String>> getArticleAiLabels(articleId)` — GET `/api/feign/search/article-labels`，单篇 ai_labels 回查（板块十二 4.6 配套，未打标返回空 map；fail-fast）
 - fallback 工厂 `SearchClientFallbackFactory` + `FeignFallbackAutoConfiguration` 注册已补；DTO/VO 按批次A A6 归属入 api 包（`dto/search` / `vo/search`）
 
 ### ReviewClient ✅（`name="litisle-review"`）
@@ -90,7 +98,7 @@
 - content 域：`ContentDTO` / `ArticleImageRefDTO` / `ContentPreviewCheckDTO` / `ContentPreviewCheckVO` / `ArticleCounterUpdateDTO`（social 计数回写入参）✅
 - social 域：`MessageDTO` ✅ ｜ auth 域：`TokenVO` / `OAuthBindDTO` / `OAuthAuthorizeVO` ✅ ｜ captcha 域：`ChangeEmailVerifyDTO` ✅
 - vo 域：`UserRolesVO` / `UserBriefVO` ✅ ｜ enums：`ImageAuditTriggerEnum` / `RegisterSourceEnum` ✅
-- search 域：`SearchRequestDTO`（`dto/search`）与 `SearchResultVO` / `SimilarArticleVO` / `ArticleDocVO` / `BookDocVO` / `UserDocVO`（`vo/search`）✅ 落地（temp search批次B B1，2026-11-03；`SearchResultVO` 命中列表按 type 拆 `articleList/bookList/userList` 三强类型字段落地）；`SuggestVO` / `SearchHistoryVO` 留 search/domain 仅 REST 用（未建）
+- search 域：`SearchRequestDTO`（`dto/search`）与 `SearchResultVO` / `SimilarArticleVO` / `ArticleDocVO` / `BookDocVO` / `UserDocVO`（`vo/search`）✅ 落地（temp search批次B B1，2026-11-03；`SearchResultVO` 命中列表按 type 拆 `articleList/bookList/userList` 三强类型字段落地）；`SimilarConditionRequestDTO`（板块三 3.1 条件版查询入参，含 queryText/authorId/excludeAuthorIds/category/tags/aiLabels/wordCount 与 publishTime 区间/topK/sortHint/includeArticleIds/excludeArticleIds）、`UserSearchVO`、`ArticleIndexDocDTO`（板块一 1.4 口径对齐用）随板块三/八/九/十一批补落地；`SuggestVO` / `SearchHistoryVO` 留 search/domain 仅 REST 用（未建）
 
 ## 五、moderation 门面组件（`com.litisle.litisleapi.moderation`）✅
 

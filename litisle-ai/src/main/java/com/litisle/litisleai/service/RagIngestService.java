@@ -14,6 +14,7 @@ import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -38,11 +39,24 @@ import java.util.List;
  * <p>【失败语义】embedding/ES 失败上抛 → MQ 消费侧延迟重投；业务性失败（文章不存在）
  * 抛 BizException → 消费侧 ack 丢弃（防毒丸）。</p>
  *
+ * <p>【通俗说明】文章进 AI 知识库的"入库流水线"：文章发布后收到通知（MQ 消息），
+ * 先不急着入库——回 content 服务把最新的正文、状态、可见性取来核实（消息体可能
+ * 过期或被篡改，只信权威数据源），然后三道关口：① 只有"已发布 + 公开"的文章才
+ * 配入库，不合格就当删除处理清掉旧切片（防转私密后内容残留被检索到）；② 正文
+ * 清洗切片；③ 每片向量化后覆盖写进索引。改稿不重新入库（切片不变），改稿后的
+ * 一致性由检索侧的指纹比对兜底。失败分两类：模型/ES 挂了就抛异常让消息延迟重试；
+ * 文章压根不存在就丢弃消息，防止"毒丸"卡死队列。</p>
+ *
+ * <p>【条件装配】litisle.ai.rag.enabled=false 时本 Bean 缺席（唯一调用方 RagIngestConsumer
+ * 同为条件装配 Bean）；依赖的 EmbeddingProvider/ElasticsearchClient 同为条件装配 Bean，
+ * 硬注入在开关关闭时会因缺 Bean 阻断启动，故一并条件化。</p>
+ *
  * @author litisle
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnProperty(prefix = "litisle.ai.rag", name = "enabled", havingValue = "true")
 public class RagIngestService {
 
     /** 内容服务客户端（权威数据回查） */
@@ -51,7 +65,7 @@ public class RagIngestService {
     /** 切片器（清洗 + 500/50 滑窗） */
     private final ContentChunker chunker;
 
-    /** 向量通道（P3：Ollama bge-m3） */
+    /** 向量通道（P3：Ollama bge-m3；AiRagConfig 装配，与本 Bean 同受 rag.enabled 开关控制，开关开启时必在） */
     private final EmbeddingProvider embeddingProvider;
 
     /** 切片索引客户端（AI 自管索引唯一读写出口） */
@@ -66,6 +80,11 @@ public class RagIngestService {
      * @param articleId 文章 ID（事件体定位键）
      * @throws BizException 文章不存在（业务性失败，消费侧 ack 丢弃）
      * @throws IOException  ES 写入失败（消费侧延迟重投）
+     *
+     * <p>【通俗说明】发布入库五步：① 回查权威数据（查不到就丢弃消息）；② 公开门控
+     * （非公开一律按删除清库，隐私红线）；③ 正文清洗切片（洗完为空就清掉旧切片
+     * 收工）；④ 确保索引存在，逐片向量化组装文档；⑤ 先删该篇旧切片再覆盖写入
+     * （重复发布天然幂等，旧片段绝不残留）。</p>
      */
     public void handlePublished(Long articleId) throws IOException {
         // ① 权威回查：正文/可见性/指纹一律取 content 侧当前值（事件体只做定位）
@@ -105,6 +124,9 @@ public class RagIngestService {
      *
      * @param articleId 文章 ID
      * @throws IOException ES 访问失败上抛（消费侧延迟重投，保证最终删除）
+     *
+     * <p>【通俗说明】文章下架（删文/转私密）时把它的所有切片一次清干净——
+     * 隐私红线，不管什么原因下架都删；删不到也不报错，天然幂等。</p>
      */
     public void handleUnpublished(Long articleId) throws IOException {
         chunkIndexClient.deleteByArticle(articleId);

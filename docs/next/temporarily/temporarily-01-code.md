@@ -190,15 +190,15 @@ MessageRecallGate.recall / StrangerQuotaGate.tryAcquire 契约已备；发送链
 
 #### 网关 /api/ai/** 前缀与端点登记（Api-Architecture 定稿）
 
-AI 端点 /ai/xiaoyue/chat|summary|tag|polish|analyze-structure 与 /ai/sessions（POST/GET/DELETE）已按 AI-Architecture §7.1 路径落地；网关 /api/ai/** 前缀转发与端点白名单须在 Api-Architecture 定稿时同步登记（涉及端点：机审 Feign /api/feign/ai/chat 为内部端点不经网关）。触发条件：网关模块开发或 Api-Architecture 定稿时迁回实施。
+> ✅ **已回收（2026-11-16，板块七 7.1）**：端点路径与出入参已在 [AI-Architecture.md](../../Architecture/AI-Architecture.md) §7.1 定稿（含板块五 /ai/xiaoyue/similar 与板块六 /ai/usage/me、/me/details、/summary）；网关 /api/ai/** 前缀路由已在 Gateway-Architecture §2.1 登记，并在 [Api-Architecture.md](../../Architecture/Api-Architecture.md) §4.5 补充「用户侧端点经 /api/ai/** 转发、机审 Feign 不经网关」口径；§4.5 提供方端点状态同步为已实现。
 
 #### AI-Architecture §7.3 消费队列登记 + §7.1 端点核对
 
-AI 侧已新增消费 content.published / content.unpublished 两队列（RagIngestConsumer，板块四 4.1，MQ 拓扑 AiRagMqConfig 条件装配），须在 AI-Architecture §7.3 事件/队列清单补登记；§7.1 端点清单与实际实现（含 /polish、/analyze-structure、/ai/sessions）核对同步。触发条件：AI-Architecture 文档同步窗口（下一次架构文档修订时）。
+> ✅ **已回收（2026-11-16，板块七 7.3）**：§7.3 已登记 content.published / content.unpublished 两消费队列（RagIngestConsumer，AiRagMqConfig 条件装配）；§7.1 端点清单已与实际实现核对定稿（含 /polish、/analyze-structure、/ai/sessions、/ai/xiaoyue/similar、/ai/usage/**），状态符号 🟡→✅。
 
-#### D15 桶口径文档修订（POLISH/STRUCTURE 扩桶）
+#### D15 桶口径文档修订（POLISH/STRUCTURE/SIMILAR 扩桶）
 
-AiPurposeEnum 已扩 POLISH/STRUCTURE 两值且预算/配额各自独立桶（板块三 3.3，扩展口径=D15「生成类各自独立桶」精神延伸）；D15 决策原文仅列前五类，须在 AI-Business-Guide（D 决策唯一来源）补 POLISH/STRUCTURE 桶口径修订。触发条件：AI-Business-Guide 文档修订时。
+> ✅ **已回收（2026-11-16，板块七 7.2）**：AI-Business-Guide §5.3「成本可见」已修订为八类计量口径（机审文本/机审图片/摘要/标签/问答/润色/结构分析/相似推荐，OTHER 兜底不计费），D15 行与 §16.3.4 引用处同步；AiPurposeEnum 扩桶（POLISH/STRUCTURE/SIMILAR）已随板块三/五完成。
 
 #### 小审判 XIAOSHEN 会话复用 ai_session/ai_message
 
@@ -207,6 +207,16 @@ ai_session/ai_message 已按小悦会话落地，agent_type 字段已预留；�
 #### 会话「已保存区」（is_lru=0）保存动作端点
 
 Design-Document §2.3.6「已保存 100/200」口径：ai_session.is_lru=0 已保存区字段与治理参数已预留，保存动作端点（暂存区会话转已保存）未在板块三 3.1 清单要求，暂不实现。触发条件：会话保存功能产品化立项时迁回实施。
+
+#### 板块九挂起项（2026-11-16 归档时登记，迁自 next_update.md 板块九；实现记录见 [ai-09-agent-interaction.md](../../archive/ai/ai-09-agent-interaction.md)）
+
+#### 书单动作契约（板块九 1.2 书单部分）
+
+「收藏第 1 篇加入书单」类书单动作：前置核对结论——content **书单契约不存在**（content 的 Book* 域为书籍/章节，非用户自建书单；收藏域仅单层收藏 FavoriteService）。收藏文章部分已随板块九 1.2 落地（ContentClient#favorite 契约 + 工具⑥）；书单动作暂不实现，XiaoyueTools system prompt 已约束「收藏动作只支持收藏文章（书单能力暂未开放，如实说明）」。触发条件：content 书单域立项（书单创建/条目维护契约 + Feign 面）时迁回板块十/十一实施。
+
+#### 金句摘录落库契约（板块九 1.8 落库部分）
+
+金句摘录卡保存/落库：前置核对结论——content **笔记/摘录契约不存在**（无 note/excerpt 相关 Controller/Service/表）。纯会话内展示部分已随板块九 1.8 先行落地（单文切片检索 + 只摘原文不改写，purpose=QA 计量照常）；落库部分暂不实现，INTENT_POST_READ_QA 已约束「保存摘录依赖的笔记契约暂未开放，如实说明」。触发条件：content 笔记/摘录域立项（契约可经 Feign 复用）时迁回实施落库链路。
 
 #### review 侧 LlmTextModerationAdapter 传参改造（归属 review 模块）
 

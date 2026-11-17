@@ -70,4 +70,52 @@ public class AiAgentProperties {
 
     /** Redis ChatMemory 键 TTL（分钟，暂存上下文过期即弃；D4 建议态不落库同源口径） */
     private int memoryTtlMinutes = 30;
+
+    // ==================== 会话结果集（板块九 1.1：结果动作/读后服务公共地基） ====================
+
+    /**
+     * 会话结果集 Redis 键 TTL（分钟，外置过期失效）：最近一次推荐/检索结果的
+     * articleId→序号映射过期即弃，过期后引用序号由工具明确提示重新发起检索，不猜不编造
+     */
+    private int resultSetTtlMinutes = 60;
+
+    /** 结果动作单次批量上限（「收藏第 2、3、4 篇」类指令一次最多处理的序号数，防批量写放大） */
+    private int resultActionMaxBatch = 10;
+
+    // ==================== 创作辅助（板块十二：预设问题/选题灵感/风格仿写） ====================
+
+    /** 读者预设问题生成条数 N（板块十二 4.3：发布前自检的 Q&A 条数，外置可调） */
+    private int readerQuestionCount = 5;
+
+    /** 选题灵感热榜上下文条数（板块十二 4.4：取热榜前 N 篇标题作分析上下文） */
+    private int topicInspirationHotLimit = 10;
+
+    // ==================== 能力发现与引导（板块十三 5.3：边界响应模板，零 LLM 成本） ====================
+
+    /**
+     * 边界响应话术模板（板块十三 5.3：Agent 能力边界撞墙时按此模板拒绝并附相近能力清单，
+     * 把每次拒绝变成一次能力广告；{capabilities} 占位符由模型按真实工具能力如实填写，
+     * 装配时经 AiPromptConstants 渲染注入 system prompt，外置可调）
+     */
+    private String boundaryRefusalTemplate = "这个我还做不到，但我可以：{capabilities}";
+
+    // ==================== 写作辅助扩展（板块十五：多级改写建议 + 文章草稿生成） ====================
+
+    /**
+     * 改写候选数上限（板块十五 15.1：候选数 1–3，配置上限外置可调；入参缺省取上限，越界 clamp 到 1~上限）
+     */
+    private int rewriteCandidateLimit = 3;
+
+    /**
+     * TITLE 粒度改写字数上限（板块十五 15.1：对齐 content 侧标题 100 字约束，越限作者无法采用）
+     */
+    private int rewriteTitleMaxChars = 100;
+
+    /** 改动理由一句话字数上限（板块十五 15.1：每个候选版本附一句改动理由） */
+    private int rewriteReasonMaxChars = 50;
+
+    /**
+     * 草稿单次生成字数上限（板块十五 15.2：防成本放大，service 侧校验超出即回喂重试，不依赖模型自觉）
+     */
+    private int draftMaxChars = 2000;
 }

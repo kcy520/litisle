@@ -3,6 +3,7 @@ package com.litisle.litisleapi.vo.search;
 import lombok.Data;
 
 import java.io.Serializable;
+import java.time.LocalDateTime;
 
 /**
  * 相似文章推荐 VO（KNN 相似推荐跨服务契约）
@@ -25,6 +26,9 @@ public class SimilarArticleVO implements Serializable {
     /** 相似文章 ID */
     private Long articleId;
 
+    /** 作者 ID（板块三 3.1 补充：条件版检索调用方组装作者维度展示用） */
+    private Long authorId;
+
     /** 标题 */
     private String title;
 
@@ -36,4 +40,10 @@ public class SimilarArticleVO implements Serializable {
 
     /** 相似度融合分（KNN 向量相似 + 标签重合 + 行为加权，越高越相似） */
     private Double score;
+
+    /** 互动热度（板块三 3.1 补充：条件版 sortHint=heat 排序依据透传） */
+    private Double heat;
+
+    /** 更新时间（板块三 3.1 补充：条件版 sortHint=newest 排序依据透传，ISO-8601） */
+    private LocalDateTime updateTime;
 }

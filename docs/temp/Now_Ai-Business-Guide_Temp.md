@@ -1,8 +1,8 @@
-# LitIsle AI 模块临时速览（当前实现态，2026-11-15）
+# LitIsle AI 模块临时速览（当前实现态，2026-11-17）
 
 > **文档定位**：临时速览版——快速理解 AI 模块当前的业务逻辑、架构与代码落位，快速上手用。每个功能按「功能描述 / 业务逻辑 / 重要子业务逻辑详解」三层展开。
-> **正式版**：`docs/Study/AI-Business-Guide.md`（当前为空；完整原版 1100+ 行在 git 提交 `0106d4a`/HEAD 中，恢复后以正式版为唯一业务口径来源）。
-> **实现记录**：板块零~四全部完成，条目细案见 [docs/archive/ai/ai-implemention-records.md](../archive/ai/ai-implemention-records.md)；运行态验证见 [docs/next/next_verify.md](../next/next_verify.md) AI-V1/V2。
+> **正式版**：`docs/Study/AI-Business-Guide.md`（已完整，897 行，2026-11-17 已同步板块五~十五新能力）——业务口径冲突时**以正式版为唯一来源**，本速览只做上手导览。
+> **实现记录**：板块零~十二、十三 5.3、十四部分、十五全部完成并归档，条目细案见 [docs/archive/ai/ai-implemention-records.md](../archive/ai/ai-implemention-records.md) 各板块文件；运行态验证见 [docs/next/next_verify.md](../next/next_verify.md) AI-V1~V8。活跃待办仅剩板块十三 5.1/5.2（能力发现端点）与板块十四（读前预览+组合编排）。
 > **范围说明**：图片判定端点、小审判定辅助、反馈采集、评测集等预留项只在 §二·六 清单标注，不展开。
 
 ---
@@ -14,10 +14,14 @@
 review ──Feign──▶ AI /api/feign/ai/chat（LLM 文本判定；review 侧改造前仍走人工，无回归）
 
 业务线B：生成式小悦 Agent
-用户/前端 ──网关──▶ AI /ai/xiaoyue/*（摘要/标签/润色/结构分析/站内问答）+ /ai/sessions（会话）
+用户/前端 ──网关──▶ AI /ai/xiaoyue/*（摘要/标签/润色/结构分析/站内问答/相似推荐
+                     /查重/改写建议/草稿）+ /ai/sessions（会话）+ /ai/usage/*（用量）
 
 业务线B 的知识库支撑（RAG）：
 content 发布/下架事件 ──MQ──▶ AI 摄入切片+向量 ──▶ ES(article_chunks_ai) ──▶ 问答引用回查
+
+业务线B 的相似检索支撑（search 侧）：
+条件提取（LLM）→ SearchClient#similarByCondition（四类 match + reranker 精排，0 次生成）
 ```
 
 所有 AI 能力共用同一套底座：模型通道（provider 层）→ 计量配额预算（三表+判定）→ Agent 底座（AiServices+工具）→ 会话记忆 → RAG。下层不感知上层业务，上层可独立降级。
@@ -30,9 +34,11 @@ content 发布/下架事件 ──MQ──▶ AI 摄入切片+向量 ──▶ E
 | --- | --- | --- |
 | 统一模型通道（唯一接触模型 SDK 的层） | provider/text + provider/embedding | 不硬编码端点，配置外置；失败 fail-fast 上抛不静默 |
 | Token 计量、预算分账、用户配额 | service + ai_* 三表 | 不预扣配额（判定式）；失败调用也计量 |
-| 小悦 Agent（路由/工具/降级/自校验） | agent + XiaoyueChatService | 不写业务库——产出一律建议态（D4），落库由 content 执行 |
+| 小悦 Agent（路由/工具/降级/自校验/边界话术） | agent + XiaoyueChatService | 不写业务库——产出一律建议态（D4），落库由 content 执行 |
 | 会话治理与多轮记忆 | AiSessionService + RedisChatMemoryStore | 不跨用户泄露会话存在性（跨用户按不存在处理） |
 | RAG 知识库（摄入+检索+引用） | mq + rag + Rag*Service | 不做站内检索——自建自管 article_chunks_ai，与 search 索引隔离（P9） |
+| 条件化相似推荐（条件提取+条件版检索） | ConditionExtractService + SimilarRecommendService | 条件提取每轮 1 次 LLM（SIMILAR 桶）；注册表外维度拒绝，词表外长尾由 search 侧语义兜底 |
+| 写作辅助（改写/草稿建议态） | WritingAssistService（/rewrite /draft） | AI 不落库——作者采用后走 content 正常创建流程（DFA+机审），AI 草稿不绕过送审 |
 | 指标与日志纪律 | metrics/AiMetrics | 日志不打印正文全文/私信/用户身份 |
 
 ### 1.2 与各模块的功能切分
@@ -40,9 +46,9 @@ content 发布/下架事件 ──MQ──▶ AI 摄入切片+向量 ──▶ E
 | 模块 | 交互 | AI 负责 | 对方负责 |
 | --- | --- | --- | --- |
 | review | Feign（AiClient.chat） | 回结构化判定结论；purpose/requestId 强制 | 防注入包裹、白名单三分态映射、SPI 传参改造（挂起项） |
-| content | Feign（ContentClient） | 门控回查/取稿/查池/引用回查 | 发布与下架事件生产、闸门（DFA）、落库建议 |
-| search | 无直接交互 | 自管 article_chunks_ai 向量切片 | article_idx 索引与 article_chunks 文本切片 |
-| gateway | HTTP 转发 | 端点实现 | /api/ai/** 前缀登记（待 Api-Architecture 定稿） |
+| content | Feign（ContentClient） | 门控回查/取稿/查池/引用回查/热榜上下文/收藏列表 | 发布与下架事件生产、闸门（DFA）、落库建议、收藏查询 |
+| search | Feign（SearchClient） | similar/similarByCondition/searchUsers/getArticleAiLabels 调用 | 索引与切片、条件版查询四类 match 路由、本地 reranker 精排（litisle.search.rerank.*，0 次 LLM） |
+| gateway | HTTP 转发 | 端点实现 | /api/ai/** 前缀已登记（Gateway-Architecture §2.1 + Api-Architecture §4.5，板块七回收） |
 
 ## 二、功能清单与实现状态总表
 
@@ -64,6 +70,17 @@ content 发布/下架事件 ──MQ──▶ AI 摄入切片+向量 ──▶ E
 | RAG 摄入链路 | ✅ | RagIngestConsumer + RagIngestService + ContentChunker + ChunkIndexClient |
 | RAG 检索 + 引用回查 + 引用卡片 | ✅ | RagSearchService + RagContext + XiaoyueCitationDTO |
 | 匿名问答配额（P5） | ✅ | AiUserQuotaService.tryAcquireAnonymous |
+| F8 相似文章推荐（板块五） | ✅ | SimilarRecommendService（POST /ai/xiaoyue/similar，纯检索 token=0 落明细） |
+| 用量查询与出账（F9，板块六） | ✅ | /ai/usage/me·/me/details·/summary 三端点 + 模型自检 |
+| 条件化相似推荐——条件提取管道（板块八） | ✅ | ConditionExtractService（提取→词表/区间/topK 校验回喂重试）+ 维度注册表 |
+| 条件化相似推荐——条件版检索（板块五扩展） | ✅ | SimilarRecommendService.similarWithCondition（SearchClient#similarByCondition） |
+| 多轮调条件（板块十） | ✅ | SessionConditionStoreService（Redis 会话条件上下文 + 增量合并） |
+| 会话结果集与结果动作（板块九） | ✅ | ResultStoreService + XiaoyueTools 动作（收藏落库；书单/金句挂起 temporarily-01） |
+| 多文对比/收藏夹检索（板块十一） | ✅ | XiaoyueTools 工具⑨ compareResultArticles / 工具⑩ searchMyFavorites |
+| 创作辅助扩展（板块十二） | ✅ | 工具⑪找系列/⑫热榜上下文/⑬风格素材 + /duplicate-check + 读者预设问题/选题灵感 scene 路由 |
+| 能力发现——边界响应话术（板块十三 5.3） | ✅ | XIAOYUE_BOUNDARY_RESPONSE_RULES + boundary-refusal-template（零 LLM）；5.1/5.2 ⏳ 恢复待开发 |
+| 写作辅助扩展（板块十五） | ✅ | WritingAssistService（/rewrite 四粒度 + /draft 草稿，AI 不落库） |
+| 本地 reranker 精排（search 侧配套，2026-11-17） | ✅ | search RerankServiceImpl（条件版查询重排，0 次 LLM，fail-open） |
 | 图片判定端点 / 小审判 / 反馈采集 / 评测集 | ⏳ 预留 | 不在本期范围；小审判已预留 agent_type 字段 |
 
 ---
@@ -100,7 +117,7 @@ content 发布/下架事件 ──MQ──▶ AI 摄入切片+向量 ──▶ E
 
 ### 4.2 业务逻辑（装配与执行）
 
-- **装配**（AiAgentConfig）：ChatModel（计量装饰链）+ systemMessageProvider（角色定位+能力边界+建议态约束）+ tools 注册 + maxSequentialToolsInvocations（框架层护栏）。enabled=false 不装配，端点抛 80005。
+- **装配**（AiAgentConfig）：ChatModel（计量装饰链）+ systemMessageProvider（角色定位+能力边界+建议态约束+**边界响应规则段**（板块十三 5.3：拒绝话术模板 + {capabilities} 从真实注册工具如实填写，仅意图路由轮注入，固定管道不混入防污染 JSON））+ tools 注册（工具③~⑬，板块九~十二扩展：结果动作/对比/收藏夹检索/找系列/热榜上下文/风格素材）+ maxSequentialToolsInvocations（框架层护栏）。enabled=false 不装配，端点抛 80005。
 - **执行**：用户消息 → Agent 推理 → 工具调用与结果回喂（可多轮）→ 终答。工具失败**不抛异常**，统一作为观察文本回喂模型自行调整（如标签池查不到 → 模型改为提示用户）。
 - **上下文传递**：AgentCallContext（ThreadLocal）承载 requestId/purpose/userId/scene 与 callSeq 递增，每轮计量都归属同一业务请求。
 
@@ -118,7 +135,7 @@ content 发布/下架事件 ──MQ──▶ AI 摄入切片+向量 ──▶ E
 
 ### 5.1 功能描述
 
-单一入口 `POST /ai/xiaoyue/chat` 承载全部生成类用途（SUMMARY/TAGGING/QA/POLISH/STRUCTURE）；/summary、/tag、/polish、/analyze-structure 为固定管道直连端点，既是一键式轻量入口，也是 Agent 异常时的降级通道。
+单一入口 `POST /ai/xiaoyue/chat` 承载全部生成类用途（SUMMARY/TAGGING/QA/POLISH/STRUCTURE）；/summary、/tag、/polish、/analyze-structure 为固定管道直连端点，既是一键式轻量入口，也是 Agent 异常时的降级通道。板块九~十五扩展入口按 scene 路由（读后追问/书单动作/对比/收藏夹检索/读者预设问题/选题灵感/REWRITE/DRAFT），purpose 随入口复用既有桶不扩枚举。
 
 ### 5.2 业务逻辑（XiaoyueChatService.chat 编排九步）
 
@@ -189,7 +206,8 @@ content 发布/下架事件 ──MQ──▶ AI 摄入切片+向量 ──▶ E
   - 已有本地库需手动执行 ai-schema.sql 注释中的 ALTER（call_seq 列 + 联合唯一键）。
 - **失败也计量**：status=FAIL 明细落库——避免「失败即无成本」假象（模型调用失败也可能已消耗上游 token）。
 - **判定式配额（不预扣）**：按 用户×用途×日 校验次数/Token 双维，读日汇总判定而非预扣-退还模型——无「失败退还预扣」复杂度；数值未定档（≤0 仅计量不拦截，D5/V8，Q39）。
-- **预算桶分账（D15+扩桶）**：机审桶=文本+图片合并；SUMMARY/TAGGING/QA/POLISH/STRUCTURE 各自独立桶——一个桶爆了不影响其他用途；机审桶 100% 转人工不停调用（合规底线），生成桶 100% 停新请求（80004）。≥80% WARN 只提醒。
+- **预算桶分账（D15 修订为八类，板块七 7.2）**：机审桶=文本+图片合并；SUMMARY/TAGGING/QA/POLISH/STRUCTURE/SIMILAR 各自独立桶——一个桶爆了不影响其他用途；机审桶 100% 转人工不停调用（合规底线），生成桶 100% 停新请求（80004）。≥80% WARN 只提醒。
+- **用量可观测与模型自检（F9，板块六）**：`/ai/usage/me`（当日用量/剩余配额）· `/me/details`（明细分页）· `/summary`（近 7 日花费）三端点 + 模型自检（通道健康/单价登记核验）；读数全部来自既有三表，不新增写入面。
 - **匿名问答配额（P5）**：Redis key=`ai:quota:anon:{ipHash}:{yyyyMMdd}`，INCR + 首次 expire 24h，超限拒绝 80003；计量明细 user_id 空、scene 记 IP 哈希（脱敏）；Redis 异常降级放行不阻断问答（可用性优先，匿名场景损失可控）。
 
 ---
@@ -238,6 +256,38 @@ searchKnowledgeBase → RagSearchService.searchForPrompt
 
 ---
 
+## 八·补、功能详述：相似推荐与条件化查询（板块五/八/十/十一）
+
+### 8A.1 功能描述
+
+三段链路共用 search 侧条件版查询：**F8 相似文章推荐**（按文章 knn 近邻，纯检索零生成成本）、**条件化相似推荐**（LLM 把用户口语需求提取为结构化条件 → search 四类 match 检索）、**会话多轮调条件**（会话内增量修改上轮条件）。另有会话结果集（推荐结果缓存 + 序号引用）与结果动作（收藏落库）。
+
+### 8A.2 业务逻辑
+
+```
+F8：POST /ai/xiaoyue/similar（requestId+articleId+scene）
+ → 向量化 → knn TopK + minScore → 排除自身/同篇去重 → verifyForSimilar 可见性双保险回查
+ → 卡片返回（outdated 标注、可选推荐理由 reason-enabled 默认关）；纯检索 token=0 落明细（SIMILAR 桶）
+
+条件化：/chat 口语需求 → ConditionExtractService 提取 JSON（1 次 LLM）
+ → 维度注册表校验（词表/区间/topK，越限回喂重试 1 次）→ SearchClient#similarByCondition
+ → 卡片 + 条件回显；无命中返回空列表不报错；注册表外维度拒绝，词表外长尾由 search 侧语义兜底
+
+多轮：会话内「再轻松一点/时间改最近半年」→ Redis 取上轮条件 JSON → 增量提取合并（本轮否定覆盖上轮）
+ → 校验检索同上；SessionConditionStoreService 异常降级为无上下文普通提取，告警不中断
+
+结果集：推荐结果缓存（result-set-ttl-minutes=60）→ 序号引用（"第 2 篇"）→ 动作（收藏/对比/书单）
+```
+
+### 8A.3 重要子业务逻辑详解
+
+- **计量口径**：条件提取每轮 1 次 LLM（SIMILAR 桶，重试轮次 callSeq 递增）；检索本身 0 次 LLM；对比/收藏检索素材组装 0 次额外生成成本，结论在意图路由轮内一次生成。
+- **search 侧精排**：条件版查询带 queryText 且按相关性排序时可叠加本地 reranker 重排（0 次 LLM，fail-open 退融合基线）——AI 调用方无感。
+- **收藏夹检索**：拉用户收藏 ID 白名单（100 条上限）→ includeArticleIds + queryText 语义 knn → 只出已收藏且当前公开；收藏为空/无命中明确响应。
+- **挂起项**：书单动作/金句落库契约缺失（content 侧缺端点），见 temporarily-01-code.md「litisle-ai」节。
+
+---
+
 ## 九、关键规则速查
 
 | 规则 | 口径 |
@@ -249,15 +299,18 @@ searchKnowledgeBase → RagSearchService.searchForPrompt
 | 建议态（D4/D3/D13） | 不自动写入；恒带 aiGenerated 标识；未确认 TTL 30 分钟到期即弃 |
 | 会话治理（D25） | 200 会话 LRU / 单会话 500 条 / 90 天物理清理 / 软删 7 天兜底；删除受理即回执 |
 | 引用铁律（Q75/Q54） | 引用可溯源可回查；contentHash 版本比对；下架即失效；RAG 降级必须标注 |
+| 相似推荐（F8/板块五/八/十/十一） | 纯检索 token=0 落明细；条件提取每轮 1 次 LLM（SIMILAR 桶）；无命中空列表不报错；可见性回查双保险 |
+| 写作辅助（板块十五） | 建议态不落库（D4）；articleId 归属校验非本人拒绝；采用走 content 正常创建流程（DFA+机审） |
+| 边界话术（板块十三 5.3） | 拒绝必带 {capabilities}（真实工具如实填写，禁编造）；模板 yml 外置；零 LLM 成本 |
 | 错误码 | 80001 purpose 缺失 / 80002 requestId 缺失 / 80003 配额超限 / 80004 预算超限 / 80005 通道不可用 / 80007 Agent 循环超限 |
 
 ## 十、代码结构速览（litisle-ai）
 
 ```
 com.litisle.litisleai
-├── controller      AiChatController（机审）· XiaoyueController（/ai/xiaoyue/*）· SessionController（/ai/sessions）
+├── controller      AiChatController（机审）· XiaoyueController（/ai/xiaoyue/*：摘要/标签/润色/结构/查重/改写/草稿）· SessionController（/ai/sessions）· 用量端点（/ai/usage/*，板块六）· AiLabelController（打标）
 ├── agent           XiaoyueAgent（@MemoryId）· MeteringAgentChatModel（按轮计量+循环上限）· AgentCallContext
-│   └── tools       XiaoyueTools（@Tool 四工具）
+│   └── tools       XiaoyueTools（工具③~⑬：RAG/标签池/敏感词占位/相似/结果动作/对比/收藏夹检索/找系列/热榜/风格素材）
 ├── provider
 │   ├── text        TextModelProvider · OpenAiCompatTextModelProvider · OutboundSanitizer · DesensitizingChatModel
 │   └── embedding   EmbeddingProvider · OllamaEmbeddingProvider
@@ -266,7 +319,9 @@ com.litisle.litisleai
 ├── mq              AiRagMqConfig（rag.enabled 条件装配）· RagIngestConsumer
 ├── service         AiChatService · XiaoyueChatService · XiaoyueSuggestionService · AiUsageRecordService
 │   │               AiBudgetService · AiUserQuotaService · AiSessionService · RagIngestService · RagSearchService
-│   └── support     SuggestionValidator · SuggestionCacheService
+│   │               SimilarRecommendService（F8+条件版）· ConditionExtractService（条件提取）· SessionConditionStoreService（多轮条件）
+│   │               ResultStoreService（会话结果集）· WritingAssistService（改写/草稿）· DuplicateCheckService（查重）
+│   └── support     SuggestionValidator（摘要/标签/改写/草稿校验）· SuggestionCacheService
 ├── config          AiModelConfig · AiAgentConfig · AiRagConfig · 各 *Properties
 ├── domain/mapper   AiTokenUsage · AiUsageDaily · AiPricing · AiSession · AiMessage
 ├── metrics         AiMetrics
@@ -278,15 +333,17 @@ com.litisle.litisleai
 | 段 | 关键项 | 说明 |
 | --- | --- | --- |
 | provider.text | enabled / base-url / api-key / model / timeout-ms | **enabled=false 本地可启动**，调用抛 80005；api-key 环境变量注入 |
-| budget | 六桶日预算 + warn-ratio | ≤0 只计量 |
+| budget | 八桶日预算 + warn-ratio（D15 修订为八类：机审合并 + SUMMARY/TAGGING/QA/POLISH/STRUCTURE/SIMILAR） | ≤0 只计量 |
 | quota.* | daily-calls / daily-tokens | ≤0 未定档仅计量 |
 | agent | max-loop-rounds=5 / summary-max-chars=500 / max-tag-count=5 / structured-retry-budget=1 / desensitize-enabled=true / suggestion-cache-* / session-* / memory-* | 会话与记忆治理参数全外置 |
+| agent（板块九~十五扩展） | result-set-ttl-minutes=60 / result-action-max-batch=10 / reader-question-count=5 / topic-inspiration-hot-limit=10 / boundary-refusal-template / rewrite-candidate-limit=3 / rewrite-title-max-chars=100 / rewrite-reason-max-chars=50 / draft-max-chars=2000 | 会话结果集 TTL、动作批量上限、创作辅助 N 值、边界话术模板、写作辅助校验上限 |
 | rag | **enabled=false** / ollama-* / vector-dimension=1024 / es-* / es-index=article_chunks_ai / chunk-* / top-k=5 / min-score=0.6 / anon-qa-daily-limit=10 | **rag=false 时 MQ 拓扑不声明、消费者不装配** |
+| rag.similar（板块五/八/十二） | top-k=5 / conditional-top-k-max=50 / min-score=0.6 / reason-enabled=false / reason-top-n=3 / reason-max-chars=60 / duplicate-score-threshold=0.85 | 相似推荐 TopK 与推荐理由开关（默认关）、查重风险阈值外置 |
 
 ## 十二、快速上手路径
 
-1. **看流程**：先读本文 §三~§八（每功能三层：描述/逻辑/子逻辑详解）→ 细节再看 [ai-implemention-records.md](../archive/ai/ai-implemention-records.md) 各板块 ✅ 摘要。
-2. **读代码**：入口 [XiaoyueChatService](../../litisle-ai/src/main/java/com/litisle/litisleai/service/XiaoyueChatService.java)（九步编排）→ [XiaoyueTools](../../litisle-ai/src/main/java/com/litisle/litisleai/agent/tools/XiaoyueTools.java)（工具）→ [AiAgentConfig](../../litisle-ai/src/main/java/com/litisle/litisleai/config/AiAgentConfig.java)（装配）→ [RagIngestService](../../litisle-ai/src/main/java/com/litisle/litisleai/service/RagIngestService.java)（摄入）。
-3. **跑起来**：DeepSeek api-key 注入（provider.text.enabled=true）+ MySQL/Redis/Nacos；RAG 联调另需 Ollama（bge-m3）+ ES + RabbitMQ 并开 rag.enabled=true。
-4. **验证**：按 next_verify.md AI-V1（RAG 端到端 7 项验收）/ AI-V2（会话与计量）逐条执行。
-5. **挂起项**：网关登记 / 架构文档登记 / D15 修订 / review 传参改造等见 [temporarily-01-code.md](../next/temporarily/temporarily-01-code.md)「litisle-ai 模块」节（各附触发条件）。
+1. **看流程**：先读本文 §三~§八·补（每功能三层：描述/逻辑/子逻辑详解）→ 细节再看 [ai-implemention-records.md](../archive/ai/ai-implemention-records.md) 各板块 ✅ 摘要。
+2. **读代码**：入口 [XiaoyueChatService](../../litisle-ai/src/main/java/com/litisle/litisleai/service/XiaoyueChatService.java)（九步编排）→ [XiaoyueTools](../../litisle-ai/src/main/java/com/litisle/litisleai/agent/tools/XiaoyueTools.java)（工具）→ [AiAgentConfig](../../litisle-ai/src/main/java/com/litisle/litisleai/config/AiAgentConfig.java)（装配）→ [RagIngestService](../../litisle-ai/src/main/java/com/litisle/litisleai/service/RagIngestService.java)（摄入）→ [SimilarRecommendService](../../litisle-ai/src/main/java/com/litisle/litisleai/service/SimilarRecommendService.java)（相似/条件化推荐）→ [WritingAssistService](../../litisle-ai/src/main/java/com/litisle/litisleai/service/WritingAssistService.java)（写作辅助）。
+3. **跑起来**：DeepSeek api-key 注入（provider.text.enabled=true）+ MySQL/Redis/Nacos；RAG 联调另需 Ollama（bge-m3）+ ES + RabbitMQ 并开 rag.enabled=true；条件化推荐依赖 search 侧（SearchClient 契约 + litisle.search.embedding/rerank 配置）。
+4. **验证**：按 next_verify.md AI-V1~V8 逐条执行（V1 RAG 端到端 / V2 会话与计量 / V3 相似推荐与用量 / V4 条件提取 / V5 会话交互 / V6 创作辅助 / V7/V8 见文件内条目）。
+5. **挂起项**：书单动作/金句落库（content 契约缺失）、板块十三 5.1/5.2（能力发现端点恢复）、板块十四（读前预览+组合编排）——活跃待办见 [next_update.md](../next/next_update.md) 板块十三/十四；其余见 [temporarily-01-code.md](../next/temporarily/temporarily-01-code.md)「litisle-ai 模块」节（各附触发条件）。

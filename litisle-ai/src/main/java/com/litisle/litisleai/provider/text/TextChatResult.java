@@ -5,6 +5,11 @@ import lombok.Data;
 
 /**
  * 文本模型调用出参（计量与留痕的数据来源）
+ *
+ * <p>【通俗说明】模型说完话后交回来的"回执单"：说了什么（content）、用哪个模型说的
+ * （modelVersion）、供应商给的流水号（providerTraceId，出了纠纷可以拿去对质）、
+ * 这次对话进出各吃了多少 token（tokenIn/tokenOut）。记账服务就是拿这张回执
+ * 算钱的。</p>
  */
 @Data
 @Builder

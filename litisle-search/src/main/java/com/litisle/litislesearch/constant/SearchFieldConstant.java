@@ -85,6 +85,12 @@ public final class SearchFieldConstant {
     /** 更新时间（date，NEWEST 排序） */
     public static final String FIELD_UPDATE_TIME = "updateTime";
 
+    /** ai_labels 维度标签槽（object，dynamic：新维度零 mapping 改动，子字段经 dynamic_templates 映射 keyword，板块八/search 板块二 2.2） */
+    public static final String FIELD_AI_LABELS = "ai_labels";
+
+    /** 正文字数（long，索引期按正文纯文本纯计算字数，零 AI 成本；word_count range 过滤维度绑定字段） */
+    public static final String FIELD_WORD_COUNT = "word_count";
+
     // ==================== article_chunks 切片字段名（RAG 知识库索引） ====================
 
     /** 切片主键（keyword，格式 articleId_seq，按 articleId 幂等覆盖的删除依据之一） */

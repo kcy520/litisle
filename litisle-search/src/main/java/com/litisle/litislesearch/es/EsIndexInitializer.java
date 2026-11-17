@@ -2,9 +2,12 @@ package com.litisle.litislesearch.es;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.mapping.DenseVectorSimilarity;
+import co.elastic.clients.elasticsearch._types.mapping.DynamicMapping;
+import co.elastic.clients.elasticsearch._types.mapping.DynamicTemplate;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.mapping.TypeMapping;
 import co.elastic.clients.json.JsonData;
+import co.elastic.clients.util.NamedValue;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.constant.SearchEmbeddingConstant;
 import com.litisle.litislesearch.constant.SearchFieldConstant;
@@ -76,6 +79,9 @@ public class EsIndexInitializer implements ApplicationRunner {
         // 批次五 B4 遗留收口：给「已存在的 book_idx」幂等补 authorId 字段映射
         // （新增字段可热更新 mapping，无需重建索引；但存量文档不回填，需重同步或全量重建后才能取到 authorId）
         upgradeBookMappingIfNeeded();
+        // 板块八/search 板块二 2.2：给「已存在的 article_idx」幂等补 ai_labels/word_count 字段映射
+        // （存量文档该字段缺失，需执行存量补标或全量重建回填）
+        upgradeArticleMappingIfNeeded();
         // 批次九 9.9-A：校验既有索引的 date 字段 format（ES 不允许原地修改，仅作提示，不重建索引）
         checkExistingDateFormat();
     }
@@ -150,6 +156,12 @@ public class EsIndexInitializer implements ApplicationRunner {
         return TypeMapping.of(m -> m
                 // _meta：向量模型版本登记（批次C C1，模型变更 → 全量重建索引）
                 .meta(vectorModelMeta())
+                // ai_labels 子字段动态映射规则（板块八/search 板块二 2.2）：字符串一律映射 keyword，
+                // 保证词表维度 term 过滤与聚合可用，新维度零 mapping 改动
+                .dynamicTemplates(NamedValue.of("ai_labels_keywords", DynamicTemplate.of(t -> t
+                        .pathMatch(SearchFieldConstant.FIELD_AI_LABELS + ".*")
+                        .matchMappingType("string")
+                        .mapping(keywordProperty()))))
                 // 注：字段数超过 Map.of 10 对上限，用 Map.ofEntries
                 .properties(Map.ofEntries(
                         // 文档主键：articleId（幂等 upsert 依据）
@@ -180,7 +192,59 @@ public class EsIndexInitializer implements ApplicationRunner {
                         // 文章向量：1024 维 cosine indexed，KNN 相似推荐（查询期零 Embedding 开销）
                         Map.entry(SearchFieldConstant.FIELD_VEC_DENSE, denseVectorProperty()),
                         // 更新时间：NEWEST 排序
-                        Map.entry(SearchFieldConstant.FIELD_UPDATE_TIME, dateProperty()))));
+                        Map.entry(SearchFieldConstant.FIELD_UPDATE_TIME, dateProperty()),
+                        // ai_labels 维度标签槽：object + dynamic（板块八/search 板块二 2.2，
+                        // 子字段经上方 dynamic_templates 映射 keyword，新维度零 mapping 改动）
+                        Map.entry(SearchFieldConstant.FIELD_AI_LABELS, dynamicObjectProperty()),
+                        // 正文字数：long，索引期纯计算（板块八/search 板块二 2.2，range 过滤维度绑定字段）
+                        Map.entry(SearchFieldConstant.FIELD_WORD_COUNT, longProperty()))));
+    }
+
+    /**
+     * 幂等升级 article_idx mapping：补齐 ai_labels / word_count 字段（板块八/search 板块二 2.2）。
+     *
+     * 作用：article_idx 首次创建时就带 ai_labels/word_count（见 articleMapping）；本方法只处理
+     * 「索引已存在但 mapping 还是旧版（无 ai_labels/word_count）」的存量环境，启动时补一次 putMapping。
+     *
+     * 【影响说明】
+     * - ES 允许对已存在索引新增字段，添加同定义字段也是幂等操作，可重复执行；
+     * - ai_labels 为 dynamic object：补 mapping 后新写入文档的新维度子字段自动按 dynamic_templates
+     *   映射 keyword（存量索引无 dynamic_templates 时子字段退化为 ES 默认动态映射，词表维度 term
+     *   过滤仍可用——默认映射含 keyword 子字段；如需严格 keyword 口径请重建索引）；
+     * - 补 mapping 只让「新写入/更新」的文档带 ai_labels/word_count，存量文档该字段仍缺失，
+     *   需执行「存量补标」（POST /api/search/admin/relabel-ai-labels）或全量重建回填。
+     *
+     * 失败仅告警不阻断启动（与索引创建容错口径一致）。
+     */
+    private void upgradeArticleMappingIfNeeded() {
+        String indexName = properties.getIndex().getArticle();
+        try {
+            // 索引不存在则跳过（下次创建会带 ai_labels/word_count）
+            boolean exists = elasticsearchClient.indices()
+                    .exists(e -> e.index(indexName)).value();
+            if (!exists) {
+                return;
+            }
+            // 幂等补字段映射（已存在同名字段时 ES 不报错）
+            elasticsearchClient.indices().putMapping(p -> p
+                    .index(indexName)
+                    .properties(Map.of(
+                            SearchFieldConstant.FIELD_AI_LABELS, dynamicObjectProperty(),
+                            SearchFieldConstant.FIELD_WORD_COUNT, longProperty())));
+            log.info("[ES索引初始化] article_idx 已幂等补齐 ai_labels/word_count 字段映射：{}", indexName);
+        } catch (Exception e) {
+            // 容错：升级失败仅告警（旧 mapping 仍可检索，ai_labels 待存量补标回填）
+            log.error("[ES索引初始化] article_idx 补 ai_labels/word_count 映射失败（服务继续启动）：{}", indexName, e);
+        }
+    }
+
+    /**
+     * 构建 dynamic object 属性（ai_labels 标签槽：新维度子字段自动映射，零 mapping 改动）
+     *
+     * @return object 字段属性（dynamic=true）
+     */
+    private Property dynamicObjectProperty() {
+        return Property.of(p -> p.object(o -> o.enabled(true).dynamic(DynamicMapping.True)));
     }
 
     /**

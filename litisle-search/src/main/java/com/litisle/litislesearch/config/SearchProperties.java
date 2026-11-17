@@ -2,6 +2,7 @@ package com.litisle.litislesearch.config;
 
 import com.litisle.litislesearch.constant.SearchEmbeddingConstant;
 import com.litisle.litislesearch.constant.SearchMqConstant;
+import com.litisle.litislesearch.constant.SearchRerankConstant;
 import com.litisle.litislesearch.constant.SearchRedisConstant;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -80,6 +81,12 @@ public class SearchProperties {
 
     /** 观测指标采集（对应 yml: litisle.search.metrics，批次九 9.9-F：索引同步队列积压） */
     private Metrics metrics = new Metrics();
+
+    /** ai_labels 维度标签槽（对应 yml: litisle.search.ai-labels，板块八/search 板块二：索引期打标开关与正文截断） */
+    private AiLabels aiLabels = new AiLabels();
+
+    /** 本地 reranker 精排（对应 yml: litisle.search.rerank，search 板块三 3.2 升级②：0 次 LLM 条件版查询重排） */
+    private Rerank rerank = new Rerank();
 
     /** Elasticsearch 连接配置（对应 yml: litisle.search.es） */
     @Data
@@ -329,6 +336,24 @@ public class SearchProperties {
 
         /** 全量重建扫描批量（search_after 每批拉取文档数，默认 100） */
         private int rebuildBatchSize = 100;
+
+        /** 切片向量池化配置（对应 yml: litisle.search.embedding.pool，search 板块一 1.1） */
+        private Pool pool = new Pool();
+
+        /**
+         * 切片向量池化配置（search 板块一 1.1）：文章 vec_dense 由切片向量池化聚合生产，
+         * 策略开关外置便于运行态对比回退（聚合数学在 ArticleVectorPooler，编排与兜底在 ArticleVectorComposer）
+         */
+        @Data
+        public static class Pool {
+
+            /**
+             * 池化策略（默认 mean=逐维平均）：
+             * max-pool=逐维取各切片最大值，对多主题长文更尖锐但可能放大噪声，备选不默认；
+             * 非法值按 mean 兜底（ArticleVectorPooler 内判定）
+             */
+            private String strategy = SearchEmbeddingConstant.POOL_STRATEGY_MEAN;
+        }
     }
 
     /**
@@ -367,5 +392,57 @@ public class SearchProperties {
          * 避开启动阶段队列声明与 MQ 连接建立，避免首轮采集误报 0 积压。</p>
          */
         private long backlogCollectInitialDelayMs = 15000L;
+    }
+
+    /**
+     * ai_labels 维度标签槽配置（对应 yml: litisle.search.ai-labels，板块八/search 板块二 2.2）：
+     * 维度注册表本体在 {@link com.litisle.litisleapi.config.AiLabelDimensionsProperties}
+     * （打标/提取/查询三端共读同一配置命名空间），本组只承载 search 侧打标链路开关与参数
+     */
+    @Data
+    public static class AiLabels {
+
+        /** 索引期打标总开关（false 时索引链路跳过打标，ai_labels 留空，该维度过滤退化为语义兜底） */
+        private boolean labelingEnabled = true;
+
+        /** 打标正文截断长度（字符，防超长正文撑爆打标 prompt；默认 2000 与向量输入上限同口径） */
+        private int labelContentMaxChars = 2000;
+    }
+
+    /**
+     * 本地 reranker 精排配置（对应 yml: litisle.search.rerank，search 板块三 3.2 升级②）：
+     * 条件版相似查询的按需升级中间档——bge-reranker / cross-encoder 对 (queryText, 候选摘要) 打分重排，
+     * 0 次 LLM 零 API 费；排序效果显著优于三路融合加权、接近 LLM judge
+     */
+    @Data
+    public static class Rerank {
+
+        /** 重排总开关（默认 false：未部署 reranker 服务前关闭，开启条件版查询仍走三路融合基线排序） */
+        private boolean enabled = false;
+
+        /**
+         * 提供方类型标识（默认 openai-compatible）：
+         * 与 {@link com.litisle.litislesearch.rerank.RerankProvider#providerName()} 精确匹配，
+         * 例如 openai-compatible（OpenAI 兼容 /v1/rerank）、none（未接入）
+         */
+        private String provider = SearchRerankConstant.RERANK_PROVIDER_OPENAI_COMPATIBLE;
+
+        /** 模型标识（如 bge-reranker-v2-m3，用于日志登记） */
+        private String model;
+
+        /** 服务地址（HTTP 提供方 base-url；内网地址走 Nacos/环境变量覆盖，禁止硬编码） */
+        private String baseUrl;
+
+        /** 鉴权密钥（禁止硬编码；用环境变量占位符注入，如 ${LITISLE_RERANK_API_KEY:}，内网无鉴权可空） */
+        private String apiKey;
+
+        /** 单次重排请求超时（默认 10s，重排候选量小一般远低于此值） */
+        private Duration timeout = Duration.ofSeconds(10);
+
+        /**
+         * 送入重排的候选条数（默认 20）：条件版查询多取 top-n 条候选送 reranker 打分，
+         * 重排后截回 topK——扩大重排池可在不劣化召回的前提下提升最终排序精度
+         */
+        private int topN = 20;
     }
 }

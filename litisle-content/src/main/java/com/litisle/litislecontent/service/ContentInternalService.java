@@ -83,6 +83,31 @@ public interface ContentInternalService {
     List<TagSuggestDTO> searchTagSuggestions(String keyword);
 
     /**
+     * 服务间收藏目标（板块九 1.2：AI 结果动作工具经序号映射定位 articleId 后代用户收藏）。
+     *
+     * 作用：Feign 服务端线程无用户会话（无 StpUtil），userId 由调用方显式传入；
+     * 委托 FavoriteService 收口类型白名单、目标可见性校验与幂等插入语义
+     * （重复收藏视为成功，未公开目标不可收藏）。
+     *
+     * @param userId     收藏用户 ID（调用方从登录态取得，禁止为空）
+     * @param targetType 目标类型（1-文章 2-书籍；非法值抛 PARAM_ERROR）
+     * @param targetId   目标 ID
+     */
+    void favorite(Long userId, Integer targetType, Long targetId);
+
+    /**
+     * 服务间收藏目标 ID 列表（板块十一 3.2：AI 收藏夹语义检索白名单数据源）。
+     *
+     * 作用：委托 FavoriteService#listFavoriteTargetIds 收口类型白名单与取数口径
+     * （按收藏时间倒序取前 N 条，Page 对象承接不做深翻）；无收藏返回空列表不报错。
+     *
+     * @param userId 用户 ID（AI 侧从登录态取得，禁止为空）
+     * @param limit  取数上限（防白名单 filter 过大）
+     * @return 收藏文章 ID 列表（targetType=1 文章，按收藏时间倒序）
+     */
+    java.util.List<Long> listFavoriteArticleIds(Long userId, Integer limit);
+
+    /**
      * 查询热门文章列表（search ES 不可用降级链路的数据源，批次八 8.1）。
      *
      * 作用：ES 整体不可用时 search 退化为返回热门推荐；热门榜唯一数据源在 content，

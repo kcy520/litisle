@@ -86,4 +86,12 @@ public class ArticleIndexDoc {
     /** 更新时间（NEWEST 排序，同时作为发布时间语义） */
     @JsonProperty(SearchFieldConstant.FIELD_UPDATE_TIME)
     private LocalDateTime updateTime;
+
+    /** ai_labels 维度标签槽（板块八/search 板块二 2.2：key=注册表维度名，value=词表值或语义短语；打标失败留空不阻断） */
+    @JsonProperty(SearchFieldConstant.FIELD_AI_LABELS)
+    private java.util.Map<String, String> aiLabels;
+
+    /** 正文字数（索引期按正文纯文本纯计算字数，零 AI 成本；word_count range 过滤维度绑定字段） */
+    @JsonProperty(SearchFieldConstant.FIELD_WORD_COUNT)
+    private Long wordCount;
 }

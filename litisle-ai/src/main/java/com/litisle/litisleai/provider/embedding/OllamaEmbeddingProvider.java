@@ -22,6 +22,12 @@ import java.util.List;
  *
  * <p>【失败语义】调用失败包装为 80005 上抛：摄入链路转消费重试、检索链路转降级无引用回答。</p>
  *
+ * <p>【通俗说明】向量化通道的"真身"：连的是本机 Ollama 服务上跑的 bge-m3 模型（1024 维），
+ * 数据不出服务器、不花钱。它把 EmbeddingProvider 接口的"文字进、向量出"落到实处：
+ * 构造时按 yml 配置拼好连接地址、模型名、超时时间（代码里不写死）；调用时先拒绝空文本
+ * （没有意义的输入不值得跑模型），拿到向量后还要核对维度是不是配置说的 1024 维——
+ * 维度对不上说明模型配置错了，宁可报错也不能把"畸形坐标"写进检索库。</p>
+ *
  * @author litisle
  */
 @Slf4j
@@ -37,6 +43,9 @@ public class OllamaEmbeddingProvider implements EmbeddingProvider {
      * 构造装配：连接参数全部取自外置配置，代码内不硬编码端点
      *
      * @param ragProperties RAG 配置
+     *
+     * <p>【通俗说明】构造时就把 Ollama 客户端按配置装配好（地址、模型、超时全来自 yml），
+     * 后续每次调用直接复用这个客户端，不用重复建连接。</p>
      */
     public OllamaEmbeddingProvider(AiRagProperties ragProperties) {
         this.ragProperties = ragProperties;
@@ -53,6 +62,11 @@ public class OllamaEmbeddingProvider implements EmbeddingProvider {
      * @param text 待向量化的文本
      * @return 向量
      * @throws BizException 空文本、通道调用失败或维度不符（80005）
+     *
+     * <p>【通俗说明】四步：① 空文本直接拒（fail-fast 防脏数据）；② 调本地 Ollama
+     * 模型算向量；③ 把 SDK 返回的 float 数组转成 List 并核对维度是否与配置一致
+     * （不符即报错，防脏向量入库）；④ 记一条只含字数和耗时的日志后返回向量。
+     * 任何异常都包装成 80005 上抛，由调用方决定重试还是降级。</p>
      */
     @Override
     public List<Float> embed(String text) {

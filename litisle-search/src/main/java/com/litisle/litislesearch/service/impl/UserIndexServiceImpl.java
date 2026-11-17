@@ -1,11 +1,16 @@
 package com.litisle.litislesearch.service.impl;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.Hit;
 import com.litisle.commoncore.exception.ErrorCode;
 import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.dto.user.UserIndexDocDTO;
 import com.litisle.litisleapi.feign.UserClient;
+import com.litisle.litisleapi.vo.search.UserSearchVO;
 import com.litisle.litislesearch.config.SearchProperties;
+import com.litisle.litislesearch.constant.SearchFieldConstant;
 import com.litisle.litislesearch.constant.SearchGateConstant;
 import com.litisle.litislesearch.domain.entity.UserIndexDoc;
 import com.litisle.litislesearch.enums.SearchTypeEnum;
@@ -14,6 +19,10 @@ import com.litisle.litislesearch.service.support.IndexVersionGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 用户索引同步服务实现（批次五 B5）。
@@ -50,6 +59,12 @@ public class UserIndexServiceImpl implements UserIndexService {
     /** 索引版本守卫（企业优化清单 2.1：旧快照迟到时跳过写入，防覆盖新快照） */
     private final IndexVersionGuard indexVersionGuard;
 
+    /** 笔名查询返回条数上限（防超量拉取，板块八 1.2 作者名解析命中集足够用） */
+    private static final int PEN_NAME_SEARCH_MAX_LIMIT = 20;
+
+    /** 笔名查询缺省返回条数 */
+    private static final int PEN_NAME_SEARCH_DEFAULT_LIMIT = 5;
+
 
     /**
      * 处理用户索引同步：回查 → 门控 → upsert 或删除。
@@ -82,6 +97,76 @@ public class UserIndexServiceImpl implements UserIndexService {
         // 步骤5：组装并 upsert 索引文档（按 userId 幂等覆盖）
         upsertUserDoc(buildIndexDoc(dto));
         log.info("[索引同步] 用户索引写入完成：userId={}", userId);
+    }
+
+    /**
+     * 按笔名关键词查询用户（板块八 1.2：作者名 → 作者 ID 解析的数据源）。
+     *
+     * <p>【业务逻辑步骤】
+     * 1. 参数校验（keyword 必传，空白返回空列表不报错）；
+     * 2. limit 归一化（缺省 5，封顶 20 防超量拉取）；
+     * 3. match 查询 penName（ik 分词模糊命中，只取 id + penName 最小集）；
+     * 4. 异常按 BizException 上抛（Feign fail-fast 契约，调用方决策丢弃该条件）。</p>
+     *
+     * @param keyword 笔名关键词（必传）
+     * @param limit   返回条数上限（可空）
+     * @return 命中用户最小集（userId + penName）；无命中为空列表不报错
+     */
+    @Override
+    public List<UserSearchVO> searchByPenName(String keyword, Integer limit) {
+        // 步骤1：参数校验（空白关键词无检索意义，返回空列表不报错）
+        if (!StringUtils.hasText(keyword)) {
+            return List.of();
+        }
+        // 步骤2：limit 归一化（缺省 5，封顶 20 防超量拉取）
+        int size = limit == null || limit < 1 ? PEN_NAME_SEARCH_DEFAULT_LIMIT
+                : Math.min(limit, PEN_NAME_SEARCH_MAX_LIMIT);
+        // 步骤3：match 查询 penName（ik 分词模糊命中；只取 id + penName 最小集防契约膨胀）
+        Query query = Query.of(q -> q.match(m -> m
+                .field(SearchFieldConstant.FIELD_PEN_NAME)
+                .query(keyword.trim())));
+        try {
+            SearchResponse<UserIndexDoc> response = elasticsearchClient.search(s -> s
+                            .index(properties.getIndex().getUser())
+                            .query(query)
+                            .size(size),
+                    UserIndexDoc.class);
+            // 步骤4：映射最小集（id 解析失败跳过，防脏数据外泄）
+            List<UserSearchVO> users = new ArrayList<>();
+            for (Hit<UserIndexDoc> hit : response.hits().hits()) {
+                UserIndexDoc doc = hit.source();
+                if (doc == null) {
+                    continue;
+                }
+                Long userId = parseUserId(doc.getId());
+                if (userId == null) {
+                    continue;
+                }
+                UserSearchVO vo = new UserSearchVO();
+                vo.setUserId(userId);
+                vo.setPenName(doc.getPenName());
+                users.add(vo);
+            }
+            return users;
+        } catch (Exception e) {
+            // 查询异常上抛（Feign fail-fast 契约）：调用方（ai 侧）决策丢弃该条件继续检索
+            log.error("[笔名查询] user_idx 查询失败：keywordChars={}", keyword.length(), e);
+            throw new IllegalStateException("user_idx 笔名查询失败（ES 异常）", e);
+        }
+    }
+
+    /**
+     * 解析用户文档 ID 为 Long（非法格式返回 null）
+     *
+     * @param id 文档 ID 字符串
+     * @return 用户 ID；解析失败返回 null
+     */
+    private Long parseUserId(String id) {
+        try {
+            return Long.parseLong(id);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**

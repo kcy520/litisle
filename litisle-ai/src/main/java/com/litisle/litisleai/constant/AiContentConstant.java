@@ -22,4 +22,63 @@ public final class AiContentConstant {
 
     /** 可见性：1-公开（未公开内容不出站，与 D2/V3 出线红线同口径） */
     public static final int VISIBILITY_PUBLIC = 1;
+
+    /** 收藏目标类型：1-文章（板块九 1.2 结果动作工具用；取值与 content FavoriteTargetTypeEnum 对齐） */
+    public static final int FAVORITE_TARGET_ARTICLE = 1;
+
+    /** 创作辅助场景：读者预设问题（板块十二 4.3，chat 入口 scene 路由，必须关联文章） */
+    public static final String SCENE_READER_QUESTIONS = "reader-questions";
+
+    /** 创作辅助场景：选题灵感（板块十二 4.4，chat 入口 scene 路由，热榜上下文工具） */
+    public static final String SCENE_TOPIC_INSPIRATION = "topic-inspiration";
+
+    // ==================== 写作辅助扩展（板块十五） ====================
+
+    /** 改写目标粒度：标题（承载板块十二 4.7 标题/开头多版建议，articleId 入口做归属校验——AI-V6 ⑤/⑦ 口径） */
+    public static final String TARGET_TYPE_TITLE = "TITLE";
+
+    /** 改写目标粒度：段落 */
+    public static final String TARGET_TYPE_PARAGRAPH = "PARAGRAPH";
+
+    /** 改写目标粒度：句子 */
+    public static final String TARGET_TYPE_SENTENCE = "SENTENCE";
+
+    /** 改写目标粒度：词语 */
+    public static final String TARGET_TYPE_WORD = "WORD";
+
+    /** 改写目标粒度白名单（15.1 入参校验唯一来源，注册表外粒度拒绝） */
+    public static final java.util.Set<String> TARGET_TYPES = java.util.Set.of(
+            TARGET_TYPE_TITLE, TARGET_TYPE_PARAGRAPH, TARGET_TYPE_SENTENCE, TARGET_TYPE_WORD);
+
+    /** 写作辅助计量场景前缀（scene=rewrite-{粒度小写}，区分改写粒度；purpose=POLISH 写作辅助桶） */
+    public static final String SCENE_REWRITE_PREFIX = "rewrite-";
+
+    /** 写作辅助计量场景：文章草稿生成（板块十五 15.2，purpose=POLISH 桶） */
+    public static final String SCENE_DRAFT = "draft";
+
+    /**
+     * 改写目标粒度中文名（prompt 组装用，让模型按中文粒度理解任务）
+     *
+     * @param targetType 目标粒度（白名单值；注册表外原样返回）
+     * @return 粒度中文名（标题/段落/句子/词语）
+     */
+    public static String targetTypeLabel(String targetType) {
+        return switch (targetType) {
+            case TARGET_TYPE_TITLE -> "标题";
+            case TARGET_TYPE_PARAGRAPH -> "段落";
+            case TARGET_TYPE_SENTENCE -> "句子";
+            case TARGET_TYPE_WORD -> "词语";
+            default -> targetType;
+        };
+    }
+
+    /**
+     * 改写目标粒度对应的计量场景（scene 区分粒度口径：rewrite-title / rewrite-paragraph 等）
+     *
+     * @param targetType 目标粒度（白名单值）
+     * @return 计量场景标识
+     */
+    public static String rewriteScene(String targetType) {
+        return SCENE_REWRITE_PREFIX + targetType.toLowerCase();
+    }
 }

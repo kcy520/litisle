@@ -36,6 +36,12 @@ public class XiaoyueChatRequest implements Serializable {
     /** 关联文章 ID（摘要/标签/结构分析必传；润色可空——润色选中文本；问答可选） */
     private Long articleId;
 
+    /**
+     * 会话结果集序号（板块九：可空——读后摘要/大纲导航经序号引用定位「最近一次推荐/检索
+     * 结果集」中的文章；与 articleId 二选一，结果集过期/越界由工具明确提示重新检索）
+     */
+    private Integer articleSeq;
+
     /** 用户消息（问答/润色对象/结构分析补充要求；摘要/标签场景可空——由 articleId 定位任务） */
     private String message;
 

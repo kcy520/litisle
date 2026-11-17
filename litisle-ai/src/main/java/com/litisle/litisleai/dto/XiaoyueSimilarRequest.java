@@ -26,4 +26,16 @@ public class XiaoyueSimilarRequest implements Serializable {
 
     /** 业务场景快照（可空，计量明细留痕用） */
     private String scene;
+
+    /**
+     * 自由条件描述（板块八 1.1：可空——空 → L0 直通固定相似检索 0 次 LLM；非空 → L1 条件提取管道，
+     * 提取失败/超时降级 L0 并在响应标注「未识别自定义条件」，不报错）
+     */
+    private String freeText;
+
+    /**
+     * 会话 ID（板块九 1.1：可空——非空时本次推荐/检索结果记入会话结果集序号映射，
+     * 供会话内「第 N 篇」类结果动作与读后服务引用；为空不记录）
+     */
+    private Long sessionId;
 }

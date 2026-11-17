@@ -43,6 +43,9 @@ public class AiQuotaProperties {
     /** 相似推荐配额（SIMILAR，板块五 5.1；纯检索形态无生成成本，预留桶保持用途映射完整） */
     private Limit similar = new Limit();
 
+    /** 索引期打标配额（LABELING，板块八 1.3：索引链路无发起用户，预留桶保持用途映射完整） */
+    private Limit labeling = new Limit();
+
     /**
      * 单用途日配额上限（次数与 Token 双维度，任一超限即拒绝）
      */

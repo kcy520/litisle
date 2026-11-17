@@ -14,6 +14,10 @@ import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.elasticsearch.core.bulk.UpdateAction;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.json.JsonData;
+import com.litisle.commoncore.result.Result;
+import com.litisle.litisleapi.dto.ai.AiLabelRequestDTO;
+import com.litisle.litisleapi.dto.ai.AiLabelResponseDTO;
+import com.litisle.litisleapi.feign.AiClient;
 import com.litisle.litislesearch.config.SearchProperties;
 import com.litisle.litislesearch.config.SearchProperties.Embedding;
 import com.litisle.litislesearch.constant.SearchFieldConstant;
@@ -22,13 +26,14 @@ import com.litisle.litislesearch.domain.entity.ArticleChunkDoc;
 import com.litisle.litislesearch.domain.entity.ArticleIndexDoc;
 import com.litisle.litislesearch.service.VectorRebuildService;
 import com.litisle.litislesearch.service.VectorService;
-import com.litisle.litislesearch.utils.SearchTextUtils;
+import com.litisle.litislesearch.service.support.ArticleVectorComposer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -37,8 +42,9 @@ import java.util.Map;
  *
  * 【流程】可用性检查（无提供方整体跳过）→ search_after 分页扫描（按主键升序，避免深分页窗口限制）
  * → 逐条向量化 → bulk partial update 只写向量字段。
- * 【口径】文章向量输入与发布写入共用 {@link SearchTextUtils#buildEmbeddingInput}；
- * 切片向量直接使用 chunk_text 原文，保证重建结果与事件链路一致。
+ * 【口径】文章 vec_dense 为池化口径（search 板块一 1.2）：先补齐 article_chunks 切片向量，
+ * 再逐篇回查切片向量经 {@link ArticleVectorComposer} 池化聚合（与发布写入同一单点，防口径漂移）；
+ * 切片向量直接使用 chunk_text 原文，保证重建结果与事件链路一致；切片缺席的短文由编排组件兜底直算。
  * 【元信息】单类重建成功后把两索引 `_meta.embedding_model`/`embedding_dims` 更新为配置中的真实
  * 模型名与维度（批次七选型定案），便于运维确认当前索引向量语义版本。
  *
@@ -48,6 +54,12 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class VectorRebuildServiceImpl implements VectorRebuildService {
+
+    /**
+     * 单篇切片向量回查条数上限（search 板块一 1.2）：
+     * 覆盖超长文切片数（1000 片 × 500 字 ≈ 50 万字正文），超出部分不参与池化（防御上限）
+     */
+    private static final int REBUILD_CHUNK_FETCH_SIZE = 1000;
 
 
 // ## 向量重建链路总结（VectorRebuildServiceImpl）
@@ -97,22 +109,37 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
     /** 向量化服务（提供方统一入口；未就绪时整体跳过重建） */
     private final VectorService vectorService;
 
+    /** 文章向量池化编排组件（search 板块一 1.2：重建与发布写入共用的向量口径单点） */
+    private final ArticleVectorComposer articleVectorComposer;
+
+    /** AI 服务客户端（板块八/search 板块二 2.2：存量补标调 /api/feign/ai/label） */
+    private final AiClient aiClient;
+
     /**
-     * 重建文章索引向量：分页扫描公开文章 → 逐条向量化 → bulk 局部更新 vec_dense。
+     * 重建文章索引向量（池化口径，一个任务两步）：先补齐切片向量，再逐篇池化聚合写 vec_dense。
      *
-     * @return 成功更新条数；Embedding 提供方未就绪时返回 0（整体跳过，属降级而非失败）
+     * <p>search 板块一 1.2：步骤一调 {@link #rebuildChunkVectors()} 补齐 article_chunks 切片向量；
+     * 步骤二分页扫描公开文章，逐篇回查该篇切片向量经 {@link ArticleVectorComposer} 池化聚合
+     * （与发布写入同一单点；切片缺席的短文由编排组件兜底直算），bulk 局部更新 vec_dense。</p>
+     *
+     * @return 成功更新条数（仅步骤二 vec_dense 更新数）；Embedding 提供方未就绪时返回 0（整体跳过，属降级而非失败）
      */
     @Override
     public int rebuildArticleVectors() {
         /*
          * 业务逻辑步骤：
-         * 1. 可用性检查：提供方未就绪则整体跳过，避免逐条空跑与无效 ES 写；
-         * 2. search_after 循环分页扫描公开文章（按主键升序推进游标，规避深分页限制）；
-         * 3. 逐条用与发布链路相同的输入构造（标题+摘要+正文）向量化，单条失败只跳过该条；
-         * 4. 每页把成功向量组成本批 bulk 局部更新（只写 vec_dense，不动其他字段）；
-         * 5. 页不满说明已扫到末尾，循环结束后同步索引 _meta 登记向量语义版本。
+         * 1. 步骤一（两步之第一步）：调 rebuildChunkVectors 补齐 article_chunks 切片向量（池化前置；
+         *    提供方未就绪时该方法返回 0，随后整体跳过）；
+         * 2. 步骤二可用性检查：提供方未就绪则整体跳过，避免逐篇空跑与无效 ES 写；
+         * 3. search_after 循环分页扫描公开文章（按主键升序推进游标，规避深分页限制）；
+         * 4. 逐篇回查该篇切片向量 → ArticleVectorComposer 池化聚合，单篇失败只跳过该篇；
+         * 5. 每页把成功向量组成本批 bulk 局部更新（只写 vec_dense，不动其他字段）；
+         * 6. 页不满说明已扫到末尾，循环结束后同步索引 _meta 登记向量语义版本。
          */
-        // 提供方未就绪（选型未确认/开关关闭）：整体跳过，避免逐条空跑与无效 ES 写
+        // 步骤1：补齐切片向量（一个任务两步之第一步；池化的切片路输入必须先在位）
+        int chunkFixed = rebuildChunkVectors();
+        log.info("[向量重建] 池化重建第一步完成：切片向量补齐 chunkFixed={}", chunkFixed);
+        // 步骤2：提供方未就绪（选型未确认/开关关闭）：整体跳过，避免逐篇空跑与无效 ES 写
         if (!vectorService.available()) {
             log.warn("[向量重建] Embedding 提供方未就绪，跳过 article_idx 重建");
             return 0;
@@ -125,7 +152,7 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
         int updated = 0;
         // 变量：search_after 游标（null 表示第一页；此后每页取上一页最后一条的排序值续扫）
         List<FieldValue> cursor = null;
-        // 步骤2：循环扫描直到空页/不满页（每轮处理一页；页内失败仅影响单条，不中断整轮）
+        // 步骤3：循环扫描直到空页/不满页（每轮处理一页；页内失败仅影响单条，不中断整轮）
         while (true) {
             // 调用 scan 按游标扫描一页（失败抛异常中止重建，运维动作不静默）
             SearchResponse<ArticleIndexDoc> response = scan(index, batch, cursor, ArticleIndexDoc.class);
@@ -143,12 +170,14 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
                 if (doc == null || !StringUtils.hasText(doc.getId())) {
                     continue;
                 }
-                // 调用向量化：输入用与发布链路同一构造（标题+摘要+正文），保证重建与事件写入口径一致
-                List<Float> vector = vectorService.embed(
-                        SearchTextUtils.buildEmbeddingInput(doc.getTitle(), doc.getSummary(), doc.getContent()));
-                // 单条向量化失败（提供方抖动/维度不符）：跳过该条，后续可重跑补齐
+                // 调用 fetchChunkVectors 回查该篇切片向量（池化三路输入之切片路）
+                List<List<Float>> chunkVectors = fetchChunkVectors(doc.getId());
+                // 调用 ArticleVectorComposer 池化聚合（切片缺席自动走兜底直算，与发布链路同一单点防口径漂移）
+                List<Float> vector = articleVectorComposer.compose(
+                        doc.getTitle(), doc.getSummary(), doc.getContent(), chunkVectors);
+                // 单篇聚合失败（提供方抖动/维度不符）：跳过该篇，后续可重跑补齐
                 if (vector == null) {
-                    log.warn("[向量重建] 单条文章向量化失败，跳过：articleId={}", doc.getId());
+                    log.warn("[向量重建] 单篇文章池化聚合失败，跳过：articleId={}", doc.getId());
                     continue;
                 }
                 // 调用 updateVectorOperation 构造「只写 vec_dense」的局部更新操作
@@ -167,10 +196,49 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
                 break;
             }
         }
-        log.info("[向量重建] article_idx 完成：updated={}", updated);
-        // 重建成功后同步索引 _meta，登记当前向量语义版本（失败仅告警，不影响已重建数据）
+        log.info("[向量重建] article_idx 完成（池化口径）：updated={}", updated);
+        // 重建成功后同步索引 _meta，登记当前向量语义版本（失败仅告警，不影响已重建数据；
+        // 池化不换模型，_meta 登记值不变，仅随重建刷新）
         updateEmbeddingMeta();
         return updated;
+    }
+
+    /**
+     * 回查单篇文章在 article_chunks 的全部切片向量（池化聚合的切片路输入）。
+     *
+     * @param articleId 文章 ID（article_idx 主键字符串）
+     * @return 切片向量列表（剔除缺向量切片）；无切片或回查失败返回空列表（编排组件走兜底直算）
+     */
+    private List<List<Float>> fetchChunkVectors(String articleId) {
+        /*
+         * 业务逻辑步骤：
+         * 1. 按 article_id term 查询 chunk 索引（mapping 为 long 类型，数值精确匹配），
+         *    source 只取 chunk_vector 字段（减少回传流量）；
+         * 2. 提取切片向量列表（剔除缺向量的切片）；
+         * 3. 回查失败仅告警返回空列表——该篇退化为兜底直算口径，重跑重建最终收敛。
+         */
+        try {
+            // 变量：单篇切片查询（size 上限防超长文切片数溢出；source filter 只取向量字段）
+            SearchResponse<ArticleChunkDoc> response = elasticsearchClient.search(s -> s
+                            .index(properties.getIndex().getChunk())
+                            .size(REBUILD_CHUNK_FETCH_SIZE)
+                            .query(q -> q.term(t -> t
+                                    .field(SearchFieldConstant.FIELD_ARTICLE_ID)
+                                    .value(Long.parseLong(articleId))))
+                            .source(src -> src.filter(f -> f.includes(SearchFieldConstant.FIELD_CHUNK_VECTOR))),
+                    ArticleChunkDoc.class);
+            // 步骤2：提取切片向量（切片文档缺向量字段/null 的跳过）
+            return response.hits().hits().stream()
+                    .map(Hit::source)
+                    .filter(java.util.Objects::nonNull)
+                    .map(ArticleChunkDoc::getChunkVector)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+        } catch (Exception e) {
+            // 步骤3：单篇回查失败不中止整轮重建（逐篇降级）：告警留痕，该篇走兜底直算，重跑可收敛
+            log.warn("[向量重建] 单篇切片向量回查失败，该篇退化为兜底直算：articleId={}", articleId, e);
+            return List.of();
+        }
     }
 
     /**
@@ -253,6 +321,139 @@ public class VectorRebuildServiceImpl implements VectorRebuildService {
         // 重建成功后同步索引 _meta（与文章索引同一口径）
         updateEmbeddingMeta();
         return updated;
+    }
+
+    /**
+     * ai_labels 存量补标：分页扫描公开文章 → 逐篇调 AI 打标 → bulk 局部更新 ai_labels + word_count。
+     *
+     * <p>【业务逻辑步骤】
+     * 1. 打标开关检查（labelingEnabled=false 整体跳过，返回 0 降级）；
+     * 2. search_after 分页扫描公开文章（与向量重建同一扫描器）；
+     * 3. 逐篇调 AI 打标端点（正文截断到配置上限），单篇失败只跳过该篇不中断整体；
+     * 4. 每页把成功标签组成本批 bulk 局部更新（只写 ai_labels/word_count，不动其他字段）；
+     * 5. 页不满说明已到末尾（重跑可补齐失败篇目，全程幂等）。</p>
+     *
+     * @return 成功补标条数（打标失败跳过的篇数不计入）
+     */
+    @Override
+    public int relabelAiLabels() {
+        /*
+         * 业务逻辑步骤：
+         * 1. 可用性检查：打标开关关闭则整体跳过（降级，不算失败）；
+         * 2. search_after 循环分页扫描公开文章（与向量重建同一扫描器与游标口径）；
+         * 3. 逐篇调 AI 打标（requestId=articleId 稳定键；正文截断到配置上限防 prompt 放大），
+         *    单篇失败只跳过该篇（逐篇降级，重跑可补齐）；
+         * 4. 每页把成功标签组成本批 bulk 局部更新（只写 ai_labels/word_count）；
+         * 5. 页不满说明已到末尾，循环结束返回累计成功条数。
+         */
+        // 步骤1：打标开关检查（关闭时整体跳过，ai_labels 留空由查询侧语义兜底）
+        if (!properties.getAiLabels().isLabelingEnabled()) {
+            log.warn("[存量补标] ai_labels 打标开关关闭，跳过存量补标");
+            return 0;
+        }
+        // 变量：文章索引名（与写入链路同一索引）
+        String index = properties.getIndex().getArticle();
+        // 调用 scanBatchSize 取扫描批量（与向量重建同配置）
+        int batch = scanBatchSize();
+        // 变量：累计成功补标条数（方法返回值）
+        int relabeled = 0;
+        // 变量：search_after 游标（null 表示第一页）
+        List<FieldValue> cursor = null;
+        // 步骤2：循环扫描直到空页/不满页（每轮处理一页；页内失败仅影响单篇，不中断整轮）
+        while (true) {
+            // 调用 scan 按游标扫描一页（失败抛异常中止补标，运维动作不静默）
+            SearchResponse<ArticleIndexDoc> response = scan(index, batch, cursor, ArticleIndexDoc.class);
+            // 变量：本页命中列表
+            List<Hit<ArticleIndexDoc>> hits = response.hits().hits();
+            if (hits.isEmpty()) {
+                break;
+            }
+            // 变量：本页待执行的 bulk 操作集合（逐篇构造，页末统一提交）
+            List<BulkOperation> operations = new ArrayList<>();
+            for (Hit<ArticleIndexDoc> hit : hits) {
+                // 变量：本篇文章文档源数据
+                ArticleIndexDoc doc = hit.source();
+                // 脏数据（缺主键/缺正文打标依据）跳过，不让单篇阻断整批补标
+                if (doc == null || !StringUtils.hasText(doc.getId())) {
+                    continue;
+                }
+                // 调用 labelDoc 打标（title + 截断正文；失败返回 null 跳过该篇）
+                Map<String, String> labels = labelDoc(doc);
+                if (labels == null) {
+                    log.warn("[存量补标] 单篇打标失败，跳过：articleId={}", doc.getId());
+                    continue;
+                }
+                // 调用 updateLabelOperation 构造「只写 ai_labels + word_count」的局部更新操作
+                // word_count 为纯计算零 AI 成本，与打标同批回填
+                operations.add(updateLabelOperation(index, doc.getId(), labels,
+                        (long) (doc.getContent() == null ? 0 : doc.getContent().length())));
+            }
+            // 调用批量更新：只写 ai_labels/word_count（其余字段保持原值），任一条失败即抛出中止
+            relabeled += bulkUpdate(operations, "article_idx-relabel");
+            // 不足一页说明已到末尾
+            if (hits.size() < batch) {
+                break;
+            }
+            // 下一页游标：最后一条的排序值（主键）
+            cursor = hits.get(hits.size() - 1).sort();
+            if (cursor == null || cursor.isEmpty()) {
+                log.warn("[存量补标] 扫描游标缺失，提前结束存量补标");
+                break;
+            }
+        }
+        log.info("[存量补标] article_idx 完成：relabeled={}", relabeled);
+        return relabeled;
+    }
+
+    /**
+     * 单篇打标：调 AI /api/feign/ai/label（requestId=articleId 稳定键，正文截断到配置上限）
+     *
+     * @param doc 文章索引文档源数据（title/content 为打标依据）
+     * @return 维度标签集；打标失败返回 null（调用方跳过该篇）
+     */
+    private Map<String, String> labelDoc(ArticleIndexDoc doc) {
+        // 组装打标请求：requestId 用 articleId 稳定键（同文重复补标幂等不重复计费）
+        AiLabelRequestDTO request = new AiLabelRequestDTO();
+        request.setRequestId("index-label-" + doc.getId());
+        request.setTitle(doc.getTitle() == null ? "" : doc.getTitle());
+        // 正文截断到配置上限，防超长正文撑爆打标 prompt
+        String content = doc.getContent() == null ? "" : doc.getContent();
+        int maxChars = Math.max(1, properties.getAiLabels().getLabelContentMaxChars());
+        request.setContent(content.length() > maxChars ? content.substring(0, maxChars) : content);
+        try {
+            Result<AiLabelResponseDTO> resp = aiClient.label(request);
+            if (resp == null || !resp.isSuccess() || resp.getData() == null
+                    || resp.getData().getLabels() == null || resp.getData().getLabels().isEmpty()) {
+                return null;
+            }
+            return resp.getData().getLabels();
+        } catch (Exception e) {
+            // 单篇失败不中断整体（逐篇降级）：告警留痕，重跑可补齐
+            log.warn("[存量补标] 打标调用失败：articleId={}", doc.getId(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 构造「只更新 ai_labels + word_count」的 bulk 操作（与 updateVectorOperation 同构）
+     *
+     * @param index     索引名
+     * @param id        文档主键
+     * @param labels    维度标签集
+     * @param wordCount 正文字数（纯计算）
+     * @return bulk 操作
+     */
+    private BulkOperation updateLabelOperation(String index, String id, Map<String, String> labels, Long wordCount) {
+        // 局部更新 doc：只含 ai_labels + word_count 两键（其余字段保持原值，防整篇替换丢字段）
+        Map<String, Object> doc = new HashMap<>();
+        doc.put(SearchFieldConstant.FIELD_AI_LABELS, labels);
+        doc.put(SearchFieldConstant.FIELD_WORD_COUNT, wordCount);
+        // update + doc：局部更新操作（与向量重建同构，index + id 定位目标文档）
+        UpdateAction<Object, Object> action = UpdateAction.of(builder -> builder.doc(doc));
+        return BulkOperation.of(op -> op.update(update -> update
+                .index(index)
+                .id(id)
+                .action(action)));
     }
 
     /**

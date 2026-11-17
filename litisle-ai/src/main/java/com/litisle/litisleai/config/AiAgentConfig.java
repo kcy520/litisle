@@ -89,7 +89,9 @@ public class AiAgentConfig {
                 chatModelProvider.getObject(), usageRecordService, metrics, providerProperties, agentProperties);
         return AiServices.builder(XiaoyueAgent.class)
                 .chatModel(meteringModel)
-                .systemMessageProvider(memoryId -> AiPromptConstants.XIAOYUE_SYSTEM_PROMPT)
+                // 系统提示词渲染（板块十三 5.3）：基础提示词 + 边界响应规则段（拒绝话术模板 yml 外置注入）
+                .systemMessageProvider(memoryId -> AiPromptConstants.renderXiaoyueSystemPrompt(
+                        agentProperties.getBoundaryRefusalTemplate()))
                 .tools(xiaoyueTools)
                 // 会话记忆（板块三 3.2）：Redis 窗口暂存最近 N 条（LRU 暂存 10/30 口径外置）；
                 // Memory 不可用时 RedisChatMemoryStore 内部降级为无记忆单轮并告警

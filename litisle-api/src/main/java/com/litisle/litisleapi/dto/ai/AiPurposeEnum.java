@@ -14,11 +14,13 @@ import lombok.Getter;
  * 2026-11-15 板块三扩展：新增 POLISH / STRUCTURE（润色/结构分析生成用途，随板块三 3.3 落地，
  * 各自独立预算桶——对齐 D15「生成类各自独立桶」精神；D15 原文仅列前五类，文档口径修订随
  * 板块三回写）。2026-11-15 板块五扩展：新增 SIMILAR（相似文章推荐，F8 纯检索形态零生成成本，
- * 仍落一条 token=0 明细保证可观测）。</p>
+ * 仍落一条 token=0 明细保证可观测）。2026-11-16 板块八扩展：新增 LABELING（索引期管线类用途，
+ * ai_labels 维度打标，独立预算桶，只由 search 索引链路经 /api/feign/ai/label 调用，
+ * 不开放用户端点）。</p>
  *
  * <p>【分账桶】机审桶 = MODERATION_TEXT + MODERATION_IMAGE 合并；
- * SUMMARY / TAGGING / QA / POLISH / STRUCTURE / SIMILAR 各自独立桶。桶的合并逻辑由 litisle-ai 的
- * 预算服务承担，本枚举只提供用途定义与计费标记。</p>
+ * SUMMARY / TAGGING / QA / POLISH / STRUCTURE / SIMILAR / LABELING 各自独立桶。桶的合并逻辑由
+ * litisle-ai 的预算服务承担，本枚举只提供用途定义与计费标记。</p>
  *
  * <p>【序列化口径（与展示型枚举不同）】实现 DictEnum 获得 name/code/desc 三值兼容绑定；
  * 但 @JsonValue 标在 code 而非 desc——本枚举是 review↔ai 的 Feign 传输契约，
@@ -53,6 +55,9 @@ public enum AiPurposeEnum implements DictEnum {
 
     /** 相似文章推荐（板块五 5.1，F8 纯检索形态：独立预算桶，纯检索 token=0 零生成成本） */
     SIMILAR("SIMILAR", "相似文章推荐"),
+
+    /** 索引期打标（板块八 1.3，ai_labels 维度标注管线：独立预算桶，仅 search 索引链路内部调用，不开放用户端点） */
+    LABELING("LABELING", "索引期打标"),
 
     /** 未归类兜底：仅落明细不计费不计预算，出现即告警 */
     OTHER("OTHER", "未归类调用"),

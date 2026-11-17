@@ -5,6 +5,8 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleapi.config.FeignApiConfig;
 import com.litisle.litisleapi.dto.ai.AiChatRequestDTO;
 import com.litisle.litisleapi.dto.ai.AiChatResponseDTO;
+import com.litisle.litisleapi.dto.ai.AiLabelRequestDTO;
+import com.litisle.litisleapi.dto.ai.AiLabelResponseDTO;
 import com.litisle.litisleapi.fallback.AiClientFallbackFactory;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,7 +25,7 @@ import org.springframework.web.bind.annotation.RequestBody;
  * 4. 超时口径：调用方按 litisle.moderation.llm 相关配置对齐
  *    feign.client.config.litisle-ai.read-timeout（Nacos 侧统一）
  *
- * 【调用方】review 模块（文本机审）、未来 ai/RAG 能力
+ * 【调用方】review 模块（文本机审）、search 模块（索引期打标）、未来 ai/RAG 能力
  *
  * @author litisle
  */
@@ -41,4 +43,19 @@ public interface AiClient {
      */
     @PostMapping("/api/feign/ai/chat")
     Result<AiChatResponseDTO> chat(@RequestBody AiChatRequestDTO dto);
+
+    /**
+     * 索引期打标（板块八 1.3：search 索引链路按维度注册表词表标注 ai_labels）
+     *
+     * <p>【设计说明】
+     * 1. purpose=LABELING（索引期管线类独立预算桶，不开放用户端点）；
+     * 2. 低置信维度不输出（缺失即未标注），ai 侧不硬造标签；
+     * 3. fail-fast：预算超限/校验重试耗尽抛明确错误码，重试语义由 search 消费侧承担
+     *    （索引链路打标失败不阻断主链路，ai_labels 留空降级）</p>
+     *
+     * @param dto 打标请求（requestId/title/content 必传）
+     * @return ai_labels 维度标签集（key=维度名，value=词表值或语义短语）
+     */
+    @PostMapping("/api/feign/ai/label")
+    Result<AiLabelResponseDTO> label(@RequestBody AiLabelRequestDTO dto);
 }

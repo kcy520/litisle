@@ -14,6 +14,13 @@ import java.util.List;
  * contentHash 承载 Q75 引用版本比对（检索命中后与 content 回查值比对，不一致标注过期）；
  * 字段对齐 ContentDTO 契约（bizId/ownerId/status/visibility/contentHash），无 authorName/updateTime。</p>
  *
+ * <p>【通俗说明】这个类就是一篇"文章切片"存进向量库时的档案卡：一篇长文章入库前会被切成
+ * 一个个小段落，每个段落打包成一个 ArticleChunkDoc 存进 ES。卡上记了两类信息——
+ * ① 内容本身：这段话的文字（chunkText）和它的"指纹"向量（contentVector，用来做
+ * 相似度搜索，越像的段落得分越高）；② 出处信息：属于哪篇文章、第几段、标题、作者、
+ * 状态、可见性，以及内容哈希 contentHash（原文改版后哈希对不上，就能发现引用已过期）。
+ * chunkId 的格式是"文章ID_切片序号"，同一个 ID 重复写入会直接覆盖旧数据，所以天然幂等。</p>
+ *
  * @author litisle
  */
 @Data
