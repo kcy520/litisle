@@ -69,21 +69,21 @@ public class ChunkIndexClient {
         if (exists) {
             return;
         }
-        // mapping：contentVector 用 dense_vector（维度取配置）；其余常用字段 keyword/text/date
+        // mapping：contentVector 用 dense_vector（维度取配置）；其余常用字段 keyword/text/date（字段名取 ArticleChunkDoc 常量）
         Map<String, Property> propertiesMap = new HashMap<>();
-        propertiesMap.put("chunkId", Property.of(p -> p.keyword(k -> k)));
-        propertiesMap.put("articleId", Property.of(p -> p.keyword(k -> k.index(true))));
-        propertiesMap.put("chunkIndex", Property.of(p -> p.keyword(k -> k.index(false))));
-        propertiesMap.put("title", Property.of(p -> p.text(t -> t)));
-        propertiesMap.put("authorId", Property.of(p -> p.keyword(k -> k)));
-        propertiesMap.put("chunkText", Property.of(p -> p.text(t -> t)));
+        propertiesMap.put(ArticleChunkDoc.FIELD_CHUNK_ID, Property.of(p -> p.keyword(k -> k)));
+        propertiesMap.put(ArticleChunkDoc.FIELD_ARTICLE_ID, Property.of(p -> p.keyword(k -> k.index(true))));
+        propertiesMap.put(ArticleChunkDoc.FIELD_CHUNK_INDEX, Property.of(p -> p.keyword(k -> k.index(false))));
+        propertiesMap.put(ArticleChunkDoc.FIELD_TITLE, Property.of(p -> p.text(t -> t)));
+        propertiesMap.put(ArticleChunkDoc.FIELD_AUTHOR_ID, Property.of(p -> p.keyword(k -> k)));
+        propertiesMap.put(ArticleChunkDoc.FIELD_CHUNK_TEXT, Property.of(p -> p.text(t -> t)));
         // dense_vector：similarity 用枚举常量（String 重载不存在），cosine 相似度支撑 knn score
-        propertiesMap.put("contentVector", Property.of(p -> p.denseVector(d ->
+        propertiesMap.put(ArticleChunkDoc.FIELD_CONTENT_VECTOR, Property.of(p -> p.denseVector(d ->
                 d.dims(ragProperties.getVectorDimension()).index(true).similarity(DenseVectorSimilarity.Cosine))));
-        propertiesMap.put("status", Property.of(p -> p.keyword(k -> k)));
-        propertiesMap.put("visibility", Property.of(p -> p.keyword(k -> k)));
-        propertiesMap.put("contentHash", Property.of(p -> p.keyword(k -> k)));
-        propertiesMap.put("ingestTime", Property.of(p -> p.date(t -> t)));
+        propertiesMap.put(ArticleChunkDoc.FIELD_STATUS, Property.of(p -> p.keyword(k -> k)));
+        propertiesMap.put(ArticleChunkDoc.FIELD_VISIBILITY, Property.of(p -> p.keyword(k -> k)));
+        propertiesMap.put(ArticleChunkDoc.FIELD_CONTENT_HASH, Property.of(p -> p.keyword(k -> k)));
+        propertiesMap.put(ArticleChunkDoc.FIELD_INGEST_TIME, Property.of(p -> p.date(t -> t)));
         elasticsearchClient.indices().create(c -> c.index(index)
                 .mappings(m -> m.properties(propertiesMap)));
         log.info("RAG 切片索引创建完成 index={} dims={}", index, ragProperties.getVectorDimension());
@@ -136,7 +136,8 @@ public class ChunkIndexClient {
         String index = ragProperties.getEsIndex();
         var response = elasticsearchClient.deleteByQuery(d -> d
                 .index(index)
-                .query(Query.of(q -> q.term(t -> t.field("articleId").value(String.valueOf(articleId))))));
+                .query(Query.of(q -> q.term(t -> t.field(ArticleChunkDoc.FIELD_ARTICLE_ID)
+                        .value(String.valueOf(articleId))))));
         log.info("按篇删除切片完成 articleId={} deleted={}", articleId, response.deleted());
     }
 
@@ -158,7 +159,7 @@ public class ChunkIndexClient {
         SearchRequest request = SearchRequest.of(s -> s
                 .index(index)
                 .knn(k -> k
-                        .field("contentVector")
+                        .field(ArticleChunkDoc.FIELD_CONTENT_VECTOR)
                         .queryVector(queryVector)
                         .k(topK)
                         .numCandidates(Math.max(topK * 10, 50))));
@@ -188,12 +189,13 @@ public class ChunkIndexClient {
         SearchRequest request = SearchRequest.of(s -> s
                 .index(index)
                 .knn(k -> k
-                        .field("contentVector")
+                        .field(ArticleChunkDoc.FIELD_CONTENT_VECTOR)
                         .queryVector(queryVector)
                         .k(topK)
                         .numCandidates(Math.max(topK * 10, 50))
                         // 单文 filter：knn 召回范围收窄到目标文章自身切片
-                        .filter(f -> f.term(t -> t.field("articleId").value(String.valueOf(articleId))))));
+                        .filter(f -> f.term(t -> t.field(ArticleChunkDoc.FIELD_ARTICLE_ID)
+                                .value(String.valueOf(articleId))))));
         SearchResponse<ArticleChunkDoc> response = elasticsearchClient.search(request, ArticleChunkDoc.class);
         return response.hits().hits().stream()
                 .filter(hit -> hit.source() != null)
@@ -217,7 +219,8 @@ public class ChunkIndexClient {
         String index = ragProperties.getEsIndex();
         SearchRequest request = SearchRequest.of(s -> s
                 .index(index)
-                .query(q -> q.term(t -> t.field("articleId").value(String.valueOf(articleId))))
+                .query(q -> q.term(t -> t.field(ArticleChunkDoc.FIELD_ARTICLE_ID)
+                        .value(String.valueOf(articleId))))
                 // chunkIndex 为 keyword 类型（index=false 不可排序），按 chunkId 语义排序不可行——
                 // 内存按 chunkIndex 排序（单篇切片量级有限，召回上限内取全量）
                 .size(500));

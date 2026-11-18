@@ -175,7 +175,10 @@ public class AiSessionService {
     }
 
     /**
+     *
      * 会话活跃刷新（LRU 依据：每次对话 touch 一次）
+     *「写消息表」和「刷新会话活跃时间」是跨表的两个动作，MySQL 没有跨表联动机制（除非上触发器） ；
+     * 触发器又会把 LRU 语义藏进数据库不可见，所以显式`touch` 是这里的正确选择，不是冗余。
      *
      * @param sessionId 会话ID
      *

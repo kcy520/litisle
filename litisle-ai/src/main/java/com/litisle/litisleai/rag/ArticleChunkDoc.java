@@ -28,6 +28,41 @@ public class ArticleChunkDoc implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    // ==================== ES mapping 字段名常量（ChunkIndexClient 建索引/查询引用，避免字符串硬编码） ====================
+
+    /** 字段名：切片唯一 ID（ES _id，幂等覆盖写） */
+    public static final String FIELD_CHUNK_ID = "chunkId";
+
+    /** 字段名：文章 ID（term filter/按篇删除依据） */
+    public static final String FIELD_ARTICLE_ID = "articleId";
+
+    /** 字段名：切片序号（同篇内 0 起，chunkIndex 升序 = 原文段落顺序） */
+    public static final String FIELD_CHUNK_INDEX = "chunkIndex";
+
+    /** 字段名：文章标题 */
+    public static final String FIELD_TITLE = "title";
+
+    /** 字段名：作者 ID */
+    public static final String FIELD_AUTHOR_ID = "authorId";
+
+    /** 字段名：切片正文 */
+    public static final String FIELD_CHUNK_TEXT = "chunkText";
+
+    /** 字段名：切片向量（dense_vector，knn 检索字段） */
+    public static final String FIELD_CONTENT_VECTOR = "contentVector";
+
+    /** 字段名：文章状态 */
+    public static final String FIELD_STATUS = "status";
+
+    /** 字段名：可见性 */
+    public static final String FIELD_VISIBILITY = "visibility";
+
+    /** 字段名：文章内容哈希（Q75 引用版本比对） */
+    public static final String FIELD_CONTENT_HASH = "contentHash";
+
+    /** 字段名：摄入时间 */
+    public static final String FIELD_INGEST_TIME = "ingestTime";
+
     /** 切片唯一 ID（articleId_chunkIndex，ES _id，幂等覆盖写） */
     private String chunkId;
 

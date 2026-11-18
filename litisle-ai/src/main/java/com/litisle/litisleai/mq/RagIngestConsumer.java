@@ -73,6 +73,10 @@ public class RagIngestConsumer {
          * 3. 校验 bizType 并取出文章 ID，非文章消息或定位键缺失直接 ack 丢弃；
          * 4. 委托 RagIngestService 回查门控后摄入切片（含向量）。
          */
+        // 回查门控 = 回查（回调查询权威数据） + 门控（准入检查） ，是两个动作的组合，对应 RagIngestService.java 里的 ①② 两步。
+        // MQ 事件体`ContentPublishedEvent` 只携带定位键（bizType/bizId）， 不带正文和可见性 。所以消费者拿到文章 ID 后，先通过 Feign 的`contentClient.getContent()` 调回 content 服务，取文章当前的权威数据（正文、status、visibility），见 fetchArticle 。
+        // 为什么这么做：事件发出后到消费之间有时间差，消息体里的字段可能已过期（比如发出后又转私密了），也可能被篡改——所以只信 content 服务的实时值，即注释里的「P8 定档：正文经 ContentClient 回查」。
+
         // 步骤1：恢复 traceId（消费线程日志串联全链路）
         MqTraceSupport.restore(message);
         try {
@@ -92,7 +96,7 @@ public class RagIngestConsumer {
                         // 步骤4：委托摄入编排（门控回查/切片/向量化/索引写入）；ES 异常包装为运行时异常转重试分流
                         try {
                             ragIngestService.handlePublished(articleId);
-                        } catch (java.io.IOException e) {
+                        } catch (IOException e) {
                             throw new IllegalStateException("RAG 摄入 ES 操作失败，转消费重试 articleId=" + articleId, e);
                         }
                     });

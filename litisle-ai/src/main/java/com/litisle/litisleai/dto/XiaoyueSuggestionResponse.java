@@ -1,5 +1,6 @@
 package com.litisle.litisleai.dto;
 
+import com.litisle.litisleapi.dto.ai.XiaoyueCitationDTO;
 import lombok.Builder;
 import lombok.Data;
 
@@ -50,10 +51,10 @@ public class XiaoyueSuggestionResponse implements Serializable {
     private String targetType;
 
     /** 改写候选版本列表（板块十五 15.1：每版附一句改动理由；service 侧按粒度校验） */
-    private java.util.List<com.litisle.litisleai.dto.RewriteCandidate> rewriteCandidates;
+    private List<com.litisle.litisleai.dto.RewriteCandidate> rewriteCandidates;
 
     /** 优化建议清单（板块十五 15.1：冗余/歧义/语气/结构诊断，只诊断不贬损——F6/F8 边界） */
-    private java.util.List<String> rewriteSuggestions;
+    private List<String> rewriteSuggestions;
 
     /** 文章草稿正文（板块十五 15.2 DRAFT 场景：建议态，AI 不落库——作者采用后由前端带入 content 正常创建流程） */
     private String draft;
@@ -62,7 +63,7 @@ public class XiaoyueSuggestionResponse implements Serializable {
     private String outline;
 
     /** 引用卡片列表（QA 场景，板块四 4.2：站内问答引用溯源；仅元数据不放正文原文） */
-    private java.util.List<com.litisle.litisleapi.dto.ai.XiaoyueCitationDTO> citations;
+    private List<XiaoyueCitationDTO> citations;
 
     /** AI 生成标识（D3/D13：恒 true，前端据此渲染「AI 建议」标识） */
     private boolean aiGenerated;

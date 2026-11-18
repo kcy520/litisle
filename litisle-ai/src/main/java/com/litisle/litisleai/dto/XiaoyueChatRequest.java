@@ -24,7 +24,11 @@ public class XiaoyueChatRequest implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    /** 请求幂等键（业务侧生成，重试复用同一键；计量幂等键组成，必传） */
+    /** 请求幂等键（业务侧生成，重试复用同一键；计量幂等键组成，必传） 
+     * 前端生成，后端不生成 。 XiaoyueChatRequest.java#L27-L28 注释明确：「请求幂等键（ 业务侧生成 ，重试复用同一键）」，后端只做非空校验—— XiaoyueChatService.java#L161-L163 缺失即抛`AI_REQUEST_ID_REQUIRED` 。前端一般用`crypto.randomUUID()` 每次业务意图生成一次。
+     * （例外：机审切片通道的 requestId =`taskId:chunkIndex` ，由 review 服务端确定性生成，文档 §100/106 有说明。）
+     * 因为 requestId 的唯一职责是 幂等键 ，幂等的语义要求「发起方定义什么算同一次请求」：
+    */
     private String requestId;
 
     /** 用途打标（入口预传入；/chat 支持 SUMMARY/TAGGING/QA；polish/structure 端点定死覆写） */

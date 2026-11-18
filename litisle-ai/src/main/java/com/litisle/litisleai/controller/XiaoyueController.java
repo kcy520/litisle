@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 小悦 REST 接入层（板块二 2.3/2.5 统一入口与直连端点 + 板块三 3.3 润色/结构分析，
  * 路径口径 AI-Architecture §7.1）
  *
+
  * <p>【职责边界】controller 只做协议转换与统一响应包装；purpose 覆写、配额/预算判定、
  * 意图路由、降级直连、结构化自校验、会话记忆、计量留痕全部收口在 service 层。</p>
  *
@@ -71,6 +72,13 @@ public class XiaoyueController {
      */
     @PostMapping("/chat")
     public Result<XiaoyueSuggestionResponse> chat(@RequestBody XiaoyueChatRequest request) {
+        //问题 ：为什么 litisle-ai 的 controller 用`userIdResolver.getUserId()` 取 userId，而其他模块直接`StpUtil.getLoginIdAsLong()` ？
+        //
+        //结论 ：两者都从 Sa-Token 上下文取、都在 controller 层取、都显式传参给 service，唯一区别是 对未登录的处理语义 ：
+        //
+        //	    getLoginIdAsLong()	                       userIdResolver.getUserId()
+        //未登录	    抛 NotLoginException，请求 401 终止	        返回 null，请求继续
+        //语义	    匿名 = 错误，就地拦截                        	匿名 = 合法状态，交给业务分支
         return Result.success(chatService.chat(request, userIdResolver.getUserId()));
     }
 

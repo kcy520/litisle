@@ -9,6 +9,7 @@ import dev.langchain4j.model.output.Response;
 import dev.langchain4j.data.embedding.Embedding;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -81,7 +82,7 @@ public class OllamaEmbeddingProvider implements EmbeddingProvider {
             float[] raw = response.content().vector();
             List<Float> vector = null;
             if (raw != null) {
-                vector = new java.util.ArrayList<>(raw.length);
+                vector = new ArrayList<>(raw.length);
                 for (float v : raw) {
                     vector.add(v);
                 }

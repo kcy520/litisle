@@ -56,6 +56,12 @@ public final class AiContentConstant {
     /** 写作辅助计量场景：文章草稿生成（板块十五 15.2，purpose=POLISH 桶） */
     public static final String SCENE_DRAFT = "draft";
 
+    /** 一次性请求记忆键前缀（memoryId = tmp:{requestId}，Redis ChatMemory TTL 内自然过期，不落会话库） */
+    public static final String TMP_MEMORY_ID_PREFIX = "tmp:";
+
+    /** 会话 USER 消息任务占位文案模板（无用户输入的摘要/标签/结构分析落库占位：%s=用途描述，%s=文章 ID） */
+    public static final String SESSION_TASK_MESSAGE_FORMAT = "%s任务（文章 %s）";
+
     /**
      * 改写目标粒度中文名（prompt 组装用，让模型按中文粒度理解任务）
      *
@@ -80,5 +86,15 @@ public final class AiContentConstant {
      */
     public static String rewriteScene(String targetType) {
         return SCENE_REWRITE_PREFIX + targetType.toLowerCase();
+    }
+
+    /**
+     * 拼接一次性请求的记忆键（memoryId 口径：tmp:{requestId}，一次性上下文不落会话库）
+     *
+     * @param requestId 请求幂等键
+     * @return 一次性记忆键
+     */
+    public static String tmpMemoryId(String requestId) {
+        return TMP_MEMORY_ID_PREFIX + requestId;
     }
 }

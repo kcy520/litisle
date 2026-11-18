@@ -26,17 +26,26 @@ import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.aspectj.weaver.loadtime.Agent;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 
 /**
  * 小悦直连管道服务（板块二 2.5：固定管道摘要/标签建议 + 2.3 的降级通道实现）
- *
+ *## XiaoyueSuggestionService 是直连/降级通道吗？
+完全正确 。它的 javadoc【通俗说明】就是「备用生产线」，身兼两职：
+
+- 独立直连入口 ：摘要/标签端点直接走它（简单任务不必劳驾 Agent）
+- 统一降级通道 ：ChatService 里 Agent 循环超限（80007）或模型不可用（80005）时`fallbackToDirectPipe` 退到这里，计量标记`degraded=1`
+
  * <p>【职责边界】本类承载「固定管道直连通道」：单次 provider 调用 + service 侧结构化
  * 自校验回喂（2.4，重试预算固定 1 次），不经 Agent 循环；调用序号复用调用方传入的
  * AgentCallContext（降级链路 callSeq 连续累计，直连入口自建上下文从 1 起）。
  * 建议态一律不落库（D4），成功建议由调用方决定是否写建议缓存。</p>
+ *
+ 
  *
  * <p>【失败语义】模型通道失败/取稿失败/自校验重试耗尽 → 返回降级响应（degraded=true，
  * message=「暂时无法生成，可手动填写」），不落库；直连入口的预算超限/配额超限仍以
@@ -52,12 +61,45 @@ import java.time.LocalDateTime;
  * 无论成功失败都照常记账，降级产生的账单会特别标注 degraded=1；最终失败就
  * 返回"可手动填写"的提示，不落库不报错。</p>
  *
+ * ##  Agent 如何判断走直连还是多次调用？——Agent 不做这个决定
+决策权分三层，Agent 只拥有中间一层：
+第 1 层：走 Agent 还是直连？ ← 前端调哪个端点决定（入口即路由）
+第 2 层：Agent 循环内调几次工具？ ← 模型自主决定（Agent 唯一的"自主权"）
+第 3 层：Agent 失败降级直连？ ← service 代码决定（catch 特定错误码）
+- 第 1 层 ：`/chat` 一律先试 Agent；`/summary` 、`/tag` 一律直连。没有「Agent 先判断自己行不行再选路」的逻辑
+- 第 2 层 （你问的「多次调用」）：LangChain4j AiServices 的循环机制——模型每轮返回 文本答案 （循环结束）或 工具调用请求 （框架执行工具→结果回喂→进入下一轮），调不调、调哪个、调几次由模型根据意图指令自主判断（ XiaoyueAgent.java#L10 ：「Agent 自主决定调哪个工具、调几次」），上限 5 轮由 MeteringAgentChatModel 强制
+- 第 3 层 ：Agent 不会「觉得自己不行了去走直连」——只有它抛出 80007/80005 被 service 捕获，才被动降级；另外结构化自校验重试 1 次仍失败也降级
+一句话： 路由是人定的（入口分流），循环是模型定的（工具自主编排），降级是代码定的（异常兜底）——Agent 本身只在循环里行使自主权 。
+* 
  * @author litisle
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class XiaoyueSuggestionService {
+
+
+// * 【链路分层定位】生成链路决策权分三层（权威说明见 XiaoyueChatService 类注释
+//  * 【链路决策分层】），本类位于第①③层：直连入口由前端选路（/summary、/tag 直接调本类，
+//  * 不经 Agent），降级入口由 XiaoyueChatService 捕获 80007/80005 后调用；Agent 循环内的
+//  * 工具自主编排权（第②层）与本类无关——固定管道不问模型意见，步骤写死在代码里。
+ 
+
+// ##  Agent 如何判断走直连还是多次调用？——Agent 不做这个决定
+// 决策权分三层，Agent 只拥有中间一层：
+
+// 第 1 层：走 Agent 还是直连？ ← 前端调哪个端点决定（入口即路由）
+// 第 2 层：Agent 循环内调几次工具？ ← 模型自主决定（Agent 唯一的"自主权"）
+// 第 3 层：Agent 失败降级直连？ ← service 代码决定（catch 特定错误码）
+
+// - 第 1 层 ：`/chat` 一律先试 Agent；`/summary` 、`/tag` 一律直连。没有「Agent 先判断自己行不行再选路」的逻辑
+// - 第 2 层 （你问的「多次调用」）：LangChain4j AiServices 的循环机制——模型每轮返回 文本答案 （循环结束）或 工具调用请求 （框架执行工具→结果回喂→进入下一轮），调不调、调哪个、调几次由模型根据意图指令自主判断（ XiaoyueAgent.java#L10 ：「Agent 自主决定调哪个工具、调几次」），上限 5 轮由 MeteringAgentChatModel 强制
+// - 第 3 层 ：Agent 不会「觉得自己不行了去走直连」——只有它抛出 80007/80005 被 service 捕获，才被动降级；另外结构化自校验重试 1 次仍失败也降级
+
+// 一句话： 路由是人定的（入口分流），循环是模型定的（工具自主编排），降级是代码定的（异常兜底）——Agent 本身只在循环里行使自主权 。
+// 「路口」就是 Controller 上的 REST 端点 ——前端请求打哪个 URL，就决定了走哪条通道。所谓「入口分流」没有智能判断，纯粹是「你调哪个接口，我就走哪条路」。
+//  所以「路口」的本质是： 前端开发时就已经知道用户点的是哪个按钮 （「生成摘要」按钮调`/summary` ，聊天框发消息调`/chat` ）——这个信息在编码时就固定了，不需要运行时再判断。后端只需保证：每个路口进来，配额、预算、计量、降级这些横切能力一个不少（直连端点在 SuggestionService 里自己重复做这些判定， L42-L43 【失败语义】有说明）。
+    
 
     /** 降级提示文案（D3/D13：可手动填写，不落库） */
     private static final String DEGRADED_MESSAGE = "AI 暂时无法生成该内容，请稍后重试或手动填写";
@@ -264,6 +306,7 @@ public class XiaoyueSuggestionService {
                 agentProperties.getRewriteTitleMaxChars(),
                 request.getStylePreference(),
                 request.getOriginalText());
+
         return runStructuredPipeline(context, AiPurposeEnum.POLISH, originalTask, degraded,
                 raw -> validator.validateRewrite(raw, request.getTargetType(), request.getCandidateCount(),
                         agentProperties.getRewriteReasonMaxChars(), agentProperties.getRewriteTitleMaxChars(),

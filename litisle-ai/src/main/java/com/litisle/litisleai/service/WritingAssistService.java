@@ -315,7 +315,7 @@ public class WritingAssistService {
                 agentProperties.getRewriteReasonMaxChars(),
                 agentProperties.getRewriteTitleMaxChars());
         try {
-            String raw = agent.chat("tmp:" + request.getRequestId(), intentMessage);
+            String raw = agent.chat(AiContentConstant.tmpMemoryId(request.getRequestId()), intentMessage);
             return finalizeRewrite(request, context, intentMessage, raw, 1);
         } catch (BizException e) {
             // 降级铁律：循环超限/模型不可用 → 降级为固定管道直连（降级链路同样计量）
@@ -358,7 +358,7 @@ public class WritingAssistService {
             try {
                 XiaoyueAgent agent = agentProvider.getIfAvailable();
                 // 回喂轮（callSeq 由计量装饰模型递增；Agent 缺席走降级）
-                String retryRaw = agent == null ? null : agent.chat("tmp:" + request.getRequestId(),
+                String retryRaw = agent == null ? null : agent.chat(AiContentConstant.tmpMemoryId(request.getRequestId()),
                         String.format(AiPromptConstants.STRUCTURED_RETRY_FEEDBACK, e.getMessage(), intentMessage));
                 if (retryRaw == null) {
                     return fallbackRewrite(request, context);
@@ -401,7 +401,7 @@ public class WritingAssistService {
                 request.wordRangeText(),
                 agentProperties.getDraftMaxChars());
         try {
-            String raw = agent.chat("tmp:" + request.getRequestId(), intentMessage);
+            String raw = agent.chat(AiContentConstant.tmpMemoryId(request.getRequestId()), intentMessage);
             return finalizeDraft(request, context, intentMessage, raw, 1);
         } catch (BizException e) {
             if (e.getCode() == ErrorCode.AI_AGENT_LOOP_EXCEEDED.getCode()
@@ -436,7 +436,7 @@ public class WritingAssistService {
             log.info("草稿输出校验未通过，回喂重试 requestId={} error={}", request.getRequestId(), e.getMessage());
             try {
                 XiaoyueAgent agent = agentProvider.getIfAvailable();
-                String retryRaw = agent == null ? null : agent.chat("tmp:" + request.getRequestId(),
+                String retryRaw = agent == null ? null : agent.chat(AiContentConstant.tmpMemoryId(request.getRequestId()),
                         String.format(AiPromptConstants.STRUCTURED_RETRY_FEEDBACK, e.getMessage(), intentMessage));
                 if (retryRaw == null) {
                     return fallbackDraft(request, context);

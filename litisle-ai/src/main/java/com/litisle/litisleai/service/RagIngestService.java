@@ -25,6 +25,8 @@ import java.util.List;
 /**
  * RAG 摄入编排服务（板块四 4.1：content.published/unpublished → 门控回查 → 切片 → 向量化 → 索引写入）
  *
+ * 摄入链路 ：MQ 事件 → 门控 → 切片 → 向量化 → ES 写入。重点看门控（未公开不入库）和先删后写的覆盖更新。
+ * 
  * <p>【职责边界】本类收口摄入链路业务编排：MQ 消费者只做 ACK/重试模板；
  * 事件体只携带定位键（bizType/bizId），正文与可见性一律经 ContentClient 回查权威值
  * （P8 定档：正文经 ContentClient 回查，防事件体被篡改或字段过期）。</p>
