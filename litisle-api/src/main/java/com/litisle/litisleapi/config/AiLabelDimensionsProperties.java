@@ -19,9 +19,15 @@ import java.util.Map;
  * <p>【注册方式】本类位于 litisle-api 契约包，litisle-ai 与 litisle-search 各自经
  * @EnableConfigurationProperties 显式注册（服务启动类不扫描 api 包）。</p>
  *
- * <p>【默认词表（2026-11-16 P0 拍板定稿）】style 六值受控 / depth 三值 / structure 四值 /
- * topic 语义自由；range 绑 word_count / publish_time；param 含 topK / sort。mood / stance /
- * audience 留位观察不做（随词表扩展直接加配置项）。</p>
+ * <p>【默认词表（2026-11-19 调整：style 限定文学风格、structure 升级为 genre 文学体裁）】
+ * style 十六值受控（平实晓畅/严谨专业/幽默诙谐/冷峻犀利/温暖治愈/抒情诗意/华丽典雅/简洁凝练/
+ * 口语亲切/学术书面/清新自然/婉约细腻/豪放激昂/沉郁深刻/讽刺辛辣/古朴雅致——仅描述文笔
+ * 与语言风格）/ depth 三值 / genre 文学体裁十四值（记叙文/议论文/说明文/散文/诗歌/小说/
+ * 书评影评/实用文/游记/书信日记/传记纪实/寓言童话/杂文时评/剧本，文学方向为主，
+ * 原 structure 组织形态维度移除）/ topic 语义自由；range 绑 word_count / publish_time；
+ * param 含 topK / sort。mood / stance / audience 留位观察不做（随词表扩展直接加配置项）。
+ * 词表/维度变更后需执行存量补标（/api/search/admin/relabel-ai-labels，整体覆盖 ai_labels），
+ * 旧标签值与旧维度字段（ai_labels.structure）不可命中新词表。</p>
  *
  * <p>【配置】前缀 litisle.search.ai-labels（两服务读同一配置命名空间，保证打标与查询口径同源）。</p>
  *
@@ -72,12 +78,26 @@ public class AiLabelDimensionsProperties {
      */
     private static Map<String, Dimension> defaultDimensions() {
         Map<String, Dimension> dims = new LinkedHashMap<>();
-        dims.put("style", dimension("filter", List.of("轻松易懂", "严谨专业", "故事叙事", "实战干货", "观点评论", "幽默趣味"),
-                null, "文章整体写作风格"));
+        dims.put("style", dimension("filter",
+                List.of("平实晓畅", "严谨专业", "幽默诙谐", "冷峻犀利", "温暖治愈",
+                        "抒情诗意", "华丽典雅", "简洁凝练", "口语亲切", "学术书面",
+                        "清新自然", "婉约细腻", "豪放激昂", "沉郁深刻", "讽刺辛辣", "古朴雅致"),
+                null, "文章文学风格（仅描述文笔与语言风格，不含题材、领域与体裁；"
+                        + "体裁归 genre 维度，如「故事叙事」「议论文」类表达优先映射 genre。"
+                        + "风格互斥原则：一篇文章只取最主导的单一风格，兼顾两种时取更显著者）"));
         dims.put("depth", dimension("filter", List.of("入门", "进阶", "深度"),
-                null, "内容深度定位"));
-        dims.put("structure", dimension("filter", List.of("叙事", "论述", "教程", "清单"),
-                null, "文章组织结构形态"));
+                null, "内容深度定位（入门=零基础可读、不依赖前置知识；进阶=需要基础概念或一定实践经验；"
+                        + "深度=系统原理或前沿探讨，面向资深读者）"));
+        dims.put("genre", dimension("filter",
+                List.of("记叙文", "议论文", "说明文", "散文", "诗歌", "小说", "书评影评", "实用文",
+                        "游记", "书信日记", "传记纪实", "寓言童话", "杂文时评", "剧本"),
+                null, "文章文学体裁（记叙文=以事件或经历叙述为主线；议论文=以观点论证为主线；"
+                        + "说明文=以知识讲解或科普为主线；散文=抒情随笔、形散神聚；诗歌=分行或韵律化表达；"
+                        + "小说=虚构人物情节叙事；书评影评=针对作品的分析评论；实用文=教程/清单/攻略类；"
+                        + "游记=以旅途见闻与风物描写为主线；书信日记=日记体/书信体第一人称记录；"
+                        + "传记纪实=真实人物或事件的记述；寓言童话=虚构短篇寄寓道理、语言童趣；"
+                        + "杂文时评=针对时事或现象的短评杂感；剧本=以台词与舞台指示为主的戏剧文本。"
+                        + "体裁互斥原则：一篇文章只取最主导的单一体裁，混合形态取篇幅占比最大者）"));
         dims.put("topic", dimension("semantic", null,
                 null, "文章核心主题（自由语义短语，如「大模型微调实战」）"));
         dims.put("category", dimension("filter", null,

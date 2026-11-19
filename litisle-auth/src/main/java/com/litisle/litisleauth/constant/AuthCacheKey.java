@@ -17,10 +17,18 @@ public final class AuthCacheKey {
      * */
     public static final String REFRESH_TOKEN = "auth:refresh:";
 
-    /** 用户→刷新令牌映射：auth:refresh:user:{userId} → refreshToken，便于退出时清理
-     * 用户 → refreshToken 的映射
+    /** 用户+设备→刷新令牌映射：auth:refresh:user:{userId}:{deviceId} → refreshToken，便于登出/按族吊销时定位
+     * <p>userId + deviceId 维度：多设备各自独立令牌族（每设备独立 familyId 独立轮换），
+     * 误伤半径限制单端；拼接规则统一走 {@code USER_REFRESH + userId + ":" + deviceId}</p>
      * */
     public static final String USER_REFRESH = "auth:refresh:user:";
+
+    /**
+     * 刷新令牌重放墓碑：auth:refresh:used:{refreshToken} → userId，TTL 与 Refresh 同周期
+     * <p>旧票轮换后写入墓碑：有效 key 未命中但墓碑命中 = 已轮换票被重放 = 盗用信号。
+     * 先查后写防并发窗口：墓碑查询必须先于有效 key 删除执行</p>
+     */
+    public static final String REFRESH_USED = "auth:refresh:used:";
 
     /** 设备会话：auth:device:{deviceId} → Hash {userId, tokenValue, deviceName, ip, loginTime, lastActiveTime} */
     public static final String DEVICE_SESSION = "auth:device:";

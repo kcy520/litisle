@@ -49,6 +49,9 @@ public final class ArticleVectorTextUtils {
             "&quot;", "\"",
             "&#39;", "'");
 
+    /** 句子结束边界字符（切片断句依据：优先在句界断开，避免句子被拦腰截断） */
+    private static final String SENTENCE_ENDINGS = "。！？!?\n";
+
     /** 工具类禁止实例化 */
     private ArticleVectorTextUtils() {
     }
@@ -103,10 +106,10 @@ public final class ArticleVectorTextUtils {
     }
 
     /**
-     * 把纯文本按固定字数切分为重叠片段（RAG 知识库切片）。
+     * 把纯文本按固定字数切分为重叠片段（RAG 知识库切片，不带片数上限）。
      *
-     * <p>切分规则：每段 chunkSize 字，下一段起点 = 上一段起点 + (chunkSize - overlap)，
-     * 相邻两段因此重叠 overlap 字，避免语义在边界处被截断。</p>
+     * <p>统一 AI 侧（RagIngestService 摄入）与 search 侧（ArticleChunkServiceImpl 摄入）的
+     * 切片算法：两服务共享同一实现，防分片口径漂移导致向量语义不一致。</p>
      *
      * @param text      纯文本
      * @param chunkSize 单段字数
@@ -114,27 +117,74 @@ public final class ArticleVectorTextUtils {
      * @return 切片列表（空文本返回空列表）
      */
     public static List<String> splitIntoChunks(String text, int chunkSize, int overlap) {
-        // 参数防护：文本为空或切片长度非法时不切片
-        if (text == null || text.isEmpty() || chunkSize <= 0) {
+        // 片数不限：上限传整型最大值（兼容既有三参调用方，行为仅增加句界回退优化）
+        return splitIntoChunks(text, chunkSize, overlap, Integer.MAX_VALUE);
+    }
+
+    /**
+     * 把纯文本按固定字数切分为重叠片段（带单篇片数上限）。
+     *
+     * <p>切分规则：每段 chunkSize 字，下一段起点 = 上一段断点 - overlap，相邻两段因此
+     * 重叠 overlap 字，避免语义在边界处被截断；段内命中句子结束符（。！？!?\n）时
+     * 回退到最近句界断句，避免句子被拦腰截断；片数达 maxChunks 即截断
+     * （防超长正文撑爆索引与 embedding 成本）。</p>
+     *
+     * @param text      纯文本
+     * @param chunkSize 单段字数
+     * @param overlap   相邻段重叠字数
+     * @param maxChunks 单篇片数上限（非正数视为不切片，返回空列表）
+     * @return 切片列表（空文本返回空列表）
+     */
+    public static List<String> splitIntoChunks(String text, int chunkSize, int overlap, int maxChunks) {
+        // 参数防护：文本为空或切片长度非法/片数上限非正时不切片
+        if (text == null || text.isEmpty() || chunkSize <= 0 || maxChunks <= 0) {
             return List.of();
         }
         // 步长计算：保证每次至少前进 1 字，防 overlap >= chunkSize 时死循环
         int step = Math.max(1, chunkSize - Math.max(0, overlap));
         // 结果容器：按起始位置逐步推进
         List<String> chunks = new ArrayList<>();
-        for (int start = 0; start < text.length(); start += step) {
+        int start = 0;
+        while (start < text.length() && chunks.size() < maxChunks) {
             // 结束位置：不超过文本长度
-            int end = Math.min(text.length(), start + chunkSize);
+            int end = Math.min(start + chunkSize, text.length());
+            // 未到文末且段内命中句子边界：回退断句点，避免句子被拦腰截断（找不到才按原位置硬切）
+            if (end < text.length()) {
+                int boundary = lastSentenceEnd(text, start, end);
+                if (boundary > start) {
+                    end = boundary;
+                }
+            }
             String chunk = text.substring(start, end).trim();
-            // 过滤纯空白片段（HTML 转文本后可能残留）
+            // 空切片跳过（边界回退可能产生）
             if (!chunk.isEmpty()) {
                 chunks.add(chunk);
             }
+            // 步进 = size - overlap；边界断句时按实际 end 计算下一步起点，并保底前进 step 防原地打转
+            start = end >= text.length() ? end : Math.max(end - Math.max(0, overlap), start + step);
             // 已到文末，结束切分
             if (end >= text.length()) {
                 break;
             }
         }
         return chunks;
+    }
+
+    /**
+     * 在 [start, end) 内从后往前找最近的句子结束边界（断句点=边界字符位置+1）。
+     *
+     * @param text  纯文本
+     * @param start 区间起点
+     * @param end   区间终点（不含）
+     * @return 断句点位置；未找到返回 -1（表示该段无自然句界，只能按原位置切）
+     */
+    private static int lastSentenceEnd(String text, int start, int end) {
+        // 从右往左扫，找最近的句子结束字符，返回其后位置作为断句点
+        for (int i = end - 1; i > start; i--) {
+            if (SENTENCE_ENDINGS.indexOf(text.charAt(i)) >= 0) {
+                return i + 1;
+            }
+        }
+        return -1;
     }
 }

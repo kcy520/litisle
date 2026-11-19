@@ -34,15 +34,17 @@ public interface DeviceSessionService {
     /**
      * 登录/刷新令牌时注册或更新当前设备会话
      * <p>
-     * 1. deviceId 优先取客户端请求头 X-Device-Id，未携带则服务端生成 UUID
+     * 1. deviceId 解析优先级：调用方显式传入（刷新轮换场景沿用旧票绑定设备，保证令牌族设备连续）→
+     *    客户端请求头 X-Device-Id → 服务端生成 UUID
      * 2. 设备已存在且归属同一用户（刷新令牌场景）：仅更新 tokenValue 与 lastActiveTime
      * 3. 新设备：写入设备 Hash + 加入用户设备索引 Set + 执行设备数量上限检查
      *
-     * @param userId     登录用户 ID
-     * @param tokenValue 本次登录签发的 accessToken
+     * @param userId           登录用户 ID
+     * @param tokenValue       本次登录签发的 accessToken
+     * @param expectedDeviceId 调用方显式指定的设备 ID（登录场景传 null，走请求头/服务端生成）
      * @return deviceId（随 TsuccessenVO 回传前端）
      */
-    String registerDevice(Long userId, String tokenValue);
+    String registerDevice(Long userId, String tokenValue, String expectedDeviceId);
 
     /**
      * 退出登录时清理当前设备会话记录（尽力而为）

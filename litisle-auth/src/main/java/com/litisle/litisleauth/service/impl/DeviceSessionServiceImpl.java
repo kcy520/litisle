@@ -121,18 +121,21 @@ public class DeviceSessionServiceImpl implements DeviceSessionService {
     /**
      * 登录/刷新令牌时注册或更新当前设备会话
      * <p>
-     * deviceId 优先取客户端请求头 X-Device-Id，未携带则服务端生成 UUID。
-     * 设备已存在且归属同一用户（刷新令牌场景）时仅更新 tokenValue 与 lastActiveTime；
-     * 新设备则完整写入 Hash 并执行设备数量上限检查（超限踢出最旧设备）。
+     * deviceId 解析优先级：调用方显式传入（刷新轮换场景沿用旧票绑定设备）→ 客户端请求头
+     * X-Device-Id → 服务端生成 UUID。设备已存在且归属同一用户（刷新令牌场景）时仅更新
+     * tokenValue 与 lastActiveTime；新设备则完整写入 Hash 并执行设备数量上限检查（超限踢出最旧设备）。
      *
-     * @param userId     登录用户 ID
-     * @param tokenValue 本次登录签发的 accessToken
+     * @param userId           登录用户 ID
+     * @param tokenValue       本次登录签发的 accessToken
+     * @param expectedDeviceId 调用方显式指定的设备 ID（登录场景传 null，走请求头/服务端生成）
      * @return deviceId
      */
     @Override
-    public String registerDevice(Long userId, String tokenValue) {
-        // 1. 解析 deviceId：客户端请求头优先，未携带则服务端生成
-        String deviceId = request.getHeader(HeaderConstant.DEVICE_ID);
+    public String registerDevice(Long userId, String tokenValue, String expectedDeviceId) {
+        // 1. 解析 deviceId：调用方显式传入优先（轮换场景保证令牌族设备连续），其次客户端请求头，均未携带则服务端生成
+        String deviceId = (expectedDeviceId != null && !expectedDeviceId.isBlank())
+                ? expectedDeviceId
+                : request.getHeader(HeaderConstant.DEVICE_ID);
         if (deviceId == null || deviceId.isBlank()) {
             deviceId = UUID.randomUUID().toString().replace("-", "");
         }

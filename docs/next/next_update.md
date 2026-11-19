@@ -263,6 +263,32 @@
 
 ***
 
+#### litisle-auth（认证）模块
+
+> 板块划分依据：Auth-Architecture.md；板块来源：2026-11-19 面试问答 Q015（双 Token 防重放）演练中识别的加固缺口——单次轮换已实现（删旧签新），重放检测 / 令牌族吊销 / 设备绑定均为设计意图未落地
+> 推进顺序：1.1 → 1.2（依赖 1.1 墓碑信号）→ 1.3 可与 1.1 并行 → 1.4 视前端排期（可选）
+> 运行态验证项待实现完成后迁入 [next\_verify.md](next_verify.md)（多端并发刷新与盗用模拟需实测定论）
+
+##### 板块一：Refresh Token 防盗用加固（双 Token 纵深防御）
+
+###### 1.1 重放检测：墓碑记录 + 三段判断刷新
+
+- [ ] 刷新逻辑升级为三段判断：查有效 key（AuthCacheKey.REFRESH_TOKEN 前缀）命中 → 正常轮换（删有效 key、写墓碑、签发新对）；查墓碑 key（新增 AuthCacheKey.REFRESH_USED 前缀，TTL 与 Refresh 同周期）命中 → 判定已轮换票被重放 = 盗用 → 吊销该用户全部会话（复用 forceLogout 链路）+ 审计告警；均未命中 → 拒绝。涉及：AuthServiceImpl#refreshTsuccessen / AuthCacheKey / SaTokenEventListener；铁律：墓碑先查后写防并发窗口，吊销动作必须同时覆盖 Access 会话、Refresh 正反向两条 key 与墓碑记录；若 1.3 已落地，指纹比对在有效 key 命中后、轮换动作前执行（对不上直接拒绝 + 吊销该族）
+
+###### 1.2 令牌族 familyId 与全族吊销（依赖 1.1）
+
+- [ ] 登录签发生成 familyId 随 Refresh 存储（多设备各成一族互不干扰）；重放命中（1.1 ②）/ 改密码 / 封禁 / 登出按族吊销该用户全部 Refresh 与会话（正向、反向、墓碑记录一并清理）；存储维度从 per-user（USER_REFRESH + userId）改为 userId + deviceId 维度实现多设备独立族——每设备独立 familyId 独立轮换，误伤半径限制单端。涉及：AuthServiceImpl / AuthCacheKey / DeviceSessionService
+
+###### 1.3 Refresh 绑定设备指纹（可与 1.1 并行）
+
+- [ ] 登录时提取设备指纹（UA + Accept-Language 哈希即可，不必复杂）随 Refresh 存储；刷新时比对指纹，不一致 → 拒绝刷新 + 吊销该族——不依赖用户在线即可检测盗用（堵离线独用空窗）；指纹不一致但密码校验通过 → 走重新登录（自然换设备流程，零额外开发）。涉及：AuthServiceImpl / AuthCacheKey
+
+###### 1.4 敏感操作二次校验（损失封顶，可选）
+
+- [ ] 改密码、换绑等高危接口增加二次校验（再输密码 / 验证码）——小偷只有 token 没有密码，冒用损失封顶在普通业务操作；触发条件：与前端排期对齐后落地。涉及：auth 服务高危接口 + 全局校验器
+
+***
+
 ## 暂不实现汇总
 
 #### content模块

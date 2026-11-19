@@ -62,6 +62,38 @@ litisle:
     # 拒传黑名单保留天数：REJECT 结论写入 review:img-blacklist:{sha256} 的 TTL
     reject-blacklist:
       ttl-days: 30
+  # ===== AI 标签维度注册表（板块八/search 板块二 2.1，AiLabelDimensionsProperties 同前缀）=====
+  # 【为什么归共享】style 等词表由 litisle-ai「索引期打标」与 litisle-search「条件提取/词表校验」
+  # 两端消费——两侧必须读同一份词表，否则打标值与提取校验词表漂移（越表拒绝/过滤不命中）。
+  # 【调整流程】改此处词表 → 重启 ai + search 两服务（@ConfigurationProperties 未接动态刷新）
+  # → 执行存量补标 POST /api/search/admin/relabel-ai-labels（旧标签值不可命中新词表）。
+  # 【兜底】Nacos 未下发时两服务回落 defaultDimensions() 代码默认值，本地开发可不配。
+  # 【合并语义】dimensions 为 map 绑定：可只覆盖单个维度（如下例只调 style），其余维度沿用代码默认。
+  search:
+    ai-labels:
+      enabled: true
+      dimensions:
+        style:
+          match: filter
+          # 文学风格十六值受控（仅描述文笔与语言风格，不含题材/领域/体裁；一篇文章只取最主导的单一风格）
+          values:
+            - 平实晓畅
+            - 严谨专业
+            - 幽默诙谐
+            - 冷峻犀利
+            - 温暖治愈
+            - 抒情诗意
+            - 华丽典雅
+            - 简洁凝练
+            - 口语亲切
+            - 学术书面
+            - 清新自然
+            - 婉约细腻
+            - 豪放激昂
+            - 沉郁深刻
+            - 讽刺辛辣
+            - 古朴雅致
+          prompt: 文章文学风格（仅描述文笔与语言风格，不含题材、领域与体裁；体裁归 genre 维度。风格互斥原则：一篇文章只取最主导的单一风格，兼顾两种时取更显著者）
 
 ```
 

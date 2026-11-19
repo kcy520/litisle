@@ -69,9 +69,9 @@ public interface AuthService {
      * 退出登录
      *
      * 【流程】
-     * 1. 解析请求头中的 accessToken（去掉 "Bearer " 前缀）
-     * 2. 删除对应 refreshToken（Redis）
-     * 3. StpUtil.logout() 注销登录态（Sa-Token 服务端会话失效，无需额外黑名单）
+     * 1. 按 X-Device-Id 定位当前设备令牌族并吊销（Refresh 正反向 key + 设备记录 + 该设备 Access 会话）
+     * 2. 请求头缺失时保守吊销该用户全部令牌族（宁严勿松，防 Refresh 残留至 TTL）
+     * 3. StpUtil.logout() 注销当前登录态（Sa-Token 服务端会话失效，无需额外黑名单）
      *
      * @param tsuccessen 请求头 Authorization 中的令牌
      */
@@ -81,24 +81,26 @@ public interface AuthService {
      * 强制下线指定用户（管理员触发，非本人操作）
      *
      * 【流程】
-     * 1. 清理 Redis 中该用户的 refreshToken（auth:refresh:* 与映射键）
+     * 1. 逐设备吊销该用户全部令牌族（Refresh 正向 auth:refresh:{token} 与反向
+     *    auth:refresh:user:{userId}:{deviceId} 两条 key 全覆盖）
      * 2. 清理该用户全部在线设备记录（DeviceSessionService.kickAllDevices）
      * 3. 注销其全部 Sa-Token 会话（StpUtil.logout(userId)）
      * <p>
-     * 供 user 模块在管理员注销/封禁用户时通过 Feign 调用，实现离线清理。
+     * 供 user 模块处罚/注销/角色变更经 Feign 调用，同时作为 Refresh 重放检测的兜底吊销链路。
      *
      * @param userId 目标用户 ID
      */
     void forceLogout(Long userId);
 
     /**
-     * 刷新令牌（令牌轮换）
+     * 刷新令牌（令牌轮换 + 三段判断防重放）
      *
-     * 【流程】
-     * 1. 从 Redis 读取 refreshToken 对应的 userId
-     * 2. 校验存在性（不存在则抛 TOKEN_INVALID）
-     * 3. 删除旧 refreshToken（防重放）
-     * 4. 签发新 accessToken + 新 refreshToken，新 refreshToken 存 Redis
+     * 【三段判断】
+     * 1. 查墓碑（auth:refresh:used:{token}）：命中 = 已轮换票被重放 = 盗用 →
+     *    审计告警 + 吊销该用户全部令牌族（复用 forceLogout 链路）+ 拒绝
+     * 2. 查有效 key（auth:refresh:{token}）：未命中 → 拒绝（TOKEN_INVALID）
+     * 3. 均通过 → 原子认领（DEL 唯一成功端签发）→ 写墓碑 → 设备指纹比对
+     *    （不一致吊销该族）→ 同族轮换签发（familyId/deviceId 沿用）
      *
      * @param dto 刷新请求
      * @return 新令牌响应
