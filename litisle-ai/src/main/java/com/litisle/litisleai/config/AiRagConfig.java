@@ -5,6 +5,8 @@ import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
 import com.litisle.litisleai.provider.embedding.EmbeddingProvider;
 import com.litisle.litisleai.provider.embedding.OllamaEmbeddingProvider;
+import com.litisle.litisleai.provider.rerank.InfinityRerankProvider;
+import com.litisle.litisleai.provider.rerank.RerankProvider;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -53,6 +55,24 @@ public class AiRagConfig {
     @ConditionalOnProperty(prefix = "litisle.ai.rag", name = "enabled", havingValue = "true")
     public EmbeddingProvider embeddingProvider(AiRagProperties ragProperties) {
         return new OllamaEmbeddingProvider(ragProperties);
+    }
+
+    /**
+     * Infinity 重排通道 Bean（rag.enabled 与 rag.rerank.enabled 双开关装配；4.2 宽召回+精排增强）
+     *
+     * @param ragProperties RAG 配置
+     * @param objectMapper  Spring 全局 ObjectMapper（请求/响应 JSON 序列化）
+     * @return 重排通道实例
+     *
+     * <p>【通俗说明】rerank.enabled=true 时才创建重排 Bean（连本地 Infinity 跑
+     * bge-reranker 精排）；关闭时不创建，检索侧经 ObjectProvider 判空自动保持
+     * 纯向量排序旧口径，行为与无重排时完全一致。</p>
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "litisle.ai.rag.rerank", name = "enabled", havingValue = "true")
+    public RerankProvider rerankProvider(AiRagProperties ragProperties,
+                                         com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new InfinityRerankProvider(ragProperties, objectMapper);
     }
 
     /**

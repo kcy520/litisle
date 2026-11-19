@@ -1,7 +1,7 @@
 # ============================================================================
 # Litisle 项目 Docker Compose 配置
 # ============================================================================
-# 包含：MySQL、Redis、Nacos、Sentinel(obs)、Seata、RabbitMQ、Elasticsearch、Kibana(es)
+# 包含：MySQL、Redis、Nacos、Sentinel(obs)、Seata、RabbitMQ、Elasticsearch、Kibana(es)、Infinity(ai)
 # 使用方法：docker-compose up -d
 # 停止服务：docker-compose down
 # 查看日志：docker-compose logs -f [服务名]
@@ -345,6 +345,44 @@ services:
       - ./docker/init/seaweedfs/security.toml:/etc/seaweedfs/security.toml:ro
     restart: unless-stopped
 
+  # --------------------------------------------------------------------------
+  # Infinity - 本地重排推理服务（ai 组，按需启动，与 Sentinel/Kibana 同纪律）
+  # Rerank API：http://localhost:7997/rerank（litisle-ai RAG 检索精排通道）
+  # 启动方式：docker compose --profile ai up -d litisle-infinity
+  # 说明：加载 BAAI/bge-reranker-v2-m3（cross-encoder，权重约 2GB）；
+  #       首次启动自动从 HuggingFace 下载并缓存到 infinity-data 卷（二次启动免下载），
+  #       国内网络下载慢/失败时启用下方 HF_ENDPOINT 镜像站环境变量；
+  #       应用侧配置 litisle.ai.rag.rerank.base-url 默认即 http://localhost:7997，
+  #       yml 中 rerank.enabled=true 前必须先启动本服务（否则重排调用失败自动降级向量排序）；
+  #       CPU 可跑（无 GPU 时每条候选十几 ms，topK×3 候选一次精排约 200ms）
+  # --------------------------------------------------------------------------
+  litisle-infinity:
+    image: michaelf34/infinity:latest
+    container_name: litisle-infinity
+    profiles:
+      - ai
+    networks:
+      - litisle-network
+    # 国内网络拉取 HuggingFace 模型慢/失败时，启用镜像站：
+    environment:
+      HF_ENDPOINT: https://hf-mirror.com
+    command: >
+      v2 --model-id BAAI/bge-reranker-v2-m3 --port 7997 --no-bettertransformer
+    ports:
+      - "7997:7997"   # Rerank API
+    volumes:
+      # 模型权重缓存（HF_HOME），持久化后二次启动不再重复下载
+      - infinity-data:/app/.cache
+    healthcheck:
+      # 镜像为 python slim 无 curl，用内置 python 探测 /health
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:7997/health', timeout=5)\" || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      # 首次启动含模型下载/加载，放宽探活起步时间
+      start_period: 300s
+    restart: unless-stopped
+
 # ============================================================================
 # 网络配置
 # ============================================================================
@@ -363,6 +401,7 @@ volumes:
   seaweed-data:
   prometheus-data:
   alertmanager-data:
+  infinity-data:
 
 
 # ============================================================================

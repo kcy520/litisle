@@ -87,6 +87,39 @@ public class AiRagProperties {
     /** 相似度下限（低于该分数的召回片段丢弃，防低质引用） */
     private double minScore = 0.6;
 
+    // ==================== 重排（4.2 增强：宽召回 + 精排，本地 Infinity 推理服务） ====================
+
+    /** 重排配置组（rerank.enabled=false 时保持纯向量排序旧口径，行为不变） */
+    private Rerank rerank = new Rerank();
+
+    /**
+     * 重排配置（cross-encoder 精排：向量宽召回后经 bge-reranker 逐条精排，取 TopK 回喂）
+     */
+    @Data
+    public static class Rerank {
+
+        /** 重排开关：false 时检索仅用向量排序（无重排 Bean 装配，调用方走降级分支） */
+        private boolean enabled = false;
+
+        /** Infinity 推理服务地址（本地部署，零外发；与 Ollama 同为本地通道口径） */
+        private String baseUrl = "http://localhost:7997";
+
+        /** 重排模型标识（bge-reranker-v2-m3，cross-encoder） */
+        private String model = "bge-reranker-v2-m3";
+
+        /** 重排 API 路径（Infinity 原生 /rerank；OpenAI 兼容网关部署时改 /v1/rerank） */
+        private String rerankPath = "/rerank";
+
+        /** 单次重排调用超时 */
+        private Duration timeout = Duration.ofSeconds(10);
+
+        /** 宽召回倍数（向量粗筛条数 = topK × 该倍数，供精排挑选） */
+        private int recallMultiplier = 3;
+
+        /** 重排分数下限（cross-encoder sigmoid 分数量纲与余弦不同，阈值须单独标定，默认宽松起步） */
+        private double minScore = 0.1;
+    }
+
     // ==================== 匿名问答配额（P5 定档） ====================
 
     /**

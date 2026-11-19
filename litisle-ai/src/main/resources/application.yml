@@ -226,6 +226,22 @@ litisle:
       # 检索口径（4.2：topK + 相似度阈值过滤）
       top-k: 5
       min-score: 0.6
+      # 重排（4.2 增强：宽召回 + cross-encoder 精排；enabled=false 保持纯向量排序旧口径）
+      rerank:
+        # 重排开关：true 才装配 Infinity 重排通道 Bean（需本地先起 Infinity 服务加载 bge-reranker-v2-m3）
+        enabled: false
+        # Infinity 推理服务地址（本地部署，零外发；与 Ollama 同为本地通道口径）
+        base-url: http://localhost:7997
+        # 重排模型标识（bge-reranker-v2-m3，cross-encoder）
+        model: bge-reranker-v2-m3
+        # 重排 API 路径（Infinity 原生 /rerank；OpenAI 兼容网关部署时改 /v1/rerank）
+        rerank-path: /rerank
+        # 单次重排调用超时
+        timeout: 10s
+        # 向量粗筛条数 = top-k × 该倍数，供精排挑选
+        recall-multiplier: 3
+        # 重排分数下限（cross-encoder sigmoid 分数量纲与余弦不同，阈值须按真实查询单独标定）
+        min-score: 0.1
       # 匿名问答日配额（P5：IP 哈希×日 Redis 计数，≤0 未定档不拦截）
       anon-qa-daily-limit: 10
       # 相似文章推荐（板块五 5.1/5.2：F8 纯检索形态，随 rag.enabled 总开关生效）

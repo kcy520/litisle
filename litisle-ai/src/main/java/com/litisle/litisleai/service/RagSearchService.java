@@ -4,6 +4,7 @@ import com.litisle.commoncore.result.Result;
 import com.litisle.litisleai.config.AiRagProperties;
 import com.litisle.litisleai.constant.AiContentConstant;
 import com.litisle.litisleai.provider.embedding.EmbeddingProvider;
+import com.litisle.litisleai.provider.rerank.RerankProvider;
 import com.litisle.litisleai.rag.ArticleChunkDoc;
 import com.litisle.litisleai.rag.ChunkIndexClient;
 import com.litisle.litisleai.rag.RagContext;
@@ -13,10 +14,12 @@ import com.litisle.litisleapi.dto.content.ContentDTO;
 import com.litisle.litisleapi.feign.ContentClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -32,6 +35,11 @@ import java.util.List;
  * <p>【降级铁律（Q54）】RAG 不可用（通道/ES/回查失败）降级为无引用回答并显著标注
  * 「未引用站内检索结果」——本类失败时返回 null，由调用方（知识库检索工具）返回占位说明，
  * 涉及事实性结论只答「暂无相关资料」，不混入模型自身知识冒充站内回答。</p>
+ *
+ * <p>【重排口径（4.2 增强：宽召回 + 精排）】rerank.enabled=true 时向量粗筛放宽到
+ * topK×recallMultiplier，经 RerankProvider（本地 Infinity + bge-reranker-v2-m3
+ * cross-encoder）逐条精排后按重排分数取 TopK；重排失败降级为向量原始序（重排是
+ * 增强不是强依赖，不中断检索）。enabled=false 时无重排 Bean，行为与纯向量旧口径一致。</p>
  *
  * <p>【引用回传】命中的有效引用写入 RagContext（终答组装时 drain 进响应 citations 字段）。</p>
  *
@@ -80,6 +88,9 @@ public class RagSearchService {
     /** 向量通道（查询向量化；AiRagConfig 装配，与本 Bean 同受 rag.enabled 开关控制，开关开启时必在） */
     private final EmbeddingProvider embeddingProvider;
 
+    /** 重排通道（宽召回+精排增强；rerank.enabled=false 时缺席，getIfAvailable() 取空保持纯向量排序） */
+    private final ObjectProvider<RerankProvider> rerankProvider;
+
     /** 切片索引客户端（knn 检索） */
     private final ChunkIndexClient chunkIndexClient;
 
@@ -113,9 +124,10 @@ knnSearch 返回的`ChunkHit` 每条就是 一个切片 。TopK 召回 + minScor
         /*
          * 业务逻辑步骤：
          * 1. 查询向量化（失败捕获转降级返回 null）；
-         * 2. knn TopK 召回 + 相似度阈值过滤（无有效命中返回 null 转降级）；
-         * 3. 逐条命中回查原文状态：失效引用剔除（仍记录失效卡片供前端标注），有效引用组装带溯源的 prompt 片段；
-         * 4. 拼接使用规则（只基于引用回答、无把握只答「暂无相关资料」）后返回。
+         * 2. knn 宽召回（重排开启时 topK×倍数）+ 余弦阈值粗筛（无有效命中返回 null 转降级）；
+         * 3. 重排精排取 TopK（rerank.enabled=false 或失败时保持向量原始序，降级口径）；
+         * 4. 逐条命中回查原文状态：失效引用剔除（仍记录失效卡片供前端标注），有效引用组装带溯源的 prompt 片段；
+         * 5. 拼接使用规则（只基于引用回答、无把握只答「暂无相关资料」）后返回。
          */
 
         // ① 查询向量化（失败捕获转降级，不中断会话）
@@ -126,21 +138,24 @@ knnSearch 返回的`ChunkHit` 每条就是 一个切片 。TopK 召回 + minScor
             log.warn("RAG 检索降级：查询向量化失败 queryChars={}", query == null ? 0 : query.length(), e);
             return null;
         }
-        // ② knn TopK 召回 + 相似度阈值过滤
+        // ② knn 召回：重排开启时宽召回（topK×倍数供精排挑选），否则按 topK 直取（纯向量旧口径）
         List<ChunkIndexClient.ChunkHit> hits;
         try {
-            hits = chunkIndexClient.knnSearch(queryVector, ragProperties.getTopK());
+            hits = chunkIndexClient.knnSearch(queryVector, rerankRecallCount());
         } catch (Exception e) {
             log.warn("RAG 检索降级：ES 检索失败", e);
             return null;
         }
+        // 向量粗筛：余弦分数低于门槛的丢弃（精排候选只从粗筛幸存者里挑）
         List<ChunkIndexClient.ChunkHit> qualified = hits.stream()
                 .filter(hit -> hit.score() >= ragProperties.getMinScore())
                 .toList();
         if (qualified.isEmpty()) {
-            log.info("RAG 检索无有效命中（阈值 {} 以上为空）topK={}", ragProperties.getMinScore(), ragProperties.getTopK());
+            log.info("RAG 检索无有效命中（阈值 {} 以上为空）recall={}", ragProperties.getMinScore(), rerankRecallCount());
             return null;
         }
+        // ③ 重排精排取 TopK（rerank.enabled=false 时原样返回；失败降级为向量原始序，不中断检索）
+        qualified = rerankHits(query, qualified);
         // ③ 引用回查（可见性 + 版本比对 Q75）+ 组装 prompt 片段 + 记录引用卡片
         List<String> passages = new ArrayList<>();
         int validCount = 0;
@@ -195,9 +210,10 @@ knnSearch 返回的`ChunkHit` 每条就是 一个切片 。TopK 召回 + minScor
         /*
          * 业务逻辑步骤：
          * 1. 查询向量化（失败捕获转降级返回 null）；
-         * 2. 单文 knn 召回（articleId filter 收窄范围）+ 相似度阈值过滤（无有效命中返回 null）；
-         * 3. 逐条命中回查原文状态：失效引用剔除（仍记录失效卡片），有效引用组装带溯源的单文片段；
-         * 4. 拼接单文使用规则（只基于该篇片段回答，超范围引导走全文问答入口）后返回。
+         * 2. 单文 knn 宽召回（articleId filter 收窄范围；重排开启时 topK×倍数）+ 余弦阈值粗筛；
+         * 3. 重排精排取 TopK（rerank.enabled=false 或失败时保持向量原始序，降级口径）；
+         * 4. 逐条命中回查原文状态：失效引用剔除（仍记录失效卡片），有效引用组装带溯源的单文片段；
+         * 5. 拼接单文使用规则（只基于该篇片段回答，超范围引导走全文问答入口）后返回。
          */
         // ① 查询向量化（失败捕获转降级，不中断会话）
         List<Float> queryVector;
@@ -208,14 +224,15 @@ knnSearch 返回的`ChunkHit` 每条就是 一个切片 。TopK 召回 + minScor
                     articleId, query == null ? 0 : query.length(), e);
             return null;
         }
-        // ② 单文 knn 召回（articleId filter 收窄范围）+ 阈值过滤
+        // ② 单文 knn 召回（articleId filter 收窄范围）：重排开启时宽召回，否则按 topK 直取
         List<ChunkIndexClient.ChunkHit> hits;
         try {
-            hits = chunkIndexClient.knnSearchByArticle(queryVector, articleId, ragProperties.getTopK());
+            hits = chunkIndexClient.knnSearchByArticle(queryVector, articleId, rerankRecallCount());
         } catch (Exception e) {
             log.warn("单文切片检索降级：ES 检索失败 articleId={}", articleId, e);
             return null;
         }
+        // 向量粗筛：余弦分数低于门槛的丢弃（精排候选只从粗筛幸存者里挑）
         List<ChunkIndexClient.ChunkHit> qualified = hits.stream()
                 .filter(hit -> hit.score() >= ragProperties.getMinScore())
                 .toList();
@@ -223,7 +240,9 @@ knnSearch 返回的`ChunkHit` 每条就是 一个切片 。TopK 召回 + minScor
             log.info("单文切片检索无有效命中 articleId={} minScore={}", articleId, ragProperties.getMinScore());
             return null;
         }
-        // ③ 引用回查（可见性 + 版本比对 Q75）+ 组装单文片段
+        // ③ 重排精排取 TopK（rerank.enabled=false 时原样返回；失败降级为向量原始序，不中断检索）
+        qualified = rerankHits(query, qualified);
+        // ④ 引用回查（可见性 + 版本比对 Q75）+ 组装单文片段
         List<String> passages = new ArrayList<>();
         int validCount = 0;
         for (ChunkIndexClient.ChunkHit hit : qualified) {
@@ -374,6 +393,64 @@ knnSearch 返回的`ChunkHit` 每条就是 一个切片 。TopK 召回 + minScor
         return result;
     }
 
+
+    /**
+     * 重排召回条数（宽召回口径：重排开启时 topK×倍数供精排挑选，否则按 topK 直取纯向量旧口径）
+     *
+     * @return 向量粗筛召回条数
+     */
+    private int rerankRecallCount() {
+        AiRagProperties.Rerank conf = ragProperties.getRerank();
+        // 重排开启且倍数 >1 才放宽召回；否则维持 topK 直取（行为与不开重排完全一致）
+        if (conf.isEnabled() && conf.getRecallMultiplier() > 1) {
+            return ragProperties.getTopK() * conf.getRecallMultiplier();
+        }
+        return ragProperties.getTopK();
+    }
+
+    /**
+     * 重排精排：候选逐条与查询算相关性，按重排分数降序取 TopK（通道缺席/失败降级向量原始序）
+     *
+     * @param query 用户查询
+     * @param hits  向量粗筛幸存候选（可能多于 topK）
+     * @return 精排后候选（重排分数 ≥ rerank.minScore，降序，截断 topK）；
+     *         通道缺席/失败/候选 ≤ topK 时返回向量原始序截断 topK
+     *
+     * <p>【通俗说明】"宽召回 + 精排"的精排步：把粗筛候选和问题一起送 cross-encoder
+     * 细算相关性（重排分数比余弦距离更能判断"是否真的回答了问题"）。
+     * 三重兜底：
+     * ① 重排 Bean 缺席（rerank.enabled=false）保持纯向量排序；② 重排调用失败降级为
+     * 向量原始序——重排是增强不是强依赖，不中断检索；③ 候选截断回 topK，保证回喂
+     * 模型的引用规模与不开重排时一致（token 上界不放大）。</p>
+     */
+    private List<ChunkIndexClient.ChunkHit> rerankHits(String query, List<ChunkIndexClient.ChunkHit> hits) {
+        RerankProvider provider = rerankProvider.getIfAvailable();
+        // 重排 Bean 缺席（rerank.enabled=false）或候选不多（无需精排挑选）：向量原始序截断 topK
+        if (provider == null || hits.size() <= ragProperties.getTopK()) {
+            return hits.size() > ragProperties.getTopK()
+                    ? hits.subList(0, ragProperties.getTopK()) : hits;
+        }
+        try {
+            // 批量送精排：候选正文顺序即向量原始序，返回的 index 映射回 ChunkHit
+            List<String> documents = hits.stream().map(hit -> hit.doc().getChunkText()).toList();
+            AiRagProperties.Rerank conf = ragProperties.getRerank();
+            List<ChunkIndexClient.ChunkHit> reranked = provider.rerank(query, documents).stream()
+                    // 下标越界兜底：防通道返回脏 index 把排序带偏
+                    .filter(r -> r.index() >= 0 && r.index() < hits.size())
+                    // 重排分数低于门槛的丢弃（cross-encoder 分数量纲与余弦不同，阈值独立配置）
+                    .filter(r -> r.score() >= conf.getMinScore())
+                    .sorted(Comparator.comparingDouble(RerankProvider.RerankResult::score).reversed())
+                    .limit(ragProperties.getTopK())
+                    .map(r -> hits.get(r.index()))
+                    .toList();
+            log.info("重排精排完成 candidates={} kept={} rerankMinScore={}", hits.size(), reranked.size(), conf.getMinScore());
+            return reranked;
+        } catch (Exception e) {
+            // 重排失败降级为向量原始序（Q54 口径：重排是增强不是强依赖，不中断检索）
+            log.warn("重排失败，降级为向量原始序 candidates={}", hits.size(), e);
+            return hits.subList(0, ragProperties.getTopK());
+        }
+    }
 
     /**
      * 相似推荐逐篇回查（与 verifyChunk 同口径，回查数据源换为 getArticleIndexDoc 一次取齐作者昵称）
