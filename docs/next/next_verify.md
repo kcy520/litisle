@@ -202,6 +202,22 @@
 
 -------------------------
 
+#### auth 模块（板块一：Refresh Token 防盗用加固）
+
+> 板块划分依据：Auth-Architecture.md；来源：next_update.md litisle-auth 板块一（1.1/1.2/1.3 于 2026-11-19 落地，多端并发刷新与盗用模拟需实测定论，故迁入本文件）。
+> 前置环境：auth + user + gateway + Redis（6380 db0）启动；准备两个可登录测试账号。
+
+##### 板块一 验证项（多端并发刷新与盗用模拟）
+
+- [ ] 【必须】三段判断刷新主链路：密码登录取得双 Token → 用 refreshToken 调 `POST /api/auth/refresh` → 断言返回新 accessToken/refreshToken 且 deviceId/familyId 不变（Redis `auth:refresh:used:{旧票}` 出现、`auth:refresh:{旧票}` 消失）；再用**旧 refreshToken** 重放同一请求 → 断言返回 TOKEN_INVALID、日志出现「审计告警｜Refresh Token 重放命中」、该用户全部设备会话被踢（`/api/auth/me` 用旧 accessToken 返回未登录）。
+- [ ] 【必须】多端并发刷新（盗用模拟核心）：同一 refreshToken 两端（或脚本并发）同时发起刷新 → 断言仅一端成功签发、另一端返回 TOKEN_INVALID（日志出现「并发轮换冲突」），Redis 中不存在双份同族有效票；随后用旧票重放 → 命中墓碑触发全族吊销。
+- [ ] 【必须】多设备独立族：A/B 两端分别登录（各持 deviceId）→ A 端正常登出 → 断言 B 端 accessToken 仍可用、B 端 refreshToken 仍可正常刷新（误伤半径限单端）。
+- [ ] 【必须】设备指纹绑定：登录后篡改请求头 User-Agent（或 Accept-Language）再刷新 → 断言返回 TOKEN_INVALID、日志出现「审计告警｜Refresh 设备指纹不一致」、该族（单端）Refresh 与设备会话被吊销、另一设备会话不受影响；恢复正常头部重新登录走通（自然换设备流程）。
+- [ ] 【建议】吊销闭环回归：管理员封禁/强制下线（user 侧触发 forceLogout）→ 断言全部设备的 `auth:refresh:{token}`/`auth:refresh:user:{userId}:{deviceId}` 键清理且全部旧票留下墓碑；封禁后重放任一旧票 → 命中墓碑触发告警（不再静默 TOKEN_INVALID）。
+- [ ] 【建议】存量兼容：升级窗口期用旧格式票（纯 userId 载荷）刷新 → 断言轮换成功且新票为 JSON 载荷（familyId/deviceId/fingerprint 补齐），不因格式变更导致存量用户批量掉线。
+
+-------------------------
+
 #### 跨模块验证数据清理（批次十七）
 
 > 板块划分依据：批次十七（分布式锁工具与消息中间件凭证收尾）；本节收纳验证过程中产生的残留数据清理，横跨 litisle_review / litisle_content / litisle_file 三库，需动库窗口并经用户确认后执行。

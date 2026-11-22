@@ -69,4 +69,9 @@ public class HeaderConstant {
     public static final String X_REAL_IP = "X-Real-IP";
 
     public static final String USER_AGENT = "User-Agent";
+
+    /**
+     * 客户端语言偏好头（与 User-Agent 组合参与设备指纹计算）
+     */
+    public static final String ACCEPT_LANGUAGE = "Accept-Language";
 }

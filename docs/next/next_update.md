@@ -271,17 +271,23 @@
 
 ##### 板块一：Refresh Token 防盗用加固（双 Token 纵深防御）
 
+> **1.1/1.2/1.3 已全部完成**（2026-11-19 落地，运行态验证项已迁 [next\_verify.md](next_verify.md) auth 模块节）：
+> ✅ **1.1 重放检测（墓碑 + 三段判断刷新）**——`refreshTsuccessen` 升级三段判断：① 查墓碑 `auth:refresh:used:{token}`（TTL 与 Refresh 同周期）命中 = 已轮换票被重放 = 盗用 → `log.error` 审计告警（token 脱敏）+ 吊销该用户全部族 + 拒绝；② 查有效 key 未命中 → TOKEN_INVALID；③ 通过后 DEL 原子认领（仅唯一成功端签发，防并发双签发）→ 写墓碑 → 指纹比对 → 同族轮换签发。铁律落地：墓碑先查后写防并发窗口；吊销动作同时覆盖 Access 会话、Refresh 正反向 key 与墓碑记录
+> ✅ **1.2 令牌族 familyId 与全族吊销**——登录每设备生成独立 familyId 随 Refresh JSON 载荷（新增 `RefreshTokenPayload`：userId/familyId/deviceId/fingerprint）存储；反向 key 从 per-user（USER_REFRESH+userId）改为 **userId:deviceId 维度**实现多设备独立族；重放命中/封禁/强制下线经 `forceLogout → revokeAllFamilies` 全族吊销（Access 会话 + Refresh 正反向 key + 墓碑记录全覆盖）；logout 按当前 deviceId 仅吊销单端族（请求头缺失保守全吊）；改密码等未来高危链路落地时复用 forceLogout 即获全族吊销能力。涉及：AuthServiceImpl / AuthCacheKey#REFRESH_USED / DeviceSessionService（registerDevice 增加 expectedDeviceId 参数保证轮换族内设备连续）
+> ✅ **1.3 Refresh 绑定设备指纹**——登录时提取 UA+Accept-Language 的 SHA-256 指纹（新增 `DeviceFingerprintUtil`）随 Refresh 存储；刷新时在轮换动作前比对，不一致 → 审计告警 + 吊销该族（限单端）+ 拒绝——不依赖用户在线即可检测盗用（堵离线独用空窗）；历史纯 userId 载荷降级兼容（轮换时补齐新字段，升级窗口期存量票不失效）。涉及：AuthServiceImpl / DeviceFingerprintUtil / RefreshTokenPayload
+> 兼容性说明：升级窗口期旧格式 `auth:refresh:user:{userId}` 键与旧载荷随 TTL（≤7d）自然过期，无需清理。
+
 ###### 1.1 重放检测：墓碑记录 + 三段判断刷新
 
-- [ ] 刷新逻辑升级为三段判断：查有效 key（AuthCacheKey.REFRESH_TOKEN 前缀）命中 → 正常轮换（删有效 key、写墓碑、签发新对）；查墓碑 key（新增 AuthCacheKey.REFRESH_USED 前缀，TTL 与 Refresh 同周期）命中 → 判定已轮换票被重放 = 盗用 → 吊销该用户全部会话（复用 forceLogout 链路）+ 审计告警；均未命中 → 拒绝。涉及：AuthServiceImpl#refreshTsuccessen / AuthCacheKey / SaTokenEventListener；铁律：墓碑先查后写防并发窗口，吊销动作必须同时覆盖 Access 会话、Refresh 正反向两条 key 与墓碑记录；若 1.3 已落地，指纹比对在有效 key 命中后、轮换动作前执行（对不上直接拒绝 + 吊销该族）
+- [x] 刷新逻辑升级为三段判断：查有效 key（AuthCacheKey.REFRESH_TOKEN 前缀）命中 → 正常轮换（删有效 key、写墓碑、签发新对）；查墓碑 key（新增 AuthCacheKey.REFRESH_USED 前缀，TTL 与 Refresh 同周期）命中 → 判定已轮换票被重放 = 盗用 → 吊销该用户全部会话（复用 forceLogout 链路）+ 审计告警；均未命中 → 拒绝。涉及：AuthServiceImpl#refreshTsuccessen / AuthCacheKey / SaTokenEventListener；铁律：墓碑先查后写防并发窗口，吊销动作必须同时覆盖 Access 会话、Refresh 正反向两条 key 与墓碑记录；若 1.3 已落地，指纹比对在有效 key 命中后、轮换动作前执行（对不上直接拒绝 + 吊销该族） ✅ 2026-11-19
 
 ###### 1.2 令牌族 familyId 与全族吊销（依赖 1.1）
 
-- [ ] 登录签发生成 familyId 随 Refresh 存储（多设备各成一族互不干扰）；重放命中（1.1 ②）/ 改密码 / 封禁 / 登出按族吊销该用户全部 Refresh 与会话（正向、反向、墓碑记录一并清理）；存储维度从 per-user（USER_REFRESH + userId）改为 userId + deviceId 维度实现多设备独立族——每设备独立 familyId 独立轮换，误伤半径限制单端。涉及：AuthServiceImpl / AuthCacheKey / DeviceSessionService
+- [x] 登录签发生成 familyId 随 Refresh 存储（多设备各成一族互不干扰）；重放命中（1.1 ②）/ 改密码 / 封禁 / 登出按族吊销该用户全部 Refresh 与会话（正向、反向、墓碑记录一并清理）；存储维度从 per-user（USER_REFRESH + userId）改为 userId + deviceId 维度实现多设备独立族——每设备独立 familyId 独立轮换，误伤半径限制单端。涉及：AuthServiceImpl / AuthCacheKey / DeviceSessionService ✅ 2026-11-19（改密码链路尚未落地，落地时复用 forceLogout 即获全族吊销能力）
 
 ###### 1.3 Refresh 绑定设备指纹（可与 1.1 并行）
 
-- [ ] 登录时提取设备指纹（UA + Accept-Language 哈希即可，不必复杂）随 Refresh 存储；刷新时比对指纹，不一致 → 拒绝刷新 + 吊销该族——不依赖用户在线即可检测盗用（堵离线独用空窗）；指纹不一致但密码校验通过 → 走重新登录（自然换设备流程，零额外开发）。涉及：AuthServiceImpl / AuthCacheKey
+- [x] 登录时提取设备指纹（UA + Accept-Language 哈希即可，不必复杂）随 Refresh 存储；刷新时比对指纹，不一致 → 拒绝刷新 + 吊销该族——不依赖用户在线即可检测盗用（堵离线独用空窗）；指纹不一致但密码校验通过 → 走重新登录（自然换设备流程，零额外开发）。涉及：AuthServiceImpl / AuthCacheKey ✅ 2026-11-19
 
 ###### 1.4 敏感操作二次校验（损失封顶，可选）
 

@@ -33,7 +33,7 @@
 | 注册 | A1 空内容校验 → A2 DFA 同步闸门 → A3 拒绝取证/放行（时序铁律，经 UserClient.createUser） |
 | 密码登录 | findByAccount 三路 HMAC 匹配 → BCrypt → 状态检查 → Sa-Token 会话 + RefreshToken + 设备 Hash 登记 |
 | 邮箱验证码登录 | `/login/sms`（历史命名）EmailCodeUsage.LOGIN 校验 → findByEmail → 会话 |
-| Token 管理 | Sa-Token JWT（timeout 1d）；Refresh Token 存 Redis 7 天，刷新轮换、可吊销 |
+| Token 管理 | Sa-Token JWT（timeout 1d）；Refresh Token 存 Redis 7 天，三段判断轮换（墓碑防重放）、设备指纹绑定、令牌族可全族吊销 |
 | 验证码 | 图形码 120×40/TTL 180s；邮箱码 6 位/TTL 300s 按用途前缀隔离；连续失败≤3 |
 | 设备会话 | Redis Hash（设备/ip/登录/活跃时间），单设备踢下线（禁踢当前设备） |
 | 处罚联动 | 消费 punish.result：封禁→全设备 forceLogout + 快照回写；单消费者串行防乱序 |
@@ -42,7 +42,7 @@
 ### 2.2 常量与缓存键
 
 - `RateLimitConstant`：窗口 10s 按 IP——注册/登录 10、图形码获取 10、邮箱码发送 5、校验 30
-- `AuthCacheKey`：`auth:refresh:` / `auth:refresh:user:` / `auth:device:` / `auth:user:devices:` / `auth:punish:snapshot:`（TTL 300s ±10% 抖动）
+- `AuthCacheKey`：`auth:refresh:` / `auth:refresh:used:`（重放墓碑，TTL 与 Refresh 同周期）/ `auth:refresh:user:`（userId:deviceId 维度）/ `auth:device:` / `auth:user:devices:` / `auth:punish:snapshot:`（TTL 300s ±10% 抖动）
 - `EmailCodeUsage`：reg / login / bind / reset / cancel——验证码键前缀按用途隔离
 - `MailConstant`：邮件统一签名 + 免责声明
 
@@ -51,6 +51,10 @@
 **注册（A1→A2→A3 时序铁律）**：A1 空内容校验最先执行 → A2 DfaFacade 命中抛 SENSITIVE_WORD_DETECTED → A3 拒绝时 UsernameRejectRecordAdapter 落 review 取证行（不建 review_task、不带用户名明文，取证失败仅留痕不影响拦截结论）；放行走 createUser。
 
 **密码登录**：三路匹配 → BCrypt → 状态检查（USER_LOGGED_OFF / USER_FROZEN 附解封时间）→ 会话 + RefreshToken + 设备登记。
+
+**刷新令牌（三段判断 + 墓碑防重放 + 指纹比对，2026-11-19 落地）**：① 查墓碑（auth:refresh:used:{token}）命中 = 已轮换票被重放 = 盗用 → 审计告警 + 吊销该用户全部令牌族（复用 forceLogout 链路）+ 拒绝；② 查有效 key（auth:refresh:{token}，JSON 载荷 userId/familyId/deviceId/fingerprint）未命中 → 拒绝；③ 均通过 → 原子认领（DEL 唯一成功端签发，防并发双签发）→ 写墓碑（TTL 与 Refresh 同周期）→ 设备指纹比对（UA+Accept-Language SHA-256，不一致吊销该族 + 拒绝）→ 同族轮换签发（familyId/deviceId 沿用）。铁律：墓碑先查后写防并发窗口；吊销同时覆盖 Access 会话与 Refresh 正反向两条 key。
+
+**令牌族（familyId）**：登录每设备签发独立 familyId（userId + deviceId 维度反向 key）；重放命中 / 封禁 / 强制下线按族吊销该用户全部 Refresh 与会话（误伤半径多端隔离，单端指纹异常仅吊销单端）；改密码等未来高危链路落地时复用 forceLogout 即获得全族吊销能力。
 
 **处罚消费**：单消费者串行 + Jackson JSON（防毒丸）→ 封禁全设备踢下线 + 快照回写 → 重试指数退避（base 30s）耗尽入 DLQ 由双向对账兑底。
 
@@ -89,8 +93,9 @@
 
 | 键模式 | 值结构 | 说明 |
 | --- | --- | --- |
-| auth:refresh:{token} | userId | Refresh Token（TTL 7d，刷新轮换） |
-| auth:refresh:user:{userId} | token 集合 | 用户维度索引（登出/吊销遍历） |
+| auth:refresh:{token} | JSON | Refresh Token 载荷 {userId, familyId, deviceId, fingerprint}（TTL 7d，三段判断轮换） |
+| auth:refresh:used:{token} | String(userId) | 重放墓碑（TTL 与 Refresh 同周期；命中 = 已轮换票被重放 = 盗用） |
+| auth:refresh:user:{userId}:{deviceId} | token | 用户+设备维度反向索引（多设备独立族；登出/按族吊销定位） |
 | auth:device:{token} | Hash | 单会话设备信息（device/ip/loginTime/lastActiveTime） |
 | auth:user:devices:{userId} | Hash/Set | 用户设备索引（全设备踢下线） |
 | auth:punish:snapshot:{userId} | JSON | 处罚快照（TTL 300s ±10% 抖动） |
@@ -133,7 +138,7 @@
 ## 七、安全与可靠性
 
 1. **匿名防爆破**：按 IP 限流（@RateLimiter + IpUtil）覆盖注册/登录/验证码全链路；验证码连续失败计数封顶
-2. **Token 双轨**：短效 JWT 网关校验 + Refresh Token 存 Redis 可吊销，登出/踢设备即时失效
+2. **Token 双轨 + 防盗用纵深**：短效 JWT 网关校验 + Refresh Token 存 Redis 可吊销；刷新三段判断（墓碑防重放 + 原子认领防并发双签发）+ 设备指纹绑定 + familyId 令牌族全族吊销（重放/封禁全端下线，指纹异常限单端）
 3. **处罚联动 fail-fast**：checkSpeak/forceLogout/快照刷新禁止静默降级；快照缺失保守处理宁严勿松
 4. **单消费者串行**：处罚事件防乱序覆盖；显式 Jackson 转换器禁 Java 原生反序列化防毒丸
 5. **DFA 词库 fail-fast**：空词库拒绝启动（防 default-allow 放行）；广播热更 version 乐观比对防乱序/重复

@@ -465,9 +465,12 @@ public class AuthServiceImpl implements AuthService {
      * @param deviceId 设备 ID（族内维度）
      */
     private void revokeFamily(Long userId, String deviceId) {
-        // 1. 删除 Refresh 正向 key（auth:refresh:{token}）与反向 key（auth:refresh:user:{userId}:{deviceId}）
+        // 1. 读取该设备族 Refresh Token：写墓碑 + 删正反向 key（吊销动作覆盖 Access 会话、Refresh 正反向 key 与墓碑记录）
         String refreshToken = redisUtil.get(userRefreshKey(userId, deviceId));
         if (refreshToken != null) {
+            // 墓碑：吊销后的旧票再被重放必命中刷新第一段（盗用检测闭环，TTL 与 Refresh 同周期）
+            redisUtil.set(AuthCacheKey.REFRESH_USED + refreshToken, String.valueOf(userId),
+                    authProperties.getRefreshTokenExpire(), TimeUnit.SECONDS);
             redisUtil.delete(AuthCacheKey.REFRESH_TOKEN + refreshToken);
             redisUtil.delete(userRefreshKey(userId, deviceId));
         }
@@ -505,10 +508,13 @@ public class AuthServiceImpl implements AuthService {
         // 1. 读取全部在线设备 ID（设备索引为空的脏场景由 kickAllDevices 兜底注销全部 Sa-Token 会话）
         Set<String> deviceIds = redisUtil.sMembers(AuthCacheKey.USER_DEVICES + userId);
 
-        // 2. 逐设备吊销 Refresh 正反向 key（吊销动作同时覆盖 Access 会话与 Refresh 两条 key）
+        // 2. 逐设备吊销 Refresh 正反向 key + 写墓碑（吊销动作同时覆盖 Access 会话、Refresh 两条 key 与墓碑记录）
         for (String deviceId : deviceIds) {
             String refreshToken = redisUtil.get(userRefreshKey(userId, deviceId));
             if (refreshToken != null) {
+                // 墓碑：吊销后的旧票再被重放必命中刷新第一段（盗用检测闭环）
+                redisUtil.set(AuthCacheKey.REFRESH_USED + refreshToken, String.valueOf(userId),
+                        authProperties.getRefreshTokenExpire(), TimeUnit.SECONDS);
                 redisUtil.delete(AuthCacheKey.REFRESH_TOKEN + refreshToken);
                 redisUtil.delete(userRefreshKey(userId, deviceId));
             }

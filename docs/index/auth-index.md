@@ -41,7 +41,7 @@ utils/            CaptchaCodeUtil / IpUtil
 
 - `CaptchaConstant`：图形码 120×40/4 位/5 干扰线；邮箱验证码 6 位
 
-- `AuthCacheKey`：`auth:refresh:` / `auth:refresh:user:` / `auth:device:` / `auth:user:devices:` / `auth:punish:snapshot:`（快照 TTL 300s ±10% 抖动）
+- `AuthCacheKey`：`auth:refresh:`（JSON 载荷） / `auth:refresh:used:`（重放墓碑） / `auth:refresh:user:`（userId:deviceId 维度） / `auth:device:` / `auth:user:devices:` / `auth:punish:snapshot:`（快照 TTL 300s ±10% 抖动）
 
 - `EmailCodeUsage`：`REGISTER("reg")` / `LOGIN("login")` / `CHANGE_EMAIL("bind")` / `RESET_PASSWORD("reset")` / `CANCEL_ACCOUNT("cancel")`——验证码 Redis 键前缀，按用途隔离
 
@@ -72,7 +72,7 @@ utils/            CaptchaCodeUtil / IpUtil
 
 ## 六、Service 能力
 
-- `AuthService`：register（A1 空内容校验→A2 DFA 同步闸门→A3 拒绝取证/放行，时序铁律）/ login / loginByEmail / logout / refresh / currentLoginUser
+- `AuthService`：register（A1 空内容校验→A2 DFA 同步闸门→A3 拒绝取证/放行，时序铁律）/ login / loginByEmail / logout（按族吊销）/ refresh（三段判断：墓碑防重放 + 原子认领 + 指纹比对）/ forceLogout（全族吊销）/ currentLoginUser
 - `CaptchaService`：图形码生成/校验 + 邮箱验证码发送/校验（EmailCodeUsage 前缀按用途隔离）
 - `DeviceSessionService`：设备会话 Hash（字段：userId/tokenValue/deviceName/ip/loginTime/lastActiveTime，见 AuthCacheKey.DeviceHashField）
 - `PunishSnapshotService`：处罚快照读写（TTL 300s ±10% 抖动防雪崩）
@@ -103,7 +103,7 @@ utils/            CaptchaCodeUtil / IpUtil
 ## 十、安全闸口
 
 - 匿名接口按 IP 限流（@RateLimiter + IpUtil），登录/注册防爆破；验证码校验连续失败计数封顶
-- Token：Sa-Token JWT 网关校验；Refresh Token 存 Redis（auth:refresh:）可吊销，设备维度踢下线
+- Token：Sa-Token JWT 网关校验；Refresh Token 存 Redis（JSON 载荷：familyId/deviceId/指纹）可吊销，三段判断轮换防重放（墓碑 + 原子认领），设备指纹绑定，令牌族全族吊销
 - 处罚联动 fail-fast：checkSpeak/forceLogout/快照刷新禁止静默降级；快照缺失保守处理宁严勿松
 - DFA 注册闸门：拦截结论与取证解耦（宁严勿松）
 

@@ -1,5 +1,6 @@
 package com.litisle.litisleauth.utils;
 
+import com.litisle.commoncore.constant.HeaderConstant;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.nio.charset.StandardCharsets;
@@ -30,8 +31,8 @@ public final class DeviceFingerprintUtil {
      */
     public static String fingerprint(HttpServletRequest request) {
         // 1. 头缺失按空串参与拼接：同一客户端头部组合稳定，指纹即稳定
-        String userAgent = orEmpty(request.getHeader("User-Agent"));
-        String language = orEmpty(request.getHeader("Accept-Language"));
+        String userAgent = orEmpty(request.getHeader(HeaderConstant.USER_AGENT));
+        String language = orEmpty(request.getHeader(HeaderConstant.ACCEPT_LANGUAGE));
         String raw = userAgent + "|" + language;
 
         // 2. SHA-256 摘要（JDK 必含该算法，缺失视为环境异常直接抛出）

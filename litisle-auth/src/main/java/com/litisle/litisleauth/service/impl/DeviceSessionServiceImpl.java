@@ -168,7 +168,7 @@ public class DeviceSessionServiceImpl implements DeviceSessionService {
         redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.USER_ID, String.valueOf(userId));
         redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.TOKEN_VALUE, tokenValue);
         redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.DEVICE_NAME,
-                resolveDeviceName(request.getHeader("User-Agent")));
+                resolveDeviceName(request.getHeader(HeaderConstant.USER_AGENT)));
         redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.IP, resolveIp());
         redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.LOGIN_TIME, now);
         redisUtil.hSet(deviceKey, AuthCacheKey.DeviceHashField.LAST_ACTIVE_TIME, now);
